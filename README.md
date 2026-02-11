@@ -5,7 +5,7 @@ Minimal Codex-first canvas adapter.
 Tabula is not a workflow orchestrator. Codex remains the master process.
 Tabula provides:
 
-- framed stdio MCP server (`tabula-canvas`) for canvas tools
+- stdio MCP server (`tabula-canvas`) for canvas tools (framed + JSONL compatible)
 - optional local canvas window runtime
 - project bootstrap (`AGENTS.md` + MCP snippet + artifact folders)
 
@@ -48,7 +48,7 @@ Merge that snippet into `~/.codex/config.toml`.
 - `canvas_history`
 
 Canvas state is MCP-first and in-memory; no filesystem event log is required.
-UX scope for this MVP is only `prompt` and `discussion` canvas modes.
+UX scope for this MVP is only `prompt` and `review` canvas modes.
 
 ## Tests
 
@@ -61,5 +61,3 @@ Optional real interactive Codex E2E (tmux terminal session, no `codex exec`):
 ```bash
 TABULA_RUN_REAL_CODEX_INTERACTIVE=1 PYTHONPATH=src python -m pytest tests/integration/test_codex_interactive_loop.py -q
 ```
-
-Note: current test is skipped when the installed Codex CLI cannot start framed-only MCP servers within startup timeout.

@@ -9,7 +9,7 @@ from tabula.events import ClearCanvasEvent, TextArtifactEvent
 from tabula.window import CanvasWindow
 
 
-def test_window_mode_switches_prompt_discussion_prompt() -> None:
+def test_window_mode_switches_prompt_review_prompt() -> None:
     app = QApplication.instance() or QApplication([])
     window = CanvasWindow(poll_interval_ms=10_000)
 
@@ -24,7 +24,7 @@ def test_window_mode_switches_prompt_discussion_prompt() -> None:
             text="hello",
         )
     )
-    assert "discussion" in window.mode_label.text()
+    assert "review" in window.mode_label.text()
 
     window.apply_event(
         ClearCanvasEvent(
@@ -53,5 +53,5 @@ def test_window_poll_once_uses_internal_queues() -> None:
     window._errors.put("line 2: invalid JSON")
     window.poll_once()
 
-    assert "discussion" in window.mode_label.text()
+    assert "review" in window.mode_label.text()
     assert "line 2: invalid JSON" in window.status_label.text()

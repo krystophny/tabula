@@ -106,6 +106,9 @@ class CanvasAdapter:
     def canvas_activate(self, *, session_id: str, mode_hint: str | None = None) -> dict[str, object]:
         if not session_id.strip():
             raise ValueError("session_id must be non-empty")
+        # Backward-compatibility mapping for older clients.
+        if mode_hint == "discussion":
+            mode_hint = "review"
         record = self._ensure_session(session_id)
         record.activated = True
         self._ensure_canvas_process()

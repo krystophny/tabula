@@ -15,11 +15,12 @@ def test_given_headless_adapter_when_activate_then_status_reports_prompt_and_hea
 
     assert activation["active"] is True
     assert activation["headless"] is True
+    assert activation["mode_hint"] == "review"
     assert status["mode"] == "prompt"
     assert status["headless"] is True
 
 
-def test_given_text_then_clear_when_rendering_then_mode_discussion_then_prompt_and_history_updates(tmp_path: Path) -> None:
+def test_given_text_then_clear_when_rendering_then_mode_review_then_prompt_and_history_updates(tmp_path: Path) -> None:
     adapter = CanvasAdapter(project_dir=tmp_path, headless=True, start_canvas=False)
 
     text = adapter.canvas_render_text(session_id="s1", title="draft", markdown_or_text="hello")
@@ -27,7 +28,7 @@ def test_given_text_then_clear_when_rendering_then_mode_discussion_then_prompt_a
     history = adapter.canvas_history(session_id="s1", limit=10)
 
     assert text["kind"] == "text_artifact"
-    assert text["mode"] == "discussion"
+    assert text["mode"] == "review"
     assert clear["cleared"] is True
     assert clear["mode"] == "prompt"
     assert [row["kind"] for row in history["events"]] == ["text_artifact", "clear_canvas"]
@@ -49,7 +50,7 @@ def test_given_image_and_pdf_when_rendered_then_status_and_history_are_consisten
     assert img_result["kind"] == "image_artifact"
     assert pdf_result["kind"] == "pdf_artifact"
     assert pdf_result["page"] == 0
-    assert status["mode"] == "discussion"
+    assert status["mode"] == "review"
     assert status["active_kind"] == "pdf_artifact"
     assert [row["kind"] for row in history["events"]] == ["image_artifact", "pdf_artifact"]
 

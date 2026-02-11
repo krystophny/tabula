@@ -75,7 +75,7 @@ def test_tools_call_render_text_updates_state_and_history(tmp_path) -> None:
             "params": {"name": "canvas_status", "arguments": {"session_id": "s1"}},
         },
     )
-    assert status["result"]["structuredContent"]["mode"] == "discussion"
+    assert status["result"]["structuredContent"]["mode"] == "review"
 
     history = _call(
         server,
@@ -121,7 +121,7 @@ def test_resources_list_and_read_surface_session_state(tmp_path) -> None:
             "params": {"uri": "tabula://session/s1"},
         },
     )
-    assert "discussion" in status_read["result"]["contents"][0]["text"]
+    assert "review" in status_read["result"]["contents"][0]["text"]
 
 
 def test_tools_call_unknown_tool_returns_error_payload(tmp_path) -> None:

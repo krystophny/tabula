@@ -45,7 +45,7 @@ from tabula.state import CanvasState, reduce_state
         ),
     ],
 )
-def test_given_prompt_mode_when_artifact_event_arrives_then_mode_switches_to_discussion(
+def test_given_prompt_mode_when_artifact_event_arrives_then_mode_switches_to_review(
     tmp_path: Path, payload: dict[str, object], expected_kind: str
 ) -> None:
     if payload["kind"] == "image_artifact":
@@ -58,12 +58,12 @@ def test_given_prompt_mode_when_artifact_event_arrives_then_mode_switches_to_dis
     next_state = reduce_state(CanvasState(mode="prompt", active_event=None), event)
 
     assert event.kind == expected_kind
-    assert next_state.mode == "discussion"
+    assert next_state.mode == "review"
     assert next_state.active_event == event
 
 
-def test_given_discussion_mode_when_clear_canvas_arrives_then_mode_switches_back_to_prompt() -> None:
-    current = CanvasState(mode="discussion", active_event=None)
+def test_given_review_mode_when_clear_canvas_arrives_then_mode_switches_back_to_prompt() -> None:
+    current = CanvasState(mode="review", active_event=None)
     clear = ClearCanvasEvent(
         event_id="clear-1",
         ts="2026-02-11T12:00:03Z",

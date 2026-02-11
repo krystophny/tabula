@@ -22,10 +22,20 @@ class RpcError(Exception):
         super().__init__(message)
 
 
-def _read_framed_message(stream: BinaryIO) -> dict[str, Any] | None:
+def _read_message_with_mode(stream: BinaryIO) -> tuple[dict[str, Any] | None, str]:
     first_line = stream.readline()
     if not first_line:
-        return None
+        return None, "framed"
+
+    stripped = first_line.lstrip()
+    if stripped.startswith(b"{"):
+        try:
+            payload = json.loads(first_line.decode("utf-8"))
+        except json.JSONDecodeError as exc:  # pragma: no cover
+            raise RpcError(-32700, f"invalid json: {exc.msg}") from exc
+        if not isinstance(payload, dict):
+            raise RpcError(-32600, "request must be an object")
+        return payload, "jsonl"
 
     headers: dict[str, str] = {}
     line = first_line
@@ -58,18 +68,22 @@ def _read_framed_message(stream: BinaryIO) -> dict[str, Any] | None:
 
     if not isinstance(payload, dict):
         raise RpcError(-32600, "request must be an object")
-    return payload
+    return payload, "framed"
 
 
 def read_message(stream: BinaryIO) -> dict[str, Any] | None:
-    return _read_framed_message(stream)
+    payload, _mode = _read_message_with_mode(stream)
+    return payload
 
 
-def write_message(stream: BinaryIO, payload: dict[str, Any]) -> None:
+def write_message(stream: BinaryIO, payload: dict[str, Any], *, framed: bool = True) -> None:
     encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
-    header = f"Content-Length: {len(encoded)}\r\n\r\n".encode("utf-8")
-    stream.write(header)
-    stream.write(encoded)
+    if framed:
+        header = f"Content-Length: {len(encoded)}\r\n\r\n".encode("utf-8")
+        stream.write(header)
+        stream.write(encoded)
+    else:
+        stream.write(encoded + b"\n")
     if hasattr(stream, "flush"):
         stream.flush()
 
@@ -91,7 +105,7 @@ def _tool_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "canvas_render_text",
-            "description": "Render text/markdown artifact to canvas and switch mode to discussion.",
+            "description": "Render text/markdown artifact to canvas and switch mode to review.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -204,14 +218,18 @@ class TabulaMcpServer:
         self.adapter = adapter
         self.input_stream = input_stream or sys.stdin.buffer
         self.output_stream = output_stream or sys.stdout.buffer
+        self._wire_mode: str | None = None
 
     def _write(self, payload: dict[str, Any]) -> None:
-        write_message(self.output_stream, payload)
+        mode = self._wire_mode or "framed"
+        write_message(self.output_stream, payload, framed=(mode == "framed"))
 
     def run_forever(self) -> int:
         while True:
             try:
-                message = read_message(self.input_stream)
+                message, wire_mode = _read_message_with_mode(self.input_stream)
+                if self._wire_mode is None:
+                    self._wire_mode = wire_mode
             except RpcError as exc:
                 self._write(
                     {

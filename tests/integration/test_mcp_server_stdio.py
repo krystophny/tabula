@@ -96,7 +96,7 @@ def test_mcp_server_stdio_roundtrip_updates_canvas_state(tmp_path: Path) -> None
         )
         status_response = _read_message(proc.stdout)
         assert status_response["result"]["isError"] is False
-        assert status_response["result"]["structuredContent"]["mode"] == "discussion"
+        assert status_response["result"]["structuredContent"]["mode"] == "review"
 
         _write_message(
             proc.stdin,

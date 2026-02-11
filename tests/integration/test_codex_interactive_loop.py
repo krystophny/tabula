@@ -61,8 +61,6 @@ def _run_codex_interactive_until(*, project_dir: Path, prompt: str, stop_when, t
                 entered_onboarding = True
 
             if "MCP startup incomplete" in pane:
-                if "timed out after" in pane:
-                    pytest.skip("codex MCP startup timed out for tabula-canvas (framed-only transport mismatch)")
                 raise AssertionError(f"codex MCP startup failed.\nPane tail:\n{pane[-6000:]}")
             if "failed to start" in pane:
                 raise AssertionError(f"codex MCP startup failed.\nPane tail:\n{pane[-6000:]}")
@@ -98,12 +96,12 @@ def test_real_codex_interactive_loop_renders_text_and_status(tmp_path: Path) -> 
     pane = _run_codex_interactive_until(
         project_dir=project_dir,
         prompt=prompt,
-        stop_when=lambda text: "canvas_status" in text and "\"mode\": \"discussion\"" in text,
+        stop_when=lambda text: "canvas_status" in text and "\"mode\": \"review\"" in text,
     )
 
     assert "canvas_render_text" in pane
     assert "real-codex-loop" in pane
-    assert '"mode": "discussion"' in pane
+    assert '"mode": "review"' in pane
 
 
 @pytest.mark.skipif(shutil.which("codex") is None, reason="codex CLI not found on PATH")

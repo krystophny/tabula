@@ -9,7 +9,7 @@ Canonical behavior is code + tests. This file only points to source-of-truth loc
 - `tests/unit/test_events.py`
 - `tests/unit/test_events_additional.py`
 
-2. State reduction (`prompt`/`discussion`)
+2. State reduction (`prompt`/`review`)
 - `src/tabula/state.py`
 - `tests/unit/test_state.py`
 - `tests/bdd/test_mode_and_event_scenarios.py`
@@ -19,7 +19,7 @@ Canonical behavior is code + tests. This file only points to source-of-truth loc
 - `tests/unit/test_canvas_adapter_internal.py`
 - `tests/bdd/test_canvas_adapter.py`
 
-4. MCP server (`tabula-canvas`) framed stdio contract
+4. MCP server (`tabula-canvas`) stdio contract (framed + JSONL compatibility)
 - `src/tabula/mcp_server.py`
 - `tests/bdd/test_mcp_server.py`
 - `tests/bdd/test_mcp_protocol_flows.py`
