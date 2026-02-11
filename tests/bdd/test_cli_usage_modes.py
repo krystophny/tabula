@@ -4,6 +4,7 @@ import builtins
 import json
 import sys
 import types
+from dataclasses import dataclass
 from pathlib import Path
 
 from tabula.cli import main
@@ -127,3 +128,61 @@ def test_given_invalid_event_lines_when_checking_then_reports_all_errors(tmp_pat
     assert "line 1:" in err
     assert "line 2:" in err
     assert "line 3:" in err
+
+
+def test_given_bootstrap_mode_when_invoked_then_project_is_prepared(monkeypatch, tmp_path: Path, capsys) -> None:
+    @dataclass(frozen=True)
+    class _Paths:
+        project_dir: Path
+        agents_path: Path
+
+    @dataclass(frozen=True)
+    class _Result:
+        paths: _Paths
+        git_initialized: bool
+
+    def fake_bootstrap(project_dir: Path):
+        return _Result(paths=_Paths(project_dir=project_dir, agents_path=project_dir / "AGENTS.md"), git_initialized=True)
+
+    monkeypatch.setattr("tabula.cli.bootstrap_project", fake_bootstrap)
+    rc = main(["bootstrap", "--project-dir", str(tmp_path)])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "project prepared:" in out
+    assert "git initialized" in out
+
+
+def test_given_markdown_mvp_mode_when_invoked_then_cli_returns_workflow_status(monkeypatch, tmp_path: Path, capsys) -> None:
+    @dataclass(frozen=True)
+    class _WorkflowResult:
+        returncode: int
+        message: str
+
+    def fake_workflow(*, user_prompt: str, project_dir: Path, mode: str, commit_message: str, skip_revision: bool):
+        assert user_prompt == "draft text"
+        assert project_dir == tmp_path
+        assert mode == "project"
+        assert commit_message == "msg"
+        assert skip_revision is True
+        return _WorkflowResult(returncode=0, message="ok")
+
+    monkeypatch.setattr("tabula.cli.run_markdown_mvp", fake_workflow)
+    rc = main(
+        [
+            "markdown-mvp",
+            "--project-dir",
+            str(tmp_path),
+            "--mode",
+            "project",
+            "--prompt",
+            "draft text",
+            "--commit-message",
+            "msg",
+            "--skip-revision",
+        ]
+    )
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "ok" in out
