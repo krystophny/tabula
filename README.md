@@ -1,24 +1,40 @@
-# Tabula
+# tabula
 
-Tabula is a Linux desktop monolith for fast local AI-assisted coding iteration.
+Minimal Python prototype for one behavior slice:
 
-## v1 Architecture
+- start in `prompt` mode
+- switch to `discussion` when a valid canvas artifact event arrives
+- return to `prompt` on `clear_canvas`
 
-- Desktop UI: React + xterm.js (`apps/desktop`)
-- Desktop runtime: Tauri + Rust PTY manager + SQLite (`apps/desktop/src-tauri`)
-- Shared domain logic: TypeScript package (`packages/domain`)
-- Implementation-independent UX source: `docs/design-system`
+Codex stays in your terminal session. The canvas window is separate.
 
-## Quick Start
+## Event bridge
+
+Append JSONL events to `.tabula/canvas-events.jsonl`.
+
+Supported kinds:
+
+- `text_artifact`
+- `image_artifact`
+- `pdf_artifact`
+- `clear_canvas`
+
+## Run
 
 ```bash
-npm install
-npm run validate:design-system
-npm run test:domain
-npm run dev:desktop
+python -m pip install -e .[test]
+python -m pip install -e .[gui]   # optional, for canvas window
+tabula canvas --events .tabula/canvas-events.jsonl
 ```
 
-## Quality Gates
+## Validate events only
 
-- Design system strict traceability: `npm run validate:design-system`
-- Domain unit tests: `npm run test:domain`
+```bash
+tabula check-events --events .tabula/canvas-events.jsonl
+```
+
+## Print schema
+
+```bash
+tabula schema
+```

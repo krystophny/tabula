@@ -1,6 +1,0 @@
-{
-  "mappingId": "tabula-web-placeholder-v1",
-  "version": "0.1.0",
-  "sourceComponents": ["canvas-surface", "composer-bar", "terminal-drawer", "mode-chipbar"],
-  "mappings": []
-}
