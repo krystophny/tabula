@@ -55,3 +55,9 @@ All render tools emit strict JSONL events into `.tabula/canvas-events.jsonl`.
 ```bash
 PYTHONPATH=src python -m pytest
 ```
+
+Optional real interactive Codex E2E (tmux terminal session, no `codex exec`):
+
+```bash
+TABULA_RUN_REAL_CODEX_INTERACTIVE=1 PYTHONPATH=src python -m pytest tests/integration/test_codex_interactive_loop.py -q
+```

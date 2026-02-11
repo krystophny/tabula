@@ -10,7 +10,8 @@ from .canvas_adapter import CanvasAdapter
 
 SERVER_NAME = "tabula-canvas"
 SERVER_VERSION = "0.1.0"
-MCP_PROTOCOL_VERSION = "2025-06-18"
+# Codex CLI 0.98 currently negotiates MCP 2024-11-05.
+MCP_PROTOCOL_VERSION = "2024-11-05"
 
 
 class RpcError(Exception):
@@ -20,15 +21,15 @@ class RpcError(Exception):
         super().__init__(message)
 
 
-def read_message(stream: BinaryIO) -> dict[str, Any] | None:
+def _read_message_with_mode(stream: BinaryIO) -> tuple[dict[str, Any] | None, str]:
     first_line = stream.readline()
     if not first_line:
-        return None
+        return None, "framed"
 
     stripped = first_line.lstrip()
     if stripped.startswith(b"{"):
         try:
-            return json.loads(first_line.decode("utf-8"))
+            return json.loads(first_line.decode("utf-8")), "jsonl"
         except json.JSONDecodeError as exc:  # pragma: no cover
             raise RpcError(-32700, f"invalid json: {exc.msg}") from exc
 
@@ -63,14 +64,22 @@ def read_message(stream: BinaryIO) -> dict[str, Any] | None:
 
     if not isinstance(payload, dict):
         raise RpcError(-32600, "request must be an object")
+    return payload, "framed"
+
+
+def read_message(stream: BinaryIO) -> dict[str, Any] | None:
+    payload, _mode = _read_message_with_mode(stream)
     return payload
 
 
-def write_message(stream: BinaryIO, payload: dict[str, Any]) -> None:
+def write_message(stream: BinaryIO, payload: dict[str, Any], *, framed: bool = True) -> None:
     encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
-    header = f"Content-Length: {len(encoded)}\r\n\r\n".encode("utf-8")
-    stream.write(header)
-    stream.write(encoded)
+    if framed:
+        header = f"Content-Length: {len(encoded)}\r\n\r\n".encode("utf-8")
+        stream.write(header)
+        stream.write(encoded)
+    else:
+        stream.write(encoded + b"\n")
     if hasattr(stream, "flush"):
         stream.flush()
 
@@ -175,20 +184,26 @@ class TabulaMcpServer:
         self.adapter = adapter
         self.input_stream = input_stream or sys.stdin.buffer
         self.output_stream = output_stream or sys.stdout.buffer
+        self._wire_mode: str | None = None
+
+    def _write(self, payload: dict[str, Any]) -> None:
+        mode = self._wire_mode or "framed"
+        write_message(self.output_stream, payload, framed=(mode == "framed"))
 
     def run_forever(self) -> int:
         while True:
             try:
-                message = read_message(self.input_stream)
+                message, wire_mode = _read_message_with_mode(self.input_stream)
+                if self._wire_mode is None:
+                    self._wire_mode = wire_mode
             except RpcError as exc:
                 # Parse-level errors do not have ids.
-                write_message(
-                    self.output_stream,
+                self._write(
                     {
                         "jsonrpc": "2.0",
                         "id": None,
                         "error": {"code": exc.code, "message": exc.message},
-                    },
+                    }
                 )
                 continue
 
@@ -219,16 +234,15 @@ class TabulaMcpServer:
             self._write_error(msg_id, -32603, str(exc))
             return
 
-        write_message(self.output_stream, {"jsonrpc": "2.0", "id": msg_id, "result": result})
+        self._write({"jsonrpc": "2.0", "id": msg_id, "result": result})
 
     def _write_error(self, msg_id: Any, code: int, message: str) -> None:
-        write_message(
-            self.output_stream,
+        self._write(
             {
                 "jsonrpc": "2.0",
                 "id": msg_id,
                 "error": {"code": code, "message": message},
-            },
+            }
         )
 
     def _dispatch(self, method: str, params: Any) -> dict[str, Any]:

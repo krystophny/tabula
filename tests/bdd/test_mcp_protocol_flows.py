@@ -253,6 +253,33 @@ def test_write_message_flushes_when_supported() -> None:
     assert parsed["id"] == 1
 
 
+def test_write_message_supports_jsonl_mode() -> None:
+    stream = io.BytesIO()
+    write_message(stream, {"jsonrpc": "2.0", "id": 2, "result": {}}, framed=False)
+    stream.seek(0)
+    line = stream.readline().decode("utf-8")
+    payload = json.loads(line)
+    assert payload["id"] == 2
+
+
+def test_given_jsonl_input_when_run_forever_then_server_replies_in_jsonl(tmp_path: Path) -> None:
+    adapter = CanvasAdapter(project_dir=tmp_path, events_path=tmp_path / "events.jsonl", headless=True, start_canvas=False)
+    in_payload = {"jsonrpc": "2.0", "id": 31, "method": "ping", "params": {}}
+    stream_in = io.BytesIO((json.dumps(in_payload) + "\n").encode("utf-8"))
+    stream_out = io.BytesIO()
+    server = TabulaMcpServer(adapter, input_stream=stream_in, output_stream=stream_out)
+
+    rc = server.run_forever()
+    assert rc == 0
+    stream_out.seek(0)
+    line = stream_out.readline().decode("utf-8")
+    assert line.strip().startswith("{")
+    assert "Content-Length" not in line
+    payload = json.loads(line)
+    assert payload["id"] == 31
+    assert payload["result"] == {}
+
+
 def test_run_mcp_stdio_server_constructs_adapter_and_runs(monkeypatch, tmp_path: Path) -> None:
     seen: dict[str, object] = {}
 
