@@ -26,6 +26,7 @@ def test_watcher_reads_appended_events_and_skips_invalid(tmp_path: Path) -> None
                         "text": "a",
                     }
                 ),
+                "",
                 "{bad json",
                 json.dumps(
                     {
