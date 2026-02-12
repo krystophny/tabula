@@ -184,6 +184,8 @@ class TabulaWebApp:
             task.cancel()
         await self._ssh.disconnect(session_id)
         self._tunnel_ports.pop(session_id, None)
+        self._canvas_ws.pop(session_id, None)
+        self._remote_canvas_ws.pop(session_id, None)
         return web.json_response({"ok": True})
 
     @staticmethod
