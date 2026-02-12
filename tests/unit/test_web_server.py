@@ -6,11 +6,11 @@ from pathlib import Path
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer, make_mocked_request
 
-from tabula.web.server import TabulaWebApp
+from tabula.web.server import LOCAL_SESSION_ID, TabulaWebApp
 
 
-async def _make_client(data_dir: Path) -> TestClient:
-    app_obj = TabulaWebApp(data_dir=data_dir)
+async def _make_client(data_dir: Path, *, local_project_dir: Path | None = None) -> TestClient:
+    app_obj = TabulaWebApp(data_dir=data_dir, local_project_dir=local_project_dir)
     app = app_obj.create_app()
     return TestClient(TestServer(app))
 
@@ -233,5 +233,44 @@ def test_sessions_list(tmp_path: Path) -> None:
             assert resp.status == 200
             data = await resp.json()
             assert data["sessions"] == []
+            assert "local_session" not in data
+
+    asyncio.run(_run())
+
+
+def test_setup_check_no_local_session(tmp_path: Path) -> None:
+    async def _run() -> None:
+        client = await _make_client(tmp_path)
+        async with client:
+            resp = await client.get("/api/setup")
+            data = await resp.json()
+            assert "local_session" not in data
+
+    asyncio.run(_run())
+
+
+def test_setup_check_local_session(tmp_path: Path) -> None:
+    async def _run() -> None:
+        client = await _make_client(tmp_path, local_project_dir=tmp_path)
+        async with client:
+            resp = await client.get("/api/setup")
+            data = await resp.json()
+            assert data["local_session"] == LOCAL_SESSION_ID
+
+    asyncio.run(_run())
+
+
+def test_sessions_list_with_local(tmp_path: Path) -> None:
+    async def _run() -> None:
+        client = await _make_client(tmp_path, local_project_dir=tmp_path)
+        async with client:
+            await _authenticate(client)
+            resp = await client.get("/api/sessions")
+            assert resp.status == 200
+            data = await resp.json()
+            local = data["local_session"]
+            assert local["session_id"] == LOCAL_SESSION_ID
+            assert local["project_dir"] == str(tmp_path)
+            assert "mcp_url" in local
 
     asyncio.run(_run())

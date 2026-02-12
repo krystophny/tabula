@@ -71,12 +71,6 @@ class SSHService:
         session.pty = process
         return process
 
-    async def resize_pty(self, session_id: str, width: int, height: int) -> None:
-        session = self._sessions.get(session_id)
-        if session is None or session.pty is None:
-            return
-        session.pty.change_terminal_size(width, height)
-
     async def create_tunnel(self, session_id: str, remote_port: int, local_host: str = "127.0.0.1") -> int:
         session = self._sessions.get(session_id)
         if session is None:

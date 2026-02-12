@@ -11,6 +11,7 @@ from aiohttp import web
 from .canvas_adapter import CanvasAdapter
 from .events import CanvasEvent, event_to_payload
 from .mcp_server import TabulaMcpServer
+from .protocol import _ensure_gitignore
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9420
@@ -30,6 +31,7 @@ async def broadcast_ws(clients: set[web.WebSocketResponse], message: str) -> Non
 class TabulaServeApp:
     def __init__(self, *, project_dir: Path) -> None:
         self._project_dir = project_dir.resolve()
+        _ensure_gitignore(self._project_dir)
         self._ws_clients: set[web.WebSocketResponse] = set()
         self._pending_events: list[CanvasEvent] = []
         self._event_lock = threading.Lock()

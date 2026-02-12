@@ -13,6 +13,7 @@ import aiohttp
 from aiohttp import web
 
 from ..serve import broadcast_ws
+from .pty import LocalPtyTransport, PtyTransport, SshPtyTransport
 from .ssh import SSHService
 from .store import Store
 
@@ -24,6 +25,7 @@ SESSION_COOKIE = "tabula_session"
 DAEMON_PORT = 9420
 DAEMON_STARTUP_TIMEOUT = 10.0
 DAEMON_HEALTH_POLL_INTERVAL = 0.5
+LOCAL_SESSION_ID = "local"
 
 
 class TabulaWebApp:
@@ -66,10 +68,13 @@ class TabulaWebApp:
             raise web.HTTPBadRequest(text="invalid host id")
 
     async def handle_setup_check(self, request: web.Request) -> web.Response:
-        return web.json_response({
+        result: dict[str, Any] = {
             "has_password": self._store.has_admin_password(),
             "authenticated": self._check_auth(request),
-        })
+        }
+        if self._local_project_dir:
+            result["local_session"] = LOCAL_SESSION_ID
+        return web.json_response(result)
 
     async def handle_setup_password(self, request: web.Request) -> web.Response:
         if self._store.has_admin_password():
@@ -188,54 +193,46 @@ class TabulaWebApp:
         self._remote_canvas_ws.pop(session_id, None)
         return web.json_response({"ok": True})
 
-    @staticmethod
-    async def _pty_reader(process: Any, ws: web.WebSocketResponse) -> None:
-        try:
-            while not process.stdout.at_eof():
-                data = await process.stdout.read(4096)
-                if not data:
-                    break
-                if isinstance(data, bytes):
-                    await ws.send_bytes(data)
-                else:
-                    await ws.send_str(data)
-        except (asyncio.CancelledError, ConnectionResetError):
-            pass
+    async def _create_pty_transport(self, session_id: str) -> PtyTransport:
+        if session_id == LOCAL_SESSION_ID and self._local_project_dir:
+            return await LocalPtyTransport.open(str(self._local_project_dir))
+        ssh_session = self._ssh.get_session(session_id)
+        if ssh_session is None:
+            raise web.HTTPNotFound(text="session not found")
+        process = await self._ssh.open_pty(session_id)
+        return SshPtyTransport(process)
 
     async def handle_terminal_ws(self, request: web.Request) -> web.WebSocketResponse:
         if not self._check_auth(request):
             raise web.HTTPUnauthorized(text="unauthorized")
 
         session_id = request.match_info["session_id"]
-        ssh_session = self._ssh.get_session(session_id)
-        if ssh_session is None:
-            raise web.HTTPNotFound(text="session not found")
-
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         self._terminal_ws[session_id] = ws
 
-        process = await self._ssh.open_pty(session_id)
-        read_task = asyncio.create_task(self._pty_reader(process, ws))
+        transport = await self._create_pty_transport(session_id)
+        read_task = asyncio.create_task(transport.reader(ws))
 
         try:
             async for msg in ws:
                 if msg.type == aiohttp.WSMsgType.BINARY:
-                    process.stdin.write(msg.data)
+                    transport.write(msg.data)
                 elif msg.type == aiohttp.WSMsgType.TEXT:
                     try:
                         cmd = json.loads(msg.data)
                     except json.JSONDecodeError:
-                        process.stdin.write(msg.data.encode("utf-8"))
+                        transport.write(msg.data.encode("utf-8"))
                         continue
                     if cmd.get("type") == "resize":
-                        await self._ssh.resize_pty(session_id, cmd.get("cols", 120), cmd.get("rows", 40))
+                        transport.resize(cmd.get("cols", 120), cmd.get("rows", 40))
                     else:
-                        process.stdin.write(msg.data.encode("utf-8"))
+                        transport.write(msg.data.encode("utf-8"))
                 elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSE):
                     break
         finally:
             read_task.cancel()
+            transport.close()
             self._terminal_ws.pop(session_id, None)
 
         return ws
@@ -359,9 +356,14 @@ class TabulaWebApp:
 
     async def handle_sessions_list(self, request: web.Request) -> web.Response:
         self._require_auth(request)
-        return web.json_response({
-            "sessions": self._ssh.list_sessions(),
-        })
+        result: dict[str, Any] = {"sessions": self._ssh.list_sessions()}
+        if self._local_project_dir:
+            result["local_session"] = {
+                "session_id": LOCAL_SESSION_ID,
+                "project_dir": str(self._local_project_dir),
+                "mcp_url": f"http://127.0.0.1:{DAEMON_PORT}/mcp",
+            }
+        return web.json_response(result)
 
     async def _start_local_serve(self, app: web.Application) -> None:
         if self._local_project_dir is None:
@@ -381,6 +383,8 @@ class TabulaWebApp:
                 f"port {DAEMON_PORT} already in use; is another tabula serve running?"
             ) from exc
         self._local_serve_runner = runner
+        self._tunnel_ports[LOCAL_SESSION_ID] = DAEMON_PORT
+        self._start_canvas_relay(LOCAL_SESSION_ID, DAEMON_PORT)
 
     async def _on_shutdown(self, app: web.Application) -> None:
         for task in self._canvas_relay_tasks.values():

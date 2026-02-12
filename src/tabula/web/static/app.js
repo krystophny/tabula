@@ -12,6 +12,8 @@ const state = {
   canvasWs: null,
   tunnelPort: null,
   connected: false,
+  localSession: null,
+  mcpUrl: null,
 };
 
 export function getState() { return state; }
@@ -25,7 +27,37 @@ function showView(viewId) {
 
 export function showMain() {
   showView('view-main');
-  refreshHosts();
+  if (state.localSession) {
+    connectLocalSession();
+  } else {
+    refreshHosts();
+  }
+}
+
+async function connectLocalSession() {
+  try {
+    const resp = await fetch('/api/sessions');
+    if (!resp.ok) { refreshHosts(); return; }
+    const data = await resp.json();
+    if (!data.local_session) { refreshHosts(); return; }
+
+    state.sessionId = data.local_session.session_id;
+    state.mcpUrl = data.local_session.mcp_url;
+    state.connected = true;
+    state.localSession = data.local_session;
+
+    document.getElementById('host-select').style.display = 'none';
+    document.getElementById('btn-connect').style.display = 'none';
+    document.getElementById('btn-disconnect').style.display = 'none';
+    document.getElementById('btn-launch-ai').disabled = false;
+    setStatus(`local: ${data.local_session.project_dir}`, 'connected');
+
+    openTerminal();
+    openCanvasWs();
+  } catch (e) {
+    console.error('local session connect failed:', e);
+    refreshHosts();
+  }
 }
 
 export function showHosts() {
@@ -208,27 +240,28 @@ async function launchAI() {
   const term = window._tabulaTerminal;
   if (!term || !state.terminalWs) return;
 
-  try {
-    const resp = await fetch('/api/daemon/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: state.sessionId }),
-    });
-    if (!resp.ok) {
-      const text = await resp.text();
-      writeToTerminal(`\r\n[daemon start failed: ${text}]\r\n`);
+  if (!state.localSession) {
+    try {
+      const resp = await fetch('/api/daemon/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: state.sessionId }),
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        writeToTerminal(`\r\n[daemon start failed: ${text}]\r\n`);
+        return;
+      }
+      const data = await resp.json();
+      state.tunnelPort = data.tunnel_port;
+    } catch (e) {
+      writeToTerminal(`\r\n[daemon start error: ${e.message}]\r\n`);
       return;
     }
-    const data = await resp.json();
-    state.tunnelPort = data.tunnel_port;
-  } catch (e) {
-    writeToTerminal(`\r\n[daemon start error: ${e.message}]\r\n`);
-    return;
+    openCanvasWs();
   }
 
-  openCanvasWs();
-
-  const mcpUrl = `http://127.0.0.1:${state.tunnelPort}/mcp`;
+  const mcpUrl = state.mcpUrl || `http://127.0.0.1:${state.tunnelPort}/mcp`;
   const cmd = `tabula run --assistant ${assistant} --mcp-url ${mcpUrl}\n`;
 
   if (state.terminalWs.readyState === WebSocket.OPEN) {
@@ -291,6 +324,9 @@ async function init() {
   try {
     const resp = await fetch('/api/setup');
     const data = await resp.json();
+    if (data.local_session) {
+      state.localSession = { session_id: data.local_session };
+    }
     if (data.authenticated) {
       state.authenticated = true;
       showMain();
