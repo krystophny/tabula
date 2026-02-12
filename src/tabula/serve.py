@@ -48,7 +48,7 @@ class TabulaServeApp:
         dead: list[web.WebSocketResponse] = []
         for event in events:
             payload = json.dumps(event_to_payload(event), separators=(",", ":"))
-            for ws in self._ws_clients:
+            for ws in list(self._ws_clients):
                 try:
                     await ws.send_str(payload)
                 except (ConnectionResetError, RuntimeError):

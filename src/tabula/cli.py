@@ -61,6 +61,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p_web = sub.add_parser("web", help="launch tabula web server")
     p_web.add_argument("--data-dir", type=Path, default=Path("~/.tabula-web").expanduser())
+    p_web.add_argument("--project-dir", type=Path, default=None, help="run local tabula serve for this project (no SSH needed)")
     p_web.add_argument("--host", default="127.0.0.1")
     p_web.add_argument("--port", type=int, default=8420)
 
@@ -192,7 +193,7 @@ def _cmd_serve(project_dir: Path, host: str, port: int) -> int:
     return run_serve(project_dir=bootstrap.paths.project_dir, host=host, port=port)
 
 
-def _cmd_web(data_dir: Path, host: str, port: int) -> int:
+def _cmd_web(data_dir: Path, host: str, port: int, project_dir: Path | None) -> int:
     try:
         from .web.server import run_web
     except ImportError:
@@ -201,7 +202,17 @@ def _cmd_web(data_dir: Path, host: str, port: int) -> int:
             file=sys.stderr,
         )
         return 2
-    return run_web(data_dir=data_dir, host=host, port=port)
+
+    resolved_project: Path | None = None
+    if project_dir is not None:
+        try:
+            bootstrap = bootstrap_project(project_dir)
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        resolved_project = bootstrap.paths.project_dir
+
+    return run_web(data_dir=data_dir, host=host, port=port, local_project_dir=resolved_project)
 
 
 def _cmd_run(
@@ -299,7 +310,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "serve":
         return _cmd_serve(args.project_dir, args.host, args.port)
     if args.command == "web":
-        return _cmd_web(args.data_dir, args.host, args.port)
+        return _cmd_web(args.data_dir, args.host, args.port, args.project_dir)
     if args.command == "run":
         return _cmd_run(
             args.project_dir,

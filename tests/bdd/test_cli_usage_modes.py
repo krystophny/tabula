@@ -384,10 +384,11 @@ def test_given_serve_mode_when_invoked_then_bootstrap_and_serve_are_called(monke
 def test_given_web_mode_when_invoked_then_web_server_is_called(monkeypatch, tmp_path: Path) -> None:
     calls: dict[str, object] = {}
 
-    def fake_run_web(*, data_dir, host, port):
+    def fake_run_web(*, data_dir, host, port, local_project_dir=None):
         calls["data_dir"] = data_dir
         calls["host"] = host
         calls["port"] = port
+        calls["local_project_dir"] = local_project_dir
         return 0
 
     monkeypatch.setattr("tabula.web.server.run_web", fake_run_web)

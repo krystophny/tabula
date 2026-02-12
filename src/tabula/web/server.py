@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import secrets
 import shlex
 from pathlib import Path
@@ -13,6 +14,8 @@ from aiohttp import web
 from .ssh import SSHService
 from .store import Store
 
+_log = logging.getLogger(__name__)
+
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8420
 SESSION_COOKIE = "tabula_session"
@@ -22,7 +25,7 @@ DAEMON_HEALTH_POLL_INTERVAL = 0.5
 
 
 class TabulaWebApp:
-    def __init__(self, *, data_dir: Path) -> None:
+    def __init__(self, *, data_dir: Path, local_project_dir: Path | None = None) -> None:
         self._data_dir = data_dir.resolve()
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._store = Store(self._data_dir / "tabula.db")
@@ -34,6 +37,9 @@ class TabulaWebApp:
         self._canvas_relay_tasks: dict[str, asyncio.Task[None]] = {}
         self._remote_canvas_ws: dict[str, aiohttp.ClientWebSocketResponse] = {}
         self._static_dir = Path(__file__).parent / "static"
+        self._local_project_dir = local_project_dir
+        self._local_serve_app = None
+        self._local_serve_runner: web.AppRunner | None = None
 
     @property
     def store(self) -> Store:
@@ -126,14 +132,19 @@ class TabulaWebApp:
             raise web.HTTPNotFound(text="host not found")
         return web.json_response(self._store.host_to_dict(host))
 
+    _HOST_UPDATE_FIELDS = {"name", "hostname", "port", "username", "key_path", "project_dir"}
+
     async def handle_hosts_update(self, request: web.Request) -> web.Response:
         self._require_auth(request)
         host_id = self._parse_host_id(request)
         body = await request.json()
+        updates = {k: v for k, v in body.items() if k in self._HOST_UPDATE_FIELDS}
         try:
-            host = self._store.update_host(host_id, **body)
+            host = self._store.update_host(host_id, **updates)
         except KeyError:
             raise web.HTTPNotFound(text="host not found")
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc))
         return web.json_response(self._store.host_to_dict(host))
 
     async def handle_hosts_delete(self, request: web.Request) -> web.Response:
@@ -156,7 +167,8 @@ class TabulaWebApp:
         try:
             await self._ssh.connect(host, session_id)
         except Exception as exc:
-            raise web.HTTPBadGateway(text=f"SSH connection failed: {exc}")
+            _log.error("SSH connection to host %d failed: %s", host.id, exc)
+            raise web.HTTPBadGateway(text="SSH connection failed")
         return web.json_response({"session_id": session_id, "host": self._store.host_to_dict(host)})
 
     async def handle_disconnect(self, request: web.Request) -> web.Response:
@@ -310,7 +322,8 @@ class TabulaWebApp:
                     body = await resp.read()
                     return web.Response(body=body, content_type=resp.content_type or "application/octet-stream")
         except Exception as exc:
-            raise web.HTTPBadGateway(text=f"file fetch failed: {exc}")
+            _log.error("file fetch through tunnel failed: %s", exc)
+            raise web.HTTPBadGateway(text="file fetch failed")
 
     def _start_canvas_relay(self, session_id: str, tunnel_port: int) -> None:
         old_task = self._canvas_relay_tasks.pop(session_id, None)
@@ -329,7 +342,7 @@ class TabulaWebApp:
                         if msg.type == aiohttp.WSMsgType.TEXT:
                             clients = self._canvas_ws.get(session_id, set())
                             dead: list[web.WebSocketResponse] = []
-                            for ws in clients:
+                            for ws in list(clients):
                                 try:
                                     await ws.send_str(msg.data)
                                 except (ConnectionResetError, RuntimeError):
@@ -349,9 +362,23 @@ class TabulaWebApp:
             "sessions": self._ssh.list_sessions(),
         })
 
+    async def _start_local_serve(self, app: web.Application) -> None:
+        if self._local_project_dir is None:
+            return
+        from ..serve import TabulaServeApp
+        self._local_serve_app = TabulaServeApp(project_dir=self._local_project_dir)
+        serve_app = self._local_serve_app.create_app()
+        runner = web.AppRunner(serve_app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", DAEMON_PORT)
+        await site.start()
+        self._local_serve_runner = runner
+
     async def _on_shutdown(self, app: web.Application) -> None:
         for task in self._canvas_relay_tasks.values():
             task.cancel()
+        if self._local_serve_runner is not None:
+            await self._local_serve_runner.cleanup()
         await self._ssh.disconnect_all()
         self._store.close()
 
@@ -361,8 +388,17 @@ class TabulaWebApp:
             return web.FileResponse(index)
         return web.Response(status=404, text="web client not found")
 
+    @staticmethod
+    async def _security_headers(_request: web.Request, response: web.StreamResponse) -> None:
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'"
+        )
+
     def create_app(self) -> web.Application:
         app = web.Application()
+        app.on_response_prepare.append(self._security_headers)
+        app.on_startup.append(self._start_local_serve)
         app.on_shutdown.append(self._on_shutdown)
 
         app.router.add_get("/api/setup", self.handle_setup_check)
@@ -393,10 +429,21 @@ class TabulaWebApp:
         return app
 
 
-def run_web(*, data_dir: Path, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> int:
-    web_app = TabulaWebApp(data_dir=data_dir)
+def run_web(
+    *,
+    data_dir: Path,
+    host: str = DEFAULT_HOST,
+    port: int = DEFAULT_PORT,
+    local_project_dir: Path | None = None,
+) -> int:
+    web_app = TabulaWebApp(data_dir=data_dir, local_project_dir=local_project_dir)
     app = web_app.create_app()
-    print(f"tabula web listening on http://{host}:{port}", flush=True)
+    display_host = "localhost" if host in ("127.0.0.1", "0.0.0.0") else host
+    url = f"http://{display_host}:{port}"
+    print(f"tabula web: {url}", flush=True)
+    if local_project_dir:
+        print(f"  local project: {local_project_dir}", flush=True)
+        print(f"  local MCP:     http://127.0.0.1:{DAEMON_PORT}/mcp", flush=True)
     try:
         web.run_app(app, host=host, port=port, print=None)
     except KeyboardInterrupt:

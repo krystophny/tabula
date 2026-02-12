@@ -46,6 +46,11 @@ CREATE TABLE IF NOT EXISTS admin (
 
 _PBKDF2_ITERATIONS = 600_000
 
+_HOST_FIELD_TYPES: dict[str, type] = {
+    "name": str, "hostname": str, "port": int,
+    "username": str, "key_path": str, "project_dir": str,
+}
+
 
 def _hash_password(password: str, salt: str) -> str:
     return hashlib.pbkdf2_hmac(
@@ -123,13 +128,12 @@ class Store:
         return [HostConfig(**dict(r)) for r in rows]
 
     def update_host(self, host_id: int, **fields: Any) -> HostConfig:
-        _FIELD_TYPES = {"name": str, "hostname": str, "port": int, "username": str, "key_path": str, "project_dir": str}
         updates: dict[str, Any] = {}
         for k, v in fields.items():
-            if k not in _FIELD_TYPES or v is None:
+            if k not in _HOST_FIELD_TYPES or v is None:
                 continue
-            if not isinstance(v, _FIELD_TYPES[k]):
-                raise ValueError(f"{k} must be {_FIELD_TYPES[k].__name__}")
+            if not isinstance(v, _HOST_FIELD_TYPES[k]):
+                raise ValueError(f"{k} must be {_HOST_FIELD_TYPES[k].__name__}")
             updates[k] = v
         if not updates:
             return self.get_host(host_id)

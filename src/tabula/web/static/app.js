@@ -10,6 +10,7 @@ const state = {
   hostId: null,
   terminalWs: null,
   canvasWs: null,
+  tunnelPort: null,
   connected: false,
 };
 
@@ -207,15 +208,28 @@ async function launchAI() {
   const term = window._tabulaTerminal;
   if (!term || !state.terminalWs) return;
 
+  try {
+    const resp = await fetch('/api/daemon/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: state.sessionId }),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      writeToTerminal(`\r\n[daemon start failed: ${text}]\r\n`);
+      return;
+    }
+    const data = await resp.json();
+    state.tunnelPort = data.tunnel_port;
+  } catch (e) {
+    writeToTerminal(`\r\n[daemon start error: ${e.message}]\r\n`);
+    return;
+  }
+
   openCanvasWs();
 
-  const mcpUrl = `http://127.0.0.1:${9420}/mcp`;
-  let cmd;
-  if (assistant === 'codex') {
-    cmd = `tabula run --assistant codex --mcp-url ${mcpUrl}\n`;
-  } else {
-    cmd = `tabula run --assistant claude --mcp-url ${mcpUrl}\n`;
-  }
+  const mcpUrl = `http://127.0.0.1:${state.tunnelPort}/mcp`;
+  const cmd = `tabula run --assistant ${assistant} --mcp-url ${mcpUrl}\n`;
 
   if (state.terminalWs.readyState === WebSocket.OPEN) {
     state.terminalWs.send(cmd);

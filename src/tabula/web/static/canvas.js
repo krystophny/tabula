@@ -19,11 +19,12 @@ function getEls() {
 
 function sanitizeHtml(html) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  const dangerous = doc.querySelectorAll('script,iframe,object,embed,link[rel="import"],form');
+  const dangerous = doc.querySelectorAll('script,iframe,object,embed,link[rel="import"],form,svg');
   dangerous.forEach(el => el.remove());
   doc.querySelectorAll('*').forEach(el => {
     for (const attr of [...el.attributes]) {
-      if (attr.name.startsWith('on') || attr.value.trim().toLowerCase().startsWith('javascript:')) {
+      const val = attr.value.trim().toLowerCase();
+      if (attr.name.startsWith('on') || val.startsWith('javascript:') || val.startsWith('data:text/html')) {
         el.removeAttribute(attr.name);
       }
     }

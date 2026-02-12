@@ -25,10 +25,12 @@ class SSHService:
         if session_id in self._sessions:
             await self.disconnect(session_id)
 
+        known_hosts_path = Path("~/.ssh/known_hosts").expanduser()
         kwargs: dict[str, Any] = {
             "host": host.hostname,
             "port": host.port,
             "username": host.username,
+            "known_hosts": str(known_hosts_path) if known_hosts_path.exists() else [],
         }
         if host.key_path:
             key_path = Path(host.key_path).expanduser()
