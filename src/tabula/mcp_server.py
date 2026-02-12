@@ -12,7 +12,8 @@ from .canvas_adapter import CanvasAdapter
 SERVER_NAME = "tabula-canvas"
 SERVER_VERSION = "0.1.0"
 # Codex CLI 0.98 currently negotiates MCP 2024-11-05.
-MCP_PROTOCOL_VERSION = "2024-11-05"
+SUPPORTED_PROTOCOL_VERSIONS = frozenset({"2024-11-05", "2025-03-26"})
+LATEST_PROTOCOL_VERSION = "2025-03-26"
 
 
 class RpcError(Exception):
@@ -254,29 +255,32 @@ class TabulaMcpServer:
                 return 0
             self.handle_message(message)
 
-    def handle_message(self, message: dict[str, Any]) -> None:
+    def dispatch_message(self, message: dict[str, Any]) -> dict[str, Any] | None:
         msg_id = message.get("id")
         method = message.get("method")
         params = message.get("params", {})
 
         if method is None:
             if msg_id is not None:
-                self._write_error(msg_id, -32600, "missing method")
-            return
+                return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": -32600, "message": "missing method"}}
+            return None
 
         if msg_id is None:
-            return
+            return None
 
         try:
             result = self._dispatch(method, params)
         except RpcError as exc:
-            self._write_error(msg_id, exc.code, exc.message)
-            return
-        except Exception as exc:  # pragma: no cover
-            self._write_error(msg_id, -32603, str(exc))
-            return
+            return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": exc.code, "message": exc.message}}
+        except Exception as exc:
+            return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": -32603, "message": str(exc)}}
 
-        self._write({"jsonrpc": "2.0", "id": msg_id, "result": result})
+        return {"jsonrpc": "2.0", "id": msg_id, "result": result}
+
+    def handle_message(self, message: dict[str, Any]) -> None:
+        response = self.dispatch_message(message)
+        if response is not None:
+            self._write(response)
 
     def _write_error(self, msg_id: Any, code: int, message: str) -> None:
         self._write(
@@ -292,8 +296,10 @@ class TabulaMcpServer:
             raise RpcError(-32602, "params must be an object")
 
         if method == "initialize":
+            requested = params.get("protocolVersion", "")
+            version = requested if requested in SUPPORTED_PROTOCOL_VERSIONS else LATEST_PROTOCOL_VERSION
             return {
-                "protocolVersion": MCP_PROTOCOL_VERSION,
+                "protocolVersion": version,
                 "capabilities": {
                     "tools": {"listChanged": False},
                     "resources": {"listChanged": False, "subscribe": False},

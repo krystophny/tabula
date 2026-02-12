@@ -54,12 +54,23 @@ def _build_parser() -> argparse.ArgumentParser:
     p_mcp.add_argument("--fresh-canvas", action="store_true")
     p_mcp.add_argument("--poll-ms", type=int, default=250)
 
+    p_serve = sub.add_parser("serve", help="run tabula HTTP daemon with streamable MCP")
+    p_serve.add_argument("--project-dir", type=Path, default=Path("."))
+    p_serve.add_argument("--host", default="127.0.0.1")
+    p_serve.add_argument("--port", type=int, default=9420)
+
+    p_web = sub.add_parser("web", help="launch tabula web server")
+    p_web.add_argument("--data-dir", type=Path, default=Path("~/.tabula-web").expanduser())
+    p_web.add_argument("--host", default="0.0.0.0")
+    p_web.add_argument("--port", type=int, default=8420)
+
     p_run = sub.add_parser("run", help="launch interactive assistant with tabula MCP preconfigured")
     p_run.add_argument("--project-dir", type=Path, default=Path("."))
     p_run.add_argument("--assistant", choices=("codex", "claude"), default="codex")
     p_run.add_argument("--headless", action="store_true")
     p_run.add_argument("--no-canvas", action="store_true")
     p_run.add_argument("--poll-ms", type=int, default=250)
+    p_run.add_argument("--mcp-url", default=None, help="use HTTP MCP endpoint URL instead of stdio (e.g. http://localhost:9420/mcp)")
     p_run.add_argument("prompt", nargs="?", default=None)
     return parser
 
@@ -170,6 +181,37 @@ def _launch_claude(target: Path, mcp_shell: str, prompt: str | None) -> int:
         return 1
 
 
+def _cmd_serve(project_dir: Path, host: str, port: int) -> int:
+    try:
+        bootstrap = bootstrap_project(project_dir)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    try:
+        from .serve import run_serve
+    except ImportError:
+        print(
+            "aiohttp is required for 'tabula serve'. Install with: pip install tabula[web]",
+            file=sys.stderr,
+        )
+        return 2
+
+    return run_serve(project_dir=bootstrap.paths.project_dir, host=host, port=port)
+
+
+def _cmd_web(data_dir: Path, host: str, port: int) -> int:
+    try:
+        from .web.server import run_web
+    except ImportError:
+        print(
+            "aiohttp and asyncssh are required for 'tabula web'. Install with: pip install tabula[web]",
+            file=sys.stderr,
+        )
+        return 2
+    return run_web(data_dir=data_dir, host=host, port=port)
+
+
 def _cmd_run(
     project_dir: Path,
     *,
@@ -177,6 +219,7 @@ def _cmd_run(
     headless: bool,
     no_canvas: bool,
     poll_ms: int,
+    mcp_url: str | None,
     prompt: str | None,
 ) -> int:
     try:
@@ -186,6 +229,10 @@ def _cmd_run(
         return 1
 
     target = bootstrap.paths.project_dir
+
+    if mcp_url:
+        return _run_with_http_mcp(target, assistant=assistant, mcp_url=mcp_url, prompt=prompt)
+
     mcp_args = [
         "-m",
         "tabula",
@@ -222,6 +269,58 @@ def _cmd_run(
     return 1
 
 
+def _launch_codex_http(target: Path, mcp_url: str, prompt: str | None) -> int:
+    cmd = [
+        "codex",
+        "--no-alt-screen",
+        "--yolo",
+        "--search",
+        "-C",
+        str(target),
+        "-c",
+        f"mcp_servers.tabula-canvas.url={json.dumps(mcp_url)}",
+    ]
+    if prompt:
+        cmd.append(prompt)
+    try:
+        return subprocess.run(cmd).returncode
+    except FileNotFoundError:
+        print("codex CLI not found on PATH", file=sys.stderr)
+        return 1
+
+
+def _launch_claude_http(target: Path, mcp_url: str, prompt: str | None) -> int:
+    claude_mcp_config = {
+        "mcpServers": {
+            "tabula-canvas": {
+                "url": mcp_url,
+            }
+        }
+    }
+    cmd = [
+        "claude",
+        "--mcp-config",
+        json.dumps(claude_mcp_config, separators=(",", ":")),
+    ]
+    if prompt:
+        cmd.append(prompt)
+    try:
+        return subprocess.run(cmd, cwd=target).returncode
+    except FileNotFoundError:
+        print("claude CLI not found on PATH", file=sys.stderr)
+        return 1
+
+
+def _run_with_http_mcp(target: Path, *, assistant: str, mcp_url: str, prompt: str | None) -> int:
+    if assistant == "codex":
+        return _launch_codex_http(target, mcp_url, prompt)
+    if assistant == "claude":
+        return _launch_claude_http(target, mcp_url, prompt)
+
+    print(f"unsupported assistant: {assistant}", file=sys.stderr)
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     raw_argv = list(sys.argv[1:] if argv is None else argv)
@@ -238,6 +337,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_bootstrap(args.project_dir)
     if args.command == "mcp-server":
         return _cmd_mcp_server(args.project_dir, args.headless, args.no_canvas, args.fresh_canvas, args.poll_ms)
+    if args.command == "serve":
+        return _cmd_serve(args.project_dir, args.host, args.port)
+    if args.command == "web":
+        return _cmd_web(args.data_dir, args.host, args.port)
     if args.command == "run":
         return _cmd_run(
             args.project_dir,
@@ -245,6 +348,7 @@ def main(argv: list[str] | None = None) -> int:
             headless=args.headless,
             no_canvas=args.no_canvas,
             poll_ms=args.poll_ms,
+            mcp_url=args.mcp_url,
             prompt=args.prompt,
         )
 

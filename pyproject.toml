@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tabula"
 version = "0.1.0"
-description = "Codex-first MCP canvas adapter with optional local canvas window"
+description = "MCP canvas adapter with local window, HTTP daemon, and web interface"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Tabula" }]
@@ -14,6 +14,10 @@ dependencies = []
 [project.optional-dependencies]
 gui = [
   "PySide6>=6.7"
+]
+web = [
+  "aiohttp>=3.9",
+  "asyncssh>=2.14"
 ]
 test = [
   "pytest>=8.3",
@@ -28,6 +32,9 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"tabula.web" = ["static/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
