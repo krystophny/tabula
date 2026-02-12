@@ -19,12 +19,16 @@ function getEls() {
 
 function sanitizeHtml(html) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  const dangerous = doc.querySelectorAll('script,iframe,object,embed,link[rel="import"],form,svg');
+  const dangerous = doc.querySelectorAll('script,iframe,object,embed,link[rel="import"],form,svg,base,style');
   dangerous.forEach(el => el.remove());
   doc.querySelectorAll('*').forEach(el => {
     for (const attr of [...el.attributes]) {
       const val = attr.value.trim().toLowerCase();
-      if (attr.name.startsWith('on') || val.startsWith('javascript:') || val.startsWith('data:text/html')) {
+      const isDangerous = attr.name.startsWith('on')
+        || val.startsWith('javascript:')
+        || val.startsWith('vbscript:')
+        || (val.startsWith('data:') && !val.startsWith('data:image/'));
+      if (isDangerous) {
         el.removeAttribute(attr.name);
       }
     }
@@ -56,7 +60,7 @@ export function renderCanvas(event) {
     e.image.style.display = '';
     const state = (window._tabulaApp || {}).getState ? window._tabulaApp.getState() : {};
     const sid = state.sessionId || '';
-    e.img.src = `/api/files/${sid}/${encodeURIComponent(event.path)}`;
+    e.img.src = `/api/files/${encodeURIComponent(sid)}/${encodeURIComponent(event.path)}`;
     e.img.alt = event.title || 'Image';
     e.title.textContent = event.title || 'Image';
     e.mode.textContent = 'review';

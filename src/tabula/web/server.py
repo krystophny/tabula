@@ -5,12 +5,14 @@ import json
 import logging
 import secrets
 import shlex
+import sqlite3
 from pathlib import Path
 from typing import Any
 
 import aiohttp
 from aiohttp import web
 
+from ..serve import broadcast_ws
 from .ssh import SSHService
 from .store import Store
 
@@ -88,6 +90,8 @@ class TabulaWebApp:
         body = await request.json()
         password = body.get("password", "")
         if not self._store.verify_admin_password(password):
+            await asyncio.sleep(1)
+            _log.warning("failed login attempt from %s", request.remote)
             raise web.HTTPUnauthorized(text="invalid password")
         token = self._new_session_token()
         self._sessions[token] = {"role": "admin"}
@@ -119,7 +123,7 @@ class TabulaWebApp:
                 key_path=body.get("key_path", ""),
                 project_dir=body.get("project_dir", "~"),
             )
-        except Exception as exc:
+        except (ValueError, sqlite3.IntegrityError) as exc:
             raise web.HTTPBadRequest(text=str(exc))
         return web.json_response(self._store.host_to_dict(host), status=201)
 
@@ -306,6 +310,8 @@ class TabulaWebApp:
         self._require_auth(request)
         session_id = request.match_info["session_id"]
         file_path = request.match_info["path"]
+        if ".." in file_path or file_path.startswith("/") or "\x00" in file_path:
+            raise web.HTTPForbidden(text="invalid path")
         tunnel_port = self._tunnel_ports.get(session_id)
         if not tunnel_port:
             raise web.HTTPNotFound(text="no active tunnel for session")
@@ -341,14 +347,7 @@ class TabulaWebApp:
                     async for msg in remote_ws:
                         if msg.type == aiohttp.WSMsgType.TEXT:
                             clients = self._canvas_ws.get(session_id, set())
-                            dead: list[web.WebSocketResponse] = []
-                            for ws in list(clients):
-                                try:
-                                    await ws.send_str(msg.data)
-                                except (ConnectionResetError, RuntimeError):
-                                    dead.append(ws)
-                            for ws in dead:
-                                clients.discard(ws)
+                            await broadcast_ws(clients, msg.data)
                         elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSE):
                             break
         except (asyncio.CancelledError, aiohttp.ClientError):
@@ -370,8 +369,15 @@ class TabulaWebApp:
         serve_app = self._local_serve_app.create_app()
         runner = web.AppRunner(serve_app)
         await runner.setup()
-        site = web.TCPSite(runner, "127.0.0.1", DAEMON_PORT)
-        await site.start()
+        try:
+            site = web.TCPSite(runner, "127.0.0.1", DAEMON_PORT)
+            await site.start()
+        except OSError as exc:
+            await runner.cleanup()
+            _log.error("failed to start local serve on port %d: %s", DAEMON_PORT, exc)
+            raise RuntimeError(
+                f"port {DAEMON_PORT} already in use; is another tabula serve running?"
+            ) from exc
         self._local_serve_runner = runner
 
     async def _on_shutdown(self, app: web.Application) -> None:

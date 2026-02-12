@@ -26,11 +26,16 @@ class SSHService:
             await self.disconnect(session_id)
 
         known_hosts_path = Path("~/.ssh/known_hosts").expanduser()
+        if not known_hosts_path.exists():
+            raise ConnectionError(
+                f"~/.ssh/known_hosts not found; cannot verify host key for {host.hostname}. "
+                "Create the file (ssh-keyscan) or connect manually first."
+            )
         kwargs: dict[str, Any] = {
             "host": host.hostname,
             "port": host.port,
             "username": host.username,
-            "known_hosts": str(known_hosts_path) if known_hosts_path.exists() else [],
+            "known_hosts": str(known_hosts_path),
         }
         if host.key_path:
             key_path = Path(host.key_path).expanduser()

@@ -16,6 +16,17 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9420
 
 
+async def broadcast_ws(clients: set[web.WebSocketResponse], message: str) -> None:
+    dead: list[web.WebSocketResponse] = []
+    for ws in list(clients):
+        try:
+            await ws.send_str(message)
+        except (ConnectionResetError, RuntimeError):
+            dead.append(ws)
+    for ws in dead:
+        clients.discard(ws)
+
+
 class TabulaServeApp:
     def __init__(self, *, project_dir: Path) -> None:
         self._project_dir = project_dir.resolve()
@@ -45,16 +56,9 @@ class TabulaServeApp:
                 return
             events = self._pending_events[:]
             self._pending_events.clear()
-        dead: list[web.WebSocketResponse] = []
         for event in events:
             payload = json.dumps(event_to_payload(event), separators=(",", ":"))
-            for ws in list(self._ws_clients):
-                try:
-                    await ws.send_str(payload)
-                except (ConnectionResetError, RuntimeError):
-                    dead.append(ws)
-        for ws in dead:
-            self._ws_clients.discard(ws)
+            await broadcast_ws(self._ws_clients, payload)
 
     async def handle_mcp_post(self, request: web.Request) -> web.Response:
         try:

@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from aiohttp.test_utils import TestClient, TestServer
+from aiohttp import web
+from aiohttp.test_utils import TestClient, TestServer, make_mocked_request
 
 from tabula.web.server import TabulaWebApp
 
@@ -162,6 +163,63 @@ def test_connect_without_ssh_server(tmp_path: Path) -> None:
 
             resp = await client.post("/api/connect", json={"host_id": 1})
             assert resp.status == 502
+
+    asyncio.run(_run())
+
+
+def test_file_proxy_rejects_path_traversal(tmp_path: Path) -> None:
+    async def _run() -> None:
+        app_obj = TabulaWebApp(data_dir=tmp_path)
+        app = app_obj.create_app()
+        token = "test-tok"
+        app_obj._sessions[token] = {"role": "admin"}
+        req = make_mocked_request(
+            "GET", "/api/files/x/../../etc/passwd",
+            match_info={"session_id": "x", "path": "../../etc/passwd"},
+            headers={"Cookie": f"tabula_session={token}"},
+            app=app,
+        )
+        try:
+            await app_obj.handle_file_proxy(req)
+            raise AssertionError("expected HTTPForbidden")
+        except web.HTTPForbidden:
+            pass
+
+    asyncio.run(_run())
+
+
+def test_file_proxy_rejects_null_bytes(tmp_path: Path) -> None:
+    async def _run() -> None:
+        client = await _make_client(tmp_path)
+        async with client:
+            await _authenticate(client)
+            resp = await client.get("/api/files/fakesid/test%00.txt")
+            assert resp.status == 403
+
+    asyncio.run(_run())
+
+
+def test_file_proxy_no_tunnel_returns_404(tmp_path: Path) -> None:
+    async def _run() -> None:
+        client = await _make_client(tmp_path)
+        async with client:
+            await _authenticate(client)
+            resp = await client.get("/api/files/fakesid/test.txt")
+            assert resp.status == 404
+
+    asyncio.run(_run())
+
+
+def test_host_update_rejects_bad_type(tmp_path: Path) -> None:
+    async def _run() -> None:
+        client = await _make_client(tmp_path)
+        async with client:
+            await _authenticate(client)
+            await client.post("/api/hosts", json={
+                "name": "dev", "hostname": "h", "username": "u",
+            })
+            resp = await client.put("/api/hosts/1", json={"port": "not-a-number"})
+            assert resp.status == 400
 
     asyncio.run(_run())
 
