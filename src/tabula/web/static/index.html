@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tabula</title>
+  <link rel="stylesheet" href="/static/vendor/xterm.css">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="app">
+    <div id="view-auth" class="view" style="display:none">
+      <div class="auth-card">
+        <h1>Tabula</h1>
+        <p id="auth-subtitle"></p>
+        <form id="auth-form">
+          <input type="password" id="auth-password" placeholder="Admin password" autocomplete="current-password" required minlength="8">
+          <button type="submit" id="auth-submit">Login</button>
+        </form>
+        <p id="auth-error" class="error"></p>
+      </div>
+    </div>
+
+    <div id="view-main" class="view" style="display:none">
+      <header id="toolbar">
+        <span class="brand">Tabula</span>
+        <select id="host-select">
+          <option value="">-- select host --</option>
+        </select>
+        <button id="btn-connect" disabled>Connect</button>
+        <button id="btn-disconnect" style="display:none">Disconnect</button>
+        <span id="status-indicator" class="status-dot"></span>
+        <span id="status-text">disconnected</span>
+        <div class="toolbar-spacer"></div>
+        <select id="assistant-select">
+          <option value="claude">Claude</option>
+          <option value="codex">Codex</option>
+        </select>
+        <button id="btn-launch-ai" disabled>Launch AI</button>
+        <button id="btn-mcp-log" title="Toggle MCP log">MCP Log</button>
+        <button id="btn-hosts" title="Manage hosts">Hosts</button>
+        <button id="btn-logout" title="Logout">Logout</button>
+      </header>
+
+      <div id="workspace">
+        <div id="panel-terminal" class="panel">
+          <div id="terminal-container"></div>
+        </div>
+        <div id="panel-divider" class="divider"></div>
+        <div id="panel-canvas" class="panel">
+          <div id="canvas-header">
+            <span id="canvas-title">Canvas</span>
+            <span id="canvas-mode" class="badge">prompt</span>
+          </div>
+          <div id="canvas-content">
+            <div id="canvas-empty">No artifact. AI will render content here.</div>
+            <div id="canvas-text" style="display:none"></div>
+            <div id="canvas-image" style="display:none"><img id="canvas-img" alt="artifact"></div>
+            <div id="canvas-pdf" style="display:none"></div>
+          </div>
+        </div>
+      </div>
+      <div id="mcp-log-panel" style="display:none">
+        <div class="log-header">MCP Activity</div>
+        <div id="mcp-log-entries"></div>
+      </div>
+    </div>
+
+    <div id="view-hosts" class="view" style="display:none">
+      <div class="hosts-panel">
+        <div class="hosts-header">
+          <h2>SSH Hosts</h2>
+          <button id="btn-hosts-back">Back</button>
+        </div>
+        <div id="hosts-list"></div>
+        <h3>Add Host</h3>
+        <form id="host-form">
+          <label>Name <input type="text" name="name" required></label>
+          <label>Hostname <input type="text" name="hostname" required></label>
+          <label>Port <input type="number" name="port" value="22" min="1" max="65535"></label>
+          <label>Username <input type="text" name="username" required></label>
+          <label>SSH Key Path <input type="text" name="key_path" placeholder="~/.ssh/id_ed25519"></label>
+          <label>Project Directory <input type="text" name="project_dir" value="~"></label>
+          <button type="submit">Add Host</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

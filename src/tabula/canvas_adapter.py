@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Mapping
+from typing import Callable, Mapping
 from uuid import uuid4
 
 from .events import CanvasEvent, event_to_payload, parse_event_payload
@@ -66,6 +66,7 @@ class CanvasAdapter:
         fresh_canvas: bool = False,
         poll_interval_ms: int = 250,
         env: Mapping[str, str] | None = None,
+        on_event: Callable[[CanvasEvent], None] | None = None,
     ) -> None:
         self._project_dir = project_dir.resolve()
         self._start_canvas = start_canvas
@@ -73,6 +74,7 @@ class CanvasAdapter:
         self._fresh_canvas = fresh_canvas
         self._poll_interval_ms = poll_interval_ms
         self._env = env
+        self._on_event = on_event
 
         self._lock = threading.RLock()
         self._sessions: dict[str, SessionRecord] = {}
@@ -281,6 +283,9 @@ class CanvasAdapter:
                 text=text,
             )
 
+    def handle_feedback(self, line: str) -> None:
+        self._handle_canvas_feedback_line(line)
+
     def _ensure_session(self, session_id: str) -> SessionRecord:
         if session_id not in self._sessions:
             self._sessions[session_id] = SessionRecord(state=CanvasState(), activated=False)
@@ -305,6 +310,8 @@ class CanvasAdapter:
         }
 
     def _emit_to_canvas(self, event: CanvasEvent) -> None:
+        if self._on_event is not None:
+            self._on_event(event)
         self._ensure_canvas_process()
         proc = self._canvas_proc
         if proc is None or proc.stdin is None:
@@ -327,8 +334,8 @@ class CanvasAdapter:
             self._event_to_session[event.event_id] = session_id
             if event.kind == "clear_canvas":
                 self._prune_stale_event_mappings(session_id, record)
-            self._emit_to_canvas(event)
-            return record
+        self._emit_to_canvas(event)
+        return record
 
     @staticmethod
     def _selection_payload(record: SessionRecord) -> dict[str, object]:
