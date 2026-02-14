@@ -126,11 +126,15 @@ class TabulaServeApp:
         return ws
 
     async def handle_files(self, request: web.Request) -> web.Response:
-        rel_path = request.match_info.get("path", "")
-        if not rel_path:
+        raw_path = request.match_info.get("path", "")
+        if not raw_path:
             return web.Response(status=400, text="missing path")
 
-        file_path = (self._project_dir / rel_path).resolve()
+        requested = Path(raw_path)
+        if requested.is_absolute():
+            file_path = requested.resolve()
+        else:
+            file_path = (self._project_dir / requested).resolve()
         if not file_path.is_relative_to(self._project_dir):
             return web.Response(status=403, text="access denied")
         if not file_path.is_file():

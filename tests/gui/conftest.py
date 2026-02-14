@@ -96,7 +96,14 @@ def server_info(tmp_path_factory: pytest.TempPathFactory, mock_bin_dir: Path) ->
     srv_mod.DAEMON_PORT = daemon_port
 
     original_path = os.environ.get("PATH", "")
+    original_home = os.environ.get("HOME")
     os.environ["PATH"] = f"{mock_bin_dir}:{original_path}"
+    test_home = tmp_path_factory.mktemp("e2e-home")
+    (test_home / ".bashrc").write_text(
+        f"export PATH={mock_bin_dir}:$PATH\n",
+        encoding="utf-8",
+    )
+    os.environ["HOME"] = str(test_home)
 
     data_dir = tmp_path_factory.mktemp("e2e-data")
     project_dir = tmp_path_factory.mktemp("e2e-project")
@@ -142,6 +149,10 @@ def server_info(tmp_path_factory: pytest.TempPathFactory, mock_bin_dir: Path) ->
 
     srv_mod.DAEMON_PORT = original_daemon_port
     os.environ["PATH"] = original_path
+    if original_home is None:
+        os.environ.pop("HOME", None)
+    else:
+        os.environ["HOME"] = original_home
 
 
 @pytest.fixture(scope="session")

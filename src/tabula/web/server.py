@@ -399,7 +399,7 @@ class TabulaWebApp:
         self._require_auth(request)
         session_id = request.match_info["session_id"]
         file_path = request.match_info["path"]
-        if ".." in file_path or file_path.startswith("/") or "\x00" in file_path:
+        if ".." in file_path or "\x00" in file_path:
             raise web.HTTPForbidden(text="invalid path")
         tunnel_port = self._tunnel_ports.get(session_id)
         if not tunnel_port:

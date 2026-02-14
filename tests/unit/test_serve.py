@@ -285,6 +285,37 @@ def test_file_serving_nested(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
+def test_file_serving_absolute_path_within_project_allowed(tmp_path: Path) -> None:
+    test_file = tmp_path / "abs-ok.txt"
+    test_file.write_text("absolute path content", encoding="utf-8")
+
+    async def _run() -> None:
+        client = await _make_client(tmp_path)
+        async with client:
+            resp = await client.get(f"/files/{test_file.as_posix()}")
+            assert resp.status == 200
+            body = await resp.text()
+            assert body == "absolute path content"
+
+    asyncio.run(_run())
+
+
+def test_file_serving_absolute_path_outside_project_blocked(tmp_path: Path) -> None:
+    outside = tmp_path.parent / "outside-abs.txt"
+    outside.write_text("outside", encoding="utf-8")
+
+    async def _run() -> None:
+        client = await _make_client(tmp_path)
+        async with client:
+            resp = await client.get(f"/files/{outside.as_posix()}")
+            assert resp.status == 403
+
+    try:
+        asyncio.run(_run())
+    finally:
+        outside.unlink(missing_ok=True)
+
+
 def test_file_traversal_blocked(tmp_path: Path) -> None:
     outside = tmp_path.parent / "outside_secret.txt"
     outside.write_text("secret", encoding="utf-8")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import urllib.request
 from pathlib import Path
@@ -95,6 +96,27 @@ def _send_terminal_raw(page: Page, text: str) -> None:
     )
 
 
+def _send_terminal_resize(page: Page, *, cols: int, rows: int) -> None:
+    page.evaluate(
+        """(payload) => {
+            const app = window._tabulaApp;
+            if (!app || typeof app.getState !== 'function') {
+                throw new Error('tabula app state not available');
+            }
+            const ws = app.getState().terminalWs;
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                throw new Error('terminal websocket is not open');
+            }
+            ws.send(JSON.stringify({
+                type: 'resize',
+                cols: payload.cols,
+                rows: payload.rows,
+            }));
+        }""",
+        {"cols": cols, "rows": rows},
+    )
+
+
 def _terminal_scroll_metrics(page: Page) -> dict:
     return page.evaluate(
         """() => {
@@ -122,6 +144,21 @@ def _wait_terminal_near_bottom(page: Page, max_distance: int = 32) -> None:
         arg=max_distance,
         timeout=10_000,
     )
+
+
+def _ensure_terminal_overflow(page: Page, *, min_extra_px: int = 200) -> None:
+    metrics = _terminal_scroll_metrics(page)
+    if metrics["scrollHeight"] > metrics["clientHeight"] + min_extra_px:
+        return
+    marker = "PLAYWRIGHT_SCROLL_OVERFLOW_READY"
+    _send_terminal_raw(
+        page,
+        "for i in $(seq 1 1200); do echo PLAYWRIGHT_SCROLL_FILL_$i; done; "
+        f"echo {marker}\n",
+    )
+    _wait_for_marker(page, marker)
+    metrics = _terminal_scroll_metrics(page)
+    assert metrics["scrollHeight"] > metrics["clientHeight"] + min_extra_px
 
 
 def _scroll_terminal_to_top(page: Page) -> None:
@@ -181,6 +218,39 @@ def _compose_in_terminal(page: Page, text: str) -> None:
 
 def _screenshot(page: Page, name: str, screenshot_dir: Path) -> None:
     page.screenshot(path=str(screenshot_dir / name))
+
+
+def _mcp_tool_call(daemon_url: str, msg_id: int, name: str, arguments: dict) -> None:
+    body = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments},
+        }
+    ).encode()
+    req = urllib.request.Request(
+        daemon_url,
+        method="POST",
+        headers={"Content-Type": "application/json"},
+        data=body,
+    )
+    urllib.request.urlopen(req, timeout=5)
+
+
+def _write_test_png(path: Path) -> None:
+    png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7+X1cAAAAASUVORK5CYII="
+    path.write_bytes(base64.b64decode(png_b64))
+
+
+def _write_test_pdf(path: Path) -> None:
+    path.write_bytes(
+        b"%PDF-1.4\n"
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n"
+        b"trailer\n<< /Root 1 0 R >>\n%%EOF\n"
+    )
 
 
 def test_setup_password_flow(page: Page, base_url: str, screenshot_dir: Path) -> None:
@@ -250,13 +320,13 @@ def test_terminal_resize_on_connect(
     _login(page, base_url)
     _wait_terminal_ready(page)
 
-    dims = page.evaluate(
-        "() => ({ rows: window._tabulaTerminal.rows, cols: window._tabulaTerminal.cols })"
-    )
+    expected_cols = 132
+    expected_rows = 44
+    _send_terminal_resize(page, cols=expected_cols, rows=expected_rows)
 
     _type_in_terminal(page, "stty size\n")
 
-    expected = f"{dims['rows']} {dims['cols']}"
+    expected = f"{expected_rows} {expected_cols}"
     _wait_for_marker(page, expected)
     _screenshot(page, "terminal_resize.png", screenshot_dir)
 
@@ -294,6 +364,7 @@ def test_terminal_manual_scroll_pauses_then_resumes_autofollow(
     )
     _wait_for_marker(page, initial_marker)
     _wait_terminal_near_bottom(page)
+    _ensure_terminal_overflow(page, min_extra_px=300)
 
     _scroll_terminal_to_top(page)
     top_metrics = _terminal_scroll_metrics(page)
@@ -397,6 +468,105 @@ def test_canvas_artifact_display(
     )
     expect(page.locator("#canvas-mode")).to_have_text("review")
     _screenshot(page, "canvas_artifact.png", screenshot_dir)
+
+
+def test_canvas_image_artifact_display(
+    page: Page, base_url: str, screenshot_dir: Path, server_info: dict
+) -> None:
+    _login(page, base_url)
+    _wait_terminal_ready(page)
+
+    daemon_url = f"http://127.0.0.1:{server_info['daemon_port']}/mcp"
+    image_path = Path(server_info["project_dir"]) / "e2e-image.png"
+    _write_test_png(image_path)
+
+    _mcp_tool_call(
+        daemon_url,
+        11,
+        "canvas_render_image",
+        {"session_id": "local", "title": "E2E Image Artifact", "path": str(image_path)},
+    )
+
+    page.wait_for_selector("#canvas-image", state="visible", timeout=10_000)
+    page.wait_for_function(
+        """() => {
+            const img = document.getElementById('canvas-img');
+            if (!img) return false;
+            if (!img.src.includes('/api/files/')) return false;
+            return true;
+        }""",
+        timeout=10_000,
+    )
+    file_probe = page.evaluate(
+        """() => {
+            const img = document.getElementById('canvas-img');
+            if (!img) return { ok: false, status: 0 };
+            return fetch(img.src, { method: 'GET' })
+                .then((resp) => ({ ok: resp.ok, status: resp.status }));
+        }"""
+    )
+    assert file_probe["ok"] is True and file_probe["status"] == 200
+    expect(page.locator("#canvas-mode")).to_have_text("review")
+    _screenshot(page, "canvas_image_artifact.png", screenshot_dir)
+
+
+def test_canvas_pdf_artifact_display(
+    page: Page, base_url: str, screenshot_dir: Path, server_info: dict
+) -> None:
+    _login(page, base_url)
+    _wait_terminal_ready(page)
+
+    daemon_url = f"http://127.0.0.1:{server_info['daemon_port']}/mcp"
+    pdf_path = Path(server_info["project_dir"]) / "e2e-doc.pdf"
+    _write_test_pdf(pdf_path)
+
+    _mcp_tool_call(
+        daemon_url,
+        21,
+        "canvas_render_pdf",
+        {"session_id": "local", "title": "E2E PDF Artifact", "path": str(pdf_path), "page": 0},
+    )
+
+    page.wait_for_selector("#canvas-pdf", state="visible", timeout=10_000)
+    page.wait_for_function(
+        """() => {
+            const iframe = document.querySelector('#canvas-pdf iframe');
+            return iframe && iframe.src.includes('/api/files/');
+        }""",
+        timeout=10_000,
+    )
+    expect(page.locator("#canvas-mode")).to_have_text("review")
+    _screenshot(page, "canvas_pdf_artifact.png", screenshot_dir)
+
+
+def test_canvas_clear_returns_prompt_mode(
+    page: Page, base_url: str, screenshot_dir: Path, server_info: dict
+) -> None:
+    _login(page, base_url)
+    _wait_terminal_ready(page)
+
+    daemon_url = f"http://127.0.0.1:{server_info['daemon_port']}/mcp"
+    _mcp_tool_call(
+        daemon_url,
+        31,
+        "canvas_render_text",
+        {
+            "session_id": "local",
+            "title": "To Clear",
+            "markdown_or_text": "Canvas should return to prompt.",
+        },
+    )
+    page.wait_for_selector("#canvas-text", state="visible", timeout=10_000)
+
+    _mcp_tool_call(
+        daemon_url,
+        32,
+        "canvas_clear",
+        {"session_id": "local", "reason": "e2e-reset"},
+    )
+    page.wait_for_selector("#canvas-empty", state="visible", timeout=10_000)
+    expect(page.locator("#canvas-mode")).to_have_text("prompt")
+    _screenshot(page, "canvas_clear_prompt.png", screenshot_dir)
 
 
 def test_mobile_viewport(page: Page, base_url: str, screenshot_dir: Path) -> None:
