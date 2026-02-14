@@ -78,6 +78,39 @@ def _type_in_terminal(page: Page, text: str) -> None:
     page.keyboard.type(text, delay=30)
 
 
+def _compose_in_terminal(page: Page, text: str) -> None:
+    page.click("#terminal-container")
+    page.evaluate(
+        """(text) => {
+            const ta = document.querySelector('.terminal-input-capture');
+            if (!ta) throw new Error('terminal input capture not found');
+            ta.focus();
+            if (typeof CompositionEvent === 'function') {
+                ta.dispatchEvent(new CompositionEvent('compositionstart', { data: '' }));
+                ta.value = text;
+                ta.dispatchEvent(new CompositionEvent('compositionupdate', { data: text }));
+                ta.dispatchEvent(new InputEvent('input', {
+                    data: text,
+                    inputType: 'insertCompositionText',
+                    bubbles: true,
+                    composed: true,
+                }));
+                ta.dispatchEvent(new CompositionEvent('compositionend', { data: text }));
+                ta.dispatchEvent(new InputEvent('input', {
+                    data: text,
+                    inputType: 'insertFromComposition',
+                    bubbles: true,
+                    composed: true,
+                }));
+                return;
+            }
+            ta.value = text;
+            ta.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+        }""",
+        text,
+    )
+
+
 def _screenshot(page: Page, name: str, screenshot_dir: Path) -> None:
     page.screenshot(path=str(screenshot_dir / name))
 
@@ -127,6 +160,20 @@ def test_terminal_echo(page: Page, base_url: str, screenshot_dir: Path) -> None:
     _wait_for_marker(page, "PLAYWRIGHT_MARKER")
     _assert_no_garbled_text(page)
     _screenshot(page, "terminal_echo.png", screenshot_dir)
+
+
+def test_terminal_ime_composition_commit(
+    page: Page, base_url: str, screenshot_dir: Path
+) -> None:
+    _login(page, base_url)
+    _wait_terminal_ready(page)
+
+    marker = "PLAYWRIGHT_IME_MARKER"
+    _compose_in_terminal(page, f"echo {marker}")
+    _type_in_terminal(page, "\n")
+    _wait_for_marker(page, marker)
+    _assert_no_garbled_text(page)
+    _screenshot(page, "terminal_ime_composition.png", screenshot_dir)
 
 
 def test_terminal_resize_on_connect(

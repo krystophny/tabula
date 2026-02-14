@@ -48,12 +48,12 @@ class LocalPtyTransport(PtyTransport):
                 os.environ["TERM"] = "xterm-256color"
                 shell = os.environ.get("SHELL", "/bin/bash")
                 shell_name = os.path.basename(shell)
-                # Keep an interactive prompt, but avoid shell startup files that
-                # commonly rewrite PATH and break deterministic command resolution.
+                # Start an interactive shell with normal startup files so
+                # user PATH/customizations (e.g. ~/.bashrc) apply in Web UI PTY.
                 if shell_name in {"bash", "rbash"}:
-                    args = [shell_name, "--noprofile", "--norc", "-i"]
+                    args = [shell_name, "-i"]
                 elif shell_name == "zsh":
-                    args = [shell_name, "-f", "-i"]
+                    args = [shell_name, "-i"]
                 else:
                     args = [shell_name, "-i"]
                 os.execvp(shell, args)

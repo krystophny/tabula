@@ -14,6 +14,9 @@ let cellMetrics = { width: 8.4, height: 18 };
 let stickToBottom = true;
 let dataCallback = null;
 let resizeCallback = null;
+let renderScheduled = false;
+let isComposing = false;
+let compositionCommitPending = false;
 const decoder = new TextDecoder();
 
 function keyEventToTerminalData(event) {
@@ -93,7 +96,7 @@ function scrollToBottom() {
   });
 }
 
-function render() {
+function renderNow() {
   if (!pre) return;
   pre.textContent = frameText || buffer;
   if (stickToBottom) {
@@ -101,28 +104,162 @@ function render() {
   }
 }
 
+function scheduleRender() {
+  if (renderScheduled) {
+    return;
+  }
+  renderScheduled = true;
+  requestAnimationFrame(() => {
+    renderScheduled = false;
+    renderNow();
+  });
+}
+
+function focusInputCapture() {
+  if (!inputCapture) {
+    return;
+  }
+  try {
+    inputCapture.focus({ preventScroll: true });
+  } catch {
+    inputCapture.focus();
+  }
+}
+
+function sendData(text) {
+  if (!text || !dataCallback) {
+    return;
+  }
+  dataCallback(text);
+}
+
+function flushInputCaptureValue() {
+  if (!inputCapture) {
+    return false;
+  }
+  const text = inputCapture.value;
+  if (!text) {
+    return false;
+  }
+  sendData(text);
+  inputCapture.value = "";
+  return true;
+}
+
+function scheduleCompositionFallbackCommit() {
+  queueMicrotask(() => {
+    if (!compositionCommitPending || isComposing) {
+      return;
+    }
+    compositionCommitPending = false;
+    if (flushInputCaptureValue()) {
+      focusInputCapture();
+    }
+  });
+}
+
 function onContainerScroll() {
   stickToBottom = isNearBottom();
 }
 
+function onContainerActivateInput() {
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed) {
+    return;
+  }
+  focusInputCapture();
+}
+
 function onKeyDown(event) {
+  if (event.isComposing || isComposing) {
+    return;
+  }
+
   const encoded = keyEventToTerminalData(event);
   if (encoded) {
     event.preventDefault();
-    if (dataCallback) dataCallback(encoded);
+    sendData(encoded);
     return;
   }
   if (!event.ctrlKey && !event.altKey && !event.metaKey && event.key.length === 1) {
     event.preventDefault();
-    if (dataCallback) dataCallback(event.key);
+    sendData(event.key);
   }
+}
+
+function onBeforeInput(event) {
+  const inputType = event.inputType || "";
+
+  if (event.isComposing || isComposing || inputType === "insertCompositionText") {
+    return;
+  }
+
+  if (inputType === "insertLineBreak" || inputType === "insertParagraph") {
+    event.preventDefault();
+    sendData("\r");
+    if (inputCapture) {
+      inputCapture.value = "";
+    }
+    return;
+  }
+
+  if (inputType === "deleteContentBackward") {
+    event.preventDefault();
+    sendData("\u007f");
+    if (inputCapture) {
+      inputCapture.value = "";
+    }
+    return;
+  }
+
+  if (inputType === "deleteContentForward") {
+    event.preventDefault();
+    sendData("\u001b[3~");
+    if (inputCapture) {
+      inputCapture.value = "";
+    }
+  }
+}
+
+function onInput(event) {
+  if (!inputCapture) {
+    return;
+  }
+
+  if (event.isComposing || isComposing) {
+    return;
+  }
+
+  compositionCommitPending = false;
+  if (flushInputCaptureValue()) {
+    focusInputCapture();
+  }
+}
+
+function onCompositionStart() {
+  isComposing = true;
+  compositionCommitPending = false;
+}
+
+function onCompositionEnd() {
+  isComposing = false;
+  compositionCommitPending = true;
+  scheduleCompositionFallbackCommit();
 }
 
 function onPaste(event) {
   const pasted = event.clipboardData.getData("text");
   if (!pasted) return;
   event.preventDefault();
-  if (dataCallback) dataCallback(pasted);
+  sendData(pasted);
+}
+
+function onInputBlur() {
+  if (!inputCapture || isComposing) {
+    return;
+  }
+  inputCapture.value = "";
+  compositionCommitPending = false;
 }
 
 export function initTerminal(containerEl) {
@@ -133,6 +270,9 @@ export function initTerminal(containerEl) {
   stickToBottom = true;
   dataCallback = null;
   resizeCallback = null;
+  renderScheduled = false;
+  isComposing = false;
+  compositionCommitPending = false;
 
   pre = document.createElement("pre");
   pre.className = "terminal-text";
@@ -163,27 +303,20 @@ export function initTerminal(containerEl) {
   container.addEventListener("scroll", onContainerScroll);
   container.addEventListener("keydown", onKeyDown);
   container.addEventListener("paste", onPaste);
-  container.addEventListener("click", () => {
-    if (window.getSelection().isCollapsed) {
-      inputCapture.focus();
-      inputCapture.value = "";
-    }
-  });
+  container.addEventListener("pointerdown", onContainerActivateInput);
+  container.addEventListener("click", onContainerActivateInput);
 
-  inputCapture.addEventListener("input", () => {
-    const text = inputCapture.value;
-    if (text && dataCallback) {
-      dataCallback(text);
-    }
-    inputCapture.value = "";
-  });
-  inputCapture.addEventListener("blur", () => { inputCapture.value = ""; });
+  inputCapture.addEventListener("beforeinput", onBeforeInput);
+  inputCapture.addEventListener("input", onInput);
+  inputCapture.addEventListener("compositionstart", onCompositionStart);
+  inputCapture.addEventListener("compositionend", onCompositionEnd);
+  inputCapture.addEventListener("blur", onInputBlur);
 
   measureTerminalSize();
 
   resizeObserver = new ResizeObserver(() => {
     measureTerminalSize();
-    render();
+    scheduleRender();
   });
   resizeObserver.observe(container);
 
@@ -195,6 +328,7 @@ export function initTerminal(containerEl) {
     onResize(cb) { resizeCallback = cb; },
   };
 
+  focusInputCapture();
   return window._tabulaTerminal;
 }
 
@@ -203,10 +337,19 @@ export function destroyTerminal() {
     resizeObserver.disconnect();
     resizeObserver = null;
   }
+  if (inputCapture) {
+    inputCapture.removeEventListener("beforeinput", onBeforeInput);
+    inputCapture.removeEventListener("input", onInput);
+    inputCapture.removeEventListener("compositionstart", onCompositionStart);
+    inputCapture.removeEventListener("compositionend", onCompositionEnd);
+    inputCapture.removeEventListener("blur", onInputBlur);
+  }
   if (container) {
     container.removeEventListener("scroll", onContainerScroll);
     container.removeEventListener("keydown", onKeyDown);
     container.removeEventListener("paste", onPaste);
+    container.removeEventListener("pointerdown", onContainerActivateInput);
+    container.removeEventListener("click", onContainerActivateInput);
     container.innerHTML = "";
   }
   container = null;
@@ -217,6 +360,9 @@ export function destroyTerminal() {
   frameText = "";
   dataCallback = null;
   resizeCallback = null;
+  renderScheduled = false;
+  isComposing = false;
+  compositionCommitPending = false;
   window._tabulaTerminal = null;
 }
 
@@ -234,7 +380,7 @@ export function writeToTerminal(data) {
         window._tabulaTerminal.rows = rows;
       }
     }
-    render();
+    scheduleRender();
     return;
   }
 
@@ -255,5 +401,5 @@ export function writeToTerminal(data) {
   if (buffer.length > MAX_BUFFER_SIZE) {
     buffer = buffer.slice(buffer.length - MAX_BUFFER_SIZE);
   }
-  render();
+  scheduleRender();
 }

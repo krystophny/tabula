@@ -405,6 +405,18 @@ class TabulaWebApp:
             await site.start()
         except OSError as exc:
             await runner.cleanup()
+            healthy, project_dir = await self._probe_existing_local_serve()
+            if healthy:
+                requested_dir = self._local_project_dir.resolve()
+                if project_dir is not None and Path(project_dir).resolve() != requested_dir:
+                    raise RuntimeError(
+                        f"port {DAEMON_PORT} already in use by tabula serve for {project_dir}; "
+                        f"expected {requested_dir}"
+                    ) from exc
+                _log.info("reusing existing local serve on port %d", DAEMON_PORT)
+                self._tunnel_ports[LOCAL_SESSION_ID] = DAEMON_PORT
+                self._start_canvas_relay(LOCAL_SESSION_ID, DAEMON_PORT)
+                return
             _log.error("failed to start local serve on port %d: %s", DAEMON_PORT, exc)
             raise RuntimeError(
                 f"port {DAEMON_PORT} already in use; is another tabula serve running?"
@@ -412,6 +424,23 @@ class TabulaWebApp:
         self._local_serve_runner = runner
         self._tunnel_ports[LOCAL_SESSION_ID] = DAEMON_PORT
         self._start_canvas_relay(LOCAL_SESSION_ID, DAEMON_PORT)
+
+    @staticmethod
+    async def _probe_existing_local_serve() -> tuple[bool, str | None]:
+        health_url = f"http://127.0.0.1:{DAEMON_PORT}/health"
+        try:
+            async with aiohttp.ClientSession() as cs:
+                async with cs.get(health_url, timeout=aiohttp.ClientTimeout(total=2)) as resp:
+                    if resp.status != 200:
+                        return False, None
+                    payload = await resp.json()
+        except Exception:
+            return False, None
+
+        if not isinstance(payload, dict) or payload.get("status") != "ok":
+            return False, None
+        project_dir = payload.get("project_dir")
+        return True, project_dir if isinstance(project_dir, str) else None
 
     async def _on_shutdown(self, app: web.Application) -> None:
         for task in self._canvas_relay_tasks.values():

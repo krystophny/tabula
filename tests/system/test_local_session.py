@@ -6,9 +6,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import aiohttp
+from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
 import tabula.web.server as _server_mod
+from tabula.serve import TabulaServeApp
 from tabula.web.server import LOCAL_SESSION_ID, TabulaWebApp
 
 from .conftest import free_port
@@ -69,6 +71,35 @@ def test_embedded_serve_starts(tmp_path: Path) -> None:
                     assert resp.status == 200
                     data = await resp.json()
                     assert data["status"] == "ok"
+
+    asyncio.run(_run())
+
+
+def test_reuses_existing_local_serve(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    port = free_port()
+
+    async def _run() -> None:
+        with patch.object(_server_mod, "DAEMON_PORT", port):
+            serve_runner = web.AppRunner(TabulaServeApp(project_dir=project_dir).create_app())
+            await serve_runner.setup()
+            site = web.TCPSite(serve_runner, "127.0.0.1", port)
+            await site.start()
+            try:
+                client = await _make_web_client(data_dir, project_dir)
+                async with client:
+                    await _authenticate(client)
+                    resp = await client.get("/api/sessions")
+                    assert resp.status == 200
+                    data = await resp.json()
+                    local = data["local_session"]
+                    assert local["session_id"] == LOCAL_SESSION_ID
+                    assert local["project_dir"] == str(project_dir)
+                    assert str(port) in local["mcp_url"]
+            finally:
+                await serve_runner.cleanup()
 
     asyncio.run(_run())
 
