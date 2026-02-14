@@ -303,7 +303,6 @@ export function initTerminal(containerEl) {
   container.addEventListener("scroll", onContainerScroll);
   container.addEventListener("keydown", onKeyDown);
   container.addEventListener("paste", onPaste);
-  container.addEventListener("pointerdown", onContainerActivateInput);
   container.addEventListener("click", onContainerActivateInput);
 
   inputCapture.addEventListener("beforeinput", onBeforeInput);
@@ -348,7 +347,6 @@ export function destroyTerminal() {
     container.removeEventListener("scroll", onContainerScroll);
     container.removeEventListener("keydown", onKeyDown);
     container.removeEventListener("paste", onPaste);
-    container.removeEventListener("pointerdown", onContainerActivateInput);
     container.removeEventListener("click", onContainerActivateInput);
     container.innerHTML = "";
   }

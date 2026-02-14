@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 from aiohttp import web
@@ -272,5 +273,50 @@ def test_sessions_list_with_local(tmp_path: Path) -> None:
             assert local["session_id"] == LOCAL_SESSION_ID
             assert local["project_dir"] == str(tmp_path)
             assert "mcp_url" in local
+
+    asyncio.run(_run())
+
+
+def test_canvas_snapshot_no_tunnel_returns_404(tmp_path: Path) -> None:
+    async def _run() -> None:
+        client = await _make_client(tmp_path)
+        async with client:
+            await _authenticate(client)
+            resp = await client.get("/api/canvas/s1/snapshot")
+            assert resp.status == 404
+
+    asyncio.run(_run())
+
+
+def test_canvas_snapshot_returns_latest_event(tmp_path: Path) -> None:
+    async def _run() -> None:
+        app_obj = TabulaWebApp(data_dir=tmp_path)
+        app = app_obj.create_app()
+        token = "test-tok"
+        session_id = "s1"
+        app_obj._sessions[token] = {"role": "admin"}
+        app_obj._tunnel_ports[session_id] = 9420
+
+        async def _fake_snapshot(*, tunnel_port: int, session_id: str) -> dict[str, object]:
+            assert tunnel_port == 9420
+            assert session_id == "s1"
+            return {
+                "status": {"mode": "review", "active": True},
+                "event": {"event_id": "e1", "kind": "text_artifact", "title": "T", "text": "hello"},
+            }
+
+        app_obj._canvas_snapshot_for_tunnel = _fake_snapshot  # type: ignore[method-assign]
+
+        req = make_mocked_request(
+            "GET", "/api/canvas/s1/snapshot",
+            match_info={"session_id": "s1"},
+            headers={"Cookie": f"tabula_session={token}"},
+            app=app,
+        )
+        resp = await app_obj.handle_canvas_snapshot(req)
+        assert resp.status == 200
+        payload = json.loads(resp.body.decode("utf-8"))
+        assert payload["status"]["mode"] == "review"
+        assert payload["event"]["event_id"] == "e1"
 
     asyncio.run(_run())

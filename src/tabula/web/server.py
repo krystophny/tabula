@@ -332,6 +332,69 @@ class TabulaWebApp:
 
         return ws
 
+    async def _mcp_tools_call(self, *, tunnel_port: int, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments},
+        }
+        url = f"http://127.0.0.1:{tunnel_port}/mcp"
+        try:
+            async with aiohttp.ClientSession() as cs:
+                async with cs.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status != 200:
+                        raise web.HTTPBadGateway(text=f"MCP call failed: HTTP {resp.status}")
+                    body = await resp.json()
+        except web.HTTPException:
+            raise
+        except Exception as exc:
+            raise web.HTTPBadGateway(text=f"MCP call failed: {exc}")
+
+        if not isinstance(body, dict):
+            raise web.HTTPBadGateway(text="MCP call failed: invalid response payload")
+        error = body.get("error")
+        if isinstance(error, dict):
+            message = error.get("message")
+            raise web.HTTPBadGateway(text=f"MCP error: {message or 'unknown'}")
+        result = body.get("result")
+        if not isinstance(result, dict):
+            raise web.HTTPBadGateway(text="MCP call failed: missing result")
+        structured = result.get("structuredContent")
+        if not isinstance(structured, dict):
+            raise web.HTTPBadGateway(text="MCP call failed: missing structuredContent")
+        return structured
+
+    async def _canvas_snapshot_for_tunnel(self, *, tunnel_port: int, session_id: str) -> dict[str, Any]:
+        status = await self._mcp_tools_call(
+            tunnel_port=tunnel_port,
+            name="canvas_status",
+            arguments={"session_id": session_id},
+        )
+        history = await self._mcp_tools_call(
+            tunnel_port=tunnel_port,
+            name="canvas_history",
+            arguments={"session_id": session_id, "limit": 1},
+        )
+
+        event: dict[str, Any] | None = None
+        events_obj = history.get("events")
+        if isinstance(events_obj, list) and events_obj:
+            candidate = events_obj[-1]
+            if isinstance(candidate, dict):
+                event = candidate
+
+        return {"status": status, "event": event}
+
+    async def handle_canvas_snapshot(self, request: web.Request) -> web.Response:
+        self._require_auth(request)
+        session_id = request.match_info["session_id"]
+        tunnel_port = self._tunnel_ports.get(session_id)
+        if tunnel_port is None:
+            raise web.HTTPNotFound(text="no active tunnel for session")
+        snapshot = await self._canvas_snapshot_for_tunnel(tunnel_port=tunnel_port, session_id=session_id)
+        return web.json_response(snapshot)
+
     async def handle_file_proxy(self, request: web.Request) -> web.Response:
         self._require_auth(request)
         session_id = request.match_info["session_id"]
@@ -488,6 +551,7 @@ class TabulaWebApp:
 
         app.router.add_get("/ws/terminal/{session_id}", self.handle_terminal_ws)
         app.router.add_get("/ws/canvas/{session_id}", self.handle_canvas_ws)
+        app.router.add_get("/api/canvas/{session_id}/snapshot", self.handle_canvas_snapshot)
         app.router.add_get("/api/files/{session_id}/{path:.+}", self.handle_file_proxy)
 
         if self._static_dir.is_dir():

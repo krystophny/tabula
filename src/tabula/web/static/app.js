@@ -220,6 +220,10 @@ function openCanvasWs() {
   const ws = new WebSocket(wsUrl);
   state.canvasWs = ws;
 
+  ws.onopen = () => {
+    void loadCanvasSnapshot();
+  };
+
   ws.onmessage = (event) => {
     try {
       const payload = JSON.parse(event.data);
@@ -235,6 +239,25 @@ function openCanvasWs() {
       setTimeout(() => openCanvasWs(), 3000);
     }
   };
+}
+
+async function loadCanvasSnapshot() {
+  if (!state.sessionId) return;
+  try {
+    const resp = await fetch(`/api/canvas/${encodeURIComponent(state.sessionId)}/snapshot`);
+    if (!resp.ok) return;
+    const payload = await resp.json();
+    if (payload && payload.event) {
+      logEvent('in', payload.event);
+      renderCanvas(payload.event);
+      return;
+    }
+    if (payload && payload.status && payload.status.mode === 'prompt') {
+      clearCanvas();
+    }
+  } catch (e) {
+    console.error('canvas snapshot fetch failed:', e);
+  }
 }
 
 async function launchAI() {
