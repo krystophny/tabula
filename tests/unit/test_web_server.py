@@ -40,6 +40,14 @@ def test_setup_check_initial(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
+def test_normalize_terminal_size_clamps_invalid_values(tmp_path: Path) -> None:
+    app_obj = TabulaWebApp(data_dir=tmp_path)
+    assert app_obj._normalize_terminal_size("x", None) == (120, 40)
+    assert app_obj._normalize_terminal_size(0, 0) == (40, 10)
+    assert app_obj._normalize_terminal_size(9999, 9999) == (500, 200)
+    app_obj.store.close()
+
+
 def test_setup_password(tmp_path: Path) -> None:
     async def _run() -> None:
         client = await _make_client(tmp_path)

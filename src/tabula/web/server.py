@@ -74,6 +74,20 @@ class TabulaWebApp:
             raise web.HTTPUnauthorized(text="unauthorized")
 
     @staticmethod
+    def _normalize_terminal_size(cols: object, rows: object) -> tuple[int, int]:
+        try:
+            parsed_cols = int(cols)
+        except (TypeError, ValueError):
+            parsed_cols = 120
+        try:
+            parsed_rows = int(rows)
+        except (TypeError, ValueError):
+            parsed_rows = 40
+        safe_cols = max(40, min(500, parsed_cols))
+        safe_rows = max(10, min(200, parsed_rows))
+        return safe_cols, safe_rows
+
+    @staticmethod
     def _parse_host_id(request: web.Request) -> int:
         try:
             return int(request.match_info["id"])
@@ -258,8 +272,9 @@ class TabulaWebApp:
                         transport.write(msg.data.encode("utf-8"))
                         continue
                     if cmd.get("type") == "resize":
-                        cols = int(cmd.get("cols", 120))
-                        rows = int(cmd.get("rows", 40))
+                        cols, rows = self._normalize_terminal_size(
+                            cmd.get("cols", 120), cmd.get("rows", 40),
+                        )
                         transport.resize(cols, rows)
                         frame = terminal.resize(cols=cols, rows=rows)
                         await ws.send_str(json.dumps(frame.to_payload()))

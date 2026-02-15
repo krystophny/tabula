@@ -415,6 +415,13 @@ function openTerminal() {
   state.terminalWs = ws;
 
   ws.onopen = () => {
+    const sendResize = () => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      const safeCols = Math.max(40, Number(term.cols) || 120);
+      const safeRows = Math.max(10, Number(term.rows) || 40);
+      ws.send(JSON.stringify({ type: 'resize', cols: safeCols, rows: safeRows }));
+    };
+
     term.onData(data => {
       if (ws.readyState === WebSocket.OPEN) ws.send(data);
     });
@@ -423,6 +430,10 @@ function openTerminal() {
         ws.send(JSON.stringify({ type: 'resize', cols, rows }));
       }
     });
+    // Force an initial resize so stale PTY dimensions from prior sessions
+    // cannot leak into a newly attached browser terminal.
+    sendResize();
+    setTimeout(sendResize, 100);
     syncMobileTerminalUi();
   };
 

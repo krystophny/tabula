@@ -413,6 +413,8 @@ def test_launch_codex(
     page.select_option("#assistant-select", "codex")
     page.click("#btn-launch-ai")
     _wait_for_marker(page, "MOCK_CODEX_OK")
+    _type_in_terminal(page, "echo PLAYWRIGHT_CODEX_INPUT_OK\n")
+    _wait_for_marker(page, "PLAYWRIGHT_CODEX_INPUT_OK")
     _assert_no_garbled_text(page)
     _screenshot(page, "launch_codex.png", screenshot_dir)
 
