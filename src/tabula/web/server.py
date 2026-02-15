@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import json
 import logging
 import secrets
@@ -8,12 +9,13 @@ import shlex
 import sqlite3
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import aiohttp
 from aiohttp import web
 
 from ..serve import broadcast_ws
-from .pty import LocalPtyTransport, PtyTransport, SshPtyTransport
+from .pty import LocalPtyTransport, PtyTransport, PtydTransport, SshPtyTransport
 from .ssh import SSHService
 from .store import Store
 from .terminal_emulator import TerminalSession
@@ -30,12 +32,36 @@ DAEMON_HEALTH_POLL_INTERVAL = 0.5
 LOCAL_SESSION_ID = "local"
 
 
+def _extract_port_from_url(url: str) -> int | None:
+    parsed = urlsplit(url)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    if parsed.port is not None:
+        return parsed.port
+    if parsed.scheme == "https":
+        return 443
+    if parsed.scheme == "http":
+        return 80
+    return None
+
+
 class TabulaWebApp:
-    def __init__(self, *, data_dir: Path, local_project_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        data_dir: Path,
+        local_project_dir: Path | None = None,
+        local_mcp_url: str | None = None,
+        ptyd_url: str | None = None,
+        dev_runtime: bool = False,
+    ) -> None:
         self._data_dir = data_dir.resolve()
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._store = Store(self._data_dir / "tabula.db")
         self._ssh = SSHService()
+        self._boot_id = secrets.token_hex(8)
+        self._started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        self._dev_runtime = dev_runtime
         self._terminal_ws: dict[str, web.WebSocketResponse] = {}
         self._canvas_ws: dict[str, set[web.WebSocketResponse]] = {}
         self._tunnel_ports: dict[str, int] = {}
@@ -43,6 +69,8 @@ class TabulaWebApp:
         self._remote_canvas_ws: dict[str, aiohttp.ClientWebSocketResponse] = {}
         self._static_dir = Path(__file__).parent / "static"
         self._local_project_dir = local_project_dir
+        self._local_mcp_url = local_mcp_url
+        self._ptyd_url = ptyd_url
         self._local_serve_app = None
         self._local_serve_runner: web.AppRunner | None = None
 
@@ -220,6 +248,16 @@ class TabulaWebApp:
 
     async def _create_pty_transport(self, session_id: str) -> PtyTransport:
         if session_id == LOCAL_SESSION_ID and self._local_project_dir:
+            if self._ptyd_url:
+                try:
+                    return await PtydTransport.open(
+                        ptyd_base_url=self._ptyd_url,
+                        session_id=session_id,
+                        cwd=str(self._local_project_dir),
+                    )
+                except Exception as exc:
+                    _log.error("failed to connect to PTY daemon %s: %s", self._ptyd_url, exc)
+                    raise web.HTTPBadGateway(text="local PTY daemon unavailable")
             return await LocalPtyTransport.open(str(self._local_project_dir))
         ssh_session = self._ssh.get_session(session_id)
         if ssh_session is None:
@@ -463,10 +501,11 @@ class TabulaWebApp:
         self._require_auth(request)
         result: dict[str, Any] = {"sessions": self._ssh.list_sessions()}
         if self._local_project_dir:
+            mcp_url = self._local_mcp_url or f"http://127.0.0.1:{DAEMON_PORT}/mcp"
             result["local_session"] = {
                 "session_id": LOCAL_SESSION_ID,
                 "project_dir": str(self._local_project_dir),
-                "mcp_url": f"http://127.0.0.1:{DAEMON_PORT}/mcp",
+                "mcp_url": mcp_url,
             }
         return web.json_response(result)
 
@@ -486,6 +525,18 @@ class TabulaWebApp:
     async def _start_local_serve(self, app: web.Application) -> None:
         if self._local_project_dir is None:
             return
+        if self._local_mcp_url:
+            healthy, _project_dir = await self._probe_mcp_url(self._local_mcp_url)
+            if not healthy:
+                raise RuntimeError(f"configured local MCP URL is unavailable: {self._local_mcp_url}")
+            port = _extract_port_from_url(self._local_mcp_url)
+            if port is None:
+                raise RuntimeError(f"failed to parse port from local MCP URL: {self._local_mcp_url}")
+            self._tunnel_ports[LOCAL_SESSION_ID] = port
+            self._start_canvas_relay(LOCAL_SESSION_ID, port)
+            _log.info("using external local MCP URL: %s", self._local_mcp_url)
+            return
+
         from ..serve import TabulaServeApp
         self._local_serve_app = TabulaServeApp(project_dir=self._local_project_dir)
         serve_app = self._local_serve_app.create_app()
@@ -533,6 +584,26 @@ class TabulaWebApp:
         project_dir = payload.get("project_dir")
         return True, project_dir if isinstance(project_dir, str) else None
 
+    @staticmethod
+    async def _probe_mcp_url(mcp_url: str) -> tuple[bool, str | None]:
+        parsed = urlsplit(mcp_url)
+        if not parsed.scheme or not parsed.netloc:
+            return False, None
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        health_url = f"{base}/health"
+        try:
+            async with aiohttp.ClientSession() as cs:
+                async with cs.get(health_url, timeout=aiohttp.ClientTimeout(total=2)) as resp:
+                    if resp.status != 200:
+                        return False, None
+                    payload = await resp.json()
+        except Exception:
+            return False, None
+        if not isinstance(payload, dict) or payload.get("status") != "ok":
+            return False, None
+        project_dir = payload.get("project_dir")
+        return True, project_dir if isinstance(project_dir, str) else None
+
     async def _on_shutdown(self, app: web.Application) -> None:
         for task in self._canvas_relay_tasks.values():
             task.cancel()
@@ -552,6 +623,20 @@ class TabulaWebApp:
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'"
+        )
+
+    async def handle_runtime(self, request: web.Request) -> web.Response:
+        if not self._check_auth(request):
+            raise web.HTTPUnauthorized(text="unauthorized")
+        return web.json_response(
+            {
+                "boot_id": self._boot_id,
+                "started_at": self._started_at,
+                "version": "0.2.0",
+                "dev_mode": self._dev_runtime,
+                "ptyd_url": self._ptyd_url,
+                "local_mcp_url": self._local_mcp_url,
+            }
         )
 
     def create_app(self) -> web.Application:
@@ -575,6 +660,7 @@ class TabulaWebApp:
         app.router.add_post("/api/connect", self.handle_connect)
         app.router.add_post("/api/disconnect", self.handle_disconnect)
         app.router.add_get("/api/sessions", self.handle_sessions_list)
+        app.router.add_get("/api/runtime", self.handle_runtime)
 
         app.router.add_post("/api/daemon/start", self.handle_start_daemon)
 
@@ -596,10 +682,19 @@ def run_web(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     local_project_dir: Path | None = None,
+    local_mcp_url: str | None = None,
+    ptyd_url: str | None = None,
+    dev_runtime: bool = False,
 ) -> int:
     from ..serve import _listen_urls
 
-    web_app = TabulaWebApp(data_dir=data_dir, local_project_dir=local_project_dir)
+    web_app = TabulaWebApp(
+        data_dir=data_dir,
+        local_project_dir=local_project_dir,
+        local_mcp_url=local_mcp_url,
+        ptyd_url=ptyd_url,
+        dev_runtime=dev_runtime,
+    )
     app = web_app.create_app()
     urls = _listen_urls(host, port)
     print("tabula web listening on:", flush=True)
@@ -607,7 +702,9 @@ def run_web(
         print(f"  {url}", flush=True)
     if local_project_dir:
         print(f"  local project: {local_project_dir}", flush=True)
-        print(f"  local MCP:     http://127.0.0.1:{DAEMON_PORT}/mcp", flush=True)
+        print(f"  local MCP:     {local_mcp_url or f'http://127.0.0.1:{DAEMON_PORT}/mcp'}", flush=True)
+    if ptyd_url:
+        print(f"  local PTYD:    {ptyd_url}", flush=True)
     try:
         web.run_app(app, host=host, port=port, print=None)
     except KeyboardInterrupt:

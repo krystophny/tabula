@@ -27,6 +27,8 @@ tabula run --assistant claude --project-dir . "your prompt"
 tabula run --project-dir . --mcp-url http://127.0.0.1:9420/mcp "prompt via HTTP MCP"
 tabula serve --project-dir . --host 127.0.0.1 --port 9420
 tabula web --data-dir ~/.tabula-web --project-dir . --host 127.0.0.1 --port 8420
+tabula web --project-dir . --local-mcp-url http://127.0.0.1:9420/mcp --ptyd-url http://127.0.0.1:9333 --dev-runtime
+tabula ptyd --data-dir ~/.local/share/tabula-ptyd --host 127.0.0.1 --port 9333
 tabula mcp-http-bridge --mcp-url http://127.0.0.1:9420/mcp
 tabula canvas
 tabula schema
@@ -36,6 +38,25 @@ Notes:
 - `tabula run` defaults to `codex` and configures MCP inline.
 - stdio mode always requests a fresh canvas process (`--fresh-canvas`) for each run.
 - when no `DISPLAY`/`WAYLAND_DISPLAY` is available, canvas runtime falls back to headless mode.
+- `tabula web --dev-runtime` enables `/api/runtime` metadata used by browser auto-reload.
+
+## Dev Hot Reload (Systemd User Units)
+
+Unit templates and install helper live in:
+
+- `deploy/systemd/user/tabula-web.service`
+- `deploy/systemd/user/tabula-mcp.service`
+- `deploy/systemd/user/tabula-ptyd.service`
+- `deploy/systemd/user/tabula-dev-watch.service`
+- `scripts/install-tabula-user-units.sh`
+
+Install/enable:
+
+```bash
+./scripts/install-tabula-user-units.sh
+```
+
+This setup keeps local shell sessions in `tabula-ptyd` so `tabula-web` restarts do not kill your browser terminal session, while MCP code reload is picked up via `tabula-mcp` restart.
 
 ## Web UI Auth + Session Persistence
 

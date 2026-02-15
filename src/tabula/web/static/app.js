@@ -15,6 +15,10 @@ const state = {
   localSession: null,
   mcpUrl: null,
   mobileTerminalMinimized: false,
+  terminalReconnectAttempt: 0,
+  terminalReconnectTimer: null,
+  runtimeBootId: null,
+  runtimePollTimer: null,
 };
 
 export function getState() { return state; }
@@ -35,6 +39,66 @@ const MOBILE_KEY_PAYLOADS = {
 function showView(viewId) {
   document.querySelectorAll('.view').forEach(v => v.style.display = 'none');
   document.getElementById(viewId).style.display = '';
+}
+
+function clearTerminalReconnectTimer() {
+  if (state.terminalReconnectTimer) {
+    clearTimeout(state.terminalReconnectTimer);
+    state.terminalReconnectTimer = null;
+  }
+}
+
+function scheduleTerminalReconnect() {
+  if (!state.connected || !state.sessionId) return;
+  if (state.terminalReconnectTimer) return;
+  const attempt = Math.max(0, Number(state.terminalReconnectAttempt) || 0);
+  const delayMs = Math.min(5000, 500 + attempt * 400);
+  state.terminalReconnectTimer = setTimeout(() => {
+    state.terminalReconnectTimer = null;
+    if (!state.connected || !state.sessionId || state.terminalWs) return;
+    state.terminalReconnectAttempt = attempt + 1;
+    openTerminal();
+  }, delayMs);
+}
+
+function stopRuntimePolling() {
+  if (state.runtimePollTimer) {
+    clearInterval(state.runtimePollTimer);
+    state.runtimePollTimer = null;
+  }
+}
+
+async function pollRuntimeStatus() {
+  try {
+    const resp = await fetch('/api/runtime');
+    if (!resp.ok) return;
+    const payload = await resp.json();
+    if (!payload || typeof payload !== 'object') return;
+    if (payload.dev_mode !== true) {
+      stopRuntimePolling();
+      state.runtimeBootId = null;
+      return;
+    }
+    const bootId = typeof payload.boot_id === 'string' ? payload.boot_id : null;
+    if (!bootId) return;
+    if (!state.runtimeBootId) {
+      state.runtimeBootId = bootId;
+      return;
+    }
+    if (state.runtimeBootId !== bootId) {
+      location.reload();
+    }
+  } catch (_) {
+    // ignore transient errors while service restarts
+  }
+}
+
+function startRuntimePolling() {
+  if (state.runtimePollTimer) return;
+  void pollRuntimeStatus();
+  state.runtimePollTimer = setInterval(() => {
+    void pollRuntimeStatus();
+  }, 1500);
 }
 
 function loadSavedRemoteSession() {
@@ -196,6 +260,7 @@ function handleMobileTerminalKey(event) {
 export function showMain() {
   showView('view-main');
   syncMobileTerminalUi();
+  startRuntimePolling();
   if (state.localSession) {
     clearSavedRemoteSession();
     connectLocalSession();
@@ -391,6 +456,10 @@ async function disconnect() {
   state.hostId = null;
   state.connected = false;
   state.mobileTerminalMinimized = false;
+  state.terminalReconnectAttempt = 0;
+  clearTerminalReconnectTimer();
+  stopRuntimePolling();
+  state.runtimeBootId = null;
   clearSavedRemoteSession();
   setStatus('disconnected', '');
   document.getElementById('btn-connect').style.display = '';
@@ -403,8 +472,12 @@ async function disconnect() {
 }
 
 function openTerminal() {
+  if (state.terminalWs && (state.terminalWs.readyState === WebSocket.OPEN || state.terminalWs.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
   const container = document.getElementById('terminal-container');
-  const term = initTerminal(container);
+  const term = terminalApi() || initTerminal(container);
+  clearTerminalReconnectTimer();
   updateCtrlButtonState(false);
   syncMobileTerminalUi();
 
@@ -415,6 +488,7 @@ function openTerminal() {
   state.terminalWs = ws;
 
   ws.onopen = () => {
+    state.terminalReconnectAttempt = 0;
     const sendResize = () => {
       if (ws.readyState !== WebSocket.OPEN) return;
       const safeCols = Math.max(40, Number(term.cols) || 120);
@@ -453,9 +527,10 @@ function openTerminal() {
   };
 
   ws.onclose = () => {
+    state.terminalWs = null;
     syncMobileTerminalUi();
     if (state.connected) {
-      writeToTerminal('\r\n[connection closed]\r\n');
+      scheduleTerminalReconnect();
     }
   };
 }
@@ -587,33 +662,33 @@ function initDivider() {
 }
 
 async function init() {
-  initAuth();
-  initHostsView();
-  initDivider();
-  initMcpLog();
-  initCanvasControls();
-
-  document.getElementById('host-select').addEventListener('change', (e) => {
-    document.getElementById('btn-connect').disabled = !e.target.value;
-  });
-  document.getElementById('btn-connect').addEventListener('click', connect);
-  document.getElementById('btn-disconnect').addEventListener('click', disconnect);
-  document.getElementById('btn-launch-ai').addEventListener('click', launchAI);
-  document.getElementById('btn-hosts').addEventListener('click', showHosts);
-  document.getElementById('btn-logout').addEventListener('click', logout);
-  document.getElementById('btn-terminal-minimize').addEventListener('click', () => setTerminalMinimized(true));
-  document.getElementById('btn-terminal-pop').addEventListener('click', () => setTerminalMinimized(false));
-  document.querySelectorAll('#mobile-keybar [data-terminal-key]').forEach((btn) => {
-    btn.addEventListener('click', handleMobileTerminalKey);
-  });
-  window.addEventListener('resize', syncMobileTerminalUi);
-  window.addEventListener('orientationchange', syncMobileTerminalUi);
-  window.addEventListener('tabula-terminal-ctrl', (event) => {
-    updateCtrlButtonState(Boolean(event?.detail?.armed));
-  });
-  syncMobileTerminalUi();
-
   try {
+    initAuth();
+    initHostsView();
+    initDivider();
+    initMcpLog();
+    initCanvasControls();
+
+    document.getElementById('host-select').addEventListener('change', (e) => {
+      document.getElementById('btn-connect').disabled = !e.target.value;
+    });
+    document.getElementById('btn-connect').addEventListener('click', connect);
+    document.getElementById('btn-disconnect').addEventListener('click', disconnect);
+    document.getElementById('btn-launch-ai').addEventListener('click', launchAI);
+    document.getElementById('btn-hosts').addEventListener('click', showHosts);
+    document.getElementById('btn-logout').addEventListener('click', logout);
+    document.getElementById('btn-terminal-minimize').addEventListener('click', () => setTerminalMinimized(true));
+    document.getElementById('btn-terminal-pop').addEventListener('click', () => setTerminalMinimized(false));
+    document.querySelectorAll('#mobile-keybar [data-terminal-key]').forEach((btn) => {
+      btn.addEventListener('click', handleMobileTerminalKey);
+    });
+    window.addEventListener('resize', syncMobileTerminalUi);
+    window.addEventListener('orientationchange', syncMobileTerminalUi);
+    window.addEventListener('tabula-terminal-ctrl', (event) => {
+      updateCtrlButtonState(Boolean(event?.detail?.armed));
+    });
+    syncMobileTerminalUi();
+
     const resp = await fetch('/api/setup');
     const data = await resp.json();
     if (data.local_session) {
@@ -627,6 +702,11 @@ async function init() {
       syncMobileTerminalUi();
     }
   } catch (e) {
+    console.error('tabula web init failed:', e);
+    const errorEl = document.getElementById('auth-error');
+    if (errorEl) {
+      errorEl.textContent = 'UI init error. Try hard-refreshing the page.';
+    }
     showAuth();
     syncMobileTerminalUi();
   }

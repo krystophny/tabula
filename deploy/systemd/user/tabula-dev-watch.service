@@ -1,0 +1,14 @@
+[Unit]
+Description=Watch Tabula source for dev reload
+After=tabula-mcp.service tabula-web.service
+Wants=tabula-mcp.service tabula-web.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/code/tabula
+ExecStart=%h/code/tabula/scripts/tabula-dev-watch.sh
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=default.target

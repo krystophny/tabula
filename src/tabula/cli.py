@@ -68,6 +68,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p_web.add_argument("--project-dir", type=Path, default=Path("."), help="local project dir for tabula serve (no SSH needed)")
     p_web.add_argument("--host", default="127.0.0.1")
     p_web.add_argument("--port", type=int, default=8420)
+    p_web.add_argument("--local-mcp-url", default=None, help="external local MCP URL (e.g. http://127.0.0.1:9420/mcp)")
+    p_web.add_argument("--ptyd-url", default=None, help="external PTY daemon base URL (e.g. http://127.0.0.1:9333)")
+    p_web.add_argument("--dev-runtime", action="store_true", help="enable runtime metadata endpoint for hot reload")
+
+    p_ptyd = sub.add_parser("ptyd", help="launch persistent local PTY daemon")
+    p_ptyd.add_argument("--data-dir", type=Path, default=Path("~/.local/share/tabula-ptyd").expanduser())
+    p_ptyd.add_argument("--host", default="127.0.0.1")
+    p_ptyd.add_argument("--port", type=int, default=9333)
 
     p_run = sub.add_parser("run", help="launch interactive assistant with tabula MCP preconfigured")
     p_run.add_argument("--project-dir", type=Path, default=Path("."))
@@ -201,7 +209,16 @@ def _cmd_serve(project_dir: Path, host: str, port: int) -> int:
     return run_serve(project_dir=bootstrap.paths.project_dir, host=host, port=port)
 
 
-def _cmd_web(data_dir: Path, host: str, port: int, project_dir: Path | None) -> int:
+def _cmd_web(
+    data_dir: Path,
+    host: str,
+    port: int,
+    project_dir: Path | None,
+    *,
+    local_mcp_url: str | None,
+    ptyd_url: str | None,
+    dev_runtime: bool,
+) -> int:
     try:
         from .web.server import run_web
     except ImportError:
@@ -220,7 +237,27 @@ def _cmd_web(data_dir: Path, host: str, port: int, project_dir: Path | None) -> 
             return 1
         resolved_project = bootstrap.paths.project_dir
 
-    return run_web(data_dir=data_dir, host=host, port=port, local_project_dir=resolved_project)
+    return run_web(
+        data_dir=data_dir,
+        host=host,
+        port=port,
+        local_project_dir=resolved_project,
+        local_mcp_url=local_mcp_url,
+        ptyd_url=ptyd_url,
+        dev_runtime=dev_runtime,
+    )
+
+
+def _cmd_ptyd(data_dir: Path, host: str, port: int) -> int:
+    try:
+        from .web.ptyd import run_ptyd
+    except ImportError:
+        print(
+            "aiohttp is required for 'tabula ptyd'. Install with: pip install tabula[web]",
+            file=sys.stderr,
+        )
+        return 2
+    return run_ptyd(data_dir=data_dir, host=host, port=port)
 
 
 def _cmd_run(
@@ -320,7 +357,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "serve":
         return _cmd_serve(args.project_dir, args.host, args.port)
     if args.command == "web":
-        return _cmd_web(args.data_dir, args.host, args.port, args.project_dir)
+        return _cmd_web(
+            args.data_dir,
+            args.host,
+            args.port,
+            args.project_dir,
+            local_mcp_url=args.local_mcp_url,
+            ptyd_url=args.ptyd_url,
+            dev_runtime=args.dev_runtime,
+        )
+    if args.command == "ptyd":
+        return _cmd_ptyd(args.data_dir, args.host, args.port)
     if args.command == "run":
         return _cmd_run(
             args.project_dir,

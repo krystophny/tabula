@@ -400,11 +400,23 @@ def test_given_serve_mode_when_invoked_then_bootstrap_and_serve_are_called(monke
 def test_given_web_mode_when_invoked_then_web_server_is_called(monkeypatch, tmp_path: Path) -> None:
     calls: dict[str, object] = {}
 
-    def fake_run_web(*, data_dir, host, port, local_project_dir=None):
+    def fake_run_web(
+        *,
+        data_dir,
+        host,
+        port,
+        local_project_dir=None,
+        local_mcp_url=None,
+        ptyd_url=None,
+        dev_runtime=False,
+    ):
         calls["data_dir"] = data_dir
         calls["host"] = host
         calls["port"] = port
         calls["local_project_dir"] = local_project_dir
+        calls["local_mcp_url"] = local_mcp_url
+        calls["ptyd_url"] = ptyd_url
+        calls["dev_runtime"] = dev_runtime
         return 0
 
     monkeypatch.setattr("tabula.cli.bootstrap_project", _make_fake_bootstrap())
@@ -414,6 +426,61 @@ def test_given_web_mode_when_invoked_then_web_server_is_called(monkeypatch, tmp_
     assert rc == 0
     assert calls["port"] == 7778
     assert calls["local_project_dir"] is not None
+    assert calls["local_mcp_url"] is None
+    assert calls["ptyd_url"] is None
+    assert calls["dev_runtime"] is False
+
+
+def test_given_web_mode_with_reload_related_flags_when_invoked_then_flags_are_forwarded(monkeypatch, tmp_path: Path) -> None:
+    calls: dict[str, object] = {}
+
+    def fake_run_web(
+        *,
+        data_dir,
+        host,
+        port,
+        local_project_dir=None,
+        local_mcp_url=None,
+        ptyd_url=None,
+        dev_runtime=False,
+    ):
+        calls["local_mcp_url"] = local_mcp_url
+        calls["ptyd_url"] = ptyd_url
+        calls["dev_runtime"] = dev_runtime
+        return 0
+
+    monkeypatch.setattr("tabula.cli.bootstrap_project", _make_fake_bootstrap())
+    monkeypatch.setattr("tabula.web.server.run_web", fake_run_web)
+
+    rc = main([
+        "web",
+        "--data-dir", str(tmp_path),
+        "--local-mcp-url", "http://127.0.0.1:9520/mcp",
+        "--ptyd-url", "http://127.0.0.1:9433",
+        "--dev-runtime",
+    ])
+    assert rc == 0
+    assert calls["local_mcp_url"] == "http://127.0.0.1:9520/mcp"
+    assert calls["ptyd_url"] == "http://127.0.0.1:9433"
+    assert calls["dev_runtime"] is True
+
+
+def test_given_ptyd_mode_when_invoked_then_ptyd_server_is_called(monkeypatch, tmp_path: Path) -> None:
+    calls: dict[str, object] = {}
+
+    def fake_run_ptyd(*, data_dir, host, port):
+        calls["data_dir"] = data_dir
+        calls["host"] = host
+        calls["port"] = port
+        return 0
+
+    monkeypatch.setattr("tabula.web.ptyd.run_ptyd", fake_run_ptyd)
+
+    rc = main(["ptyd", "--data-dir", str(tmp_path), "--host", "0.0.0.0", "--port", "9339"])
+    assert rc == 0
+    assert calls["data_dir"] == tmp_path
+    assert calls["host"] == "0.0.0.0"
+    assert calls["port"] == 9339
 
 
 def test_given_run_with_mcp_url_when_invoked_then_uses_http_mcp(monkeypatch, tmp_path: Path) -> None:

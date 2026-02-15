@@ -2,19 +2,40 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 from pathlib import Path
 from typing import Any
 
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer, make_mocked_request
 
+import tabula.web.server as web_server
 from tabula.web.server import LOCAL_SESSION_ID, TabulaWebApp
 
 
-async def _make_client(data_dir: Path, *, local_project_dir: Path | None = None) -> TestClient:
-    app_obj = TabulaWebApp(data_dir=data_dir, local_project_dir=local_project_dir)
+async def _make_client(
+    data_dir: Path,
+    *,
+    local_project_dir: Path | None = None,
+    local_mcp_url: str | None = None,
+    ptyd_url: str | None = None,
+    dev_runtime: bool = False,
+) -> TestClient:
+    app_obj = TabulaWebApp(
+        data_dir=data_dir,
+        local_project_dir=local_project_dir,
+        local_mcp_url=local_mcp_url,
+        ptyd_url=ptyd_url,
+        dev_runtime=dev_runtime,
+    )
     app = app_obj.create_app()
     return TestClient(TestServer(app))
+
+
+def _find_free_tcp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 async def _authenticate(client: TestClient, password: str = "testpassword") -> None:
@@ -36,6 +57,38 @@ def test_setup_check_initial(tmp_path: Path) -> None:
             data = await resp.json()
             assert data["has_password"] is False
             assert data["authenticated"] is False
+
+    asyncio.run(_run())
+
+
+def test_runtime_requires_auth(tmp_path: Path) -> None:
+    async def _run() -> None:
+        client = await _make_client(tmp_path, dev_runtime=True)
+        async with client:
+            resp = await client.get("/api/runtime")
+            assert resp.status == 401
+
+    asyncio.run(_run())
+
+
+def test_runtime_returns_metadata_when_authenticated(tmp_path: Path) -> None:
+    async def _run() -> None:
+        client = await _make_client(
+            tmp_path,
+            local_mcp_url="http://127.0.0.1:9420/mcp",
+            ptyd_url="http://127.0.0.1:9333",
+            dev_runtime=True,
+        )
+        async with client:
+            await _authenticate(client)
+            resp = await client.get("/api/runtime")
+            assert resp.status == 200
+            payload = await resp.json()
+            assert isinstance(payload.get("boot_id"), str)
+            assert isinstance(payload.get("started_at"), str)
+            assert payload["dev_mode"] is True
+            assert payload["local_mcp_url"] == "http://127.0.0.1:9420/mcp"
+            assert payload["ptyd_url"] == "http://127.0.0.1:9333"
 
     asyncio.run(_run())
 
@@ -288,7 +341,7 @@ def test_setup_check_no_local_session(tmp_path: Path) -> None:
     asyncio.run(_run())
 
 
-def test_setup_check_local_session(tmp_path: Path) -> None:
+def test_setup_check_local_session(tmp_path: Path, monkeypatch: Any) -> None:
     async def _run() -> None:
         client = await _make_client(tmp_path, local_project_dir=tmp_path)
         async with client:
@@ -296,10 +349,11 @@ def test_setup_check_local_session(tmp_path: Path) -> None:
             data = await resp.json()
             assert data["local_session"] == LOCAL_SESSION_ID
 
+    monkeypatch.setattr(web_server, "DAEMON_PORT", _find_free_tcp_port())
     asyncio.run(_run())
 
 
-def test_sessions_list_with_local(tmp_path: Path) -> None:
+def test_sessions_list_with_local(tmp_path: Path, monkeypatch: Any) -> None:
     async def _run() -> None:
         client = await _make_client(tmp_path, local_project_dir=tmp_path)
         async with client:
@@ -312,6 +366,7 @@ def test_sessions_list_with_local(tmp_path: Path) -> None:
             assert local["project_dir"] == str(tmp_path)
             assert "mcp_url" in local
 
+    monkeypatch.setattr(web_server, "DAEMON_PORT", _find_free_tcp_port())
     asyncio.run(_run())
 
 
