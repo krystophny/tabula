@@ -20,6 +20,7 @@ const state = {
 export function getState() { return state; }
 
 window._tabulaApp = { getState };
+const SAVED_REMOTE_SESSION_KEY = 'tabula.remoteSession.v1';
 
 const MOBILE_BREAKPOINT_PX = 768;
 const MOBILE_KEY_PAYLOADS = {
@@ -34,6 +35,38 @@ const MOBILE_KEY_PAYLOADS = {
 function showView(viewId) {
   document.querySelectorAll('.view').forEach(v => v.style.display = 'none');
   document.getElementById(viewId).style.display = '';
+}
+
+function loadSavedRemoteSession() {
+  try {
+    const raw = window.localStorage.getItem(SAVED_REMOTE_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (typeof parsed.sessionId !== 'string' || !parsed.sessionId) return null;
+    return parsed;
+  } catch (_) {
+    return null;
+  }
+}
+
+function saveRemoteSession() {
+  if (state.localSession || !state.connected || !state.sessionId || !state.hostId) {
+    window.localStorage.removeItem(SAVED_REMOTE_SESSION_KEY);
+    return;
+  }
+  const sel = document.getElementById('host-select');
+  const selected = sel?.selectedOptions?.[0];
+  const payload = {
+    sessionId: state.sessionId,
+    hostId: Number(state.hostId),
+    hostLabel: selected ? selected.textContent : '',
+  };
+  window.localStorage.setItem(SAVED_REMOTE_SESSION_KEY, JSON.stringify(payload));
+}
+
+function clearSavedRemoteSession() {
+  window.localStorage.removeItem(SAVED_REMOTE_SESSION_KEY);
 }
 
 function shellSingleQuote(value) {
@@ -164,9 +197,63 @@ export function showMain() {
   showView('view-main');
   syncMobileTerminalUi();
   if (state.localSession) {
+    clearSavedRemoteSession();
     connectLocalSession();
   } else {
-    refreshHosts();
+    void restoreRemoteSessionOrHosts();
+  }
+}
+
+async function restoreRemoteSessionOrHosts() {
+  const restored = await tryRestoreRemoteSession();
+  if (!restored) {
+    await refreshHosts();
+  }
+}
+
+async function tryRestoreRemoteSession() {
+  const saved = loadSavedRemoteSession();
+  if (!saved) {
+    return false;
+  }
+
+  try {
+    await refreshHosts();
+    const sessionsResp = await fetch('/api/sessions');
+    if (!sessionsResp.ok) {
+      return false;
+    }
+    const sessionsData = await sessionsResp.json();
+    const sessions = Array.isArray(sessionsData.sessions) ? sessionsData.sessions : [];
+    if (!sessions.includes(saved.sessionId)) {
+      clearSavedRemoteSession();
+      return false;
+    }
+
+    state.sessionId = saved.sessionId;
+    state.hostId = Number(saved.hostId) || null;
+    state.connected = true;
+
+    const sel = document.getElementById('host-select');
+    if (state.hostId && sel && sel.querySelector(`option[value="${state.hostId}"]`)) {
+      sel.value = String(state.hostId);
+    }
+
+    const selected = sel?.selectedOptions?.[0];
+    const label = selected ? selected.textContent : saved.hostLabel || saved.sessionId;
+    setStatus(`connected: ${label}`, 'connected');
+    document.getElementById('btn-connect').style.display = 'none';
+    document.getElementById('btn-disconnect').style.display = '';
+    document.getElementById('btn-launch-ai').disabled = false;
+    document.getElementById('host-select').disabled = true;
+
+    openTerminal();
+    openCanvasWs();
+    syncMobileTerminalUi();
+    return true;
+  } catch (e) {
+    console.error('remote session restore failed:', e);
+    return false;
   }
 }
 
@@ -265,6 +352,7 @@ async function connect() {
     document.getElementById('btn-disconnect').style.display = '';
     document.getElementById('btn-launch-ai').disabled = false;
     document.getElementById('host-select').disabled = true;
+    saveRemoteSession();
 
     openTerminal();
     syncMobileTerminalUi();
@@ -303,6 +391,7 @@ async function disconnect() {
   state.hostId = null;
   state.connected = false;
   state.mobileTerminalMinimized = false;
+  clearSavedRemoteSession();
   setStatus('disconnected', '');
   document.getElementById('btn-connect').style.display = '';
   document.getElementById('btn-connect').disabled = false;
@@ -455,6 +544,7 @@ async function logout() {
   } catch (e) {
     console.error('logout error:', e);
   }
+  clearSavedRemoteSession();
   state.authenticated = false;
   showAuth();
 }

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from typing import Any
 
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer, make_mocked_request
@@ -18,6 +19,13 @@ async def _make_client(data_dir: Path, *, local_project_dir: Path | None = None)
 
 async def _authenticate(client: TestClient, password: str = "testpassword") -> None:
     await client.post("/api/setup", json={"password": password})
+
+
+def _session_cookie(client: TestClient) -> str:
+    for cookie in client.session.cookie_jar:
+        if cookie.key == "tabula_session":
+            return cookie.value
+    return ""
 
 
 def test_setup_check_initial(tmp_path: Path) -> None:
@@ -41,6 +49,7 @@ def test_setup_password(tmp_path: Path) -> None:
             data = await resp.json()
             assert data["ok"] is True
             assert "tabula_session" in {c.key for c in client.session.cookie_jar}
+            assert "Max-Age=" in resp.headers.get("Set-Cookie", "")
 
     asyncio.run(_run())
 
@@ -65,6 +74,27 @@ def test_login_success(tmp_path: Path) -> None:
 
             resp = await client.post("/api/login", json={"password": "testpassword"})
             assert resp.status == 200
+            assert "Max-Age=" in resp.headers.get("Set-Cookie", "")
+
+    asyncio.run(_run())
+
+
+def test_auth_persists_across_server_restart(tmp_path: Path) -> None:
+    async def _run() -> None:
+        client1 = await _make_client(tmp_path)
+        async with client1:
+            resp = await client1.post("/api/setup", json={"password": "securepass"})
+            assert resp.status == 200
+            token = _session_cookie(client1)
+            assert token
+
+        client2 = await _make_client(tmp_path)
+        async with client2:
+            client2.session.cookie_jar.update_cookies({"tabula_session": token})
+            resp = await client2.get("/api/setup")
+            assert resp.status == 200
+            data = await resp.json()
+            assert data["authenticated"] is True
 
     asyncio.run(_run())
 
@@ -173,7 +203,7 @@ def test_file_proxy_rejects_path_traversal(tmp_path: Path) -> None:
         app_obj = TabulaWebApp(data_dir=tmp_path)
         app = app_obj.create_app()
         token = "test-tok"
-        app_obj._sessions[token] = {"role": "admin"}
+        app_obj.store.add_auth_session(token)
         req = make_mocked_request(
             "GET", "/api/files/x/../../etc/passwd",
             match_info={"session_id": "x", "path": "../../etc/passwd"},
@@ -294,7 +324,7 @@ def test_canvas_snapshot_returns_latest_event(tmp_path: Path) -> None:
         app = app_obj.create_app()
         token = "test-tok"
         session_id = "s1"
-        app_obj._sessions[token] = {"role": "admin"}
+        app_obj.store.add_auth_session(token)
         app_obj._tunnel_ports[session_id] = 9420
 
         async def _fake_snapshot(*, tunnel_port: int, session_id: str) -> dict[str, object]:
@@ -318,5 +348,46 @@ def test_canvas_snapshot_returns_latest_event(tmp_path: Path) -> None:
         payload = json.loads(resp.body.decode("utf-8"))
         assert payload["status"]["mode"] == "review"
         assert payload["event"]["event_id"] == "e1"
+
+    asyncio.run(_run())
+
+
+def test_restore_remote_sessions(tmp_path: Path) -> None:
+    class _FakeSSH:
+        def __init__(self) -> None:
+            self.calls: list[tuple[int, str]] = []
+
+        async def connect(self, host: Any, session_id: str) -> None:
+            self.calls.append((host.id, session_id))
+
+    async def _run() -> None:
+        app_obj = TabulaWebApp(data_dir=tmp_path)
+        host = app_obj.store.add_host(name="dev", hostname="h", username="u")
+        app_obj.store.add_remote_session("session-1", host.id)
+        fake = _FakeSSH()
+        app_obj._ssh = fake  # type: ignore[assignment]
+
+        await app_obj._restore_remote_sessions(app_obj.create_app())
+        assert fake.calls == [(host.id, "session-1")]
+        assert app_obj.store.list_remote_sessions() == [("session-1", host.id)]
+        app_obj.store.close()
+
+    asyncio.run(_run())
+
+
+def test_restore_remote_sessions_drops_failed_reconnects(tmp_path: Path) -> None:
+    class _FailingSSH:
+        async def connect(self, host: Any, session_id: str) -> None:
+            raise RuntimeError("boom")
+
+    async def _run() -> None:
+        app_obj = TabulaWebApp(data_dir=tmp_path)
+        host = app_obj.store.add_host(name="dev", hostname="h", username="u")
+        app_obj.store.add_remote_session("session-1", host.id)
+        app_obj._ssh = _FailingSSH()  # type: ignore[assignment]
+
+        await app_obj._restore_remote_sessions(app_obj.create_app())
+        assert app_obj.store.list_remote_sessions() == []
+        app_obj.store.close()
 
     asyncio.run(_run())

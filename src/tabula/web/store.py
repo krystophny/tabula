@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import secrets
 import sqlite3
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -20,7 +21,7 @@ class HostConfig:
     project_dir: str
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA_SQL = """\
 CREATE TABLE IF NOT EXISTS meta (
@@ -40,6 +41,16 @@ CREATE TABLE IF NOT EXISTS admin (
     id        INTEGER PRIMARY KEY CHECK (id = 1),
     pw_hash   TEXT NOT NULL,
     pw_salt   TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    token      TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS remote_sessions (
+    session_id TEXT PRIMARY KEY,
+    host_id    INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY(host_id) REFERENCES hosts(id) ON DELETE CASCADE
 );
 """
 
@@ -67,6 +78,7 @@ class Store:
         self._conn = sqlite3.connect(str(db_path))
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA foreign_keys=ON")
         self._migrate()
 
     def _migrate(self) -> None:
@@ -77,7 +89,17 @@ class Store:
                 "INSERT INTO meta (key, value) VALUES ('schema_version', ?)",
                 (str(SCHEMA_VERSION),),
             )
-            self._conn.commit()
+        else:
+            try:
+                current = int(row["value"])
+            except (ValueError, TypeError):
+                current = 0
+            if current < SCHEMA_VERSION:
+                self._conn.execute(
+                    "UPDATE meta SET value=? WHERE key='schema_version'",
+                    (str(SCHEMA_VERSION),),
+                )
+        self._conn.commit()
 
     def close(self) -> None:
         self._conn.close()
@@ -91,6 +113,7 @@ class Store:
         salt = secrets.token_hex(16)
         pw_hash = _hash_password(password, salt)
         self._conn.execute("DELETE FROM admin")
+        self._conn.execute("DELETE FROM auth_sessions")
         self._conn.execute(
             "INSERT INTO admin (id, pw_hash, pw_salt) VALUES (1, ?, ?)",
             (pw_hash, salt),
@@ -149,3 +172,54 @@ class Store:
 
     def host_to_dict(self, host: HostConfig) -> dict[str, Any]:
         return asdict(host)
+
+    def add_auth_session(self, token: str) -> None:
+        if not token:
+            raise ValueError("token must be non-empty")
+        self._conn.execute(
+            "INSERT OR REPLACE INTO auth_sessions (token, created_at) VALUES (?, ?)",
+            (token, int(time.time())),
+        )
+        self._conn.commit()
+
+    def has_auth_session(self, token: str) -> bool:
+        if not token:
+            return False
+        row = self._conn.execute(
+            "SELECT 1 FROM auth_sessions WHERE token=?",
+            (token,),
+        ).fetchone()
+        return row is not None
+
+    def delete_auth_session(self, token: str) -> None:
+        if not token:
+            return
+        self._conn.execute("DELETE FROM auth_sessions WHERE token=?", (token,))
+        self._conn.commit()
+
+    def list_auth_sessions(self) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT token FROM auth_sessions ORDER BY created_at ASC"
+        ).fetchall()
+        return [str(row["token"]) for row in rows]
+
+    def add_remote_session(self, session_id: str, host_id: int) -> None:
+        if not session_id:
+            raise ValueError("session_id must be non-empty")
+        self._conn.execute(
+            "INSERT OR REPLACE INTO remote_sessions (session_id, host_id, created_at) VALUES (?, ?, ?)",
+            (session_id, host_id, int(time.time())),
+        )
+        self._conn.commit()
+
+    def delete_remote_session(self, session_id: str) -> None:
+        if not session_id:
+            return
+        self._conn.execute("DELETE FROM remote_sessions WHERE session_id=?", (session_id,))
+        self._conn.commit()
+
+    def list_remote_sessions(self) -> list[tuple[str, int]]:
+        rows = self._conn.execute(
+            "SELECT session_id, host_id FROM remote_sessions ORDER BY created_at ASC"
+        ).fetchall()
+        return [(str(row["session_id"]), int(row["host_id"])) for row in rows]

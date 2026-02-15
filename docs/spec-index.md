@@ -41,3 +41,10 @@ Canonical behavior is code + tests. This file only points to source-of-truth loc
 
 8. Optional real interactive Codex loop (tmux + codex CLI)
 - `tests/integration/test_codex_interactive_loop.py`
+
+9. Web auth/session persistence (cookie auth + reconnectable remote sessions)
+- `src/tabula/web/store.py`
+- `src/tabula/web/server.py`
+- `src/tabula/web/static/app.js`
+- `tests/unit/test_web_store.py`
+- `tests/unit/test_web_server.py`

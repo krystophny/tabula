@@ -127,3 +127,38 @@ def test_store_persists_across_instances(tmp_path: Path) -> None:
     assert store2.verify_admin_password("password1") is True
     assert len(store2.list_hosts()) == 1
     store2.close()
+
+
+def test_auth_sessions_persist_and_reset_on_password_change(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    store1 = Store(db_path)
+    store1.set_admin_password("password1")
+    store1.add_auth_session("tok-a")
+    store1.add_auth_session("tok-b")
+    assert store1.has_auth_session("tok-a") is True
+    assert store1.list_auth_sessions() == ["tok-a", "tok-b"]
+    store1.close()
+
+    store2 = Store(db_path)
+    assert store2.has_auth_session("tok-b") is True
+    store2.delete_auth_session("tok-a")
+    assert store2.has_auth_session("tok-a") is False
+    store2.set_admin_password("password2")
+    assert store2.list_auth_sessions() == []
+    store2.close()
+
+
+def test_remote_sessions_persist_across_instances(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    store1 = Store(db_path)
+    host = store1.add_host(name="dev", hostname="h", username="u")
+    store1.add_remote_session("session-1", host.id)
+    store1.add_remote_session("session-2", host.id)
+    assert store1.list_remote_sessions() == [("session-1", host.id), ("session-2", host.id)]
+    store1.close()
+
+    store2 = Store(db_path)
+    assert store2.list_remote_sessions() == [("session-1", host.id), ("session-2", host.id)]
+    store2.delete_remote_session("session-1")
+    assert store2.list_remote_sessions() == [("session-2", host.id)]
+    store2.close()

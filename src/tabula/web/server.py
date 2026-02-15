@@ -23,6 +23,7 @@ _log = logging.getLogger(__name__)
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8420
 SESSION_COOKIE = "tabula_session"
+AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365
 DAEMON_PORT = 9420
 DAEMON_STARTUP_TIMEOUT = 10.0
 DAEMON_HEALTH_POLL_INTERVAL = 0.5
@@ -35,7 +36,6 @@ class TabulaWebApp:
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._store = Store(self._data_dir / "tabula.db")
         self._ssh = SSHService()
-        self._sessions: dict[str, dict[str, Any]] = {}
         self._terminal_ws: dict[str, web.WebSocketResponse] = {}
         self._canvas_ws: dict[str, set[web.WebSocketResponse]] = {}
         self._tunnel_ports: dict[str, int] = {}
@@ -53,9 +53,21 @@ class TabulaWebApp:
     def _new_session_token(self) -> str:
         return secrets.token_hex(32)
 
+    def _set_auth_cookie(self, *, request: web.Request, response: web.Response) -> None:
+        token = self._new_session_token()
+        self._store.add_auth_session(token)
+        response.set_cookie(
+            SESSION_COOKIE,
+            token,
+            httponly=True,
+            samesite="Strict",
+            secure=request.secure,
+            max_age=AUTH_COOKIE_MAX_AGE_SECONDS,
+        )
+
     def _check_auth(self, request: web.Request) -> bool:
         token = request.cookies.get(SESSION_COOKIE, "")
-        return token in self._sessions
+        return self._store.has_auth_session(token)
 
     def _require_auth(self, request: web.Request) -> None:
         if not self._check_auth(request):
@@ -86,10 +98,8 @@ class TabulaWebApp:
             self._store.set_admin_password(password)
         except ValueError as exc:
             raise web.HTTPBadRequest(text=str(exc))
-        token = self._new_session_token()
-        self._sessions[token] = {"role": "admin"}
         resp = web.json_response({"ok": True})
-        resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="Strict", secure=request.secure)
+        self._set_auth_cookie(request=request, response=resp)
         return resp
 
     async def handle_login(self, request: web.Request) -> web.Response:
@@ -99,15 +109,13 @@ class TabulaWebApp:
             await asyncio.sleep(1)
             _log.warning("failed login attempt from %s", request.remote)
             raise web.HTTPUnauthorized(text="invalid password")
-        token = self._new_session_token()
-        self._sessions[token] = {"role": "admin"}
         resp = web.json_response({"ok": True})
-        resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite="Strict", secure=request.secure)
+        self._set_auth_cookie(request=request, response=resp)
         return resp
 
     async def handle_logout(self, request: web.Request) -> web.Response:
         token = request.cookies.get(SESSION_COOKIE, "")
-        self._sessions.pop(token, None)
+        self._store.delete_auth_session(token)
         resp = web.json_response({"ok": True})
         resp.del_cookie(SESSION_COOKIE)
         return resp
@@ -179,6 +187,7 @@ class TabulaWebApp:
         except Exception as exc:
             _log.error("SSH connection to host %d failed: %s", host.id, exc)
             raise web.HTTPBadGateway(text="SSH connection failed")
+        self._store.add_remote_session(session_id, host.id)
         return web.json_response({"session_id": session_id, "host": self._store.host_to_dict(host)})
 
     async def handle_disconnect(self, request: web.Request) -> web.Response:
@@ -189,6 +198,7 @@ class TabulaWebApp:
         if task is not None:
             task.cancel()
         await self._ssh.disconnect(session_id)
+        self._store.delete_remote_session(session_id)
         self._tunnel_ports.pop(session_id, None)
         self._canvas_ws.pop(session_id, None)
         self._remote_canvas_ws.pop(session_id, None)
@@ -455,6 +465,19 @@ class TabulaWebApp:
             }
         return web.json_response(result)
 
+    async def _restore_remote_sessions(self, _app: web.Application) -> None:
+        for session_id, host_id in self._store.list_remote_sessions():
+            try:
+                host = self._store.get_host(host_id)
+            except KeyError:
+                self._store.delete_remote_session(session_id)
+                continue
+            try:
+                await self._ssh.connect(host, session_id)
+            except Exception as exc:
+                _log.warning("failed to restore SSH session %s for host %d: %s", session_id, host_id, exc)
+                self._store.delete_remote_session(session_id)
+
     async def _start_local_serve(self, app: web.Application) -> None:
         if self._local_project_dir is None:
             return
@@ -529,6 +552,7 @@ class TabulaWebApp:
     def create_app(self) -> web.Application:
         app = web.Application()
         app.on_response_prepare.append(self._security_headers)
+        app.on_startup.append(self._restore_remote_sessions)
         app.on_startup.append(self._start_local_serve)
         app.on_shutdown.append(self._on_shutdown)
 

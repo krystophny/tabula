@@ -106,6 +106,7 @@ long-lived MCP sessions.
 Full web interface with SSH host management, browser-based terminal,
 and canvas relay. Supports both local projects (embedded serve) and
 remote hosts (SSH tunnel + port forward).
+Auth and remote-session metadata are persisted in SQLite under the web data dir.
 
 ## Core Components
 
@@ -149,7 +150,7 @@ MCP resources: `tabula://sessions`, `tabula://session/{id}`,
 ```
   TabulaWebApp (server.py)
   ├── SSHService (ssh.py)          asyncssh connections, tunnels
-  ├── Store (store.py)             SQLite: hosts, auth, metadata
+  ├── Store (store.py)             SQLite: hosts, admin auth, auth sessions, remote sessions
   ├── TerminalEmulator             VT100 cell grid, CSI/OSC parsing
   ├── PtyTransport                 LocalPtyTransport | SshPtyTransport
   └── Static Client
@@ -160,6 +161,14 @@ MCP resources: `tabula://sessions`, `tabula://session/{id}`,
        ├── hosts.js                Host management UI
        └── mcp-log.js              MCP activity viewer
 ```
+
+### Auth + Session Persistence
+
+- Admin password is hashed with PBKDF2-SHA256 and stored in SQLite.
+- Auth tokens are stored server-side in `auth_sessions`; cookie auth survives server restart.
+- Auth cookie is long-lived (`Max-Age`) so login survives browser restart.
+- Remote SSH sessions are tracked in `remote_sessions` and reconnected on web app startup.
+- Frontend stores last active remote session in `localStorage` and auto-reattaches when available.
 
 ### HTTP Bridge (`mcp_http_bridge.py`)
 
