@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO
 from urllib.parse import urlparse
@@ -213,47 +212,11 @@ def _resource_templates() -> list[dict[str, Any]]:
     ]
 
 
-@dataclass
 class TabulaMcpServer:
-    adapter: CanvasAdapter
-    input_stream: BinaryIO
-    output_stream: BinaryIO
+    """Pure MCP protocol dispatch -- no I/O, no transport."""
 
-    def __init__(
-        self,
-        adapter: CanvasAdapter,
-        *,
-        input_stream: BinaryIO | None = None,
-        output_stream: BinaryIO | None = None,
-    ) -> None:
+    def __init__(self, adapter: CanvasAdapter) -> None:
         self.adapter = adapter
-        self.input_stream = input_stream or sys.stdin.buffer
-        self.output_stream = output_stream or sys.stdout.buffer
-        self._wire_mode: str | None = None
-
-    def _write(self, payload: dict[str, Any]) -> None:
-        mode = self._wire_mode or "framed"
-        write_message(self.output_stream, payload, framed=(mode == "framed"))
-
-    def run_forever(self) -> int:
-        while True:
-            try:
-                message, wire_mode = _read_message_with_mode(self.input_stream)
-                if self._wire_mode is None:
-                    self._wire_mode = wire_mode
-            except RpcError as exc:
-                self._write(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": None,
-                        "error": {"code": exc.code, "message": exc.message},
-                    }
-                )
-                continue
-
-            if message is None:
-                return 0
-            self.handle_message(message)
 
     def dispatch_message(self, message: dict[str, Any]) -> dict[str, Any] | None:
         msg_id = message.get("id")
@@ -276,20 +239,6 @@ class TabulaMcpServer:
             return {"jsonrpc": "2.0", "id": msg_id, "error": {"code": -32603, "message": str(exc)}}
 
         return {"jsonrpc": "2.0", "id": msg_id, "result": result}
-
-    def handle_message(self, message: dict[str, Any]) -> None:
-        response = self.dispatch_message(message)
-        if response is not None:
-            self._write(response)
-
-    def _write_error(self, msg_id: Any, code: int, message: str) -> None:
-        self._write(
-            {
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "error": {"code": code, "message": message},
-            }
-        )
 
     def _dispatch(self, method: str, params: Any) -> dict[str, Any]:
         if not isinstance(params, dict):
@@ -464,6 +413,51 @@ class TabulaMcpServer:
         raise RpcError(-32602, f"unsupported uri: {uri}")
 
 
+class StdioTransport:
+    """Stdio wire transport for TabulaMcpServer (framed or JSONL)."""
+
+    def __init__(
+        self,
+        server: TabulaMcpServer,
+        *,
+        input_stream: BinaryIO | None = None,
+        output_stream: BinaryIO | None = None,
+    ) -> None:
+        self.server = server
+        self.input_stream = input_stream or sys.stdin.buffer
+        self.output_stream = output_stream or sys.stdout.buffer
+        self._wire_mode: str | None = None
+
+    def _write(self, payload: dict[str, Any]) -> None:
+        mode = self._wire_mode or "framed"
+        write_message(self.output_stream, payload, framed=(mode == "framed"))
+
+    def handle_message(self, message: dict[str, Any]) -> None:
+        response = self.server.dispatch_message(message)
+        if response is not None:
+            self._write(response)
+
+    def run_forever(self) -> int:
+        while True:
+            try:
+                message, wire_mode = _read_message_with_mode(self.input_stream)
+                if self._wire_mode is None:
+                    self._wire_mode = wire_mode
+            except RpcError as exc:
+                self._write(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": None,
+                        "error": {"code": exc.code, "message": exc.message},
+                    }
+                )
+                continue
+
+            if message is None:
+                return 0
+            self.handle_message(message)
+
+
 def _require_str(payload: dict[str, Any], key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str) or not value.strip():
@@ -487,4 +481,5 @@ def run_mcp_stdio_server(
         poll_interval_ms=poll_interval_ms,
     )
     server = TabulaMcpServer(adapter)
-    return server.run_forever()
+    transport = StdioTransport(server)
+    return transport.run_forever()

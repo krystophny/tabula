@@ -358,25 +358,21 @@ def test_on_event_callback_fires(tmp_path: Path) -> None:
 
 
 def test_dispatch_message_returns_none_for_notification(tmp_path: Path) -> None:
-    import io
-
     from tabula.canvas_adapter import CanvasAdapter
     from tabula.mcp_server import TabulaMcpServer
 
     adapter = CanvasAdapter(project_dir=tmp_path, headless=True, start_canvas=False)
-    server = TabulaMcpServer(adapter, input_stream=io.BytesIO(), output_stream=io.BytesIO())
+    server = TabulaMcpServer(adapter)
     result = server.dispatch_message({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
     assert result is None
 
 
 def test_dispatch_message_returns_error_for_missing_method(tmp_path: Path) -> None:
-    import io
-
     from tabula.canvas_adapter import CanvasAdapter
     from tabula.mcp_server import TabulaMcpServer
 
     adapter = CanvasAdapter(project_dir=tmp_path, headless=True, start_canvas=False)
-    server = TabulaMcpServer(adapter, input_stream=io.BytesIO(), output_stream=io.BytesIO())
+    server = TabulaMcpServer(adapter)
     result = server.dispatch_message({"jsonrpc": "2.0", "id": 1})
     assert result is not None
     assert result["error"]["code"] == -32600

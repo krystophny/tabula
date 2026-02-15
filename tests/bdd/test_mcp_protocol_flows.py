@@ -8,7 +8,7 @@ import pytest
 
 import tabula.mcp_server as mcp
 from tabula.canvas_adapter import CanvasAdapter
-from tabula.mcp_server import RpcError, TabulaMcpServer, read_message, run_mcp_stdio_server, write_message
+from tabula.mcp_server import RpcError, StdioTransport, TabulaMcpServer, read_message, run_mcp_stdio_server, write_message
 
 
 def _frame(payload: dict[str, object]) -> bytes:
@@ -16,10 +16,10 @@ def _frame(payload: dict[str, object]) -> bytes:
     return f"Content-Length: {len(body)}\r\n\r\n".encode("utf-8") + body
 
 
-def _call(server: TabulaMcpServer, request: dict[str, object]) -> dict[str, object]:
+def _call(transport: StdioTransport, request: dict[str, object]) -> dict[str, object]:
     out = io.BytesIO()
-    server.output_stream = out
-    server.handle_message(request)
+    transport.output_stream = out
+    transport.handle_message(request)
     out.seek(0)
     response = read_message(out)
     assert response is not None
@@ -55,9 +55,9 @@ def test_given_parse_error_then_run_forever_emits_error_and_continues(tmp_path: 
     good = _frame({"jsonrpc": "2.0", "id": 10, "method": "ping", "params": {}})
     stream_in = io.BytesIO(bad + good)
     stream_out = io.BytesIO()
-    server = TabulaMcpServer(adapter, input_stream=stream_in, output_stream=stream_out)
+    transport = StdioTransport(TabulaMcpServer(adapter), input_stream=stream_in, output_stream=stream_out)
 
-    rc = server.run_forever()
+    rc = transport.run_forever()
     assert rc == 0
 
     stream_out.seek(0)
@@ -72,30 +72,30 @@ def test_given_parse_error_then_run_forever_emits_error_and_continues(tmp_path: 
 def test_given_notification_without_id_when_handled_then_no_output(tmp_path: Path) -> None:
     adapter = CanvasAdapter(project_dir=tmp_path, headless=True, start_canvas=False)
     out = io.BytesIO()
-    server = TabulaMcpServer(adapter, input_stream=io.BytesIO(), output_stream=out)
-    server.handle_message({"jsonrpc": "2.0", "method": "ping", "params": {}})
+    transport = StdioTransport(TabulaMcpServer(adapter), input_stream=io.BytesIO(), output_stream=out)
+    transport.handle_message({"jsonrpc": "2.0", "method": "ping", "params": {}})
     assert out.getvalue() == b""
 
 
 def test_given_request_missing_method_when_handled_then_jsonrpc_error(tmp_path: Path) -> None:
     adapter = CanvasAdapter(project_dir=tmp_path, headless=True, start_canvas=False)
-    server = TabulaMcpServer(adapter, input_stream=io.BytesIO(), output_stream=io.BytesIO())
-    response = _call(server, {"jsonrpc": "2.0", "id": 1, "params": {}})
+    transport = StdioTransport(TabulaMcpServer(adapter), input_stream=io.BytesIO(), output_stream=io.BytesIO())
+    response = _call(transport, {"jsonrpc": "2.0", "id": 1, "params": {}})
     assert response["error"]["code"] == -32600
 
 
 def test_given_non_object_params_when_dispatch_then_invalid_params_error(tmp_path: Path) -> None:
     adapter = CanvasAdapter(project_dir=tmp_path, headless=True, start_canvas=False)
-    server = TabulaMcpServer(adapter, input_stream=io.BytesIO(), output_stream=io.BytesIO())
-    response = _call(server, {"jsonrpc": "2.0", "id": 2, "method": "ping", "params": []})
+    transport = StdioTransport(TabulaMcpServer(adapter), input_stream=io.BytesIO(), output_stream=io.BytesIO())
+    response = _call(transport, {"jsonrpc": "2.0", "id": 2, "method": "ping", "params": []})
     assert response["error"]["code"] == -32602
 
 
 def test_given_resources_templates_when_called_then_templates_are_returned(tmp_path: Path) -> None:
     adapter = CanvasAdapter(project_dir=tmp_path, headless=True, start_canvas=False)
-    server = TabulaMcpServer(adapter, input_stream=io.BytesIO(), output_stream=io.BytesIO())
+    transport = StdioTransport(TabulaMcpServer(adapter), input_stream=io.BytesIO(), output_stream=io.BytesIO())
 
-    response = _call(server, {"jsonrpc": "2.0", "id": 3, "method": "resources/templates/list", "params": {}})
+    response = _call(transport, {"jsonrpc": "2.0", "id": 3, "method": "resources/templates/list", "params": {}})
     templates = response["result"]["resourceTemplates"]
     uris = [item["uriTemplate"] for item in templates]
     assert "tabula://session/{session_id}" in uris
@@ -104,10 +104,10 @@ def test_given_resources_templates_when_called_then_templates_are_returned(tmp_p
 
 def test_given_tool_specific_bad_args_when_called_then_is_error_result_payload(tmp_path: Path) -> None:
     adapter = CanvasAdapter(project_dir=tmp_path, headless=True, start_canvas=False)
-    server = TabulaMcpServer(adapter, input_stream=io.BytesIO(), output_stream=io.BytesIO())
+    transport = StdioTransport(TabulaMcpServer(adapter), input_stream=io.BytesIO(), output_stream=io.BytesIO())
 
     mode_hint_bad = _call(
-        server,
+        transport,
         {
             "jsonrpc": "2.0",
             "id": 5,
@@ -118,7 +118,7 @@ def test_given_tool_specific_bad_args_when_called_then_is_error_result_payload(t
     assert mode_hint_bad["result"]["isError"] is True
 
     pdf_page_bad = _call(
-        server,
+        transport,
         {
             "jsonrpc": "2.0",
             "id": 6,
@@ -132,7 +132,7 @@ def test_given_tool_specific_bad_args_when_called_then_is_error_result_payload(t
     assert pdf_page_bad["result"]["isError"] is True
 
     reason_bad = _call(
-        server,
+        transport,
         {
             "jsonrpc": "2.0",
             "id": 7,
@@ -149,10 +149,10 @@ def test_given_all_tool_happy_paths_when_called_then_status_and_mode_progression
     pdf = tmp_path / "doc.pdf"
     pdf.write_bytes(b"%PDF-1.4")
     adapter = CanvasAdapter(project_dir=tmp_path, headless=True, start_canvas=False)
-    server = TabulaMcpServer(adapter, input_stream=io.BytesIO(), output_stream=io.BytesIO())
+    transport = StdioTransport(TabulaMcpServer(adapter), input_stream=io.BytesIO(), output_stream=io.BytesIO())
 
     _call(
-        server,
+        transport,
         {
             "jsonrpc": "2.0",
             "id": 8,
@@ -164,7 +164,7 @@ def test_given_all_tool_happy_paths_when_called_then_status_and_mode_progression
         },
     )
     _call(
-        server,
+        transport,
         {
             "jsonrpc": "2.0",
             "id": 9,
@@ -176,7 +176,7 @@ def test_given_all_tool_happy_paths_when_called_then_status_and_mode_progression
         },
     )
     status = _call(
-        server,
+        transport,
         {
             "jsonrpc": "2.0",
             "id": 10,
@@ -188,7 +188,7 @@ def test_given_all_tool_happy_paths_when_called_then_status_and_mode_progression
     assert status["result"]["structuredContent"]["mode"] == "review"
 
     history = _call(
-        server,
+        transport,
         {
             "jsonrpc": "2.0",
             "id": 11,
@@ -198,7 +198,7 @@ def test_given_all_tool_happy_paths_when_called_then_status_and_mode_progression
     )
     assert history["result"]["structuredContent"]["count"] == 2
     selection = _call(
-        server,
+        transport,
         {
             "jsonrpc": "2.0",
             "id": 111,
@@ -210,7 +210,7 @@ def test_given_all_tool_happy_paths_when_called_then_status_and_mode_progression
     assert selection["result"]["structuredContent"]["selection"]["has_selection"] is False
 
     cleared = _call(
-        server,
+        transport,
         {
             "jsonrpc": "2.0",
             "id": 12,
@@ -223,9 +223,9 @@ def test_given_all_tool_happy_paths_when_called_then_status_and_mode_progression
 
 def test_resources_read_unknown_uri_returns_jsonrpc_error(tmp_path: Path) -> None:
     adapter = CanvasAdapter(project_dir=tmp_path, headless=True, start_canvas=False)
-    server = TabulaMcpServer(adapter, input_stream=io.BytesIO(), output_stream=io.BytesIO())
+    transport = StdioTransport(TabulaMcpServer(adapter), input_stream=io.BytesIO(), output_stream=io.BytesIO())
     response = _call(
-        server,
+        transport,
         {
             "jsonrpc": "2.0",
             "id": 13,
@@ -268,9 +268,9 @@ def test_given_jsonl_input_when_run_forever_then_server_replies_in_jsonl(tmp_pat
     in_payload = {"jsonrpc": "2.0", "id": 31, "method": "ping", "params": {}}
     stream_in = io.BytesIO((json.dumps(in_payload) + "\n").encode("utf-8"))
     stream_out = io.BytesIO()
-    server = TabulaMcpServer(adapter, input_stream=stream_in, output_stream=stream_out)
+    transport = StdioTransport(TabulaMcpServer(adapter), input_stream=stream_in, output_stream=stream_out)
 
-    rc = server.run_forever()
+    rc = transport.run_forever()
     assert rc == 0
     stream_out.seek(0)
     line = stream_out.readline().decode("utf-8")
@@ -284,14 +284,14 @@ def test_given_jsonl_input_when_run_forever_then_server_replies_in_jsonl(tmp_pat
 def test_run_mcp_stdio_server_constructs_adapter_and_runs(monkeypatch, tmp_path: Path) -> None:
     seen: dict[str, object] = {}
 
-    class FakeServer:
-        def __init__(self, adapter):
-            seen["adapter"] = adapter
+    class FakeTransport:
+        def __init__(self, server, **_kw):
+            seen["adapter"] = server.adapter
 
         def run_forever(self):
             return 77
 
-    monkeypatch.setattr(mcp, "TabulaMcpServer", FakeServer)
+    monkeypatch.setattr(mcp, "StdioTransport", FakeTransport)
     rc = run_mcp_stdio_server(
         project_dir=tmp_path,
         headless=True,

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import json
 import sys
 import urllib.error
@@ -61,17 +60,3 @@ def run_mcp_http_bridge(*, mcp_url: str) -> int:
         _emit(response)
 
     return 0
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="tabula mcp-http-bridge",
-        description="Proxy MCP stdio JSON-RPC traffic to an HTTP MCP endpoint.",
-    )
-    parser.add_argument("--mcp-url", required=True)
-    args = parser.parse_args(argv)
-    return run_mcp_http_bridge(mcp_url=args.mcp_url)
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

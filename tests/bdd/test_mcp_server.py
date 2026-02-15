@@ -3,24 +3,29 @@ from __future__ import annotations
 import io
 
 from tabula.canvas_adapter import CanvasAdapter
-from tabula.mcp_server import TabulaMcpServer, read_message
+from tabula.mcp_server import StdioTransport, TabulaMcpServer, read_message
 
 
-def _call(server: TabulaMcpServer, request: dict[str, object]) -> dict[str, object]:
+def _call(transport: StdioTransport, request: dict[str, object]) -> dict[str, object]:
     out = io.BytesIO()
-    server.output_stream = out
-    server.handle_message(request)
+    transport.output_stream = out
+    transport.handle_message(request)
     out.seek(0)
     response = read_message(out)
     assert response is not None
     return response
 
 
-def test_initialize_returns_server_capabilities(tmp_path) -> None:
+def _make_transport(tmp_path) -> StdioTransport:
     adapter = CanvasAdapter(project_dir=tmp_path, headless=True, start_canvas=False)
-    server = TabulaMcpServer(adapter, input_stream=io.BytesIO(), output_stream=io.BytesIO())
+    server = TabulaMcpServer(adapter)
+    return StdioTransport(server, input_stream=io.BytesIO(), output_stream=io.BytesIO())
 
-    response = _call(server, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+
+def test_initialize_returns_server_capabilities(tmp_path) -> None:
+    transport = _make_transport(tmp_path)
+
+    response = _call(transport, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
     assert response["id"] == 1
     result = response["result"]
     assert result["serverInfo"]["name"] == "tabula-canvas"
@@ -29,10 +34,9 @@ def test_initialize_returns_server_capabilities(tmp_path) -> None:
 
 
 def test_tools_list_exposes_canvas_tools(tmp_path) -> None:
-    adapter = CanvasAdapter(project_dir=tmp_path, headless=True, start_canvas=False)
-    server = TabulaMcpServer(adapter, input_stream=io.BytesIO(), output_stream=io.BytesIO())
+    transport = _make_transport(tmp_path)
 
-    response = _call(server, {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+    response = _call(transport, {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
     names = [item["name"] for item in response["result"]["tools"]]
     assert "canvas_activate" in names
     assert "canvas_render_text" in names
@@ -45,11 +49,10 @@ def test_tools_list_exposes_canvas_tools(tmp_path) -> None:
 
 
 def test_tools_call_render_text_updates_state_and_history(tmp_path) -> None:
-    adapter = CanvasAdapter(project_dir=tmp_path, headless=True, start_canvas=False)
-    server = TabulaMcpServer(adapter, input_stream=io.BytesIO(), output_stream=io.BytesIO())
+    transport = _make_transport(tmp_path)
 
     render = _call(
-        server,
+        transport,
         {
             "jsonrpc": "2.0",
             "id": 3,
@@ -68,7 +71,7 @@ def test_tools_call_render_text_updates_state_and_history(tmp_path) -> None:
     assert render["result"]["structuredContent"]["kind"] == "text_artifact"
 
     status = _call(
-        server,
+        transport,
         {
             "jsonrpc": "2.0",
             "id": 4,
@@ -80,7 +83,7 @@ def test_tools_call_render_text_updates_state_and_history(tmp_path) -> None:
     assert status["result"]["structuredContent"]["selection"]["has_selection"] is False
 
     selection = _call(
-        server,
+        transport,
         {
             "jsonrpc": "2.0",
             "id": 41,
@@ -91,7 +94,7 @@ def test_tools_call_render_text_updates_state_and_history(tmp_path) -> None:
     assert selection["result"]["structuredContent"]["selection"]["has_selection"] is False
 
     history = _call(
-        server,
+        transport,
         {
             "jsonrpc": "2.0",
             "id": 5,
@@ -104,11 +107,10 @@ def test_tools_call_render_text_updates_state_and_history(tmp_path) -> None:
 
 
 def test_resources_list_and_read_surface_session_state(tmp_path) -> None:
-    adapter = CanvasAdapter(project_dir=tmp_path, headless=True, start_canvas=False)
-    server = TabulaMcpServer(adapter, input_stream=io.BytesIO(), output_stream=io.BytesIO())
+    transport = _make_transport(tmp_path)
 
     _call(
-        server,
+        transport,
         {
             "jsonrpc": "2.0",
             "id": 6,
@@ -120,13 +122,13 @@ def test_resources_list_and_read_surface_session_state(tmp_path) -> None:
         },
     )
 
-    resources = _call(server, {"jsonrpc": "2.0", "id": 7, "method": "resources/list", "params": {}})
+    resources = _call(transport, {"jsonrpc": "2.0", "id": 7, "method": "resources/list", "params": {}})
     uris = [item["uri"] for item in resources["result"]["resources"]]
     assert "tabula://sessions" in uris
     assert "tabula://session/s1" in uris
 
     status_read = _call(
-        server,
+        transport,
         {
             "jsonrpc": "2.0",
             "id": 8,
@@ -138,11 +140,10 @@ def test_resources_list_and_read_surface_session_state(tmp_path) -> None:
 
 
 def test_tools_call_unknown_tool_returns_error_payload(tmp_path) -> None:
-    adapter = CanvasAdapter(project_dir=tmp_path, headless=True, start_canvas=False)
-    server = TabulaMcpServer(adapter, input_stream=io.BytesIO(), output_stream=io.BytesIO())
+    transport = _make_transport(tmp_path)
 
     response = _call(
-        server,
+        transport,
         {
             "jsonrpc": "2.0",
             "id": 9,
