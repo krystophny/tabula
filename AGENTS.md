@@ -13,3 +13,16 @@ Use this protocol for Tabula interactive sessions in this project.
 6. Keep `.tabula/artifacts/` gitignored; do not commit files from it unless explicitly requested.
 
 <!-- TABULA_PROTOCOL:END -->
+
+## Local Web UI Service (systemd user unit)
+
+For this user/machine, the Web UI is installed as a user service:
+
+- Unit: `tabula-web.service`
+- Start: `systemctl --user start tabula-web.service`
+- Stop: `systemctl --user stop tabula-web.service`
+- Restart: `systemctl --user restart tabula-web.service`
+- Status: `systemctl --user status tabula-web.service --no-pager -n 40`
+- Logs: `journalctl --user -u tabula-web.service -f`
+
+Expected URL: `http://localhost:8420` (service is configured with `--host 0.0.0.0 --port 8420`).
