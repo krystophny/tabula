@@ -3,7 +3,7 @@
 Minimal MCP canvas adapter for Codex/Claude workflows.
 
 Tabula keeps the assistant as the driver process and provides:
-- `tabula-canvas` MCP server (stdio framed + JSONL compatibility)
+- `tabula` MCP server (stdio framed + JSONL compatibility)
 - optional desktop canvas window runtime
 - HTTP daemon (`tabula serve`) with MCP, canvas WebSocket, and file proxy
 - Web UI (`tabula web`) with auth, host management, terminal, and canvas relay
@@ -22,13 +22,10 @@ python -m pip install -e .[gui]   # optional local canvas window (PySide6)
 ```bash
 tabula bootstrap --project-dir .
 tabula mcp-server --project-dir . --headless --no-canvas --fresh-canvas
-tabula mcp-server --project-dir . --backend helpy=http://127.0.0.1:8090/mcp
 tabula run --project-dir . "your prompt"
-tabula run --project-dir . --backend helpy=http://127.0.0.1:8090/mcp "prompt with brokered helpy tools"
 tabula run --assistant claude --project-dir . "your prompt"
 tabula run --project-dir . --mcp-url http://127.0.0.1:9420/mcp "prompt via HTTP MCP"
 tabula serve --project-dir . --host 127.0.0.1 --port 9420
-tabula serve --project-dir . --backend helpy=http://127.0.0.1:8090/mcp
 tabula web --data-dir ~/.tabula-web --project-dir . --host 127.0.0.1 --port 8420
 tabula web --project-dir . --local-mcp-url http://127.0.0.1:9420/mcp --ptyd-url http://127.0.0.1:9333 --dev-runtime
 tabula ptyd --data-dir ~/.local/share/tabula-ptyd --host 127.0.0.1 --port 9333
@@ -76,22 +73,23 @@ This setup keeps local shell sessions in `tabula-ptyd` so `tabula-web` restarts 
 `tabula bootstrap` writes `.tabula/codex-mcp.toml` with:
 
 ```toml
-[mcp_servers.tabula-canvas]
+[mcp_servers.tabula]
 command = "tabula"
 args = ["mcp-server", "--project-dir", "/abs/path/to/project"]
 ```
 
 Merge that snippet into `~/.codex/config.toml`.
 
-For global local-broker setup (Codex + Claude):
+For global local setup (Codex + Claude):
 
 ```bash
-./scripts/setup-agent-mcp.sh http://127.0.0.1:9420/mcp
+./scripts/setup-tabula-mcp.sh http://127.0.0.1:9420/mcp
 ```
 
 Individual scripts:
 - `scripts/setup-codex-mcp.sh`
 - `scripts/setup-claude-mcp.sh`
+- `scripts/setup-tabula-mcp.sh`
 
 Bootstrap behavior:
 - If `AGENTS.md` does not exist, Tabula creates it with the protocol block.
@@ -112,8 +110,13 @@ Bootstrap behavior:
 
 Canvas state is MCP-first and in-memory; no filesystem event log is required.
 
-Brokered tools from backends are automatically namespaced:
-- backend `helpy` tool `email_list` becomes `helpy.email_list`
+## Architecture
+
+Tabula is a standalone UI/canvas MCP server. It does not route to external backends.
+
+In dual-server controller mode:
+- configure `tabula` and `helpy` MCP servers separately in Codex/Claude
+- let the assistant orchestrate calls between them
 
 ## Tests
 

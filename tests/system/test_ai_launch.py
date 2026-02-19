@@ -37,7 +37,7 @@ MOCK_AI_SCRIPT = textwrap.dedent("""\
             return json.loads(resp.read())
 
     result = rpc("initialize", {})
-    assert result["result"]["serverInfo"]["name"] == "tabula-canvas"
+    assert result["result"]["serverInfo"]["name"] == "tabula"
 
     result = rpc("tools/call", {
         "name": "canvas_render_text",
@@ -126,7 +126,7 @@ def test_mock_ai_via_tabula_run(tmp_path: Path) -> None:
         for i, arg in enumerate(sys.argv):
             if arg == "--mcp-config":
                 cfg = json.loads(sys.argv[i + 1])
-                mcp_url = cfg["mcpServers"]["tabula-canvas"]["url"]
+                mcp_url = cfg["mcpServers"]["tabula"]["url"]
                 break
         else:
             print("no --mcp-config found", file=sys.stderr)
@@ -142,7 +142,7 @@ def test_mock_ai_via_tabula_run(tmp_path: Path) -> None:
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
-            assert data["result"]["serverInfo"]["name"] == "tabula-canvas"
+            assert data["result"]["serverInfo"]["name"] == "tabula"
         print("MOCK_CLAUDE_OK")
     """), encoding="utf-8")
     mock_claude.chmod(mock_claude.stat().st_mode | stat.S_IEXEC)
@@ -216,7 +216,7 @@ def test_pty_launches_claude_with_mcp_config(tmp_path: Path) -> None:
         for i, arg in enumerate(sys.argv):
             if arg == "--mcp-config":
                 cfg = json.loads(sys.argv[i + 1])
-                url = cfg["mcpServers"]["tabula-canvas"]["url"]
+                url = cfg["mcpServers"]["tabula"]["url"]
                 break
         else:
             sys.exit(1)
@@ -226,7 +226,7 @@ def test_pty_launches_claude_with_mcp_config(tmp_path: Path) -> None:
                                     headers={{"Content-Type": "application/json"}})
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
-            assert data["result"]["serverInfo"]["name"] == "tabula-canvas"
+            assert data["result"]["serverInfo"]["name"] == "tabula"
         print("PTY_LAUNCH_OK")
     """), encoding="utf-8")
     mock_claude.chmod(mock_claude.stat().st_mode | stat.S_IEXEC)
@@ -235,7 +235,7 @@ def test_pty_launches_claude_with_mcp_config(tmp_path: Path) -> None:
         client = await make_serve_client(tmp_path)
         async with client:
             mcp_url = f"http://127.0.0.1:{client.port}/mcp"
-            cfg = json.dumps({"mcpServers": {"tabula-canvas": {"url": mcp_url}}})
+            cfg = json.dumps({"mcpServers": {"tabula": {"url": mcp_url}}})
             cmd = f"export PATH={tmp_path}:$PATH; claude --dangerously-skip-permissions --mcp-config '{cfg}'\n"
 
             transport = await LocalPtyTransport.open(str(tmp_path))

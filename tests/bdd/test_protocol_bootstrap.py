@@ -24,10 +24,10 @@ def test_given_new_project_when_bootstrapped_then_git_agents_mcp_and_binary_igno
     assert ".tabula/artifacts" in agents
     assert "do not rely on filesystem event logs" in agents
     assert "canvas_session_open" in agents
-    assert "tabula-canvas" in agents
+    assert "tabula" in agents
 
     mcp_cfg = (tmp_path / ".tabula" / "codex-mcp.toml").read_text(encoding="utf-8")
-    assert "[mcp_servers.tabula-canvas]" in mcp_cfg
+    assert "[mcp_servers.tabula]" in mcp_cfg
     assert 'command = "tabula"' in mcp_cfg
     assert '--project-dir' in mcp_cfg
 

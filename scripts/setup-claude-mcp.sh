@@ -31,9 +31,10 @@ servers = data.get("mcpServers")
 if not isinstance(servers, dict):
     servers = {}
 data["mcpServers"] = servers
-servers["tabula-broker"] = {"url": mcp_url}
+servers.pop("tabula-broker", None)
+servers["tabula"] = {"url": mcp_url}
 
 path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 print(f"updated {path}")
-print("server key: mcpServers.tabula-broker")
+print("server key: mcpServers.tabula")
 PY

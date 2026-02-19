@@ -10,7 +10,6 @@ from pathlib import Path
 
 from .canvas_adapter import has_display
 from .events import event_schema
-from .mcp_backends import parse_backend_specs
 from .mcp_http_bridge import run_mcp_http_bridge
 from .mcp_server import run_mcp_stdio_server
 from .protocol import bootstrap_project
@@ -49,19 +48,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p_bootstrap = sub.add_parser("bootstrap", help="initialize tabula protocol files")
     p_bootstrap.add_argument("--project-dir", type=Path, default=Path("."))
 
-    p_mcp = sub.add_parser("mcp-server", help="run tabula-canvas MCP server over stdio")
+    p_mcp = sub.add_parser("mcp-server", help="run tabula MCP server over stdio")
     p_mcp.add_argument("--project-dir", type=Path, default=Path("."))
     p_mcp.add_argument("--headless", action="store_true")
     p_mcp.add_argument("--no-canvas", action="store_true")
     p_mcp.add_argument("--fresh-canvas", action="store_true")
     p_mcp.add_argument("--poll-ms", type=int, default=250)
-    p_mcp.add_argument(
-        "--backend",
-        action="append",
-        default=[],
-        metavar="NAME=URL",
-        help="register broker backend MCP endpoint (repeatable)",
-    )
 
     p_mcp_bridge = sub.add_parser("mcp-http-bridge", help="bridge stdio MCP traffic to an HTTP MCP endpoint")
     p_mcp_bridge.add_argument("--mcp-url", required=True)
@@ -70,13 +62,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--project-dir", type=Path, default=Path("."))
     p_serve.add_argument("--host", default="127.0.0.1")
     p_serve.add_argument("--port", type=int, default=9420)
-    p_serve.add_argument(
-        "--backend",
-        action="append",
-        default=[],
-        metavar="NAME=URL",
-        help="register broker backend MCP endpoint (repeatable)",
-    )
 
     p_web = sub.add_parser("web", help="launch tabula web server")
     p_web.add_argument("--data-dir", type=Path, default=Path("~/.tabula-web").expanduser())
@@ -98,13 +83,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--headless", action="store_true")
     p_run.add_argument("--no-canvas", action="store_true")
     p_run.add_argument("--poll-ms", type=int, default=250)
-    p_run.add_argument(
-        "--backend",
-        action="append",
-        default=[],
-        metavar="NAME=URL",
-        help="register broker backend MCP endpoint (repeatable)",
-    )
     p_run.add_argument("--mcp-url", default=None, help="use HTTP MCP endpoint URL instead of stdio (e.g. http://localhost:9420/mcp)")
     p_run.add_argument("prompt", nargs="?", default=None)
     return parser
@@ -161,7 +139,6 @@ def _cmd_mcp_server(
     no_canvas: bool,
     fresh_canvas: bool,
     poll_ms: int,
-    backend_specs: list[str],
 ) -> int:
     try:
         bootstrap = bootstrap_project(project_dir)
@@ -169,22 +146,13 @@ def _cmd_mcp_server(
         print(str(exc), file=sys.stderr)
         return 1
 
-    try:
-        backend_urls = parse_backend_specs(backend_specs)
-    except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
-
-    kwargs = dict(
+    return run_mcp_stdio_server(
         project_dir=bootstrap.paths.project_dir,
         headless=headless,
         fresh_canvas=fresh_canvas,
         poll_interval_ms=poll_ms,
         start_canvas=not no_canvas,
     )
-    if backend_urls:
-        kwargs["backend_urls"] = backend_urls
-    return run_mcp_stdio_server(**kwargs)
 
 
 def _cmd_mcp_http_bridge(mcp_url: str) -> int:
@@ -205,13 +173,13 @@ def _codex_stdio_cmd(target: Path, mcp_shell: str) -> list[str]:
     return [
         "codex", "--no-alt-screen", "--yolo", "--search",
         "-C", str(target),
-        "-c", f"mcp_servers.tabula-canvas.command={json.dumps('bash')}",
-        "-c", f"mcp_servers.tabula-canvas.args={json.dumps(['-lc', mcp_shell])}",
+        "-c", f"mcp_servers.tabula.command={json.dumps('bash')}",
+        "-c", f"mcp_servers.tabula.args={json.dumps(['-lc', mcp_shell])}",
     ]
 
 
 def _claude_stdio_cmd(mcp_shell: str) -> list[str]:
-    cfg = {"mcpServers": {"tabula-canvas": {"command": "bash", "args": ["-lc", mcp_shell]}}}
+    cfg = {"mcpServers": {"tabula": {"command": "bash", "args": ["-lc", mcp_shell]}}}
     return ["claude", "--dangerously-skip-permissions", "--mcp-config", json.dumps(cfg, separators=(",", ":"))]
 
 
@@ -219,16 +187,16 @@ def _codex_http_cmd(target: Path, mcp_url: str) -> list[str]:
     return [
         "codex", "--no-alt-screen", "--yolo", "--search",
         "-C", str(target),
-        "-c", f"mcp_servers.tabula-canvas.url={json.dumps(mcp_url)}",
+        "-c", f"mcp_servers.tabula.url={json.dumps(mcp_url)}",
     ]
 
 
 def _claude_http_cmd(mcp_url: str) -> list[str]:
-    cfg = {"mcpServers": {"tabula-canvas": {"url": mcp_url}}}
+    cfg = {"mcpServers": {"tabula": {"url": mcp_url}}}
     return ["claude", "--dangerously-skip-permissions", "--mcp-config", json.dumps(cfg, separators=(",", ":"))]
 
 
-def _cmd_serve(project_dir: Path, host: str, port: int, backend_specs: list[str]) -> int:
+def _cmd_serve(project_dir: Path, host: str, port: int) -> int:
     try:
         bootstrap = bootstrap_project(project_dir)
     except RuntimeError as exc:
@@ -244,20 +212,11 @@ def _cmd_serve(project_dir: Path, host: str, port: int, backend_specs: list[str]
         )
         return 2
 
-    try:
-        backend_urls = parse_backend_specs(backend_specs)
-    except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
-
-    kwargs = {
-        "project_dir": bootstrap.paths.project_dir,
-        "host": host,
-        "port": port,
-    }
-    if backend_urls:
-        kwargs["backend_urls"] = backend_urls
-    return run_serve(**kwargs)
+    return run_serve(
+        project_dir=bootstrap.paths.project_dir,
+        host=host,
+        port=port,
+    )
 
 
 def _cmd_web(
@@ -318,7 +277,6 @@ def _cmd_run(
     headless: bool,
     no_canvas: bool,
     poll_ms: int,
-    backend_specs: list[str],
     mcp_url: str | None,
     prompt: str | None,
 ) -> int:
@@ -330,16 +288,7 @@ def _cmd_run(
 
     target = bootstrap.paths.project_dir
 
-    try:
-        parse_backend_specs(backend_specs)
-    except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
-
     if mcp_url:
-        if backend_specs:
-            print("--backend cannot be used together with --mcp-url", file=sys.stderr)
-            return 1
         return _dispatch_assistant(assistant, target=target, mcp_url=mcp_url, prompt=prompt)
 
     mcp_args = [
@@ -356,13 +305,11 @@ def _cmd_run(
     if no_canvas:
         mcp_args.append("--no-canvas")
     mcp_args.append("--fresh-canvas")
-    for backend_spec in backend_specs:
-        mcp_args.extend(["--backend", backend_spec])
 
     if (not headless) and (not no_canvas):
         if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
             print(
-                "warning: no DISPLAY/WAYLAND_DISPLAY detected; tabula-canvas will run headless",
+                "warning: no DISPLAY/WAYLAND_DISPLAY detected; tabula MCP server will run headless",
                 file=sys.stderr,
             )
 
@@ -420,12 +367,11 @@ def main(argv: list[str] | None = None) -> int:
             args.no_canvas,
             args.fresh_canvas,
             args.poll_ms,
-            args.backend,
         )
     if args.command == "mcp-http-bridge":
         return _cmd_mcp_http_bridge(args.mcp_url)
     if args.command == "serve":
-        return _cmd_serve(args.project_dir, args.host, args.port, args.backend)
+        return _cmd_serve(args.project_dir, args.host, args.port)
     if args.command == "web":
         return _cmd_web(
             args.data_dir,
@@ -445,7 +391,6 @@ def main(argv: list[str] | None = None) -> int:
             headless=args.headless,
             no_canvas=args.no_canvas,
             poll_ms=args.poll_ms,
-            backend_specs=args.backend,
             mcp_url=args.mcp_url,
             prompt=args.prompt,
         )

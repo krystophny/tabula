@@ -19,7 +19,7 @@ Canonical behavior is code + tests. This file only points to source-of-truth loc
 - `tests/unit/test_canvas_adapter_internal.py`
 - `tests/bdd/test_canvas_adapter.py`
 
-4. MCP server (`tabula-canvas`) stdio contract (framed + JSONL compatibility)
+4. MCP server (`tabula`) stdio contract (framed + JSONL compatibility)
 - `src/tabula/mcp_server.py`
 - `tests/bdd/test_mcp_server.py`
 - `tests/bdd/test_mcp_protocol_flows.py`

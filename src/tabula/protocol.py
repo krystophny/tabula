@@ -43,7 +43,7 @@ def _protocol_block(artifacts_rel: Path, injection_rel: Path) -> str:
         "",
         f"1. Read extra instructions from `{injection_rel.as_posix()}` and apply them.",
         f"2. Keep generated render/output artifacts under `{artifacts_rel.as_posix()}`; keep editable source files in the project workspace (not under `{artifacts_rel.as_posix()}`).",
-        "3. Use MCP server `tabula-canvas` for all canvas operations; do not rely on filesystem event logs.",
+        "3. Use MCP server `tabula` for all canvas operations; do not rely on filesystem event logs.",
         "4. MCP tools: `canvas_session_open`, `canvas_artifact_show`, `canvas_mark_set`, `canvas_mark_delete`, `canvas_marks_list`, `canvas_mark_focus`, `canvas_commit`, `canvas_status`.",
         "5. Keep interaction terminal-first; do not replace the terminal with a custom REPL.",
         "6. Keep `.tabula/artifacts/` gitignored; do not commit files from it unless explicitly requested.",
@@ -115,7 +115,7 @@ def bootstrap_project(
             [
                 "# Merge this snippet into your ~/.codex/config.toml",
                 "# to register the project-scoped Tabula canvas MCP adapter.",
-                "[mcp_servers.tabula-canvas]",
+                "[mcp_servers.tabula]",
                 'command = "tabula"',
                 f'args = ["mcp-server", "--project-dir", "{project_dir.as_posix()}"]',
                 "",

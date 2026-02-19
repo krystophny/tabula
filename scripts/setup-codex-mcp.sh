@@ -23,7 +23,7 @@ text = path.read_text(encoding="utf-8") if path.exists() else ""
 block = "\n".join(
     [
         "# BEGIN TABULA MCP",
-        "[mcp_servers.tabula-broker]",
+        "[mcp_servers.tabula]",
         f'url = "{mcp_url}"',
         "# END TABULA MCP",
         "",
@@ -41,5 +41,5 @@ else:
 
 path.write_text(updated, encoding="utf-8")
 print(f"updated {path}")
-print("server key: mcp_servers.tabula-broker")
+print("server key: mcp_servers.tabula")
 PY

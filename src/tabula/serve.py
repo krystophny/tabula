@@ -13,7 +13,6 @@ from aiohttp import web
 
 from .canvas_adapter import CanvasAdapter
 from .events import CanvasEvent, event_to_payload
-from .mcp_backends import build_http_backends
 from .mcp_server import TabulaMcpServer
 from .protocol import _ensure_gitignore
 
@@ -33,7 +32,7 @@ async def broadcast_ws(clients: set[web.WebSocketResponse], message: str) -> Non
 
 
 class TabulaServeApp:
-    def __init__(self, *, project_dir: Path, backend_urls: dict[str, str] | None = None) -> None:
+    def __init__(self, *, project_dir: Path) -> None:
         self._project_dir = project_dir.resolve()
         _ensure_gitignore(self._project_dir)
         self._ws_clients: set[web.WebSocketResponse] = set()
@@ -46,7 +45,6 @@ class TabulaServeApp:
                 start_canvas=False,
                 on_event=self._queue_event,
             ),
-            backends=build_http_backends(backend_urls),
         )
 
     @property
@@ -209,9 +207,8 @@ def run_serve(
     project_dir: Path,
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
-    backend_urls: dict[str, str] | None = None,
 ) -> int:
-    serve_app = TabulaServeApp(project_dir=project_dir, backend_urls=backend_urls)
+    serve_app = TabulaServeApp(project_dir=project_dir)
     app = serve_app.create_app()
     urls = _listen_urls(host, port)
     print(f"tabula serve listening on:", flush=True)

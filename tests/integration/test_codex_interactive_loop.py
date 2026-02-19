@@ -28,9 +28,9 @@ def _build_codex_tmux_shell(project_dir: Path, prompt: str) -> str:
         "-C",
         str(project_dir),
         "-c",
-        'mcp_servers.tabula-canvas.command="bash"',
+        'mcp_servers.tabula.command="bash"',
         "-c",
-        f'mcp_servers.tabula-canvas.args=["-lc",{json.dumps(server_cmd)}]',
+        f'mcp_servers.tabula.args=["-lc",{json.dumps(server_cmd)}]',
         prompt,
     ]
     return "cd " + shlex.quote(str(project_dir)) + " && " + " ".join(shlex.quote(token) for token in cmd)

@@ -141,7 +141,7 @@ function buildClaudeCommand(mcpUrl) {
   const bridge = `exec python -m tabula mcp-http-bridge --mcp-url ${shellSingleQuote(mcpUrl)}`;
   const cfg = JSON.stringify({
     mcpServers: {
-      'tabula-canvas': {
+      'tabula': {
         command: 'bash',
         args: ['-lc', bridge],
       },
@@ -617,7 +617,7 @@ async function launchAI() {
   if (assistant === 'claude') {
     cmd = buildClaudeCommand(mcpUrl);
   } else {
-    cmd = `codex --no-alt-screen --yolo --search -c 'mcp_servers.tabula-canvas.url=${JSON.stringify(mcpUrl)}'\n`;
+    cmd = `codex --no-alt-screen --yolo --search -c 'mcp_servers.tabula.url=${JSON.stringify(mcpUrl)}'\n`;
   }
 
   sendTerminalInput(cmd);

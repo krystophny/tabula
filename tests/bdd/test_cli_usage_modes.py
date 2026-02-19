@@ -200,52 +200,6 @@ def test_given_mcp_server_bootstrap_failure_when_invoked_then_nonzero(monkeypatc
     assert "mcp bootstrap failed" in err
 
 
-def test_given_mcp_server_with_backends_when_invoked_then_runner_receives_backend_urls(monkeypatch, tmp_path: Path) -> None:
-    calls: dict[str, object] = {}
-
-    def fake_run_server(
-        *,
-        project_dir: Path,
-        headless: bool,
-        fresh_canvas: bool,
-        poll_interval_ms: int,
-        start_canvas: bool,
-        backend_urls: dict[str, str],
-    ) -> int:
-        calls["project_dir"] = project_dir
-        calls["backend_urls"] = backend_urls
-        return 29
-
-    monkeypatch.setattr("tabula.cli.bootstrap_project", _make_fake_bootstrap())
-    monkeypatch.setattr("tabula.cli.run_mcp_stdio_server", fake_run_server)
-
-    rc = main(
-        [
-            "mcp-server",
-            "--project-dir",
-            str(tmp_path),
-            "--backend",
-            "helpy=http://127.0.0.1:8090/mcp",
-            "--backend",
-            "mail=http://127.0.0.1:8091/mcp",
-        ]
-    )
-    assert rc == 29
-    assert calls["project_dir"] == tmp_path.resolve()
-    assert calls["backend_urls"] == {
-        "helpy": "http://127.0.0.1:8090/mcp",
-        "mail": "http://127.0.0.1:8091/mcp",
-    }
-
-
-def test_given_mcp_server_with_invalid_backend_spec_when_invoked_then_nonzero(monkeypatch, tmp_path: Path, capsys) -> None:
-    monkeypatch.setattr("tabula.cli.bootstrap_project", _make_fake_bootstrap())
-    rc = main(["mcp-server", "--project-dir", str(tmp_path), "--backend", "not-valid"])
-    err = capsys.readouterr().err
-    assert rc == 1
-    assert "invalid backend spec" in err
-
-
 def test_given_mcp_http_bridge_mode_when_invoked_then_bridge_runner_is_called(monkeypatch) -> None:
     calls: dict[str, object] = {}
 
@@ -297,10 +251,10 @@ def test_given_run_mode_when_invoked_then_codex_launches_with_inline_mcp_yolo_an
     assert "hello from tabula run" in cmd
 
     command_override = cmd[cmd.index("-c") + 1]
-    assert "mcp_servers.tabula-canvas.command" in command_override
+    assert "mcp_servers.tabula.command" in command_override
     assert "bash" in command_override
     args_override = cmd[cmd.index("-c", cmd.index("-c") + 1) + 1]
-    assert "mcp_servers.tabula-canvas.args=" in args_override
+    assert "mcp_servers.tabula.args=" in args_override
     assert "-lc" in args_override
     assert "python" in args_override
     assert "--headless" in args_override
@@ -361,7 +315,7 @@ def test_given_run_mode_with_claude_assistant_when_invoked_then_claude_launches_
     assert "--mcp-config" in cmd
     assert "hello from claude tabula run" in cmd
     cfg = json.loads(cmd[cmd.index("--mcp-config") + 1])
-    server = cfg["mcpServers"]["tabula-canvas"]
+    server = cfg["mcpServers"]["tabula"]
     assert server["command"] == "bash"
     assert server["args"][0] == "-lc"
     assert "--headless" in server["args"][1]
@@ -398,7 +352,7 @@ def test_given_run_mode_without_display_when_canvas_expected_then_headless_warni
     rc = main(["run", "--project-dir", str(tmp_path)])
     err = capsys.readouterr().err
     assert rc == 0
-    assert "tabula-canvas will run headless" in err
+    assert "tabula MCP server will run headless" in err
 
 
 def test_given_run_mode_with_display_env_when_invoked_then_display_vars_are_forwarded(monkeypatch, tmp_path: Path) -> None:
@@ -441,62 +395,6 @@ def test_given_serve_mode_when_invoked_then_bootstrap_and_serve_are_called(monke
     assert rc == 0
     assert calls["host"] == "0.0.0.0"
     assert calls["port"] == 7777
-
-
-def test_given_serve_mode_with_backends_when_invoked_then_serve_receives_backend_urls(monkeypatch, tmp_path: Path) -> None:
-    calls: dict[str, object] = {}
-
-    def fake_run_serve(*, project_dir, host, port, backend_urls):
-        calls["project_dir"] = project_dir
-        calls["host"] = host
-        calls["port"] = port
-        calls["backend_urls"] = backend_urls
-        return 0
-
-    monkeypatch.setattr("tabula.cli.bootstrap_project", _make_fake_bootstrap())
-    monkeypatch.setattr("tabula.serve.run_serve", fake_run_serve)
-
-    rc = main(
-        [
-            "serve",
-            "--project-dir",
-            str(tmp_path),
-            "--backend",
-            "helpy=http://127.0.0.1:8090/mcp",
-        ]
-    )
-    assert rc == 0
-    assert calls["backend_urls"] == {"helpy": "http://127.0.0.1:8090/mcp"}
-
-
-def test_given_run_mode_with_backends_when_invoked_then_backend_flags_are_forwarded(monkeypatch, tmp_path: Path) -> None:
-    seen: dict[str, object] = {}
-
-    class _RunResult:
-        returncode = 0
-
-    def fake_run(cmd, cwd=None):
-        seen["cmd"] = cmd
-        return _RunResult()
-
-    monkeypatch.setattr("tabula.cli.bootstrap_project", _make_fake_bootstrap())
-    monkeypatch.setattr("tabula.cli.subprocess.run", fake_run)
-
-    rc = main(
-        [
-            "run",
-            "--project-dir",
-            str(tmp_path),
-            "--backend",
-            "helpy=http://127.0.0.1:8090/mcp",
-        ]
-    )
-    assert rc == 0
-    cmd = seen["cmd"]
-    assert isinstance(cmd, list)
-    args_override = cmd[cmd.index("-c", cmd.index("-c") + 1) + 1]
-    assert "--backend" in args_override
-    assert "helpy=http://127.0.0.1:8090/mcp" in args_override
 
 
 def test_given_web_mode_when_invoked_then_web_server_is_called(monkeypatch, tmp_path: Path) -> None:
@@ -604,7 +502,7 @@ def test_given_run_with_mcp_url_when_invoked_then_uses_http_mcp(monkeypatch, tmp
     cmd = seen["cmd"]
     assert isinstance(cmd, list)
     assert "codex" in cmd
-    url_cfg = [c for c in cmd if "tabula-canvas.url" in c]
+    url_cfg = [c for c in cmd if "tabula.url" in c]
     assert len(url_cfg) == 1
     assert "http://localhost:9420/mcp" in url_cfg[0]
 
@@ -633,7 +531,7 @@ def test_given_run_with_mcp_url_and_claude_when_invoked_then_uses_http_mcp_with_
     assert "--dangerously-skip-permissions" in cmd
     assert "--mcp-config" in cmd
     cfg = json.loads(cmd[cmd.index("--mcp-config") + 1])
-    assert cfg["mcpServers"]["tabula-canvas"]["url"] == "http://localhost:9420/mcp"
+    assert cfg["mcpServers"]["tabula"]["url"] == "http://localhost:9420/mcp"
 
 
 def test_given_no_args_when_invoked_then_help_and_exit_2(capsys) -> None:

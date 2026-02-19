@@ -25,7 +25,7 @@ def test_real_claude_http_mcp(tmp_path: Path) -> None:
             mcp_url = f"http://127.0.0.1:{port}/mcp"
             ws = await tc.ws_connect("/ws/canvas")
 
-            cfg = {"mcpServers": {"tabula-canvas": {"url": mcp_url}}}
+            cfg = {"mcpServers": {"tabula": {"url": mcp_url}}}
             prompt = (
                 "Call MCP tool canvas_render_text with session_id='real-claude-sys', "
                 "title='real-test', markdown_or_text='hello from real claude'. "
@@ -64,7 +64,7 @@ def test_real_codex_http_mcp(tmp_path: Path) -> None:
             proc = await asyncio.create_subprocess_exec(
                 "codex", "--no-alt-screen", "--yolo",
                 "-C", str(tmp_path),
-                "-c", f"mcp_servers.tabula-canvas.url={json.dumps(mcp_url)}",
+                "-c", f"mcp_servers.tabula.url={json.dumps(mcp_url)}",
                 "Call canvas_render_text with session_id='real-codex-sys', "
                 "title='codex-test', markdown_or_text='hello from real codex'. "
                 "Then exit.",

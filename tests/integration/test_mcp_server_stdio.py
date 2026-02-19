@@ -63,7 +63,7 @@ def test_mcp_server_stdio_roundtrip_updates_canvas_state(tmp_path: Path) -> None
         _write_message(proc.stdin, {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
         init_response = _read_message(proc.stdout)
         assert init_response["id"] == 1
-        assert init_response["result"]["serverInfo"]["name"] == "tabula-canvas"
+        assert init_response["result"]["serverInfo"]["name"] == "tabula"
 
         _write_message(
             proc.stdin,

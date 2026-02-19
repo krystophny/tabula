@@ -40,7 +40,7 @@ def mock_bin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
         "if not cfg:\n"
         "    print('missing --mcp-config', file=sys.stderr)\n"
         "    sys.exit(2)\n"
-        "server = cfg.get('mcpServers', {}).get('tabula-canvas', {})\n"
+        "server = cfg.get('mcpServers', {}).get('tabula', {})\n"
         "command = server.get('command')\n"
         "args = server.get('args', [])\n"
         "if not command:\n"

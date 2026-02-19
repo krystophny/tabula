@@ -26,7 +26,7 @@ def test_mcp_initialize_handshake(tmp_path: Path) -> None:
             assert resp.status == 200
             assert "Mcp-Session-Id" in resp.headers
             data = await resp.json()
-            assert data["result"]["serverInfo"]["name"] == "tabula-canvas"
+            assert data["result"]["serverInfo"]["name"] == "tabula"
             assert "protocolVersion" in data["result"]
             assert "capabilities" in data["result"]
 

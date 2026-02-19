@@ -73,7 +73,7 @@ def test_mcp_initialize_returns_session_id(tmp_path: Path) -> None:
             assert "Mcp-Session-Id" in resp.headers
             data = await resp.json()
             assert data["id"] == 1
-            assert data["result"]["serverInfo"]["name"] == "tabula-canvas"
+            assert data["result"]["serverInfo"]["name"] == "tabula"
 
     asyncio.run(_run())
 
