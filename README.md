@@ -91,6 +91,8 @@ For global local setup (Codex + Claude):
 ./scripts/setup-tabula-mcp.sh http://127.0.0.1:9420/mcp
 ```
 
+Note: `scripts/setup-claude-mcp.sh` requires `jq`.
+
 Individual scripts:
 - `scripts/setup-codex-mcp.sh`
 - `scripts/setup-claude-mcp.sh`

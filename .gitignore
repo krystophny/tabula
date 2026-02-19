@@ -1,16 +1,10 @@
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache/
-.coverage
-htmlcov/
-.venv/
-venv/
 .tabula/
 node_modules/
 dist/
 build/
+__pycache__/
+*.pyc
 *.egg-info/
+.coverage
 
 .tabula/artifacts/

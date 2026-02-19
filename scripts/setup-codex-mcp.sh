@@ -3,43 +3,43 @@ set -euo pipefail
 
 MCP_URL="${1:-http://127.0.0.1:9420/mcp}"
 CONFIG_PATH="${CODEX_CONFIG_PATH:-$HOME/.codex/config.toml}"
+MARKER_BEGIN="# BEGIN TABULA MCP"
+MARKER_END="# END TABULA MCP"
 
 mkdir -p "$(dirname "$CONFIG_PATH")"
 if [[ -f "$CONFIG_PATH" ]]; then
   cp "$CONFIG_PATH" "$CONFIG_PATH.bak.$(date +%Y%m%d%H%M%S)"
 fi
 
-python3 - "$CONFIG_PATH" "$MCP_URL" <<'PY'
-from __future__ import annotations
+TMP_BASE="$(mktemp)"
+TMP_OUT="$(mktemp)"
+cleanup() {
+  rm -f "$TMP_BASE" "$TMP_OUT"
+}
+trap cleanup EXIT
 
-import re
-import sys
-from pathlib import Path
+if [[ -f "$CONFIG_PATH" ]]; then
+  awk -v begin="$MARKER_BEGIN" -v end="$MARKER_END" '
+    $0 == begin { in_block = 1; next }
+    $0 == end { in_block = 0; next }
+    !in_block { print }
+  ' "$CONFIG_PATH" >"$TMP_BASE"
+else
+  : >"$TMP_BASE"
+fi
 
-path = Path(sys.argv[1])
-mcp_url = sys.argv[2]
+{
+  cat "$TMP_BASE"
+  if [[ -s "$TMP_BASE" ]]; then
+    echo
+  fi
+  echo "$MARKER_BEGIN"
+  echo "[mcp_servers.tabula]"
+  printf 'url = "%s"\n' "$MCP_URL"
+  echo "$MARKER_END"
+  echo
+} >"$TMP_OUT"
 
-text = path.read_text(encoding="utf-8") if path.exists() else ""
-block = "\n".join(
-    [
-        "# BEGIN TABULA MCP",
-        "[mcp_servers.tabula]",
-        f'url = "{mcp_url}"',
-        "# END TABULA MCP",
-        "",
-    ]
-)
-pattern = re.compile(r"# BEGIN TABULA MCP\n.*?# END TABULA MCP\n?", re.S)
-if pattern.search(text):
-    updated = pattern.sub(block, text)
-else:
-    if text and not text.endswith("\n"):
-        text += "\n"
-    if text.strip():
-        text += "\n"
-    updated = text + block
-
-path.write_text(updated, encoding="utf-8")
-print(f"updated {path}")
-print("server key: mcp_servers.tabula")
-PY
+mv "$TMP_OUT" "$CONFIG_PATH"
+echo "updated $CONFIG_PATH"
+echo "server key: mcp_servers.tabula"

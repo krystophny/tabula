@@ -1,50 +1,42 @@
-# Tabula Spec Index (Code-First)
+# Spec Index (Go)
 
-Canonical behavior is code + tests. This file only points to source-of-truth locations.
+## CLI and Command Surface
 
-## Contracts
+- `cmd/tabula/main.go`
 
-1. Event schema + parsing
-- `src/tabula/events.py`
-- `tests/unit/test_events.py`
-- `tests/unit/test_events_additional.py`
+## MCP Protocol / Tools
 
-2. State reduction (`prompt`/`review`)
-- `src/tabula/state.py`
-- `tests/unit/test_state.py`
-- `tests/bdd/test_mode_and_event_scenarios.py`
+- `internal/mcp/server.go`
+- `internal/canvas/adapter.go`
+- `internal/canvas/events.go`
 
-3. Canvas adapter behavior
-- `src/tabula/canvas_adapter.py`
-- `tests/unit/test_canvas_adapter_internal.py`
-- `tests/bdd/test_canvas_adapter.py`
+## HTTP MCP Daemon
 
-4. MCP server (`tabula`) stdio contract (framed + JSONL compatibility)
-- `src/tabula/mcp_server.py`
-- `tests/bdd/test_mcp_server.py`
-- `tests/bdd/test_mcp_protocol_flows.py`
-- `tests/integration/test_mcp_server_stdio.py`
+- `internal/serve/app.go`
 
-5. Bootstrap protocol contract
-- `src/tabula/protocol.py`
-- `tests/unit/test_protocol_internal.py`
-- `tests/bdd/test_protocol_bootstrap.py`
+## Web UI Backend
 
-6. CLI surface (`canvas`, `schema`, `bootstrap`, `mcp-server`, `run`)
-- `src/tabula/cli.py`
-- `tests/bdd/test_cli_usage_modes.py`
+- `internal/web/server.go`
+- `internal/store/store.go`
+- `internal/pty/pty.go`
+- `internal/pty/ptyd_transport.go`
 
-7. Optional GUI canvas runtime
-- `src/tabula/window.py`
-- `tests/unit/test_window_mocked.py`
-- `tests/gui/test_window_mode_switch.py`
+## PTY Daemon
 
-8. Optional real interactive Codex loop (tmux + codex CLI)
-- `tests/integration/test_codex_interactive_loop.py`
+- `internal/ptyd/app.go`
 
-9. Web auth/session persistence (cookie auth + reconnectable remote sessions)
-- `src/tabula/web/store.py`
-- `src/tabula/web/server.py`
-- `src/tabula/web/static/app.js`
-- `tests/unit/test_web_store.py`
-- `tests/unit/test_web_server.py`
+## Bootstrap / Protocol Files
+
+- `internal/protocol/bootstrap.go`
+
+## MCP HTTP Bridge
+
+- `internal/bridge/bridge.go`
+
+## Browser UI Assets
+
+- `internal/web/static/index.html`
+- `internal/web/static/app.js`
+- `internal/web/static/canvas.js`
+- `internal/web/static/terminal.js`
+- `internal/web/static/style.css`
