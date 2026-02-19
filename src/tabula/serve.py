@@ -32,7 +32,13 @@ async def broadcast_ws(clients: set[web.WebSocketResponse], message: str) -> Non
 
 
 class TabulaServeApp:
-    def __init__(self, *, project_dir: Path) -> None:
+    def __init__(
+        self,
+        *,
+        project_dir: Path,
+        headless: bool = False,
+        start_canvas: bool = True,
+    ) -> None:
         self._project_dir = project_dir.resolve()
         _ensure_gitignore(self._project_dir)
         self._ws_clients: set[web.WebSocketResponse] = set()
@@ -41,8 +47,8 @@ class TabulaServeApp:
         self._mcp_server = TabulaMcpServer(
             CanvasAdapter(
                 project_dir=self._project_dir,
-                headless=True,
-                start_canvas=False,
+                headless=headless,
+                start_canvas=start_canvas,
                 on_event=self._queue_event,
             ),
         )
@@ -207,8 +213,14 @@ def run_serve(
     project_dir: Path,
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
+    headless: bool = False,
+    start_canvas: bool = True,
 ) -> int:
-    serve_app = TabulaServeApp(project_dir=project_dir)
+    serve_app = TabulaServeApp(
+        project_dir=project_dir,
+        headless=headless,
+        start_canvas=start_canvas,
+    )
     app = serve_app.create_app()
     urls = _listen_urls(host, port)
     print(f"tabula serve listening on:", flush=True)

@@ -62,6 +62,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--project-dir", type=Path, default=Path("."))
     p_serve.add_argument("--host", default="127.0.0.1")
     p_serve.add_argument("--port", type=int, default=9420)
+    p_serve.add_argument("--headless", action="store_true")
+    p_serve.add_argument("--no-canvas", action="store_true")
 
     p_web = sub.add_parser("web", help="launch tabula web server")
     p_web.add_argument("--data-dir", type=Path, default=Path("~/.tabula-web").expanduser())
@@ -196,7 +198,7 @@ def _claude_http_cmd(mcp_url: str) -> list[str]:
     return ["claude", "--dangerously-skip-permissions", "--mcp-config", json.dumps(cfg, separators=(",", ":"))]
 
 
-def _cmd_serve(project_dir: Path, host: str, port: int) -> int:
+def _cmd_serve(project_dir: Path, host: str, port: int, *, headless: bool, no_canvas: bool) -> int:
     try:
         bootstrap = bootstrap_project(project_dir)
     except RuntimeError as exc:
@@ -212,10 +214,19 @@ def _cmd_serve(project_dir: Path, host: str, port: int) -> int:
         )
         return 2
 
+    if (not headless) and (not no_canvas):
+        if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+            print(
+                "warning: no DISPLAY/WAYLAND_DISPLAY detected; tabula serve will run headless",
+                file=sys.stderr,
+            )
+
     return run_serve(
         project_dir=bootstrap.paths.project_dir,
         host=host,
         port=port,
+        headless=headless,
+        start_canvas=not no_canvas,
     )
 
 
@@ -371,7 +382,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "mcp-http-bridge":
         return _cmd_mcp_http_bridge(args.mcp_url)
     if args.command == "serve":
-        return _cmd_serve(args.project_dir, args.host, args.port)
+        return _cmd_serve(
+            args.project_dir,
+            args.host,
+            args.port,
+            headless=args.headless,
+            no_canvas=args.no_canvas,
+        )
     if args.command == "web":
         return _cmd_web(
             args.data_dir,

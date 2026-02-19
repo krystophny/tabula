@@ -382,10 +382,12 @@ def test_given_run_mode_with_display_env_when_invoked_then_display_vars_are_forw
 def test_given_serve_mode_when_invoked_then_bootstrap_and_serve_are_called(monkeypatch, tmp_path: Path) -> None:
     calls: dict[str, object] = {}
 
-    def fake_run_serve(*, project_dir, host, port):
+    def fake_run_serve(*, project_dir, host, port, headless, start_canvas):
         calls["project_dir"] = project_dir
         calls["host"] = host
         calls["port"] = port
+        calls["headless"] = headless
+        calls["start_canvas"] = start_canvas
         return 0
 
     monkeypatch.setattr("tabula.cli.bootstrap_project", _make_fake_bootstrap())
@@ -395,6 +397,8 @@ def test_given_serve_mode_when_invoked_then_bootstrap_and_serve_are_called(monke
     assert rc == 0
     assert calls["host"] == "0.0.0.0"
     assert calls["port"] == 7777
+    assert calls["headless"] is False
+    assert calls["start_canvas"] is True
 
 
 def test_given_web_mode_when_invoked_then_web_server_is_called(monkeypatch, tmp_path: Path) -> None:
