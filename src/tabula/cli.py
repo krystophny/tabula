@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .canvas_adapter import has_display
 from .events import event_schema
+from .mcp_backends import parse_backend_specs
 from .mcp_http_bridge import run_mcp_http_bridge
 from .mcp_server import run_mcp_stdio_server
 from .protocol import bootstrap_project
@@ -54,6 +55,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_mcp.add_argument("--no-canvas", action="store_true")
     p_mcp.add_argument("--fresh-canvas", action="store_true")
     p_mcp.add_argument("--poll-ms", type=int, default=250)
+    p_mcp.add_argument(
+        "--backend",
+        action="append",
+        default=[],
+        metavar="NAME=URL",
+        help="register broker backend MCP endpoint (repeatable)",
+    )
 
     p_mcp_bridge = sub.add_parser("mcp-http-bridge", help="bridge stdio MCP traffic to an HTTP MCP endpoint")
     p_mcp_bridge.add_argument("--mcp-url", required=True)
@@ -62,6 +70,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--project-dir", type=Path, default=Path("."))
     p_serve.add_argument("--host", default="127.0.0.1")
     p_serve.add_argument("--port", type=int, default=9420)
+    p_serve.add_argument(
+        "--backend",
+        action="append",
+        default=[],
+        metavar="NAME=URL",
+        help="register broker backend MCP endpoint (repeatable)",
+    )
 
     p_web = sub.add_parser("web", help="launch tabula web server")
     p_web.add_argument("--data-dir", type=Path, default=Path("~/.tabula-web").expanduser())
@@ -83,6 +98,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--headless", action="store_true")
     p_run.add_argument("--no-canvas", action="store_true")
     p_run.add_argument("--poll-ms", type=int, default=250)
+    p_run.add_argument(
+        "--backend",
+        action="append",
+        default=[],
+        metavar="NAME=URL",
+        help="register broker backend MCP endpoint (repeatable)",
+    )
     p_run.add_argument("--mcp-url", default=None, help="use HTTP MCP endpoint URL instead of stdio (e.g. http://localhost:9420/mcp)")
     p_run.add_argument("prompt", nargs="?", default=None)
     return parser
@@ -133,20 +155,36 @@ def _cmd_bootstrap(project_dir: Path) -> int:
     return 0
 
 
-def _cmd_mcp_server(project_dir: Path, headless: bool, no_canvas: bool, fresh_canvas: bool, poll_ms: int) -> int:
+def _cmd_mcp_server(
+    project_dir: Path,
+    headless: bool,
+    no_canvas: bool,
+    fresh_canvas: bool,
+    poll_ms: int,
+    backend_specs: list[str],
+) -> int:
     try:
         bootstrap = bootstrap_project(project_dir)
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
-    return run_mcp_stdio_server(
+    try:
+        backend_urls = parse_backend_specs(backend_specs)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    kwargs = dict(
         project_dir=bootstrap.paths.project_dir,
         headless=headless,
         fresh_canvas=fresh_canvas,
         poll_interval_ms=poll_ms,
         start_canvas=not no_canvas,
     )
+    if backend_urls:
+        kwargs["backend_urls"] = backend_urls
+    return run_mcp_stdio_server(**kwargs)
 
 
 def _cmd_mcp_http_bridge(mcp_url: str) -> int:
@@ -190,7 +228,7 @@ def _claude_http_cmd(mcp_url: str) -> list[str]:
     return ["claude", "--dangerously-skip-permissions", "--mcp-config", json.dumps(cfg, separators=(",", ":"))]
 
 
-def _cmd_serve(project_dir: Path, host: str, port: int) -> int:
+def _cmd_serve(project_dir: Path, host: str, port: int, backend_specs: list[str]) -> int:
     try:
         bootstrap = bootstrap_project(project_dir)
     except RuntimeError as exc:
@@ -206,7 +244,20 @@ def _cmd_serve(project_dir: Path, host: str, port: int) -> int:
         )
         return 2
 
-    return run_serve(project_dir=bootstrap.paths.project_dir, host=host, port=port)
+    try:
+        backend_urls = parse_backend_specs(backend_specs)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    kwargs = {
+        "project_dir": bootstrap.paths.project_dir,
+        "host": host,
+        "port": port,
+    }
+    if backend_urls:
+        kwargs["backend_urls"] = backend_urls
+    return run_serve(**kwargs)
 
 
 def _cmd_web(
@@ -267,6 +318,7 @@ def _cmd_run(
     headless: bool,
     no_canvas: bool,
     poll_ms: int,
+    backend_specs: list[str],
     mcp_url: str | None,
     prompt: str | None,
 ) -> int:
@@ -278,7 +330,16 @@ def _cmd_run(
 
     target = bootstrap.paths.project_dir
 
+    try:
+        parse_backend_specs(backend_specs)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
     if mcp_url:
+        if backend_specs:
+            print("--backend cannot be used together with --mcp-url", file=sys.stderr)
+            return 1
         return _dispatch_assistant(assistant, target=target, mcp_url=mcp_url, prompt=prompt)
 
     mcp_args = [
@@ -295,6 +356,8 @@ def _cmd_run(
     if no_canvas:
         mcp_args.append("--no-canvas")
     mcp_args.append("--fresh-canvas")
+    for backend_spec in backend_specs:
+        mcp_args.extend(["--backend", backend_spec])
 
     if (not headless) and (not no_canvas):
         if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
@@ -351,11 +414,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "bootstrap":
         return _cmd_bootstrap(args.project_dir)
     if args.command == "mcp-server":
-        return _cmd_mcp_server(args.project_dir, args.headless, args.no_canvas, args.fresh_canvas, args.poll_ms)
+        return _cmd_mcp_server(
+            args.project_dir,
+            args.headless,
+            args.no_canvas,
+            args.fresh_canvas,
+            args.poll_ms,
+            args.backend,
+        )
     if args.command == "mcp-http-bridge":
         return _cmd_mcp_http_bridge(args.mcp_url)
     if args.command == "serve":
-        return _cmd_serve(args.project_dir, args.host, args.port)
+        return _cmd_serve(args.project_dir, args.host, args.port, args.backend)
     if args.command == "web":
         return _cmd_web(
             args.data_dir,
@@ -375,6 +445,7 @@ def main(argv: list[str] | None = None) -> int:
             headless=args.headless,
             no_canvas=args.no_canvas,
             poll_ms=args.poll_ms,
+            backend_specs=args.backend,
             mcp_url=args.mcp_url,
             prompt=args.prompt,
         )

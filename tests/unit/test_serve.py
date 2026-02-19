@@ -131,8 +131,8 @@ def test_mcp_tools_list(tmp_path: Path) -> None:
             )
             data = await resp.json()
             names = [t["name"] for t in data["result"]["tools"]]
-            assert "canvas_activate" in names
-            assert "canvas_render_text" in names
+            assert "canvas_session_open" in names
+            assert "canvas_artifact_show" in names
             assert "canvas_status" in names
 
     asyncio.run(_run())

@@ -176,3 +176,65 @@ def test_tools_call_unknown_tool_returns_error_payload(tmp_path) -> None:
     )
     assert response["result"]["isError"] is True
     assert "unknown tool" in response["result"]["structuredContent"]["error"]
+
+
+def test_tools_list_includes_namespaced_backend_tools(tmp_path) -> None:
+    class _FakeBackend:
+        def list_tools(self):
+            return [
+                {
+                    "name": "email_list",
+                    "description": "List email from backend",
+                    "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+                }
+            ]
+
+        def call_tool(self, name, arguments):
+            return {
+                "content": [{"type": "text", "text": f"called {name}"}],
+                "structuredContent": {"name": name, "arguments": arguments},
+                "isError": False,
+            }
+
+    adapter = CanvasAdapter(project_dir=tmp_path, headless=True, start_canvas=False)
+    server = TabulaMcpServer(adapter, backends={"helpy": _FakeBackend()})
+    transport = StdioTransport(server, input_stream=io.BytesIO(), output_stream=io.BytesIO())
+
+    response = _call(transport, {"jsonrpc": "2.0", "id": 10, "method": "tools/list", "params": {}})
+    names = [item["name"] for item in response["result"]["tools"]]
+    assert "helpy.email_list" in names
+
+
+def test_tools_call_dispatches_to_backend_when_namespaced(tmp_path) -> None:
+    calls: dict[str, object] = {}
+
+    class _FakeBackend:
+        def list_tools(self):
+            return []
+
+        def call_tool(self, name, arguments):
+            calls["name"] = name
+            calls["arguments"] = arguments
+            return {
+                "content": [{"type": "text", "text": "ok"}],
+                "structuredContent": {"ok": True},
+                "isError": False,
+            }
+
+    adapter = CanvasAdapter(project_dir=tmp_path, headless=True, start_canvas=False)
+    server = TabulaMcpServer(adapter, backends={"helpy": _FakeBackend()})
+    transport = StdioTransport(server, input_stream=io.BytesIO(), output_stream=io.BytesIO())
+
+    response = _call(
+        transport,
+        {
+            "jsonrpc": "2.0",
+            "id": 11,
+            "method": "tools/call",
+            "params": {"name": "helpy.email_list", "arguments": {"limit": 5}},
+        },
+    )
+    assert calls["name"] == "email_list"
+    assert calls["arguments"] == {"limit": 5}
+    assert response["result"]["isError"] is False
+    assert response["result"]["structuredContent"]["ok"] is True

@@ -200,6 +200,52 @@ def test_given_mcp_server_bootstrap_failure_when_invoked_then_nonzero(monkeypatc
     assert "mcp bootstrap failed" in err
 
 
+def test_given_mcp_server_with_backends_when_invoked_then_runner_receives_backend_urls(monkeypatch, tmp_path: Path) -> None:
+    calls: dict[str, object] = {}
+
+    def fake_run_server(
+        *,
+        project_dir: Path,
+        headless: bool,
+        fresh_canvas: bool,
+        poll_interval_ms: int,
+        start_canvas: bool,
+        backend_urls: dict[str, str],
+    ) -> int:
+        calls["project_dir"] = project_dir
+        calls["backend_urls"] = backend_urls
+        return 29
+
+    monkeypatch.setattr("tabula.cli.bootstrap_project", _make_fake_bootstrap())
+    monkeypatch.setattr("tabula.cli.run_mcp_stdio_server", fake_run_server)
+
+    rc = main(
+        [
+            "mcp-server",
+            "--project-dir",
+            str(tmp_path),
+            "--backend",
+            "helpy=http://127.0.0.1:8090/mcp",
+            "--backend",
+            "mail=http://127.0.0.1:8091/mcp",
+        ]
+    )
+    assert rc == 29
+    assert calls["project_dir"] == tmp_path.resolve()
+    assert calls["backend_urls"] == {
+        "helpy": "http://127.0.0.1:8090/mcp",
+        "mail": "http://127.0.0.1:8091/mcp",
+    }
+
+
+def test_given_mcp_server_with_invalid_backend_spec_when_invoked_then_nonzero(monkeypatch, tmp_path: Path, capsys) -> None:
+    monkeypatch.setattr("tabula.cli.bootstrap_project", _make_fake_bootstrap())
+    rc = main(["mcp-server", "--project-dir", str(tmp_path), "--backend", "not-valid"])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "invalid backend spec" in err
+
+
 def test_given_mcp_http_bridge_mode_when_invoked_then_bridge_runner_is_called(monkeypatch) -> None:
     calls: dict[str, object] = {}
 
@@ -395,6 +441,62 @@ def test_given_serve_mode_when_invoked_then_bootstrap_and_serve_are_called(monke
     assert rc == 0
     assert calls["host"] == "0.0.0.0"
     assert calls["port"] == 7777
+
+
+def test_given_serve_mode_with_backends_when_invoked_then_serve_receives_backend_urls(monkeypatch, tmp_path: Path) -> None:
+    calls: dict[str, object] = {}
+
+    def fake_run_serve(*, project_dir, host, port, backend_urls):
+        calls["project_dir"] = project_dir
+        calls["host"] = host
+        calls["port"] = port
+        calls["backend_urls"] = backend_urls
+        return 0
+
+    monkeypatch.setattr("tabula.cli.bootstrap_project", _make_fake_bootstrap())
+    monkeypatch.setattr("tabula.serve.run_serve", fake_run_serve)
+
+    rc = main(
+        [
+            "serve",
+            "--project-dir",
+            str(tmp_path),
+            "--backend",
+            "helpy=http://127.0.0.1:8090/mcp",
+        ]
+    )
+    assert rc == 0
+    assert calls["backend_urls"] == {"helpy": "http://127.0.0.1:8090/mcp"}
+
+
+def test_given_run_mode_with_backends_when_invoked_then_backend_flags_are_forwarded(monkeypatch, tmp_path: Path) -> None:
+    seen: dict[str, object] = {}
+
+    class _RunResult:
+        returncode = 0
+
+    def fake_run(cmd, cwd=None):
+        seen["cmd"] = cmd
+        return _RunResult()
+
+    monkeypatch.setattr("tabula.cli.bootstrap_project", _make_fake_bootstrap())
+    monkeypatch.setattr("tabula.cli.subprocess.run", fake_run)
+
+    rc = main(
+        [
+            "run",
+            "--project-dir",
+            str(tmp_path),
+            "--backend",
+            "helpy=http://127.0.0.1:8090/mcp",
+        ]
+    )
+    assert rc == 0
+    cmd = seen["cmd"]
+    assert isinstance(cmd, list)
+    args_override = cmd[cmd.index("-c", cmd.index("-c") + 1) + 1]
+    assert "--backend" in args_override
+    assert "helpy=http://127.0.0.1:8090/mcp" in args_override
 
 
 def test_given_web_mode_when_invoked_then_web_server_is_called(monkeypatch, tmp_path: Path) -> None:

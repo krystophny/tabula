@@ -22,10 +22,13 @@ python -m pip install -e .[gui]   # optional local canvas window (PySide6)
 ```bash
 tabula bootstrap --project-dir .
 tabula mcp-server --project-dir . --headless --no-canvas --fresh-canvas
+tabula mcp-server --project-dir . --backend helpy=http://127.0.0.1:8090/mcp
 tabula run --project-dir . "your prompt"
+tabula run --project-dir . --backend helpy=http://127.0.0.1:8090/mcp "prompt with brokered helpy tools"
 tabula run --assistant claude --project-dir . "your prompt"
 tabula run --project-dir . --mcp-url http://127.0.0.1:9420/mcp "prompt via HTTP MCP"
 tabula serve --project-dir . --host 127.0.0.1 --port 9420
+tabula serve --project-dir . --backend helpy=http://127.0.0.1:8090/mcp
 tabula web --data-dir ~/.tabula-web --project-dir . --host 127.0.0.1 --port 8420
 tabula web --project-dir . --local-mcp-url http://127.0.0.1:9420/mcp --ptyd-url http://127.0.0.1:9333 --dev-runtime
 tabula ptyd --data-dir ~/.local/share/tabula-ptyd --host 127.0.0.1 --port 9333
@@ -80,6 +83,16 @@ args = ["mcp-server", "--project-dir", "/abs/path/to/project"]
 
 Merge that snippet into `~/.codex/config.toml`.
 
+For global local-broker setup (Codex + Claude):
+
+```bash
+./scripts/setup-agent-mcp.sh http://127.0.0.1:9420/mcp
+```
+
+Individual scripts:
+- `scripts/setup-codex-mcp.sh`
+- `scripts/setup-claude-mcp.sh`
+
 Bootstrap behavior:
 - If `AGENTS.md` does not exist, Tabula creates it with the protocol block.
 - If `AGENTS.md` already exists, Tabula does not modify it.
@@ -98,6 +111,9 @@ Bootstrap behavior:
 - `canvas_status`
 
 Canvas state is MCP-first and in-memory; no filesystem event log is required.
+
+Brokered tools from backends are automatically namespaced:
+- backend `helpy` tool `email_list` becomes `helpy.email_list`
 
 ## Tests
 

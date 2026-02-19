@@ -7,6 +7,7 @@ from typing import Any, BinaryIO
 from urllib.parse import urlparse
 
 from .canvas_adapter import CanvasAdapter
+from .mcp_backends import build_http_backends
 
 SERVER_NAME = "tabula-canvas"
 SERVER_VERSION = "0.2.0"
@@ -237,8 +238,9 @@ def _resource_templates() -> list[dict[str, Any]]:
 class TabulaMcpServer:
     """Pure MCP protocol dispatch -- no I/O, no transport."""
 
-    def __init__(self, adapter: CanvasAdapter) -> None:
+    def __init__(self, adapter: CanvasAdapter, *, backends: dict[str, Any] | None = None) -> None:
         self.adapter = adapter
+        self.backends = backends or {}
 
     def dispatch_message(self, message: dict[str, Any]) -> dict[str, Any] | None:
         msg_id = message.get("id")
@@ -280,7 +282,7 @@ class TabulaMcpServer:
         if method == "ping":
             return {}
         if method == "tools/list":
-            return {"tools": _tool_definitions()}
+            return {"tools": self._tools_with_backends()}
         if method == "tools/call":
             return self._dispatch_tool_call(params)
         if method == "resources/list":
@@ -300,6 +302,10 @@ class TabulaMcpServer:
         if not isinstance(arguments, dict):
             raise RpcError(-32602, "tools/call arguments must be an object")
 
+        backend_result = self._dispatch_backend_tool_call(name, arguments)
+        if backend_result is not None:
+            return backend_result
+
         try:
             structured = self._call_tool(name, arguments)
             return {
@@ -313,6 +319,66 @@ class TabulaMcpServer:
                 "structuredContent": {"error": str(exc)},
                 "isError": True,
             }
+
+    def _tools_with_backends(self) -> list[dict[str, Any]]:
+        tools = list(_tool_definitions())
+        for backend_name, backend in self.backends.items():
+            try:
+                backend_tools = backend.list_tools()
+            except Exception:
+                continue
+
+            for backend_tool in backend_tools:
+                name = backend_tool.get("name")
+                if not isinstance(name, str) or not name:
+                    continue
+                merged = dict(backend_tool)
+                merged["name"] = f"{backend_name}.{name}"
+                description = merged.get("description")
+                if isinstance(description, str) and description.strip():
+                    merged["description"] = f"[{backend_name}] {description}"
+                else:
+                    merged["description"] = f"[{backend_name}] brokered tool"
+                tools.append(merged)
+        return tools
+
+    def _dispatch_backend_tool_call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+        backend_name, sep, backend_tool_name = name.partition(".")
+        if not sep:
+            return None
+
+        backend = self.backends.get(backend_name)
+        if backend is None:
+            return None
+        if not backend_tool_name:
+            return {
+                "content": [{"type": "text", "text": f"invalid backend tool name: {name}"}],
+                "structuredContent": {"error": f"invalid backend tool name: {name}"},
+                "isError": True,
+            }
+
+        try:
+            result = backend.call_tool(backend_tool_name, arguments)
+        except Exception as exc:
+            return {
+                "content": [{"type": "text", "text": f"backend '{backend_name}' tool call failed: {exc}"}],
+                "structuredContent": {"error": f"backend '{backend_name}' tool call failed: {exc}"},
+                "isError": True,
+            }
+
+        if isinstance(result, dict) and "content" in result and "isError" in result:
+            return result
+
+        wrapped = {
+            "backend": backend_name,
+            "tool": backend_tool_name,
+            "result": result,
+        }
+        return {
+            "content": [{"type": "text", "text": json.dumps(wrapped, sort_keys=True)}],
+            "structuredContent": wrapped,
+            "isError": False,
+        }
 
     def _call_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         # Canonical API
@@ -593,6 +659,7 @@ def run_mcp_stdio_server(
     fresh_canvas: bool = False,
     poll_interval_ms: int = 250,
     start_canvas: bool = True,
+    backend_urls: dict[str, str] | None = None,
 ) -> int:
     adapter = CanvasAdapter(
         project_dir=project_dir,
@@ -601,6 +668,6 @@ def run_mcp_stdio_server(
         start_canvas=start_canvas,
         poll_interval_ms=poll_interval_ms,
     )
-    server = TabulaMcpServer(adapter)
+    server = TabulaMcpServer(adapter, backends=build_http_backends(backend_urls))
     transport = StdioTransport(server)
     return transport.run_forever()
