@@ -1,0 +1,249 @@
+package serve
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/gorilla/websocket"
+	"github.com/krystophny/tabula/internal/canvas"
+	"github.com/krystophny/tabula/internal/mcp"
+)
+
+const (
+	DefaultHost = "127.0.0.1"
+	DefaultPort = 9420
+)
+
+type App struct {
+	ProjectDir string
+	Adapter    *canvas.Adapter
+	Server     *mcp.Server
+
+	mu           sync.Mutex
+	pending      []canvas.Event
+	wsClients    map[*websocket.Conn]struct{}
+	wsUpgrader   websocket.Upgrader
+	httpServer   *http.Server
+	shutdownDone chan struct{}
+}
+
+func NewApp(projectDir string, headless bool) *App {
+	a := &App{
+		ProjectDir:   projectDir,
+		wsClients:    map[*websocket.Conn]struct{}{},
+		wsUpgrader:   websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }},
+		shutdownDone: make(chan struct{}),
+	}
+	a.Adapter = canvas.NewAdapter(projectDir, a.queueEvent, headless)
+	a.Server = mcp.NewServer(a.Adapter)
+	return a
+}
+
+func (a *App) queueEvent(ev canvas.Event) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.pending = append(a.pending, ev)
+}
+
+func (a *App) flushEvents() []canvas.Event {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := append([]canvas.Event(nil), a.pending...)
+	a.pending = a.pending[:0]
+	return out
+}
+
+func (a *App) broadcastPending() {
+	events := a.flushEvents()
+	if len(events) == 0 {
+		return
+	}
+	a.mu.Lock()
+	clients := make([]*websocket.Conn, 0, len(a.wsClients))
+	for ws := range a.wsClients {
+		clients = append(clients, ws)
+	}
+	a.mu.Unlock()
+	for _, ev := range events {
+		b, _ := json.Marshal(ev)
+		for _, ws := range clients {
+			_ = ws.WriteMessage(websocket.TextMessage, b)
+		}
+	}
+}
+
+func (a *App) Router() http.Handler {
+	r := chi.NewRouter()
+	r.Post("/mcp", a.handleMCPPost)
+	r.Get("/mcp", a.handleMCPGet)
+	r.Delete("/mcp", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	r.Get("/ws/canvas", a.handleCanvasWS)
+	r.Get("/files/*", a.handleFiles)
+	r.Get("/health", a.handleHealth)
+	return r
+}
+
+func (a *App) handleMCPPost(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+	var req map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, map[string]interface{}{"jsonrpc": "2.0", "id": nil, "error": map[string]interface{}{"code": -32700, "message": "parse error"}})
+		return
+	}
+	resp := a.Server.DispatchMessage(req)
+	a.broadcastPending()
+	if resp == nil {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	if method, _ := req["method"].(string); method == "initialize" {
+		w.Header().Set("Mcp-Session-Id", randomSessionID())
+	}
+	writeJSON(w, resp)
+}
+
+func (a *App) handleMCPGet(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	f, ok := w.(http.Flusher)
+	if !ok {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-t.C:
+			_, _ = w.Write([]byte(": keepalive\n\n"))
+			f.Flush()
+		}
+	}
+}
+
+func (a *App) handleCanvasWS(w http.ResponseWriter, r *http.Request) {
+	ws, err := a.wsUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	a.mu.Lock()
+	a.wsClients[ws] = struct{}{}
+	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		delete(a.wsClients, ws)
+		a.mu.Unlock()
+		_ = ws.Close()
+	}()
+	for {
+		_, msg, err := ws.ReadMessage()
+		if err != nil {
+			return
+		}
+		a.Adapter.HandleFeedback(string(msg))
+	}
+}
+
+func (a *App) handleFiles(w http.ResponseWriter, r *http.Request) {
+	raw := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
+	if raw == "" {
+		http.Error(w, "missing path", http.StatusBadRequest)
+		return
+	}
+	full := filepath.Clean(filepath.Join(a.ProjectDir, raw))
+	if !strings.HasPrefix(full, filepath.Clean(a.ProjectDir)+string(os.PathSeparator)) {
+		http.Error(w, "access denied", http.StatusForbidden)
+		return
+	}
+	st, err := os.Stat(full)
+	if err != nil || st.IsDir() {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	http.ServeFile(w, r, full)
+}
+
+func (a *App) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	a.mu.Lock()
+	wsCount := len(a.wsClients)
+	a.mu.Unlock()
+	writeJSON(w, map[string]interface{}{
+		"status":      "ok",
+		"project_dir": a.ProjectDir,
+		"sessions":    a.Adapter.ListSessions(),
+		"ws_clients":  wsCount,
+	})
+}
+
+func (a *App) Start(host string, port int) error {
+	addr := fmt.Sprintf("%s:%d", host, port)
+	a.httpServer = &http.Server{
+		Addr:              addr,
+		Handler:           a.Router(),
+		ReadHeaderTimeout: 15 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	fmt.Println("tabula serve listening on:")
+	for _, u := range ListenURLs(host, port) {
+		fmt.Printf("  %s\n", u)
+	}
+	fmt.Printf("  MCP endpoint: http://%s/mcp\n", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
+	fmt.Printf("  project dir:  %s\n", a.ProjectDir)
+	err := a.httpServer.ListenAndServe()
+	if err == http.ErrServerClosed {
+		return nil
+	}
+	return err
+}
+
+func (a *App) Stop(ctx context.Context) error {
+	if a.httpServer == nil {
+		return nil
+	}
+	return a.httpServer.Shutdown(ctx)
+}
+
+func writeJSON(w http.ResponseWriter, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	enc := json.NewEncoder(w)
+	_ = enc.Encode(payload)
+}
+
+func randomSessionID() string {
+	return fmt.Sprintf("%d", time.Now().UnixNano())
+}
+
+func ListenURLs(host string, port int) []string {
+	if host != "0.0.0.0" && host != "::" {
+		return []string{fmt.Sprintf("http://%s:%d", host, port)}
+	}
+	urls := []string{fmt.Sprintf("http://localhost:%d", port)}
+	ifaces, _ := net.Interfaces()
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			ipnet, ok := addr.(*net.IPNet)
+			if !ok || ipnet.IP == nil || ipnet.IP.To4() == nil {
+				continue
+			}
+			urls = append(urls, fmt.Sprintf("http://%s:%d", ipnet.IP.String(), port))
+		}
+	}
+	return urls
+}

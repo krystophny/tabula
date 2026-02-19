@@ -7,8 +7,7 @@ Type=simple
 WorkingDirectory=%h/code/tabula
 Environment=HOME=%h
 Environment=SHELL=/usr/bin/bash
-Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/bash -lc 'source ~/.bashrc >/dev/null 2>&1 || true; exec %h/code/tabula/.venv/bin/python -m tabula.cli ptyd --data-dir %h/.local/share/tabula-ptyd --host 127.0.0.1 --port 9333'
+ExecStart=/usr/bin/bash -lc 'source ~/.bashrc >/dev/null 2>&1 || true; cd %h/code/tabula; exec /usr/bin/env go run ./cmd/tabula ptyd --data-dir %h/.local/share/tabula-ptyd --host 127.0.0.1 --port 9333'
 Restart=on-failure
 RestartSec=2
 

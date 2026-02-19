@@ -4,7 +4,7 @@ Minimal MCP canvas adapter for Codex/Claude workflows.
 
 Tabula keeps the assistant as the driver process and provides:
 - `tabula` MCP server (stdio framed + JSONL compatibility)
-- optional desktop canvas window runtime
+- desktop browser canvas mode (`/canvas`) with shared web UI code
 - HTTP daemon (`tabula serve`) with MCP, canvas WebSocket, and file proxy
 - Web UI (`tabula web`) with auth, host management, terminal, and canvas relay
 - bootstrap tooling for protocol files and MCP config snippets
@@ -12,10 +12,13 @@ Tabula keeps the assistant as the driver process and provides:
 ## Install
 
 ```bash
-python -m pip install -e .[test]
-python -m pip install -e .[web]   # serve/web features (aiohttp + asyncssh)
-python -m pip install -e .[gui]   # optional local canvas window (PySide6)
+go build ./cmd/tabula
+# optional: install to $GOBIN
+go install ./cmd/tabula
 ```
+
+Requirements:
+- Go 1.24+
 
 ## CLI Commands
 
@@ -36,9 +39,10 @@ tabula schema
 
 Notes:
 - `tabula run` defaults to `codex` and configures MCP inline.
-- stdio mode always requests a fresh canvas process (`--fresh-canvas`) for each run.
+- stdio mode accepts compatibility flags (`--fresh-canvas`, `--poll-ms`) for older launchers.
 - when no `DISPLAY`/`WAYLAND_DISPLAY` is available, canvas runtime falls back to headless mode.
 - `tabula web --dev-runtime` enables `/api/runtime` metadata used by browser auto-reload.
+- `tabula canvas` opens the desktop canvas view in your default browser (`/canvas` -> `/?desktop=1`).
 
 ## Dev Hot Reload (Systemd User Units)
 
@@ -57,6 +61,7 @@ Install/enable:
 ```
 
 This setup keeps local shell sessions in `tabula-ptyd` so `tabula-web` restarts do not kill your browser terminal session, while MCP code reload is picked up via `tabula-mcp` restart.
+The watcher restarts `tabula-ptyd` only when PTY daemon files change.
 
 ## Web UI Auth + Session Persistence
 
@@ -121,11 +126,5 @@ In dual-server controller mode:
 ## Tests
 
 ```bash
-PYTHONPATH=src python -m pytest
-```
-
-Optional real interactive Codex E2E (tmux session):
-
-```bash
-TABULA_RUN_REAL_CODEX_INTERACTIVE=1 PYTHONPATH=src python -m pytest tests/integration/test_codex_interactive_loop.py -q
+go test ./...
 ```

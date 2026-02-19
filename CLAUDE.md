@@ -14,7 +14,7 @@ TMP_ROOT="$(mktemp -d -t tabula-web-XXXXXX)"
 PROJECT_DIR="$TMP_ROOT/project"
 DATA_DIR="$TMP_ROOT/data"
 LOG_FILE="$TMP_ROOT/web.log"
-nohup python -m tabula.cli web \
+nohup go run ./cmd/tabula web \
   --project-dir "$PROJECT_DIR" \
   --data-dir "$DATA_DIR" \
   --host 127.0.0.1 \
