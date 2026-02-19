@@ -149,6 +149,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   outline: none;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+  overflow-anchor: none;
 }
 
 .terminal-text {

@@ -17,6 +17,8 @@ let resizeCallback = null;
 let renderScheduled = false;
 let isComposing = false;
 let compositionCommitPending = false;
+let autoScrolling = false;
+let lastScrollTop = 0;
 let touchStartX = 0;
 let touchStartY = 0;
 let touchTracking = false;
@@ -128,10 +130,13 @@ function isNearBottom() {
 }
 
 function scrollToBottom() {
+  if (!container) return;
+  const target = Math.max(0, container.scrollHeight - container.clientHeight);
+  autoScrolling = true;
+  container.scrollTop = target;
+  lastScrollTop = container.scrollTop;
   requestAnimationFrame(() => {
-    if (container) {
-      container.scrollTop = container.scrollHeight;
-    }
+    autoScrolling = false;
   });
 }
 
@@ -213,7 +218,25 @@ function scheduleCompositionFallbackCommit() {
 }
 
 function onContainerScroll() {
-  stickToBottom = isNearBottom();
+  if (!container) return;
+  const currentTop = container.scrollTop;
+  const movedUp = currentTop < lastScrollTop;
+  lastScrollTop = currentTop;
+
+  if (autoScrolling) {
+    stickToBottom = isNearBottom();
+    return;
+  }
+
+  if (movedUp) {
+    // Any manual upward movement pauses follow mode immediately.
+    stickToBottom = false;
+    return;
+  }
+
+  if (isNearBottom()) {
+    stickToBottom = true;
+  }
 }
 
 function onContainerActivateInput() {
@@ -369,6 +392,8 @@ export function initTerminal(containerEl) {
   isComposing = false;
   compositionCommitPending = false;
   setCtrlArmedState(false);
+  autoScrolling = false;
+  lastScrollTop = 0;
 
   pre = document.createElement("pre");
   pre.className = "terminal-text";
@@ -470,6 +495,8 @@ export function destroyTerminal() {
   isComposing = false;
   compositionCommitPending = false;
   setCtrlArmedState(false);
+  autoScrolling = false;
+  lastScrollTop = 0;
   touchTracking = false;
   touchMoved = false;
   window._tabulaTerminal = null;
