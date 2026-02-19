@@ -1,21 +1,21 @@
 :root {
-  --bg: #f6f6f6;
+  --bg: #ffffff;
   --bg-surface: #ffffff;
-  --bg-elevated: #efefef;
-  --text: #111111;
-  --text-dim: #666666;
-  --accent: #111111;
-  --accent-hover: #2a2a2a;
-  --error: #b42318;
-  --border: #dddddd;
-  --success: #2f7d32;
-  --warning: #b26a00;
+  --bg-elevated: #ffffff;
+  --text: #000000;
+  --text-dim: #000000;
+  --accent: #000000;
+  --accent-hover: #000000;
+  --error: #000000;
+  --border: #000000;
+  --success: #000000;
+  --warning: #000000;
   --text-on-accent: #ffffff;
 
-  --terminal-bg: #0f0f10;
-  --terminal-surface: #171719;
-  --terminal-text: #f3f3f3;
-  --terminal-border: #323236;
+  --terminal-bg: #000000;
+  --terminal-surface: #000000;
+  --terminal-text: #ffffff;
+  --terminal-border: #ffffff;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -236,11 +236,11 @@ body.desktop-canvas-only #panel-canvas {
 
 .divider {
   width: 4px;
-  background: #cccccc;
+  background: #000000;
   cursor: col-resize;
   flex-shrink: 0;
 }
-.divider:hover { background: #999999; }
+.divider:hover { background: #000000; }
 
 /* Canvas */
 #canvas-header {
@@ -329,24 +329,24 @@ body.desktop-canvas-only #panel-canvas {
 }
 #canvas-text h1, #canvas-text h2, #canvas-text h3 { color: var(--accent); margin: 1rem 0 0.5rem; }
 #canvas-text code { background: var(--bg-elevated); padding: 0.15rem 0.3rem; border-radius: 3px; }
-#canvas-text pre { background: var(--bg-elevated); padding: 0.75rem; border-radius: 4px; overflow-x: auto; }
+#canvas-text pre { background: var(--bg-elevated); padding: 0.75rem; border-radius: 4px; overflow-x: auto; border: 1px solid #000000; }
 #canvas-text pre code { background: none; padding: 0; }
 
 #canvas-text pre code .hl-kw { color: #8b005d; font-weight: 600; }
 #canvas-text pre code .hl-str { color: #0f6b2b; }
 #canvas-text pre code .hl-num { color: #9a4d00; }
-#canvas-text pre code .hl-cmt { color: #6f6f6f; font-style: italic; }
+#canvas-text pre code .hl-cmt { color: #5a2f00; font-style: italic; }
 
 #canvas-text pre code .hl-diff-line {
   display: block;
   margin: 0 -0.2rem;
   padding: 0 0.2rem;
 }
-#canvas-text pre code .hl-diff-meta { color: #4b4b4b; }
+#canvas-text pre code .hl-diff-meta { color: #000000; }
 #canvas-text pre code .hl-diff-hunk { color: #7a1fa2; }
 #canvas-text pre code .hl-diff-add { background: rgba(46, 125, 50, 0.14); }
 #canvas-text pre code .hl-diff-del { background: rgba(183, 28, 28, 0.14); }
-#canvas-text pre code .hl-diff-ctx { color: #202020; }
+#canvas-text pre code .hl-diff-ctx { color: #000000; }
 
 #canvas-img { max-width: 100%; height: auto; }
 
