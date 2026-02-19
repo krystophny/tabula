@@ -344,8 +344,8 @@ body.desktop-canvas-only #panel-canvas {
 }
 #canvas-text pre code .hl-diff-meta { color: #000080; }
 #canvas-text pre code .hl-diff-hunk { color: #0451A5; }
-#canvas-text pre code .hl-diff-add { color: #098658; background: none; }
-#canvas-text pre code .hl-diff-del { color: #A31515; background: none; }
+#canvas-text pre code .hl-diff-add { color: inherit; background: #9bb95533; }
+#canvas-text pre code .hl-diff-del { color: inherit; background: #ff000033; }
 #canvas-text pre code .hl-diff-ctx { color: #3B3B3B; }
 
 #canvas-img { max-width: 100%; height: auto; }
