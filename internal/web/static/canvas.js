@@ -110,6 +110,13 @@ let activeMailContext = null;
 let mailCapabilitiesRequestSeq = 0;
 
 const DEFAULT_PRODUCER_MCP_URL = 'http://127.0.0.1:8090/mcp';
+const SWIPE_LEFT_ARCHIVE_THRESHOLD_PX = -120;
+const SWIPE_LEFT_DELETE_THRESHOLD_PX = -260;
+const SWIPE_RIGHT_DEFER_THRESHOLD_PX = 120;
+const SWIPE_MAX_TRANSLATE_PX = 320;
+const UNDO_TIMEOUT_MS = 5000;
+
+let pendingUndoAction = null;
 
 function getEls() {
   if (!els.empty) {
@@ -262,8 +269,57 @@ function sendSelectionFeedback(payload) {
   state.canvasWs.send(JSON.stringify(payload));
 }
 
+function ensureUndoToast() {
+  const host = document.getElementById('canvas-content');
+  if (!host) return null;
+  let toast = host.querySelector('.mail-undo-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.className = 'mail-undo-toast';
+    toast.innerHTML = '<span data-mail-undo-message></span><button type="button" data-mail-undo-btn>Undo</button>';
+    host.appendChild(toast);
+  }
+  return toast;
+}
+
+function hideUndoToast() {
+  const toast = document.querySelector('.mail-undo-toast');
+  if (!toast) return;
+  toast.classList.remove('show');
+  const btn = toast.querySelector('[data-mail-undo-btn]');
+  if (btn) {
+    btn.onclick = null;
+  }
+}
+
+function showUndoToast(message, onUndo) {
+  const toast = ensureUndoToast();
+  if (!toast) return;
+  const label = toast.querySelector('[data-mail-undo-message]');
+  const btn = toast.querySelector('[data-mail-undo-btn]');
+  if (label) {
+    label.textContent = message;
+  }
+  if (btn) {
+    btn.onclick = () => {
+      onUndo();
+    };
+  }
+  toast.classList.add('show');
+}
+
+function flushPendingUndoAction() {
+  if (!pendingUndoAction) return;
+  const pending = pendingUndoAction;
+  pendingUndoAction = null;
+  clearTimeout(pending.timerId);
+  hideUndoToast();
+  void pending.execute();
+}
+
 function clearTextInteractionHandlers() {
   const e = getEls();
+  flushPendingUndoAction();
   if (e.text._selectionHandler) {
     document.removeEventListener('selectionchange', e.text._selectionHandler);
     e.text._selectionHandler = null;
@@ -287,6 +343,19 @@ function clearTextInteractionHandlers() {
   if (e.text._mailClickHandler) {
     e.text.removeEventListener('click', e.text._mailClickHandler);
     e.text._mailClickHandler = null;
+  }
+  if (e.text._mailPointerDownHandler) {
+    e.text.removeEventListener('pointerdown', e.text._mailPointerDownHandler);
+    e.text._mailPointerDownHandler = null;
+  }
+  if (e.text._mailPointerMoveHandler) {
+    window.removeEventListener('pointermove', e.text._mailPointerMoveHandler);
+    e.text._mailPointerMoveHandler = null;
+  }
+  if (e.text._mailPointerUpHandler) {
+    window.removeEventListener('pointerup', e.text._mailPointerUpHandler);
+    window.removeEventListener('pointercancel', e.text._mailPointerUpHandler);
+    e.text._mailPointerUpHandler = null;
   }
   e.text.classList.remove('mail-artifact');
   activeMailContext = null;
@@ -497,6 +566,13 @@ function lockMailRowActions(row) {
   });
 }
 
+function unlockMailRowActions(row) {
+  row.querySelectorAll('button').forEach((button) => {
+    delete button.dataset.mailLocked;
+    button.disabled = false;
+  });
+}
+
 function applyMailActionState(row, action, result, untilAt) {
   if (result && result.status === 'stub_not_supported') {
     setMailRowStatus(row, 'Defer is not supported for this provider yet.', 'warning');
@@ -528,6 +604,149 @@ function applyMailActionState(row, action, result, untilAt) {
     default:
       break;
   }
+}
+
+function resolveSwipeAction(dx) {
+  if (dx <= SWIPE_LEFT_DELETE_THRESHOLD_PX) return 'delete';
+  if (dx <= SWIPE_LEFT_ARCHIVE_THRESHOLD_PX) return 'archive';
+  if (dx >= SWIPE_RIGHT_DEFER_THRESHOLD_PX) return 'defer';
+  return '';
+}
+
+function updateSwipePreview(row, dx) {
+  const clamped = Math.max(-SWIPE_MAX_TRANSLATE_PX, Math.min(SWIPE_MAX_TRANSLATE_PX, dx));
+  row.style.transform = `translateX(${clamped}px)`;
+  row.classList.add('mail-row-swipe-active');
+  const action = resolveSwipeAction(clamped);
+  row.classList.toggle('mail-row-swipe-archive', action === 'archive');
+  row.classList.toggle('mail-row-swipe-delete', action === 'delete');
+  row.classList.toggle('mail-row-swipe-defer', action === 'defer');
+}
+
+function resetSwipePreview(row) {
+  row.style.transform = '';
+  row.classList.remove('mail-row-swipe-active', 'mail-row-swipe-archive', 'mail-row-swipe-delete', 'mail-row-swipe-defer');
+}
+
+function queueUndoableMailAction(eventId, context, row, action, messageID) {
+  flushPendingUndoAction();
+  const actionLabel = action === 'delete' ? 'Delete' : 'Archive';
+  lockMailRowActions(row);
+  row.classList.add(action === 'delete' ? 'mail-row-deleted' : 'mail-row-archived');
+  setMailRowStatus(row, `${actionLabel} queued. Undo available for 5 seconds.`, 'info');
+
+  const execute = async () => {
+    if (activeTextEventId !== eventId) return;
+    setMailRowStatus(row, `Running ${action}...`, 'info');
+    try {
+      const result = await callMailAction(context, action, messageID, '');
+      if (activeTextEventId !== eventId) return;
+      applyMailActionState(row, action, result, '');
+    } catch (err) {
+      if (activeTextEventId !== eventId) return;
+      row.classList.remove('mail-row-archived', 'mail-row-deleted');
+      unlockMailRowActions(row);
+      setMailRowStatus(row, String(err?.message || err || `${action} failed`), 'error');
+    }
+  };
+
+  const restore = () => {
+    if (activeTextEventId !== eventId) return;
+    row.classList.remove('mail-row-archived', 'mail-row-deleted');
+    unlockMailRowActions(row);
+    setMailRowStatus(row, `${actionLabel} canceled.`, 'info');
+  };
+
+  const undoID = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const timerId = setTimeout(() => {
+    if (!pendingUndoAction || pendingUndoAction.id !== undoID) return;
+    pendingUndoAction = null;
+    hideUndoToast();
+    void execute();
+  }, UNDO_TIMEOUT_MS);
+
+  pendingUndoAction = { id: undoID, timerId, execute, restore };
+  showUndoToast(`${actionLabel} scheduled`, () => {
+    if (!pendingUndoAction || pendingUndoAction.id !== undoID) return;
+    clearTimeout(pendingUndoAction.timerId);
+    pendingUndoAction = null;
+    hideUndoToast();
+    restore();
+  });
+}
+
+function runImmediateMailAction(eventId, context, row, action, messageID, untilAt) {
+  setMailRowBusy(row, true);
+  setMailRowStatus(row, `Running ${action}...`, 'info');
+  void callMailAction(context, action, messageID, untilAt)
+    .then((result) => {
+      if (activeTextEventId !== eventId) return;
+      applyMailActionState(row, action, result, untilAt);
+    })
+    .catch((err) => {
+      if (activeTextEventId !== eventId) return;
+      setMailRowStatus(row, String(err?.message || err || `${action} failed`), 'error');
+    })
+    .finally(() => {
+      if (activeTextEventId !== eventId) return;
+      setMailRowBusy(row, false);
+    });
+}
+
+function setupMailGestureHandlers(eventId, context) {
+  const e = getEls();
+  let swipe = null;
+
+  const onPointerDown = (ev) => {
+    if (ev.button !== 0) return;
+    const row = ev.target.closest('tr[data-message-id]');
+    if (!row) return;
+    if (ev.target.closest('button, input, .mail-defer-controls')) return;
+    if (row.classList.contains('mail-row-busy')) return;
+    if (row.querySelector('[data-mail-defer-controls]:not([hidden])')) return;
+    swipe = {
+      row,
+      pointerId: ev.pointerId,
+      startX: ev.clientX,
+      dx: 0,
+    };
+  };
+
+  const onPointerMove = (ev) => {
+    if (!swipe || ev.pointerId !== swipe.pointerId) return;
+    swipe.dx = ev.clientX - swipe.startX;
+    updateSwipePreview(swipe.row, swipe.dx);
+  };
+
+  const onPointerEnd = (ev) => {
+    if (!swipe || ev.pointerId !== swipe.pointerId) return;
+    const { row, dx } = swipe;
+    swipe = null;
+    const action = resolveSwipeAction(dx);
+    resetSwipePreview(row);
+    if (!action) return;
+    const messageID = row.dataset.messageId || '';
+    if (!messageID) return;
+    if (action === 'defer') {
+      const supportsNative = Boolean(context.capabilities?.supports_native_defer);
+      if (!supportsNative) {
+        setMailRowStatus(row, 'Defer is currently a stub for this provider.', 'warning');
+        return;
+      }
+      openMailDeferControls(row);
+      return;
+    }
+    queueUndoableMailAction(eventId, context, row, action, messageID);
+  };
+
+  e.text._mailPointerDownHandler = onPointerDown;
+  e.text._mailPointerMoveHandler = onPointerMove;
+  e.text._mailPointerUpHandler = onPointerEnd;
+
+  e.text.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerEnd);
+  window.addEventListener('pointercancel', onPointerEnd);
 }
 
 function setupMailActionHandlers(eventId, context) {
@@ -570,41 +789,17 @@ function setupMailActionHandlers(eventId, context) {
         return;
       }
       const untilAt = parsed.toISOString();
-      setMailRowBusy(row, true);
-      setMailRowStatus(row, 'Applying defer...', 'info');
-      void callMailAction(context, 'defer', messageID, untilAt)
-        .then((result) => {
-          if (activeTextEventId !== eventId) return;
-          applyMailActionState(row, 'defer', result, untilAt);
-        })
-        .catch((err) => {
-          if (activeTextEventId !== eventId) return;
-          setMailRowStatus(row, String(err?.message || err || 'defer failed'), 'error');
-        })
-        .finally(() => {
-          if (activeTextEventId !== eventId) return;
-          setMailRowBusy(row, false);
-        });
+      runImmediateMailAction(eventId, context, row, 'defer', messageID, untilAt);
       return;
     }
     if (action !== 'open' && action !== 'archive' && action !== 'delete') {
       return;
     }
-    setMailRowBusy(row, true);
-    setMailRowStatus(row, `Running ${action}...`, 'info');
-    void callMailAction(context, action, messageID, '')
-      .then((result) => {
-        if (activeTextEventId !== eventId) return;
-        applyMailActionState(row, action, result, '');
-      })
-      .catch((err) => {
-        if (activeTextEventId !== eventId) return;
-        setMailRowStatus(row, String(err?.message || err || 'action failed'), 'error');
-      })
-      .finally(() => {
-        if (activeTextEventId !== eventId) return;
-        setMailRowBusy(row, false);
-      });
+    if (action === 'archive' || action === 'delete') {
+      queueUndoableMailAction(eventId, context, row, action, messageID);
+      return;
+    }
+    runImmediateMailAction(eventId, context, row, action, messageID, '');
   };
 
   e.text._mailClickHandler = onClick;
@@ -616,6 +811,7 @@ function renderMailArtifact(event, context) {
   e.text.classList.add('mail-artifact');
   e.text.innerHTML = renderMailHeadersHtml(context);
   setupMailActionHandlers(event.event_id, context);
+  setupMailGestureHandlers(event.event_id, context);
   setCapabilityHint(context);
   void fetchMailCapabilities(event.event_id, context);
 }

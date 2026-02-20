@@ -383,6 +383,11 @@ body.desktop-canvas-only #panel-canvas {
   background: var(--bg-elevated);
 }
 
+.mail-triage-table tbody tr {
+  transition: transform 120ms ease, background 120ms ease;
+  touch-action: pan-y;
+}
+
 .mail-row-actions {
   min-width: 260px;
 }
@@ -427,10 +432,45 @@ body.desktop-canvas-only #panel-canvas {
   opacity: 0.75;
 }
 
+.mail-row-swipe-active {
+  position: relative;
+  z-index: 1;
+}
+
+.mail-row-swipe-archive {
+  background: #d9f5d9;
+}
+
+.mail-row-swipe-delete {
+  background: #ffd7d7;
+}
+
+.mail-row-swipe-defer {
+  background: #d7e9ff;
+}
+
 .mail-row-archived,
 .mail-row-deferred,
 .mail-row-deleted {
   background: var(--bg-elevated);
+}
+
+.mail-undo-toast {
+  position: sticky;
+  bottom: 0.75rem;
+  margin-top: 0.75rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  z-index: 5;
+}
+
+.mail-undo-toast.show {
+  display: flex;
 }
 
 #canvas-img { max-width: 100%; height: auto; }
