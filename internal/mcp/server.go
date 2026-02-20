@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/krystophny/tabula/internal/canvas"
 )
@@ -18,6 +20,8 @@ const (
 	ServerName            = "tabula"
 	ServerVersion         = "0.3.0"
 	LatestProtocolVersion = "2025-03-26"
+	defaultHelpyMCPURL    = "http://127.0.0.1:8090/mcp"
+	helpyEmailFormatV1    = "helpy.handoff.email_headers.v1"
 )
 
 var supportedProtocolVersions = map[string]struct{}{
@@ -173,9 +177,159 @@ func (s *Server) callTool(name string, args map[string]interface{}) (map[string]
 		return s.adapter.CanvasHistory(sid, intArg(args, "limit", 20)), nil
 	case "canvas_selection":
 		return s.adapter.CanvasSelection(sid), nil
+	case "canvas_import_email_headers_handoff":
+		return s.canvasImportEmailHeadersHandoff(sid, args)
 	default:
 		return nil, errors.New("unknown tool: " + name)
 	}
+}
+
+type helpyEmailHeader struct {
+	ID      string `json:"id"`
+	Date    string `json:"date"`
+	Sender  string `json:"sender"`
+	Subject string `json:"subject"`
+}
+
+type helpyEmailHeadersPayload struct {
+	Format  string                 `json:"format"`
+	Meta    map[string]interface{} `json:"meta"`
+	Headers []helpyEmailHeader     `json:"headers"`
+}
+
+func (s *Server) canvasImportEmailHeadersHandoff(sessionID string, args map[string]interface{}) (map[string]interface{}, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil, errors.New("session_id is required")
+	}
+	handoffID := strArg(args, "handoff_id")
+	if strings.TrimSpace(handoffID) == "" {
+		return nil, errors.New("handoff_id is required")
+	}
+	helpyMCPURL := strArg(args, "helpy_mcp_url")
+	if strings.TrimSpace(helpyMCPURL) == "" {
+		helpyMCPURL = defaultHelpyMCPURL
+	}
+	title := strArg(args, "title")
+	if strings.TrimSpace(title) == "" {
+		title = "Email Headers"
+	}
+
+	structured, err := mcpToolCall(helpyMCPURL, "handoff_email_headers_consume", map[string]interface{}{"handoff_id": handoffID})
+	if err != nil {
+		return nil, fmt.Errorf("helpy handoff consume failed: %w", err)
+	}
+
+	payloadJSON, _ := json.Marshal(structured)
+	var payload helpyEmailHeadersPayload
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, fmt.Errorf("invalid helpy handoff payload: %w", err)
+	}
+	if payload.Format != helpyEmailFormatV1 {
+		return nil, fmt.Errorf("unsupported handoff format: %s", payload.Format)
+	}
+
+	markdown := renderEmailHeadersMarkdown(payload.Meta, payload.Headers)
+	shown, err := s.adapter.CanvasArtifactShow(sessionID, "text", title, markdown, "", 0, "")
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"artifact_id":    shown["artifact_id"],
+		"title":          title,
+		"handoff_id":     handoffID,
+		"imported_count": len(payload.Headers),
+		"format":         payload.Format,
+	}, nil
+}
+
+func mcpToolCall(mcpURL, name string, arguments map[string]interface{}) (map[string]interface{}, error) {
+	request := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "tools/call",
+		"params": map[string]interface{}{
+			"name":      name,
+			"arguments": arguments,
+		},
+	}
+	body, _ := json.Marshal(request)
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Post(mcpURL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var rpcResp map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&rpcResp); err != nil {
+		return nil, err
+	}
+	if rpcErr, ok := rpcResp["error"].(map[string]interface{}); ok {
+		return nil, fmt.Errorf("%v", rpcErr["message"])
+	}
+
+	result, _ := rpcResp["result"].(map[string]interface{})
+	if result == nil {
+		return nil, errors.New("missing result")
+	}
+	if isErr, _ := result["isError"].(bool); isErr {
+		if sc, ok := result["structuredContent"].(map[string]interface{}); ok {
+			if msg, ok := sc["error"].(string); ok && strings.TrimSpace(msg) != "" {
+				return nil, errors.New(msg)
+			}
+		}
+		return nil, errors.New("remote tool returned error")
+	}
+	structured, _ := result["structuredContent"].(map[string]interface{})
+	if structured == nil {
+		return nil, errors.New("missing structuredContent")
+	}
+	return structured, nil
+}
+
+func renderEmailHeadersMarkdown(meta map[string]interface{}, headers []helpyEmailHeader) string {
+	var b strings.Builder
+	b.WriteString("# Email Headers\n\n")
+	count := len(headers)
+	if meta != nil {
+		if provider := strings.TrimSpace(fmt.Sprint(meta["provider"])); provider != "" && provider != "<nil>" {
+			b.WriteString("- Provider: `")
+			b.WriteString(provider)
+			b.WriteString("`\n")
+		}
+		if folder := strings.TrimSpace(fmt.Sprint(meta["folder"])); folder != "" && folder != "<nil>" {
+			b.WriteString("- Folder: `")
+			b.WriteString(folder)
+			b.WriteString("`\n")
+		}
+	}
+	b.WriteString("- Count: `")
+	b.WriteString(strconv.Itoa(count))
+	b.WriteString("`\n\n")
+
+	for i, h := range headers {
+		b.WriteString(strconv.Itoa(i + 1))
+		b.WriteString(". `")
+		if strings.TrimSpace(h.Date) != "" {
+			b.WriteString(h.Date)
+		} else {
+			b.WriteString("-")
+		}
+		b.WriteString("` | ")
+		if strings.TrimSpace(h.Sender) != "" {
+			b.WriteString(h.Sender)
+		} else {
+			b.WriteString("(no sender)")
+		}
+		b.WriteString(" | ")
+		if strings.TrimSpace(h.Subject) != "" {
+			b.WriteString(h.Subject)
+		} else {
+			b.WriteString("(no subject)")
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 func (s *Server) dispatchResourceRead(params map[string]interface{}) (map[string]interface{}, *RPCError) {
@@ -230,6 +384,7 @@ func toolDefinitions() []map[string]interface{} {
 		{"name": "canvas_mark_focus", "description": "Set or clear currently focused mark.", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"session_id"}}},
 		{"name": "canvas_commit", "description": "Commit draft marks to persistent annotations and write sidecar/PDF annotations.", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"session_id"}}},
 		{"name": "canvas_status", "description": "Get current session status and active artifact metadata.", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"session_id"}}},
+		{"name": "canvas_import_email_headers_handoff", "description": "Consume a Helpy email-headers handoff by id and render it as canvas text.", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"session_id", "handoff_id"}}},
 	}
 }
 
