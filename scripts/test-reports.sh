@@ -8,6 +8,13 @@ E2E_DIR="${REPORT_ROOT}/e2e"
 
 mkdir -p "${COVERAGE_DIR}" "${E2E_DIR}"
 
+for cmd in go node npx; do
+  if ! command -v "${cmd}" >/dev/null 2>&1; then
+    echo "[reports] missing required command: ${cmd}" >&2
+    exit 1
+  fi
+done
+
 TABULA_PROFILE="${COVERAGE_DIR}/tabula.cover.out"
 TABULA_HTML="${COVERAGE_DIR}/tabula.html"
 UNIT_INDEX="${COVERAGE_DIR}/index.html"
