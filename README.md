@@ -32,7 +32,6 @@ tabula serve --project-dir . --host 127.0.0.1 --port 9420
 tabula web --data-dir ~/.tabula-web --project-dir . --host 127.0.0.1 --port 8420
 tabula web --project-dir . --local-mcp-url http://127.0.0.1:9420/mcp --ptyd-url http://127.0.0.1:9333 --dev-runtime
 tabula ptyd --data-dir ~/.local/share/tabula-ptyd --host 127.0.0.1 --port 9333
-tabula mcp-http-bridge --mcp-url http://127.0.0.1:9420/mcp
 tabula canvas
 tabula schema
 ```

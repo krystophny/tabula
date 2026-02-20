@@ -146,12 +146,10 @@ function shellSingleQuote(value) {
 }
 
 function buildClaudeCommand(mcpUrl) {
-  const bridge = `exec tabula mcp-http-bridge --mcp-url ${shellSingleQuote(mcpUrl)}`;
   const cfg = JSON.stringify({
     mcpServers: {
       'tabula': {
-        command: 'bash',
-        args: ['-lc', bridge],
+        url: mcpUrl,
       },
     },
   });

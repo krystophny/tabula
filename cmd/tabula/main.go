@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/krystophny/tabula/internal/bridge"
 	"github.com/krystophny/tabula/internal/canvas"
 	"github.com/krystophny/tabula/internal/mcp"
 	"github.com/krystophny/tabula/internal/protocol"
@@ -37,8 +36,6 @@ func run(args []string) int {
 		return cmdBootstrap(args[1:])
 	case "mcp-server":
 		return cmdMCPServer(args[1:])
-	case "mcp-http-bridge":
-		return cmdMCPHTTPBridge(args[1:])
 	case "serve":
 		return cmdServe(args[1:])
 	case "web":
@@ -58,7 +55,7 @@ func run(args []string) int {
 
 func printHelp() {
 	fmt.Println("tabula <command> [flags]")
-	fmt.Println("commands: canvas schema bootstrap mcp-server mcp-http-bridge serve web ptyd run")
+	fmt.Println("commands: canvas schema bootstrap mcp-server serve web ptyd run")
 }
 
 func cmdSchema() int {
@@ -117,19 +114,6 @@ func cmdMCPServer(args []string) int {
 	}
 	adapter := canvas.NewAdapter(res.Paths.ProjectDir, nil, *headless || *noCanvas)
 	return mcp.RunStdio(adapter)
-}
-
-func cmdMCPHTTPBridge(args []string) int {
-	fs := flag.NewFlagSet("mcp-http-bridge", flag.ContinueOnError)
-	mcpURL := fs.String("mcp-url", "", "mcp url")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	if strings.TrimSpace(*mcpURL) == "" {
-		fmt.Fprintln(os.Stderr, "--mcp-url required")
-		return 2
-	}
-	return bridge.Run(*mcpURL)
 }
 
 func cmdServe(args []string) int {

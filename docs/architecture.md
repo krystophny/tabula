@@ -22,8 +22,6 @@ Tabula is a Go-first MCP canvas/runtime stack with a browser UI.
   - SQLite persistence for web auth/hosts/session mappings.
 - `internal/protocol/bootstrap.go`
   - Project bootstrap (`.tabula/*`, protocol files, gitignore wiring).
-- `internal/bridge/bridge.go`
-  - Stdio MCP <-> HTTP MCP bridge.
 
 ## Data Flow
 

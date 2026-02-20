@@ -29,10 +29,6 @@
 
 - `internal/protocol/bootstrap.go`
 
-## MCP HTTP Bridge
-
-- `internal/bridge/bridge.go`
-
 ## Browser UI Assets
 
 - `internal/web/static/index.html`
