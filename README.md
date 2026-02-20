@@ -129,3 +129,15 @@ In dual-server controller mode:
 ```bash
 go test ./...
 ```
+
+Generate unit coverage + E2E artifacts in one command:
+
+```bash
+npm run test:reports
+```
+
+Artifacts are written under:
+
+- `.tabula/artifacts/test-reports/coverage/unit/index.html`
+- `.tabula/artifacts/test-reports/coverage/unit/summary.txt`
+- `.tabula/artifacts/test-reports/e2e/playwright-report/`
