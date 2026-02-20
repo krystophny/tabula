@@ -318,9 +318,8 @@ function flushPendingUndoAction() {
   void pending.execute();
 }
 
-function clearTextInteractionHandlers() {
+function clearSelectionInteractionHandlers() {
   const e = getEls();
-  flushPendingUndoAction();
   if (e.text._selectionHandler) {
     document.removeEventListener('selectionchange', e.text._selectionHandler);
     e.text._selectionHandler = null;
@@ -341,6 +340,11 @@ function clearTextInteractionHandlers() {
     e.text.removeEventListener('scroll', e.text._scrollHandler);
     e.text._scrollHandler = null;
   }
+}
+
+function clearMailInteractionHandlers() {
+  const e = getEls();
+  flushPendingUndoAction();
   if (e.text._mailClickHandler) {
     e.text.removeEventListener('click', e.text._mailClickHandler);
     e.text._mailClickHandler = null;
@@ -365,6 +369,11 @@ function clearTextInteractionHandlers() {
   closeDraftPanel();
   e.text.classList.remove('mail-artifact');
   activeMailContext = null;
+}
+
+function clearTextInteractionHandlers() {
+  clearSelectionInteractionHandlers();
+  clearMailInteractionHandlers();
 }
 
 function normalizeMailHeadersContext(event) {
@@ -1459,7 +1468,7 @@ function renderMailArtifact(eventId, context) {
 }
 function setupTextSelection(eventId) {
   const e = getEls();
-  clearTextInteractionHandlers();
+  clearSelectionInteractionHandlers();
 
   const clearDraftSelection = () => {
     if (draftMark && draftMark.event_id === eventId) {
@@ -1611,6 +1620,7 @@ export function renderCanvas(event) {
     if (mailContext) {
       activeMailContext = mailContext;
       renderMailArtifact(event.event_id, mailContext);
+      setupTextSelection(event.event_id);
       return;
     }
     activeMailContext = null;

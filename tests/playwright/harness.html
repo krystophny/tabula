@@ -36,9 +36,23 @@
 
   <script type="module">
     window.__TABULA_UNDO_TIMEOUT_MS = 80;
+    const harnessMessages = [];
+    const harnessState = {
+      sessionId: 'local',
+      canvasWs: {
+        readyState: WebSocket.OPEN,
+        send(payload) {
+          try {
+            harnessMessages.push(JSON.parse(payload));
+          } catch (_) {
+            harnessMessages.push({ raw: String(payload || '') });
+          }
+        },
+      },
+    };
     window._tabulaApp = {
       getState() {
-        return { sessionId: 'local', canvasWs: null };
+        return harnessState;
       },
     };
 
@@ -46,6 +60,10 @@
     initCanvasControls();
     window.renderHarnessArtifact = (event) => renderCanvas(event);
     window.clearHarnessCanvas = () => clearCanvas();
+    window.getHarnessMessages = () => harnessMessages.slice();
+    window.clearHarnessMessages = () => {
+      harnessMessages.splice(0, harnessMessages.length);
+    };
   </script>
 </body>
 </html>
