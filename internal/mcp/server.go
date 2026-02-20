@@ -3,15 +3,20 @@ package mcp
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/krystophny/tabula/internal/canvas"
 )
@@ -20,8 +25,9 @@ const (
 	ServerName            = "tabula"
 	ServerVersion         = "0.3.0"
 	LatestProtocolVersion = "2025-03-26"
-	defaultHelpyMCPURL    = "http://127.0.0.1:8090/mcp"
-	helpyEmailFormatV1    = "helpy.handoff.email_headers.v1"
+	defaultProducerMCPURL = "http://127.0.0.1:8090/mcp"
+	handoffKindFile       = "file"
+	handoffKindMailHeader = "mail_headers"
 )
 
 var supportedProtocolVersions = map[string]struct{}{
@@ -36,6 +42,15 @@ type RPCError struct {
 
 type Server struct {
 	adapter *canvas.Adapter
+}
+
+type handoffEnvelope struct {
+	SpecVersion string                 `json:"spec_version"`
+	HandoffID   string                 `json:"handoff_id"`
+	Kind        string                 `json:"kind"`
+	CreatedAt   string                 `json:"created_at"`
+	Meta        map[string]interface{} `json:"meta"`
+	Payload     map[string]interface{} `json:"payload"`
 }
 
 func NewServer(adapter *canvas.Adapter) *Server {
@@ -177,27 +192,14 @@ func (s *Server) callTool(name string, args map[string]interface{}) (map[string]
 		return s.adapter.CanvasHistory(sid, intArg(args, "limit", 20)), nil
 	case "canvas_selection":
 		return s.adapter.CanvasSelection(sid), nil
-	case "canvas_import_email_headers_handoff":
-		return s.canvasImportEmailHeadersHandoff(sid, args)
+	case "canvas_import_handoff":
+		return s.canvasImportHandoff(sid, args)
 	default:
 		return nil, errors.New("unknown tool: " + name)
 	}
 }
 
-type helpyEmailHeader struct {
-	ID      string `json:"id"`
-	Date    string `json:"date"`
-	Sender  string `json:"sender"`
-	Subject string `json:"subject"`
-}
-
-type helpyEmailHeadersPayload struct {
-	Format  string                 `json:"format"`
-	Meta    map[string]interface{} `json:"meta"`
-	Headers []helpyEmailHeader     `json:"headers"`
-}
-
-func (s *Server) canvasImportEmailHeadersHandoff(sessionID string, args map[string]interface{}) (map[string]interface{}, error) {
+func (s *Server) canvasImportHandoff(sessionID string, args map[string]interface{}) (map[string]interface{}, error) {
 	if strings.TrimSpace(sessionID) == "" {
 		return nil, errors.New("session_id is required")
 	}
@@ -205,41 +207,35 @@ func (s *Server) canvasImportEmailHeadersHandoff(sessionID string, args map[stri
 	if strings.TrimSpace(handoffID) == "" {
 		return nil, errors.New("handoff_id is required")
 	}
-	helpyMCPURL := strArg(args, "helpy_mcp_url")
-	if strings.TrimSpace(helpyMCPURL) == "" {
-		helpyMCPURL = defaultHelpyMCPURL
+	producerMCPURL := strArg(args, "producer_mcp_url")
+	if strings.TrimSpace(producerMCPURL) == "" {
+		producerMCPURL = defaultProducerMCPURL
 	}
-	title := strArg(args, "title")
-	if strings.TrimSpace(title) == "" {
-		title = "Email Headers"
-	}
-
-	structured, err := mcpToolCall(helpyMCPURL, "handoff_email_headers_consume", map[string]interface{}{"handoff_id": handoffID})
+	peek, err := mcpToolCall(producerMCPURL, "handoff.peek", map[string]interface{}{"handoff_id": handoffID})
 	if err != nil {
-		return nil, fmt.Errorf("helpy handoff consume failed: %w", err)
+		return nil, fmt.Errorf("handoff.peek failed: %w", err)
 	}
-
-	payloadJSON, _ := json.Marshal(structured)
-	var payload helpyEmailHeadersPayload
-	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
-		return nil, fmt.Errorf("invalid helpy handoff payload: %w", err)
+	consume, err := mcpToolCall(producerMCPURL, "handoff.consume", map[string]interface{}{"handoff_id": handoffID})
+	if err != nil {
+		return nil, fmt.Errorf("handoff.consume failed: %w", err)
 	}
-	if payload.Format != helpyEmailFormatV1 {
-		return nil, fmt.Errorf("unsupported handoff format: %s", payload.Format)
-	}
-
-	markdown := renderEmailHeadersMarkdown(payload.Meta, payload.Headers)
-	shown, err := s.adapter.CanvasArtifactShow(sessionID, "text", title, markdown, "", 0, "")
+	env, err := decodeEnvelope(consume)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{
-		"artifact_id":    shown["artifact_id"],
-		"title":          title,
-		"handoff_id":     handoffID,
-		"imported_count": len(payload.Headers),
-		"format":         payload.Format,
-	}, nil
+	peekKind := strings.TrimSpace(fmt.Sprint(peek["kind"]))
+	if peekKind != "" && peekKind != env.Kind {
+		return nil, fmt.Errorf("handoff kind changed between peek and consume: %s != %s", peekKind, env.Kind)
+	}
+	title := strings.TrimSpace(strArg(args, "title"))
+	switch env.Kind {
+	case handoffKindMailHeader:
+		return s.importMailHeaders(sessionID, handoffID, title, env)
+	case handoffKindFile:
+		return s.importFile(sessionID, handoffID, title, env)
+	default:
+		return nil, fmt.Errorf("unsupported handoff kind: %s", env.Kind)
+	}
 }
 
 func mcpToolCall(mcpURL, name string, arguments map[string]interface{}) (map[string]interface{}, error) {
@@ -287,9 +283,204 @@ func mcpToolCall(mcpURL, name string, arguments map[string]interface{}) (map[str
 	return structured, nil
 }
 
-func renderEmailHeadersMarkdown(meta map[string]interface{}, headers []helpyEmailHeader) string {
+type importedMailHeader struct {
+	ID      string `json:"id"`
+	Date    string `json:"date"`
+	Sender  string `json:"sender"`
+	Subject string `json:"subject"`
+}
+
+func decodeEnvelope(payload map[string]interface{}) (handoffEnvelope, error) {
+	raw, _ := json.Marshal(payload)
+	var env handoffEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return handoffEnvelope{}, fmt.Errorf("invalid handoff envelope: %w", err)
+	}
+	if strings.TrimSpace(env.Kind) == "" {
+		return handoffEnvelope{}, errors.New("handoff envelope missing kind")
+	}
+	if env.Meta == nil {
+		env.Meta = map[string]interface{}{}
+	}
+	if env.Payload == nil {
+		env.Payload = map[string]interface{}{}
+	}
+	return env, nil
+}
+
+func (s *Server) importMailHeaders(sessionID, handoffID, title string, env handoffEnvelope) (map[string]interface{}, error) {
+	raw, _ := json.Marshal(env.Payload["headers"])
+	headers := []importedMailHeader{}
+	if len(raw) > 0 && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &headers); err != nil {
+			return nil, fmt.Errorf("invalid mail_headers payload: %w", err)
+		}
+	}
+	if strings.TrimSpace(title) == "" {
+		title = "Mail Headers"
+	}
+	markdown := renderMailHeadersMarkdown(env.Meta, headers)
+	shown, err := s.adapter.CanvasArtifactShow(sessionID, "text", title, markdown, "", 0, "")
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"artifact_id":    shown["artifact_id"],
+		"title":          title,
+		"handoff_id":     handoffID,
+		"kind":           env.Kind,
+		"imported_count": len(headers),
+	}, nil
+}
+
+func (s *Server) importFile(sessionID, handoffID, title string, env handoffEnvelope) (map[string]interface{}, error) {
+	contentB64 := strings.TrimSpace(fmt.Sprint(env.Payload["content_base64"]))
+	if contentB64 == "" || contentB64 == "<nil>" {
+		return nil, errors.New("file payload missing content_base64")
+	}
+	content, err := base64.StdEncoding.DecodeString(contentB64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid file payload base64: %w", err)
+	}
+	if err := verifyFileIntegrity(env.Meta, content); err != nil {
+		return nil, err
+	}
+
+	filename := sanitizeFilename(strings.TrimSpace(fmt.Sprint(env.Meta["filename"])))
+	if filename == "" || filename == "<nil>" {
+		filename = "handoff-file"
+	}
+	mimeType := strings.TrimSpace(fmt.Sprint(env.Meta["mime_type"]))
+	if mimeType == "" || mimeType == "<nil>" {
+		mimeType = mime.TypeByExtension(filepath.Ext(filename))
+	}
+	if strings.TrimSpace(mimeType) == "" {
+		mimeType = "application/octet-stream"
+	}
+	if strings.TrimSpace(title) == "" {
+		title = filename
+	}
+
+	relativePath, err := s.writeImportedFile(handoffID, filename, content)
+	if err != nil {
+		return nil, err
+	}
+
+	var shown map[string]interface{}
+	switch {
+	case mimeType == "application/pdf":
+		shown, err = s.adapter.CanvasArtifactShow(sessionID, "pdf", title, "", relativePath, 0, "")
+	case strings.HasPrefix(mimeType, "image/"):
+		shown, err = s.adapter.CanvasArtifactShow(sessionID, "image", title, "", relativePath, 0, "")
+	case strings.HasPrefix(mimeType, "text/") && utf8.Valid(content):
+		shown, err = s.adapter.CanvasArtifactShow(sessionID, "text", title, string(content), "", 0, "")
+	default:
+		summary := fmt.Sprintf("# Imported File\n\n- Filename: `%s`\n- MIME: `%s`\n- Size: `%d` bytes\n- Stored at: `%s`\n\nPreview not available for this file type.", filename, mimeType, len(content), relativePath)
+		shown, err = s.adapter.CanvasArtifactShow(sessionID, "text", title, summary, "", 0, "")
+	}
+	if err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{
+		"artifact_id": shown["artifact_id"],
+		"title":       title,
+		"handoff_id":  handoffID,
+		"kind":        env.Kind,
+		"mime_type":   mimeType,
+		"path":        relativePath,
+		"size_bytes":  len(content),
+	}, nil
+}
+
+func verifyFileIntegrity(meta map[string]interface{}, content []byte) error {
+	if meta == nil {
+		return nil
+	}
+	if raw, ok := meta["size_bytes"]; ok {
+		want, has := asInt(raw)
+		if has && want >= 0 && len(content) != want {
+			return fmt.Errorf("file size mismatch: expected %d, got %d", want, len(content))
+		}
+	}
+	hash := strings.ToLower(strings.TrimSpace(fmt.Sprint(meta["sha256"])))
+	if hash != "" && hash != "<nil>" {
+		sum := sha256.Sum256(content)
+		if fmt.Sprintf("%x", sum) != hash {
+			return errors.New("file sha256 mismatch")
+		}
+	}
+	return nil
+}
+
+func asInt(raw interface{}) (int, bool) {
+	switch v := raw.(type) {
+	case int:
+		return v, true
+	case int32:
+		return int(v), true
+	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	default:
+		return 0, false
+	}
+}
+
+func sanitizeFilename(name string) string {
+	if name == "" {
+		return ""
+	}
+	base := filepath.Base(name)
 	var b strings.Builder
-	b.WriteString("# Email Headers\n\n")
+	for _, r := range base {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '.', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func (s *Server) writeImportedFile(handoffID, filename string, content []byte) (string, error) {
+	projectDir := s.adapter.ProjectDir()
+	if strings.TrimSpace(projectDir) == "" {
+		return "", errors.New("project directory not configured")
+	}
+	importDir := filepath.Join(projectDir, ".tabula", "artifacts", "imports")
+	if err := os.MkdirAll(importDir, 0o755); err != nil {
+		return "", err
+	}
+	prefix := handoffID
+	if len(prefix) > 12 {
+		prefix = prefix[:12]
+	}
+	safeName := sanitizeFilename(filename)
+	if safeName == "" {
+		safeName = "artifact.bin"
+	}
+	fullPath := filepath.Join(importDir, prefix+"-"+safeName)
+	if err := os.WriteFile(fullPath, content, 0o644); err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(projectDir, fullPath)
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(rel), nil
+}
+
+func renderMailHeadersMarkdown(meta map[string]interface{}, headers []importedMailHeader) string {
+	var b strings.Builder
+	b.WriteString("# Mail Headers\n\n")
 	count := len(headers)
 	if meta != nil {
 		if provider := strings.TrimSpace(fmt.Sprint(meta["provider"])); provider != "" && provider != "<nil>" {
@@ -384,7 +575,7 @@ func toolDefinitions() []map[string]interface{} {
 		{"name": "canvas_mark_focus", "description": "Set or clear currently focused mark.", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"session_id"}}},
 		{"name": "canvas_commit", "description": "Commit draft marks to persistent annotations and write sidecar/PDF annotations.", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"session_id"}}},
 		{"name": "canvas_status", "description": "Get current session status and active artifact metadata.", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"session_id"}}},
-		{"name": "canvas_import_email_headers_handoff", "description": "Consume a Helpy email-headers handoff by id and render it as canvas text.", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"session_id", "handoff_id"}}},
+		{"name": "canvas_import_handoff", "description": "Consume a generic producer handoff and render it in canvas.", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"session_id", "handoff_id"}}},
 	}
 }
 

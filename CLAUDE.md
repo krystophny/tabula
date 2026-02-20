@@ -33,3 +33,12 @@ Stop command:
 ```bash
 kill "$PID"
 ```
+
+## Cross-Repo Protocol
+
+The generic handoff protocol is maintained in:
+
+- `../handoff-protocol`
+- GitHub: `github.com/krystophny/handoff-protocol`
+
+Use that repo as the source of truth for handoff envelope/schema/lifecycle (`handoff.create|peek|consume|revoke|status`).

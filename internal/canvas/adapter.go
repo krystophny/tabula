@@ -103,6 +103,10 @@ func NewAdapter(projectDir string, onEvent func(Event), headless bool) *Adapter 
 	}
 }
 
+func (a *Adapter) ProjectDir() string {
+	return a.projectDir
+}
+
 func (a *Adapter) listSessions() []string {
 	ids := make([]string, 0, len(a.sessions))
 	for id := range a.sessions {
