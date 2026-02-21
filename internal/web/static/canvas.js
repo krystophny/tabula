@@ -196,6 +196,22 @@ function extractMathSegments(markdownSource) {
   const stash = [];
   let text = source;
 
+  const normalizeMathSegment = (segment) => {
+    const raw = String(segment || '');
+    const trimmed = raw.trim();
+    if (!trimmed.startsWith('$$') || !trimmed.endsWith('$$')) {
+      return raw;
+    }
+    const inner = trimmed.slice(2, -2).trim();
+    if (!inner) return raw;
+    const hasTagOrLabel = /\\(?:tag|label)\{[^}]+\}/.test(inner);
+    const hasDisplayEnv = /\\begin\{(?:equation|equation\*|align|align\*|aligned|gather|gather\*|multline|multline\*|split|eqnarray)\}/.test(inner);
+    if (!hasTagOrLabel || hasDisplayEnv) {
+      return raw;
+    }
+    return `\\begin{equation}\n${inner}\n\\end{equation}`;
+  };
+
   const patterns = [
     /\$\$[\s\S]+?\$\$/g,
     /\\\[[\s\S]+?\\\]/g,
@@ -205,7 +221,7 @@ function extractMathSegments(markdownSource) {
   for (const pattern of patterns) {
     text = text.replace(pattern, (segment) => {
       const token = `${MATH_SEGMENT_TOKEN_PREFIX}${stash.length}@@`;
-      stash.push(segment);
+      stash.push(normalizeMathSegment(segment));
       return token;
     });
   }
@@ -237,13 +253,18 @@ function typesetMarkdownMath(root, attempt = 0) {
   const startupReady = mj.startup && mj.startup.promise && typeof mj.startup.promise.then === 'function'
     ? mj.startup.promise
     : Promise.resolve();
+  const originalMathText = root.textContent || '';
+  const needsRefPass = /\\(?:eq)?ref\{[^}]+\}/.test(originalMathText) || /\\label\{[^}]+\}/.test(originalMathText);
   void startupReady
     .then(() => {
       if (!root.isConnected) return;
       if (typeof mj.typesetClear === 'function') {
         mj.typesetClear([root]);
       }
-      return mj.typesetPromise([root]);
+      return mj.typesetPromise([root]).then(() => {
+        if (!needsRefPass || !root.isConnected) return;
+        return mj.typesetPromise([root]);
+      });
     })
     .catch((err) => {
       console.warn('MathJax typeset failed:', err);
