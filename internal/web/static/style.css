@@ -298,6 +298,31 @@ body.desktop-canvas-only #panel-canvas {
   position: relative;
 }
 
+#canvas-pdf {
+  position: relative;
+  min-height: 70vh;
+}
+
+.canvas-pdf-surface {
+  position: relative;
+  width: 100%;
+  min-height: 70vh;
+}
+
+.canvas-pdf-embed {
+  display: block;
+  width: 100%;
+  min-height: 70vh;
+  border: 0;
+  pointer-events: none;
+}
+
+.canvas-pdf-hit-layer {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+}
+
 #canvas-text:focus {
   outline: none;
 }

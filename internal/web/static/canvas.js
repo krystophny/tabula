@@ -149,6 +149,8 @@ const mailAssistActionRegistry = new Map();
 const DRAFT_PROMPT_CANCELLED_CODE = 'draft_prompt_cancelled';
 let pendingDraftPromptCapture = null;
 const POINT_COMMENT_MARK_SIZE_PX = 16;
+let activePdfObjectURL = '';
+let activePdfRenderSeq = 0;
 
 function getEls() {
   if (!els.empty) {
@@ -190,6 +192,16 @@ function hideAll() {
   e.text.style.display = 'none';
   e.image.style.display = 'none';
   e.pdf.style.display = 'none';
+}
+
+function revokeActivePdfObjectURL() {
+  if (!activePdfObjectURL) return;
+  try {
+    URL.revokeObjectURL(activePdfObjectURL);
+  } catch (_) {
+    // ignore revoke errors
+  }
+  activePdfObjectURL = '';
 }
 
 function ensureTextOverlay() {
@@ -932,6 +944,28 @@ function clearSelectionInteractionHandlers() {
   if (e.text._reviewHoverLeaveHandler) {
     e.text.removeEventListener('mouseleave', e.text._reviewHoverLeaveHandler);
     e.text._reviewHoverLeaveHandler = null;
+  }
+  const pdfHitLayer = e.pdf?._pdfHitLayer;
+  if (pdfHitLayer && e.pdf._pdfClickHandler) {
+    pdfHitLayer.removeEventListener('click', e.pdf._pdfClickHandler);
+    e.pdf._pdfClickHandler = null;
+  } else if (e.pdf._pdfClickHandler) {
+    e.pdf.removeEventListener('click', e.pdf._pdfClickHandler);
+    e.pdf._pdfClickHandler = null;
+  }
+  if (pdfHitLayer && e.pdf._pdfHoverMoveHandler) {
+    pdfHitLayer.removeEventListener('mousemove', e.pdf._pdfHoverMoveHandler);
+    e.pdf._pdfHoverMoveHandler = null;
+  }
+  if (pdfHitLayer && e.pdf._pdfHoverLeaveHandler) {
+    pdfHitLayer.removeEventListener('mouseleave', e.pdf._pdfHoverLeaveHandler);
+    e.pdf._pdfHoverLeaveHandler = null;
+  }
+  if (pdfHitLayer) {
+    pdfHitLayer.style.cursor = '';
+  }
+  if (e.pdf) {
+    e.pdf._pdfHitLayer = null;
   }
 }
 
@@ -3296,8 +3330,18 @@ function setupTextSelection(eventId) {
 
 function setupPdfOverlay() {
   const e = getEls();
+  const hitRoot = e.pdf._pdfHitLayer || e.pdf;
   if (e.pdf._pdfClickHandler) {
-    e.pdf.removeEventListener('click', e.pdf._pdfClickHandler);
+    hitRoot.removeEventListener('click', e.pdf._pdfClickHandler);
+    e.pdf._pdfClickHandler = null;
+  }
+  if (e.pdf._pdfHoverMoveHandler) {
+    hitRoot.removeEventListener('mousemove', e.pdf._pdfHoverMoveHandler);
+    e.pdf._pdfHoverMoveHandler = null;
+  }
+  if (e.pdf._pdfHoverLeaveHandler) {
+    hitRoot.removeEventListener('mouseleave', e.pdf._pdfHoverLeaveHandler);
+    e.pdf._pdfHoverLeaveHandler = null;
   }
   const clickHandler = (ev) => {
     if (!activePdfEvent) return;
@@ -3309,21 +3353,36 @@ function setupPdfOverlay() {
     const y = ev.clientY - rect.top;
     const page = Number(activePdfEvent.page || 0);
     const comment = getMarkComment();
+    const localMarkID = nextSubmittedDraftMarkID();
+    const half = Math.round(POINT_COMMENT_MARK_SIZE_PX / 2);
+    const markRect = [x - half, y - half, POINT_COMMENT_MARK_SIZE_PX, POINT_COMMENT_MARK_SIZE_PX];
 
     sendSelectionFeedback({
       kind: 'mark_set',
       session_id: (window._tabulaApp?.getState?.().sessionId) || '',
       artifact_id: activePdfEvent.event_id,
+      mark_id: localMarkID,
       intent: 'draft',
       type: 'comment_point',
       target_kind: 'pdf_point',
-      target: { page, x, y, rect: [x - 8, y - 8, x + 8, y + 8] },
+      target: { page, x, y, rect: markRect },
+      comment,
+    });
+
+    addSubmittedDraftMark({
+      local_id: localMarkID,
+      event_id: activePdfEvent.event_id,
+      type: 'comment_point',
+      line_start: 1,
+      line_end: 1,
+      start_offset: 0,
+      end_offset: 0,
+      rects: [markRect],
       comment,
     });
 
     const marker = document.createElement('div');
     marker.className = 'canvas-mark-rect canvas-mark-comment_point';
-    const half = Math.round(POINT_COMMENT_MARK_SIZE_PX / 2);
     marker.style.left = `${x - half}px`;
     marker.style.top = `${y - half}px`;
     marker.style.width = `${POINT_COMMENT_MARK_SIZE_PX}px`;
@@ -3335,8 +3394,70 @@ function setupPdfOverlay() {
     }
     e.pdf.appendChild(marker);
   };
+  const hoverMoveHandler = (ev) => {
+    if (!activePdfEvent) {
+      hitRoot.style.cursor = '';
+      return;
+    }
+    const hit = findSubmittedMarkAtPoint(e.pdf, activePdfEvent.event_id, ev.clientX, ev.clientY);
+    hitRoot.style.cursor = hit ? 'pointer' : '';
+  };
+  const hoverLeaveHandler = () => {
+    hitRoot.style.cursor = '';
+  };
   e.pdf._pdfClickHandler = clickHandler;
-  e.pdf.addEventListener('click', clickHandler);
+  e.pdf._pdfHoverMoveHandler = hoverMoveHandler;
+  e.pdf._pdfHoverLeaveHandler = hoverLeaveHandler;
+  hitRoot.addEventListener('click', clickHandler);
+  hitRoot.addEventListener('mousemove', hoverMoveHandler);
+  hitRoot.addEventListener('mouseleave', hoverLeaveHandler);
+}
+
+async function renderPdfSurface(event) {
+  const e = getEls();
+  const seq = ++activePdfRenderSeq;
+  const pdfState = (window._tabulaApp || {}).getState ? window._tabulaApp.getState() : {};
+  const pdfSid = pdfState.sessionId || '';
+  const pdfURL = `/api/files/${encodeURIComponent(pdfSid)}/${encodeURIComponent(event.path)}`;
+  revokeActivePdfObjectURL();
+  e.pdf.innerHTML = '';
+
+  const surface = document.createElement('div');
+  surface.className = 'canvas-pdf-surface';
+  const embed = document.createElement('embed');
+  embed.type = 'application/pdf';
+  embed.className = 'canvas-pdf-embed';
+  const hitLayer = document.createElement('div');
+  hitLayer.className = 'canvas-pdf-hit-layer';
+  surface.appendChild(embed);
+  surface.appendChild(hitLayer);
+  e.pdf.appendChild(surface);
+  e.pdf._pdfHitLayer = hitLayer;
+
+  try {
+    const response = await fetch(pdfURL);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
+    if (seq !== activePdfRenderSeq) {
+      return;
+    }
+    const objectURL = URL.createObjectURL(blob);
+    activePdfObjectURL = objectURL;
+    embed.src = objectURL;
+  } catch (_) {
+    if (seq !== activePdfRenderSeq) {
+      return;
+    }
+    embed.src = pdfURL;
+  }
+}
+
+function clearPdfMarkers() {
+  const e = getEls();
+  if (!e.pdf) return;
+  e.pdf.querySelectorAll('.canvas-mark-rect').forEach((node) => node.remove());
 }
 
 export function renderCanvas(event) {
@@ -3385,13 +3506,7 @@ export function renderCanvas(event) {
     clearTextInteractionHandlers();
     hideAll();
     e.pdf.style.display = '';
-    const pdfState = (window._tabulaApp || {}).getState ? window._tabulaApp.getState() : {};
-    const pdfSid = pdfState.sessionId || '';
-    e.pdf.innerHTML = '';
-    const iframe = document.createElement('iframe');
-    iframe.src = `/api/files/${encodeURIComponent(pdfSid)}/${encodeURIComponent(event.path)}`;
-    iframe.style.cssText = 'width:100%;height:100%;border:none;';
-    e.pdf.appendChild(iframe);
+    void renderPdfSurface(event);
     e.title.textContent = event.title || 'PDF';
     e.mode.textContent = 'review';
     e.mode.className = 'badge review';
@@ -3419,6 +3534,7 @@ export function clearCanvas() {
   activePdfEvent = null;
   draftMark = null;
   submittedDraftMarks = [];
+  revokeActivePdfObjectURL();
   clearOverlay();
 }
 
@@ -3456,13 +3572,17 @@ export function initCanvasControls() {
       if (!getState) return;
       const state = getState();
       if (!state.canvasWs || state.canvasWs.readyState !== WebSocket.OPEN) return;
+      const artifactID = activeArtifactIDForCommit();
       state.canvasWs.send(JSON.stringify({
         kind: 'mark_clear_draft',
         session_id: state.sessionId,
-        artifact_id: activeTextEventId,
+        artifact_id: artifactID,
       }));
       draftMark = null;
-      clearSubmittedDraftMarksForEvent(activeTextEventId);
+      clearSubmittedDraftMarksForEvent(artifactID);
+      if (activePdfEvent && artifactID === activePdfEvent.event_id) {
+        clearPdfMarkers();
+      }
       clearOverlay();
     });
   }
