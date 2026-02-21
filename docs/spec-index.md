@@ -1,14 +1,20 @@
 # Tabula Spec Index
 
-Canonical documentation for `v0.0.1`.
+Canonical documentation.
 
 ## Product and Behavior Specs
 
-- Interaction model: `object-scoped-intent-ui.md`
-- Review workflow and commit model: `review-mode-workflow.md`
-- Public interface references: `interfaces.md`
-- Architecture: `architecture.md`
-- Version freeze and release notes: `release-v0.0.1.md`
+Read in this order:
+
+1. `object-scoped-intent-ui.md`
+2. `review-mode-workflow.md`
+3. `interfaces.md`
+4. `architecture.md`
+
+Release notes:
+
+- Upcoming: `release-v0.0.2.md`
+- Published baseline: `release-v0.0.1.md`
 
 ## Source Code Anchors
 
@@ -35,6 +41,6 @@ Canonical documentation for `v0.0.1`.
 
 ## Scope Boundaries
 
-- Tabula is the canvas consumer and interaction runtime.
-- Producer-side source access (mail/files/calendar/etc.) is external.
-- Handoff transport contracts are defined in `handoff-protocol`.
+- Tabula defines the interaction/runtime layer for object-scoped intent workflows.
+- Producer-side source access (mail/files/calendar/etc.) is external and pluggable.
+- Handoff transport contracts are integration details defined in `handoff-protocol`.
