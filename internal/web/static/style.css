@@ -391,6 +391,52 @@ body.desktop-canvas-only #panel-canvas {
   font-weight: 600;
 }
 
+.mail-record-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.45rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  padding: 0.35rem 0.45rem;
+}
+
+.mail-record-mode {
+  display: inline-flex;
+  gap: 0.2rem;
+}
+
+.mail-record-mode button {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.72rem;
+}
+
+.mail-record-mode button.is-active {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+button[data-mail-record-action="trigger"],
+button[data-mail-record-action="stop"] {
+  padding: 0.22rem 0.5rem;
+  font-size: 0.74rem;
+}
+
+.mail-record-indicator {
+  font-size: 0.76rem;
+  color: var(--text-dim);
+}
+
+.mail-record-indicator-active {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.mail-recording-active .mail-record-controls {
+  border-color: var(--accent);
+}
+
 .mail-triage-table {
   width: 100%;
   border-collapse: collapse;
@@ -771,6 +817,12 @@ body.desktop-canvas-only #panel-canvas {
   }
   .mail-triage-head {
     grid-template-columns: 1fr;
+  }
+  .mail-record-controls {
+    align-items: stretch;
+  }
+  .mail-record-mode {
+    width: 100%;
   }
   .mail-triage-table {
     display: block;

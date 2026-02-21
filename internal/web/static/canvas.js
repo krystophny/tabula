@@ -125,6 +125,19 @@ const MAIL_ASSIST_STATE = Object.freeze({
   READY: 'ready',
   ERROR: 'error',
 });
+const MAIL_RECORDING_MODE = Object.freeze({
+  HOLD: 'hold',
+  TOGGLE: 'toggle',
+});
+const MAIL_RECORDING_STATE = Object.freeze({
+  IDLE: 'idle',
+  RECORDING: 'recording',
+});
+const MAIL_RECORDING_ORIGIN = Object.freeze({
+  HOLD_POINTER: 'hold_pointer',
+  HOLD_KEYBOARD: 'hold_keyboard',
+  TOGGLE_BUTTON: 'toggle_button',
+});
 const mailAssistActionRegistry = new Map();
 const DRAFT_PROMPT_CANCELLED_CODE = 'draft_prompt_cancelled';
 let pendingDraftPromptCapture = null;
@@ -569,6 +582,17 @@ function resetMailAssistDomState() {
   delete e.text.dataset.mailAssistHistory;
 }
 
+function resetMailRecordingDomState() {
+  const e = getEls();
+  if (!e.text) return;
+  delete e.text.dataset.mailRecordingState;
+  delete e.text.dataset.mailRecordingMode;
+  delete e.text.dataset.mailRecordingActive;
+  delete e.text.dataset.mailRecordingHistory;
+  delete e.text.dataset.mailRecordingLastStop;
+  e.text.classList.remove('mail-recording-active');
+}
+
 function clearSelectionInteractionHandlers() {
   const e = getEls();
   closeReviewCommentPopover();
@@ -622,8 +646,30 @@ function clearMailInteractionHandlers() {
     document.removeEventListener('keydown', e.text._mailDetailKeyDownHandler);
     e.text._mailDetailKeyDownHandler = null;
   }
+  if (e.text._mailRecordingClickHandler) {
+    e.text.removeEventListener('click', e.text._mailRecordingClickHandler);
+    e.text._mailRecordingClickHandler = null;
+  }
+  if (e.text._mailRecordingPointerDownHandler) {
+    e.text.removeEventListener('pointerdown', e.text._mailRecordingPointerDownHandler);
+    e.text._mailRecordingPointerDownHandler = null;
+  }
+  if (e.text._mailRecordingPointerUpHandler) {
+    window.removeEventListener('pointerup', e.text._mailRecordingPointerUpHandler);
+    window.removeEventListener('pointercancel', e.text._mailRecordingPointerUpHandler);
+    e.text._mailRecordingPointerUpHandler = null;
+  }
+  if (e.text._mailRecordingKeyDownHandler) {
+    document.removeEventListener('keydown', e.text._mailRecordingKeyDownHandler);
+    e.text._mailRecordingKeyDownHandler = null;
+  }
+  if (e.text._mailRecordingKeyUpHandler) {
+    document.removeEventListener('keyup', e.text._mailRecordingKeyUpHandler);
+    e.text._mailRecordingKeyUpHandler = null;
+  }
   closeDraftPanel();
   resetMailAssistDomState();
+  resetMailRecordingDomState();
   e.text.classList.remove('mail-artifact');
   activeMailContext = null;
 }
@@ -892,6 +938,17 @@ function findMailHeaderIndex(context, messageID) {
   return -1;
 }
 
+function createDefaultMailRecordingState() {
+  return {
+    mode: MAIL_RECORDING_MODE.HOLD,
+    state: MAIL_RECORDING_STATE.IDLE,
+    origin: '',
+    holdPointerId: null,
+    lastStopReason: '',
+    transitions: ['mode:hold', 'state:idle'],
+  };
+}
+
 function getMailViewState(context) {
   if (!context.viewState) {
     context.viewState = {
@@ -908,7 +965,10 @@ function getMailViewState(context) {
         error: '',
         transitions: [MAIL_ASSIST_STATE.IDLE],
       },
+      recording: createDefaultMailRecordingState(),
     };
+  } else if (!context.viewState.recording) {
+    context.viewState.recording = createDefaultMailRecordingState();
   }
   return context.viewState;
 }
@@ -958,6 +1018,119 @@ function setMailAssistState(context, nextState, details = {}) {
     }
   }
   setMailAssistDomState(context);
+}
+
+function getMailRecordingState(context) {
+  const state = getMailViewState(context);
+  if (!state.recording) {
+    state.recording = createDefaultMailRecordingState();
+  }
+  return state.recording;
+}
+
+function pushMailRecordingTransition(recording, token) {
+  if (!Array.isArray(recording.transitions)) {
+    recording.transitions = ['mode:hold', 'state:idle'];
+  }
+  const value = String(token || '').trim();
+  if (!value) return;
+  const last = recording.transitions[recording.transitions.length - 1];
+  if (last !== value) {
+    recording.transitions.push(value);
+  }
+  if (recording.transitions.length > 20) {
+    recording.transitions = recording.transitions.slice(-20);
+  }
+}
+
+function recordingTriggerLabel(recording) {
+  if (recording.mode === MAIL_RECORDING_MODE.TOGGLE) {
+    return recording.state === MAIL_RECORDING_STATE.RECORDING ? 'Stop Recording' : 'Start Recording';
+  }
+  if (recording.state === MAIL_RECORDING_STATE.RECORDING) {
+    return 'Recording... release to stop';
+  }
+  return 'Hold to Record';
+}
+
+function setMailRecordingDomState(context) {
+  const e = getEls();
+  if (!e.text) return;
+  const recording = getMailRecordingState(context);
+  const isActive = recording.state === MAIL_RECORDING_STATE.RECORDING;
+  const indicator = isActive
+    ? `Recording (${recording.mode} mode)`
+    : `Ready (${recording.mode} mode)`;
+  e.text.dataset.mailRecordingState = recording.state || MAIL_RECORDING_STATE.IDLE;
+  e.text.dataset.mailRecordingMode = recording.mode || MAIL_RECORDING_MODE.HOLD;
+  e.text.dataset.mailRecordingActive = isActive ? '1' : '0';
+  e.text.dataset.mailRecordingHistory = (recording.transitions || []).join('>');
+  if (recording.lastStopReason) {
+    e.text.dataset.mailRecordingLastStop = recording.lastStopReason;
+  } else {
+    delete e.text.dataset.mailRecordingLastStop;
+  }
+  e.text.classList.toggle('mail-recording-active', isActive);
+
+  e.text.querySelectorAll('[data-mail-record-indicator]').forEach((node) => {
+    node.textContent = indicator;
+    node.classList.toggle('mail-record-indicator-active', isActive);
+  });
+  e.text.querySelectorAll('button[data-mail-record-mode]').forEach((button) => {
+    const mode = String(button.dataset.mailRecordMode || '').trim();
+    const active = mode === recording.mode;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+  e.text.querySelectorAll('button[data-mail-record-action="trigger"]').forEach((button) => {
+    button.textContent = recordingTriggerLabel(recording);
+    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+  e.text.querySelectorAll('button[data-mail-record-action="stop"]').forEach((button) => {
+    button.disabled = !isActive;
+    button.hidden = !isActive;
+  });
+}
+
+function startMailRecording(context, origin) {
+  const recording = getMailRecordingState(context);
+  if (recording.state === MAIL_RECORDING_STATE.RECORDING) return false;
+  recording.state = MAIL_RECORDING_STATE.RECORDING;
+  recording.origin = String(origin || '').trim();
+  recording.lastStopReason = '';
+  pushMailRecordingTransition(recording, 'state:recording');
+  setMailRecordingDomState(context);
+  return true;
+}
+
+function stopMailRecording(context, reason) {
+  const recording = getMailRecordingState(context);
+  if (recording.state !== MAIL_RECORDING_STATE.RECORDING) return false;
+  recording.state = MAIL_RECORDING_STATE.IDLE;
+  recording.origin = '';
+  recording.holdPointerId = null;
+  recording.lastStopReason = String(reason || 'stop').trim() || 'stop';
+  pushMailRecordingTransition(recording, `stop:${recording.lastStopReason}`);
+  pushMailRecordingTransition(recording, 'state:idle');
+  setMailRecordingDomState(context);
+  return true;
+}
+
+function setMailRecordingMode(context, nextMode) {
+  const recording = getMailRecordingState(context);
+  const mode = nextMode === MAIL_RECORDING_MODE.TOGGLE ? MAIL_RECORDING_MODE.TOGGLE : MAIL_RECORDING_MODE.HOLD;
+  if (recording.mode === mode) {
+    setMailRecordingDomState(context);
+    return false;
+  }
+  recording.mode = mode;
+  pushMailRecordingTransition(recording, `mode:${mode}`);
+  if (recording.state === MAIL_RECORDING_STATE.RECORDING) {
+    stopMailRecording(context, 'mode_change');
+    return true;
+  }
+  setMailRecordingDomState(context);
+  return true;
 }
 
 function setMailAssistStatus(context, row, inDetail, text, tone) {
@@ -1275,6 +1448,20 @@ function firstMailField(message, keys) {
   return '';
 }
 
+function renderMailRecordingControls() {
+  return `
+    <div class="mail-record-controls" data-mail-record-controls>
+      <div class="mail-record-mode" role="group" aria-label="Recording mode">
+        <button type="button" data-mail-record-mode="hold" aria-pressed="true">Hold</button>
+        <button type="button" data-mail-record-mode="toggle" aria-pressed="false">Toggle</button>
+      </div>
+      <button type="button" data-mail-record-action="trigger">Hold to Record</button>
+      <button type="button" data-mail-record-action="stop" hidden disabled>Stop</button>
+      <span class="mail-record-indicator" data-mail-record-indicator>Ready (hold mode)</span>
+    </div>
+  `;
+}
+
 function renderMailListHtml(context) {
   const provider = context.provider || 'default';
   const folder = context.folder || '-';
@@ -1311,6 +1498,7 @@ function renderMailListHtml(context) {
       <div><strong>Count:</strong> ${escapeHtml(String(context.count))}</div>
       <div class="mail-capability-hint" data-mail-capability-hint>Provider ${escapeHtml(provider)}: checking defer capability...</div>
     </div>
+    ${renderMailRecordingControls()}
     <table class="mail-triage-table">
       <thead>
         <tr>
@@ -1371,6 +1559,7 @@ function renderMailDetailHtml(context) {
         <div><strong>Folder:</strong> ${escapeHtml(folder)}</div>
         <div class="mail-capability-hint" data-mail-capability-hint>Provider ${escapeHtml(provider)}: checking defer capability...</div>
       </div>
+      ${renderMailRecordingControls()}
       <h3 class="mail-detail-subject">${escapeHtml(subject)}</h3>
       <div class="mail-detail-meta">
         <div><strong>From:</strong> ${escapeHtml(from)}</div>
@@ -1670,6 +1859,14 @@ function setupMailGestureHandlers(eventId, context) {
   const onPointerDown = (ev) => {
     if (ev.button !== 0) return;
     if (ev.target.closest('button, input, textarea, .mail-defer-controls, [data-mail-detail-defer-controls]')) return;
+    if (typeof window.getSelection === 'function') {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        selection.removeAllRanges();
+      }
+    }
+    closeReviewCommentPopover();
+    ev.preventDefault();
     const state = getMailViewState(context);
     if (state.mode === 'detail') {
       swipe = {
@@ -1788,6 +1985,127 @@ function setupMailDetailKeyboardHandlers(eventId, context) {
   };
   e.text._mailDetailKeyDownHandler = onKeyDown;
   document.addEventListener('keydown', onKeyDown);
+}
+
+function setupMailRecordingHandlers(eventId, context) {
+  const e = getEls();
+  if (e.text._mailRecordingClickHandler) {
+    e.text.removeEventListener('click', e.text._mailRecordingClickHandler);
+  }
+  if (e.text._mailRecordingPointerDownHandler) {
+    e.text.removeEventListener('pointerdown', e.text._mailRecordingPointerDownHandler);
+  }
+  if (e.text._mailRecordingPointerUpHandler) {
+    window.removeEventListener('pointerup', e.text._mailRecordingPointerUpHandler);
+    window.removeEventListener('pointercancel', e.text._mailRecordingPointerUpHandler);
+  }
+  if (e.text._mailRecordingKeyDownHandler) {
+    document.removeEventListener('keydown', e.text._mailRecordingKeyDownHandler);
+  }
+  if (e.text._mailRecordingKeyUpHandler) {
+    document.removeEventListener('keyup', e.text._mailRecordingKeyUpHandler);
+  }
+
+  const isTextInputTarget = (target) => {
+    const tag = String(target?.tagName || '').toLowerCase();
+    return tag === 'input' || tag === 'textarea' || tag === 'select' || Boolean(target?.isContentEditable);
+  };
+
+  const onClick = (ev) => {
+    if (activeTextEventId !== eventId) return;
+    const modeButton = ev.target.closest('button[data-mail-record-mode]');
+    if (modeButton) {
+      setMailRecordingMode(context, modeButton.dataset.mailRecordMode);
+      return;
+    }
+
+    const actionButton = ev.target.closest('button[data-mail-record-action]');
+    if (!actionButton) return;
+    const action = String(actionButton.dataset.mailRecordAction || '').trim();
+    const recording = getMailRecordingState(context);
+
+    if (action === 'stop') {
+      stopMailRecording(context, 'click');
+      return;
+    }
+    if (action !== 'trigger') return;
+
+    if (recording.mode === MAIL_RECORDING_MODE.TOGGLE) {
+      if (recording.state === MAIL_RECORDING_STATE.RECORDING) {
+        stopMailRecording(context, 'click');
+      } else {
+        startMailRecording(context, MAIL_RECORDING_ORIGIN.TOGGLE_BUTTON);
+      }
+      return;
+    }
+
+    if (recording.state === MAIL_RECORDING_STATE.RECORDING) {
+      stopMailRecording(context, 'click');
+    }
+  };
+
+  const onPointerDown = (ev) => {
+    if (activeTextEventId !== eventId) return;
+    if (ev.button !== 0) return;
+    const trigger = ev.target.closest('button[data-mail-record-action="trigger"]');
+    if (!trigger) return;
+    const recording = getMailRecordingState(context);
+    if (recording.mode !== MAIL_RECORDING_MODE.HOLD) return;
+    if (recording.state === MAIL_RECORDING_STATE.RECORDING) return;
+    ev.preventDefault();
+    recording.holdPointerId = ev.pointerId;
+    startMailRecording(context, MAIL_RECORDING_ORIGIN.HOLD_POINTER);
+  };
+
+  const onPointerUp = (ev) => {
+    if (activeTextEventId !== eventId) return;
+    const recording = getMailRecordingState(context);
+    if (recording.mode !== MAIL_RECORDING_MODE.HOLD) return;
+    if (recording.state !== MAIL_RECORDING_STATE.RECORDING) return;
+    if (recording.origin !== MAIL_RECORDING_ORIGIN.HOLD_POINTER) return;
+    if (recording.holdPointerId !== null && ev.pointerId !== recording.holdPointerId) return;
+    stopMailRecording(context, 'release');
+  };
+
+  const onKeyDown = (ev) => {
+    if (activeTextEventId !== eventId) return;
+    if (ev.key !== ' ') return;
+    if (isTextInputTarget(ev.target)) return;
+    const recording = getMailRecordingState(context);
+    if (recording.state === MAIL_RECORDING_STATE.RECORDING) {
+      ev.preventDefault();
+      stopMailRecording(context, 'space');
+      return;
+    }
+    if (recording.mode !== MAIL_RECORDING_MODE.HOLD || ev.repeat) return;
+    ev.preventDefault();
+    startMailRecording(context, MAIL_RECORDING_ORIGIN.HOLD_KEYBOARD);
+  };
+
+  const onKeyUp = (ev) => {
+    if (activeTextEventId !== eventId) return;
+    if (ev.key !== ' ') return;
+    if (isTextInputTarget(ev.target)) return;
+    const recording = getMailRecordingState(context);
+    if (recording.mode !== MAIL_RECORDING_MODE.HOLD) return;
+    if (recording.state !== MAIL_RECORDING_STATE.RECORDING) return;
+    if (recording.origin !== MAIL_RECORDING_ORIGIN.HOLD_KEYBOARD) return;
+    ev.preventDefault();
+    stopMailRecording(context, 'release');
+  };
+
+  e.text._mailRecordingClickHandler = onClick;
+  e.text._mailRecordingPointerDownHandler = onPointerDown;
+  e.text._mailRecordingPointerUpHandler = onPointerUp;
+  e.text._mailRecordingKeyDownHandler = onKeyDown;
+  e.text._mailRecordingKeyUpHandler = onKeyUp;
+
+  e.text.addEventListener('click', onClick);
+  e.text.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', onPointerUp);
+  document.addEventListener('keydown', onKeyDown);
+  document.addEventListener('keyup', onKeyUp);
 }
 
 function setupMailActionHandlers(eventId, context) {
@@ -2010,6 +2328,8 @@ function renderMailArtifact(eventId, context) {
     }
     e.text.innerHTML = renderMailDetailHtml(context);
     setMailAssistDomState(context);
+    setMailRecordingDomState(context);
+    setupMailRecordingHandlers(eventId, context);
     setupMailActionHandlers(eventId, context);
     setupMailGestureHandlers(eventId, context);
     setupMailDetailKeyboardHandlers(eventId, context);
@@ -2019,6 +2339,8 @@ function renderMailArtifact(eventId, context) {
   }
   e.text.innerHTML = renderMailListHtml(context);
   setMailAssistDomState(context);
+  setMailRecordingDomState(context);
+  setupMailRecordingHandlers(eventId, context);
   setupMailActionHandlers(eventId, context);
   setupMailGestureHandlers(eventId, context);
   setCapabilityHint(context);

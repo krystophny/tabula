@@ -45,6 +45,22 @@ async function swipeRow(page: Page, selector: string, deltaX: number) {
   await page.mouse.up();
 }
 
+async function mockCapabilities(page: Page, provider = 'gmail') {
+  await page.route('**/api/mail/action-capabilities', async (route) => {
+    await route.fulfill({
+      json: {
+        capabilities: {
+          provider,
+          supports_open: true,
+          supports_archive: true,
+          supports_delete_to_trash: true,
+          supports_native_defer: true,
+        },
+      },
+    });
+  });
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto('/tests/playwright/harness.html');
 });
@@ -595,6 +611,76 @@ test('draft reply prompt capture focuses input and cancel keeps state idle witho
   await expect.poll(async () => page.locator('#canvas-text').getAttribute('data-mail-assist-state')).toBe('idle');
   expect(draftCalls).toBe(0);
   expect(mutateCalls).toBe(0);
+});
+
+test('global recording control supports hold mode press/release transitions', async ({ page }) => {
+  await mockCapabilities(page);
+
+  await renderMail(page, 'gmail', [
+    { id: 'm20', date: '2026-02-20T11:00:00Z', sender: 'hold@example.com', subject: 'Hold test' },
+  ]);
+
+  const trigger = page.locator('button[data-mail-record-action="trigger"]');
+  const canvasText = page.locator('#canvas-text');
+
+  await expect(canvasText).toHaveAttribute('data-mail-recording-mode', 'hold');
+  await expect(canvasText).toHaveAttribute('data-mail-recording-state', 'idle');
+  await trigger.dispatchEvent('pointerdown', { button: 0, pointerId: 17 });
+  await expect(canvasText).toHaveAttribute('data-mail-recording-state', 'recording');
+  await expect(page.locator('[data-mail-record-indicator]')).toContainText('Recording (hold mode)');
+
+  await trigger.dispatchEvent('pointerup', { button: 0, pointerId: 17 });
+  await expect(canvasText).toHaveAttribute('data-mail-recording-state', 'idle');
+  await expect(canvasText).toHaveAttribute('data-mail-recording-last-stop', 'release');
+  await expect(page.locator('[data-mail-record-indicator]')).toContainText('Ready (hold mode)');
+  await expect.poll(async () => canvasText.getAttribute('data-mail-recording-history')).toContain('mode:hold>state:idle>state:recording>stop:release>state:idle');
+});
+
+test('global recording stop semantics support click and space in hold/toggle modes', async ({ page }) => {
+  await mockCapabilities(page);
+
+  await renderMail(page, 'gmail', [
+    { id: 'm21', date: '2026-02-20T11:30:00Z', sender: 'stop@example.com', subject: 'Stop test' },
+  ]);
+
+  const trigger = page.locator('button[data-mail-record-action="trigger"]');
+  const stopButton = page.locator('button[data-mail-record-action="stop"]');
+  const toggleMode = page.locator('button[data-mail-record-mode="toggle"]');
+  const canvasText = page.locator('#canvas-text');
+
+  await trigger.dispatchEvent('pointerdown', { button: 0, pointerId: 29 });
+  await expect(canvasText).toHaveAttribute('data-mail-recording-state', 'recording');
+  await stopButton.click();
+  await expect(canvasText).toHaveAttribute('data-mail-recording-state', 'idle');
+  await expect(canvasText).toHaveAttribute('data-mail-recording-last-stop', 'click');
+
+  await toggleMode.click();
+  await expect(canvasText).toHaveAttribute('data-mail-recording-mode', 'toggle');
+  await trigger.click();
+  await expect(canvasText).toHaveAttribute('data-mail-recording-state', 'recording');
+  await page.keyboard.press('Space');
+  await expect(canvasText).toHaveAttribute('data-mail-recording-state', 'idle');
+  await expect(canvasText).toHaveAttribute('data-mail-recording-last-stop', 'space');
+  await expect.poll(async () => canvasText.getAttribute('data-mail-recording-history')).toContain('mode:toggle');
+});
+
+test('keyboardless flow can complete full recording cycle via global button', async ({ page }) => {
+  await mockCapabilities(page);
+
+  await renderMail(page, 'gmail', [
+    { id: 'm22', date: '2026-02-20T12:00:00Z', sender: 'button@example.com', subject: 'Button only' },
+  ]);
+
+  const trigger = page.locator('button[data-mail-record-action="trigger"]');
+  const toggleMode = page.locator('button[data-mail-record-mode="toggle"]');
+  const canvasText = page.locator('#canvas-text');
+
+  await toggleMode.click();
+  await trigger.click();
+  await expect(canvasText).toHaveAttribute('data-mail-recording-state', 'recording');
+  await trigger.click();
+  await expect(canvasText).toHaveAttribute('data-mail-recording-state', 'idle');
+  await expect(page.locator('[data-mail-record-indicator]')).toContainText('Ready (toggle mode)');
 });
 
 test('unregistered assist action_id returns deterministic error without network call', async ({ page }) => {
