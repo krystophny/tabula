@@ -1,6 +1,6 @@
 # Interfaces
 
-This document summarizes externally relevant interfaces in `v0.0.5`.
+This document summarizes externally relevant interfaces in the current release.
 
 ## MCP HTTP Daemon
 
@@ -9,6 +9,8 @@ Routes in `internal/serve/app.go`:
 - `GET /mcp`
 - `DELETE /mcp`
 - `GET /ws/canvas`
+- `GET /files/*`
+- `GET /health`
 
 ## Web Runtime HTTP APIs
 
@@ -20,10 +22,16 @@ Auth and setup:
 
 Runtime and chat session management:
 - `GET /api/runtime`
+- `GET /api/projects`
+- `POST /api/projects`
+- `POST /api/projects/{project_id}/activate`
+- `GET /api/projects/{project_id}/context`
 - `POST /api/chat/sessions`
 - `GET /api/chat/sessions/{session_id}/history`
+- `GET /api/chat/sessions/{session_id}/activity`
 - `POST /api/chat/sessions/{session_id}/messages`
 - `POST /api/chat/sessions/{session_id}/commands`
+- `POST /api/chat/sessions/{session_id}/cancel`
 
 Canvas/files:
 - `GET /api/canvas/{session_id}/snapshot`
