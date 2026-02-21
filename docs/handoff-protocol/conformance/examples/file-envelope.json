@@ -1,0 +1,24 @@
+{
+  "spec_version": "handoff.v1",
+  "handoff_id": "abc123",
+  "kind": "file",
+  "created_at": "2026-02-20T00:00:00Z",
+  "meta": {
+    "filename": "report.txt",
+    "mime_type": "text/plain",
+    "size_bytes": 5,
+    "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+  },
+  "payload": {
+    "encoding": "base64",
+    "content_base64": "aGVsbG8="
+  },
+  "policy": {
+    "expires_at": "2026-02-20T00:10:00Z",
+    "max_consumes": 1,
+    "consumed_count": 0,
+    "remaining_consumes": 1,
+    "single_use": true,
+    "revoked": false
+  }
+}
