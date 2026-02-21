@@ -15,6 +15,10 @@ Use one of:
 
 `tabula canvas` starts web UI and opens desktop canvas route.
 
+## Post-Adjustment Artifact Rule
+
+After making a UI/interaction adjustment, always render a new test artifact in the local desktop canvas session (`session_id: local`) so the user can immediately try the latest behavior.
+
 ## Local Services (systemd --user)
 
 Main units:
