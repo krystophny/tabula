@@ -319,7 +319,12 @@ test('draft reply assist uses shared action_id handler with state transitions in
 
   await expect(page.locator('tr[data-message-id="m3"] button[data-mail-action="draft-reply"]')).toHaveAttribute('data-mail-action-id', 'mail.draft_reply');
   await page.click('tr[data-message-id="m3"] button[data-mail-action="draft-reply"]');
-  await expect.poll(async () => page.locator('#canvas-text').getAttribute('data-mail-assist-history')).toContain('capturing>generating');
+  const promptInput = page.locator('[data-mail-draft-panel] [data-mail-draft-prompt]');
+  await expect(promptInput).toBeFocused();
+  await expect.poll(async () => page.locator('#canvas-text').getAttribute('data-mail-assist-state')).toBe('capturing');
+  await promptInput.fill('Keep this short and ask for Friday confirmation.');
+  await page.click('[data-mail-draft-panel] button[data-mail-action="draft-generate"]');
+  await expect.poll(async () => page.locator('#canvas-text').getAttribute('data-mail-assist-history')).toContain('capturing>generating>ready');
   await expect.poll(async () => page.locator('#canvas-text').getAttribute('data-mail-assist-state')).toBe('ready');
   const draftText = page.locator('[data-mail-draft-panel] [data-mail-draft-text]');
   await expect(draftText).toHaveValue(/Draft for m3/);
@@ -333,12 +338,65 @@ test('draft reply assist uses shared action_id handler with state transitions in
   await expect(page.locator('[data-mail-detail-root]')).toBeVisible();
   await expect(page.locator('.mail-detail-actions button[data-mail-action="draft-reply"]')).toHaveAttribute('data-mail-action-id', 'mail.draft_reply');
   await page.click('.mail-detail-actions button[data-mail-action="draft-reply"]');
+  await expect(promptInput).toBeFocused();
+  await expect.poll(async () => page.locator('#canvas-text').getAttribute('data-mail-assist-state')).toBe('capturing');
+  await promptInput.fill('Reply with a polite acknowledgement and next step.');
+  await page.click('[data-mail-draft-panel] button[data-mail-action="draft-generate"]');
+  await expect.poll(async () => page.locator('#canvas-text').getAttribute('data-mail-assist-state')).toBe('ready');
   await expect(draftText).toHaveValue(/Draft for m4/);
   await expect(page.locator('[data-mail-detail-status]')).toContainText('Draft ready');
 
   expect(draftCalls).toHaveLength(2);
   expect(draftCalls.map((c) => c.message_id)).toEqual(['m3', 'm4']);
+  expect(draftCalls.map((c) => c.selection_text)).toEqual([
+    'Keep this short and ask for Friday confirmation.',
+    'Reply with a polite acknowledgement and next step.',
+  ]);
   expect(Object.keys(draftCalls[0] || {}).sort()).toEqual(Object.keys(draftCalls[1] || {}).sort());
+  expect(mutateCalls).toBe(0);
+});
+
+test('draft reply prompt capture focuses input and cancel keeps state idle without mutations', async ({ page }) => {
+  let draftCalls = 0;
+  let mutateCalls = 0;
+
+  await page.route('**/api/mail/action-capabilities', async (route) => {
+    await route.fulfill({
+      json: {
+        capabilities: {
+          provider: 'gmail',
+          supports_open: true,
+          supports_archive: true,
+          supports_delete_to_trash: true,
+          supports_native_defer: true,
+        },
+      },
+    });
+  });
+
+  await page.route('**/api/mail/action', async (route) => {
+    mutateCalls += 1;
+    await route.fulfill({ json: { result: { status: 'ok' } } });
+  });
+
+  await page.route('**/api/mail/draft-reply', async (route) => {
+    draftCalls += 1;
+    await route.fulfill({ json: { source: 'llm', draft_text: 'unexpected call' } });
+  });
+
+  await renderMail(page, 'gmail', [
+    { id: 'm6', date: '2026-02-20T04:00:00Z', sender: 'Frank <frank@example.com>', subject: 'Update' },
+  ]);
+
+  await page.click('tr[data-message-id="m6"] button[data-mail-action="draft-reply"]');
+  const promptInput = page.locator('[data-mail-draft-panel] [data-mail-draft-prompt]');
+  await expect(promptInput).toBeFocused();
+  await expect.poll(async () => page.locator('#canvas-text').getAttribute('data-mail-assist-state')).toBe('capturing');
+
+  await page.click('[data-mail-draft-panel] button[data-mail-action="draft-cancel"]');
+  await expect(page.locator('[data-mail-draft-panel]')).toBeHidden();
+  await expect.poll(async () => page.locator('#canvas-text').getAttribute('data-mail-assist-state')).toBe('idle');
+  expect(draftCalls).toBe(0);
   expect(mutateCalls).toBe(0);
 });
 

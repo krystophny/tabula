@@ -126,6 +126,8 @@ const MAIL_ASSIST_STATE = Object.freeze({
   ERROR: 'error',
 });
 const mailAssistActionRegistry = new Map();
+const DRAFT_PROMPT_CANCELLED_CODE = 'draft_prompt_cancelled';
+let pendingDraftPromptCapture = null;
 
 function getEls() {
   if (!els.empty) {
@@ -769,7 +771,7 @@ async function dispatchMailAssistAction(eventId, context, invocation) {
     return;
   }
 
-  setMailAssistBusy(row, inDetail, true);
+  let assistBusy = false;
   try {
     setMailAssistState(context, MAIL_ASSIST_STATE.CAPTURING, { actionId, messageId: messageID, error: '' });
     if (typeof handler.onCapturing === 'function') {
@@ -795,6 +797,8 @@ async function dispatchMailAssistAction(eventId, context, invocation) {
     } else {
       setMailAssistStatus(context, row, inDetail, 'Generating assist output...', 'info');
     }
+    setMailAssistBusy(row, inDetail, true);
+    assistBusy = true;
 
     const payload = await handler.execute(prepared, { context, eventId, row, inDetail, messageID, actionId });
     if (activeTextEventId !== eventId) return;
@@ -807,6 +811,10 @@ async function dispatchMailAssistAction(eventId, context, invocation) {
     setMailAssistState(context, MAIL_ASSIST_STATE.READY, { actionId, messageId: messageID, error: '' });
   } catch (err) {
     if (activeTextEventId !== eventId) return;
+    if (err && typeof err === 'object' && err.code === DRAFT_PROMPT_CANCELLED_CODE) {
+      setMailAssistState(context, MAIL_ASSIST_STATE.IDLE, { actionId: '', messageId: '', error: '' });
+      return;
+    }
     const message = String(err?.message || err || 'assist action failed');
     if (typeof handler.onError === 'function') {
       handler.onError(message, { context, row, inDetail, messageID, actionId });
@@ -816,70 +824,189 @@ async function dispatchMailAssistAction(eventId, context, invocation) {
     setMailAssistState(context, MAIL_ASSIST_STATE.ERROR, { actionId, messageId: messageID, error: message });
   } finally {
     if (activeTextEventId !== eventId) return;
-    if (row && row.isConnected) {
-      setMailRowBusy(row, false);
-    }
-    if (inDetail) {
-      setMailDetailBusy(false);
+    if (assistBusy) {
+      if (row && row.isConnected) {
+        setMailRowBusy(row, false);
+      }
+      if (inDetail) {
+        setMailDetailBusy(false);
+      }
     }
   }
 }
 
-function openDraftPanel(content, sourceLabel) {
+function createDraftPromptCancelledError(message) {
+  const err = new Error(message || 'Draft prompt capture cancelled.');
+  err.code = DRAFT_PROMPT_CANCELLED_CODE;
+  return err;
+}
+
+function cancelPendingDraftPromptCapture(message) {
+  if (!pendingDraftPromptCapture) return false;
+  const pending = pendingDraftPromptCapture;
+  pendingDraftPromptCapture = null;
+  pending.reject(createDraftPromptCancelledError(message));
+  return true;
+}
+
+function submitPendingDraftPromptCapture() {
+  if (!pendingDraftPromptCapture) return false;
+  const pending = pendingDraftPromptCapture;
+  const panel = document.querySelector('[data-mail-draft-panel]');
+  const promptInput = panel ? panel.querySelector('[data-mail-draft-prompt]') : null;
+  const generateBtn = panel ? panel.querySelector('button[data-mail-action="draft-generate"]') : null;
+  const promptText = String(promptInput?.value || '').trim();
+  if (!promptText) {
+    setMailAssistStatus(pending.context, pending.row, pending.inDetail, 'Enter a prompt before generating.', 'warning');
+    if (promptInput && typeof promptInput.focus === 'function') {
+      promptInput.focus();
+    }
+    return true;
+  }
+  if (promptInput) {
+    promptInput.disabled = true;
+  }
+  if (generateBtn) {
+    generateBtn.disabled = true;
+  }
+  pendingDraftPromptCapture = null;
+  pending.resolve(promptText);
+  return true;
+}
+
+function waitForDraftPromptCapture(context, row, inDetail, messageID, actionId) {
+  cancelPendingDraftPromptCapture('superseded by new draft prompt');
+  openDraftPanel('', 'Add prompt, then generate.', {
+    showPrompt: true,
+    focusPrompt: true,
+    promptText: '',
+    promptDisabled: false,
+    generateDisabled: false,
+  });
+  setMailAssistStatus(context, row, inDetail, 'Add a prompt, then choose Generate.', 'info');
+  return new Promise((resolve, reject) => {
+    pendingDraftPromptCapture = {
+      resolve,
+      reject,
+      context,
+      row,
+      inDetail,
+      messageID,
+      actionId,
+    };
+  });
+}
+
+function openDraftPanel(content, sourceLabel, options = {}) {
   const panel = document.querySelector('[data-mail-draft-panel]');
   if (!panel) return;
   const textarea = panel.querySelector('[data-mail-draft-text]');
   const source = panel.querySelector('[data-mail-draft-source]');
+  const promptWrap = panel.querySelector('[data-mail-draft-prompt-wrap]');
+  const promptInput = panel.querySelector('[data-mail-draft-prompt]');
+  const generateBtn = panel.querySelector('button[data-mail-action="draft-generate"]');
+  const showPrompt = Boolean(options.showPrompt);
   if (textarea) {
     textarea.value = content || '';
   }
   if (source) {
     source.textContent = sourceLabel || '';
   }
+  if (promptWrap) {
+    promptWrap.hidden = !showPrompt;
+  }
+  if (promptInput) {
+    promptInput.disabled = Boolean(options.promptDisabled);
+    if (options.promptText !== undefined) {
+      promptInput.value = String(options.promptText || '');
+    }
+  }
+  if (generateBtn) {
+    generateBtn.hidden = !showPrompt;
+    generateBtn.disabled = Boolean(options.generateDisabled);
+  }
   panel.hidden = false;
+  if (showPrompt && options.focusPrompt && promptInput && typeof promptInput.focus === 'function') {
+    setTimeout(() => promptInput.focus(), 0);
+  }
 }
 
 function closeDraftPanel() {
+  cancelPendingDraftPromptCapture('draft reply cancelled by user');
   const panel = document.querySelector('[data-mail-draft-panel]');
   if (!panel) return;
   const textarea = panel.querySelector('[data-mail-draft-text]');
   const source = panel.querySelector('[data-mail-draft-source]');
+  const promptWrap = panel.querySelector('[data-mail-draft-prompt-wrap]');
+  const promptInput = panel.querySelector('[data-mail-draft-prompt]');
+  const generateBtn = panel.querySelector('button[data-mail-action="draft-generate"]');
   if (textarea) {
     textarea.value = '';
   }
   if (source) {
     source.textContent = '';
   }
+  if (promptWrap) {
+    promptWrap.hidden = true;
+  }
+  if (promptInput) {
+    promptInput.value = '';
+    promptInput.disabled = false;
+  }
+  if (generateBtn) {
+    generateBtn.hidden = true;
+    generateBtn.disabled = false;
+  }
   panel.hidden = true;
 }
 
 function registerDefaultMailAssistActions() {
   registerMailAssistAction('mail.draft_reply', {
-    onCapturing() {
-      openDraftPanel('', 'Preparing draft assist...');
+    onCapturing(invocation) {
+      openDraftPanel('', 'Preparing draft assist...', {
+        showPrompt: true,
+        focusPrompt: true,
+        promptText: '',
+        promptDisabled: false,
+        generateDisabled: false,
+      });
+      setMailAssistStatus(invocation.context, invocation.row, invocation.inDetail, 'Capturing assist context...', 'info');
     },
-    prepare({ context, messageID, selectionText }) {
+    async prepare({ context, row, inDetail, messageID, actionId, selectionText }) {
       const header = findMailHeader(context, messageID);
+      const promptText = await waitForDraftPromptCapture(context, row, inDetail, messageID, actionId);
       return {
         context,
         message: {
           id: messageID,
           sender: header?.sender || '',
           subject: header?.subject || '',
-          selectionText: selectionText || '',
+          selectionText: promptText || selectionText || '',
+          promptText,
         },
       };
     },
-    onGenerating() {
-      openDraftPanel('', 'Generating...');
+    onGenerating({ prepared }) {
+      const promptText = prepared?.message?.promptText || '';
+      openDraftPanel('', 'Generating...', {
+        showPrompt: true,
+        promptText,
+        promptDisabled: true,
+        generateDisabled: true,
+      });
     },
     execute(prepared) {
       return callDraftReply(prepared.context, prepared.message);
     },
-    onReady(payload, _prepared, invocation) {
+    onReady(payload, prepared, invocation) {
       const draftText = String(payload?.draft_text || '').trim();
       const source = String(payload?.source || 'llm').trim();
-      openDraftPanel(draftText, source === 'llm' ? 'Generated by LLM (unsent)' : 'Fallback draft (unsent)');
+      openDraftPanel(draftText, source === 'llm' ? 'Generated by LLM (unsent)' : 'Fallback draft (unsent)', {
+        showPrompt: true,
+        promptText: prepared?.message?.promptText || '',
+        promptDisabled: false,
+        generateDisabled: false,
+      });
       setMailAssistStatus(invocation.context, invocation.row, invocation.inDetail, 'Draft ready. Review and edit before sending.', 'success');
     },
     onError(message, invocation) {
@@ -959,8 +1086,13 @@ function renderMailListHtml(context) {
         <strong>Draft Reply</strong>
         <span data-mail-draft-source></span>
       </div>
+      <div class="mail-draft-prompt" data-mail-draft-prompt-wrap hidden>
+        <label>Prompt</label>
+        <textarea data-mail-draft-prompt placeholder="Add context or intent for this reply"></textarea>
+      </div>
       <textarea data-mail-draft-text placeholder="Draft reply will appear here"></textarea>
       <div class="mail-draft-actions">
+        <button type="button" data-mail-action="draft-generate" hidden>Generate</button>
         <button type="button" data-mail-action="draft-copy">Copy</button>
         <button type="button" data-mail-action="draft-cancel">Cancel</button>
       </div>
@@ -1022,8 +1154,13 @@ function renderMailDetailHtml(context) {
           <strong>Draft Reply</strong>
           <span data-mail-draft-source></span>
         </div>
+        <div class="mail-draft-prompt" data-mail-draft-prompt-wrap hidden>
+          <label>Prompt</label>
+          <textarea data-mail-draft-prompt placeholder="Add context or intent for this reply"></textarea>
+        </div>
         <textarea data-mail-draft-text placeholder="Draft reply will appear here"></textarea>
         <div class="mail-draft-actions">
+          <button type="button" data-mail-action="draft-generate" hidden>Generate</button>
           <button type="button" data-mail-action="draft-copy">Copy</button>
           <button type="button" data-mail-action="draft-cancel">Cancel</button>
         </div>
@@ -1444,6 +1581,10 @@ function setupMailActionHandlers(eventId, context) {
     if (action === 'draft-cancel') {
       closeDraftPanel();
       setMailAssistState(context, MAIL_ASSIST_STATE.IDLE, { actionId: '', messageId: '', error: '' });
+      return;
+    }
+    if (action === 'draft-generate') {
+      submitPendingDraftPromptCapture();
       return;
     }
     if (action === 'draft-copy') {
