@@ -739,7 +739,26 @@ function openReviewCommentPopover(eventId, options = {}) {
       if (typeof options.onCancel === 'function') {
         options.onCancel();
       }
+      return;
     }
+    const isCommitShortcut = ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey;
+    if (!isCommitShortcut) return;
+    const target = ev.target instanceof Element ? ev.target : null;
+    if (!target || !popover.contains(target)) return;
+    const inCommentInput = target.matches('input, textarea') || target.closest('input, textarea');
+    if (!inCommentInput) return;
+    ev.preventDefault();
+    if (typeof popover.requestSubmit === 'function') {
+      popover.requestSubmit();
+    } else {
+      popover.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    }
+    window.setTimeout(() => {
+      const commitBtn = document.getElementById('btn-canvas-commit');
+      if (commitBtn) {
+        commitBtn.click();
+      }
+    }, 0);
   };
   document.addEventListener('keydown', keyDownHandler, true);
   e.text._reviewPopoverKeyDownHandler = keyDownHandler;
@@ -797,27 +816,45 @@ async function commitCanvasDraft() {
   }
 
   const ws = state.canvasWs;
+  const commitHTTP = async () => {
+    const response = await fetch(`/api/canvas/${encodeURIComponent(sessionID)}/commit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        artifact_id: artifactID || '',
+        include_draft: true,
+      }),
+    });
+    if (!response.ok) {
+      const detail = (await response.text()).trim();
+      throw new Error(detail || `commit failed: HTTP ${response.status}`);
+    }
+    return response.json().catch(() => ({}));
+  };
+
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(payload));
-    return { transport: 'ws' };
+    try {
+      await commitHTTP();
+      return { transport: 'ws+http' };
+    } catch (err) {
+      // Keep compatibility with harness/local WS-only flows where HTTP endpoint is unavailable.
+      console.warn('commit HTTP follow-up failed after WS mark_commit:', err);
+      return { transport: 'ws' };
+    }
   }
   if (await waitForCanvasWsOpen(ws)) {
     ws.send(JSON.stringify(payload));
-    return { transport: 'ws' };
+    try {
+      await commitHTTP();
+      return { transport: 'ws+http' };
+    } catch (err) {
+      console.warn('commit HTTP follow-up failed after delayed WS mark_commit:', err);
+      return { transport: 'ws' };
+    }
   }
 
-  const response = await fetch(`/api/canvas/${encodeURIComponent(sessionID)}/commit`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      artifact_id: artifactID || '',
-      include_draft: true,
-    }),
-  });
-  if (!response.ok) {
-    const detail = (await response.text()).trim();
-    throw new Error(detail || `commit failed: HTTP ${response.status}`);
-  }
+  await commitHTTP();
   return { transport: 'http' };
 }
 
@@ -3513,28 +3550,52 @@ export function initCanvasControls() {
   const e = getEls();
   const commitBtn = document.getElementById('btn-canvas-commit');
   const clearBtn = document.getElementById('btn-canvas-clear-draft');
+  const runCommit = async () => {
+    if (!commitBtn) return;
+    if (commitBtn.dataset.busy === '1') return;
+    const originalText = commitBtn.textContent || 'Commit';
+    commitBtn.dataset.busy = '1';
+    commitBtn.disabled = true;
+    commitBtn.textContent = 'Committing...';
+    try {
+      await commitCanvasDraft();
+      commitBtn.textContent = 'Committed';
+    } catch (err) {
+      console.error('canvas commit failed:', err);
+      commitBtn.textContent = 'Commit failed';
+    } finally {
+      window.setTimeout(() => {
+        delete commitBtn.dataset.busy;
+        commitBtn.disabled = false;
+        commitBtn.textContent = originalText;
+      }, 900);
+    }
+  };
 
   if (commitBtn) {
-    commitBtn.addEventListener('click', async () => {
-      if (commitBtn.dataset.busy === '1') return;
-      const originalText = commitBtn.textContent || 'Commit';
-      commitBtn.dataset.busy = '1';
-      commitBtn.disabled = true;
-      commitBtn.textContent = 'Committing...';
-      try {
-        await commitCanvasDraft();
-        commitBtn.textContent = 'Committed';
-      } catch (err) {
-        console.error('canvas commit failed:', err);
-        commitBtn.textContent = 'Commit failed';
-      } finally {
-        window.setTimeout(() => {
-          delete commitBtn.dataset.busy;
-          commitBtn.disabled = false;
-          commitBtn.textContent = originalText;
-        }, 900);
-      }
-    });
+    commitBtn.addEventListener('click', runCommit);
+
+    if (!document.__tabulaCommitShortcutHandler) {
+      const shortcutHandler = (ev) => {
+        const isCommitShortcut = ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey;
+        if (!isCommitShortcut) return;
+
+        if (document.querySelector('[data-review-popover="true"]')) {
+          return;
+        }
+        const activeEl = document.activeElement;
+        if (activeEl && document.getElementById('terminal-container')?.contains(activeEl)) {
+          return;
+        }
+        const artifactID = activeArtifactIDForCommit();
+        if (!artifactID) return;
+
+        ev.preventDefault();
+        void runCommit();
+      };
+      document.addEventListener('keydown', shortcutHandler, true);
+      document.__tabulaCommitShortcutHandler = shortcutHandler;
+    }
   }
 
   if (clearBtn) {
