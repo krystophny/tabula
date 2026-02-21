@@ -309,6 +309,8 @@ body.desktop-canvas-only #panel-canvas {
   position: absolute;
   border-radius: 2px;
   opacity: 0.35;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .canvas-mark-highlight { background: #ffd400; }

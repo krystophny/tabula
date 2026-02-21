@@ -107,6 +107,7 @@ let activeTextEventId = null;
 let activePdfEvent = null;
 let draftMark = null;
 let submittedDraftMarks = [];
+let submittedDraftMarkSeq = 0;
 let activeMailContext = null;
 let mailCapabilitiesRequestSeq = 0;
 
@@ -218,6 +219,7 @@ function cloneMarkForOverlay(mark) {
     : [];
   if (!rects.length) return null;
   return {
+    local_id: String(mark.local_id || '').trim(),
     event_id: mark.event_id,
     type: mark.type || 'highlight',
     line_start: Number(mark.line_start || 1),
@@ -230,9 +232,24 @@ function cloneMarkForOverlay(mark) {
   };
 }
 
+function nextSubmittedDraftMarkID() {
+  submittedDraftMarkSeq += 1;
+  return `draft-mark-${submittedDraftMarkSeq}`;
+}
+
 function addSubmittedDraftMark(mark) {
   const normalized = cloneMarkForOverlay(mark);
   if (!normalized || !normalized.event_id) return;
+  if (!normalized.local_id) {
+    normalized.local_id = nextSubmittedDraftMarkID();
+  }
+  const idx = submittedDraftMarks.findIndex((existing) => (
+    existing.event_id === normalized.event_id && existing.local_id === normalized.local_id
+  ));
+  if (idx >= 0) {
+    submittedDraftMarks[idx] = normalized;
+    return;
+  }
   submittedDraftMarks.push(normalized);
 }
 
@@ -242,6 +259,24 @@ function clearSubmittedDraftMarksForEvent(eventId) {
     return;
   }
   submittedDraftMarks = submittedDraftMarks.filter((mark) => mark.event_id !== eventId);
+}
+
+function targetFromExistingMark(mark) {
+  if (!mark || !Array.isArray(mark.rects) || !mark.rects.length) return null;
+  const anchor = mark.rects[mark.rects.length - 1];
+  const pointX = Number(anchor?.[0] || 0) + Math.max(8, Number(anchor?.[2] || 0) / 2);
+  const pointY = Number(anchor?.[1] || 0) + Math.max(12, Number(anchor?.[3] || 0)) + 8;
+  return {
+    lineStart: Number(mark.line_start || 1),
+    lineEnd: Number(mark.line_end || 1),
+    startOffset: Number(mark.start_offset || 0),
+    endOffset: Number(mark.end_offset || 0),
+    rects: mark.rects,
+    pointX,
+    pointY,
+    markType: mark.type || 'highlight',
+    localMarkID: mark.local_id || '',
+  };
 }
 
 function getSelectedMarkType() {
@@ -266,18 +301,19 @@ function renderDraftOverlay() {
   const marks = [];
   for (const mark of submittedDraftMarks) {
     if (mark && mark.event_id === activeTextEventId) {
-      marks.push(mark);
+      marks.push({ mark, submitted: true });
     }
   }
   if (draftMark && draftMark.event_id === activeTextEventId) {
-    marks.push(draftMark);
+    marks.push({ mark: draftMark, submitted: false });
   }
   if (!marks.length) {
     return;
   }
 
   const overlay = ensureTextOverlay();
-  for (const mark of marks) {
+  for (const entry of marks) {
+    const { mark, submitted } = entry;
     const markType = mark.type || 'highlight';
     for (const rect of mark.rects || []) {
       if (!Array.isArray(rect) || rect.length !== 4) continue;
@@ -287,6 +323,21 @@ function renderDraftOverlay() {
       el.style.top = `${rect[1]}px`;
       el.style.width = `${Math.max(1, rect[2])}px`;
       el.style.height = `${Math.max(2, rect[3])}px`;
+      if (submitted) {
+        el.dataset.localMarkId = mark.local_id || '';
+        if (mark.comment) {
+          el.title = mark.comment;
+        }
+        el.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (!activeTextEventId) return;
+          openReviewCommentPopover(activeTextEventId, {
+            source: 'existing',
+            existingMark: mark,
+          });
+        });
+      }
       overlay.appendChild(el);
     }
   }
@@ -469,6 +520,9 @@ function openReviewCommentPopover(eventId, options = {}) {
   if (options.source === 'selection') {
     target = selectionTargetFromDraftMark(eventId);
     if (!target) return;
+  } else if (options.source === 'existing') {
+    target = targetFromExistingMark(options.existingMark);
+    if (!target) return;
   } else {
     const pointEvent = options.contextmenuEvent;
     if (!pointEvent) return;
@@ -481,17 +535,24 @@ function openReviewCommentPopover(eventId, options = {}) {
   popover.className = 'canvas-review-popover';
   popover.dataset.reviewPopover = 'true';
   popover.setAttribute('role', 'dialog');
-  popover.setAttribute('aria-label', 'Add comment');
+  const isExistingMark = options.source === 'existing';
+  popover.setAttribute('aria-label', isExistingMark ? 'View or edit comment' : 'Add comment');
   const inputId = `review-comment-input-${Math.random().toString(36).slice(2, 8)}`;
+  const submitLabel = isExistingMark ? 'Update Comment' : 'Add Comment';
+  const initialComment = isExistingMark ? String(options.existingMark?.comment || '') : '';
   popover.innerHTML = `
     <label class="sr-only" for="${inputId}">Comment</label>
     <input id="${inputId}" type="text" maxlength="500" placeholder="Add comment (optional)">
     <div class="canvas-review-popover-actions">
-      <button type="submit">Add Comment</button>
+      <button type="submit">${submitLabel}</button>
       <button type="button" data-review-cancel>Cancel</button>
     </div>
   `;
   e.text.appendChild(popover);
+  const commentInput = popover.querySelector(`#${CSS.escape(inputId)}`);
+  if (commentInput) {
+    commentInput.value = initialComment;
+  }
   positionReviewCommentPopover(popover, e.text, target.pointX, target.pointY);
   requestAnimationFrame(() => {
     positionReviewCommentPopover(popover, e.text, target.pointX, target.pointY);
@@ -521,12 +582,17 @@ function openReviewCommentPopover(eventId, options = {}) {
     const input = popover.querySelector(`#${CSS.escape(inputId)}`);
     const comment = String(input?.value || '').trim();
     const state = window._tabulaApp?.getState?.();
+    const outgoingMarkType = options.source === 'selection'
+      ? (target.markType || 'highlight')
+      : options.source === 'existing'
+        ? (target.markType || 'highlight')
+        : 'comment_point';
     sendSelectionFeedback({
       kind: 'mark_set',
       session_id: state?.sessionId || '',
       artifact_id: eventId,
       intent: 'draft',
-      type: options.source === 'selection' ? (target.markType || 'highlight') : 'comment_point',
+      type: outgoingMarkType,
       target_kind: 'text_range',
       target: {
         line_start: target.lineStart,
@@ -541,6 +607,20 @@ function openReviewCommentPopover(eventId, options = {}) {
       draftMark.comment = comment;
       addSubmittedDraftMark(draftMark);
       draftMark = null;
+      renderDraftOverlay();
+    } else if (options.source === 'existing' && options.existingMark) {
+      options.existingMark.comment = comment;
+      addSubmittedDraftMark({
+        ...options.existingMark,
+        local_id: target.localMarkID || options.existingMark.local_id || '',
+        type: outgoingMarkType,
+        line_start: target.lineStart,
+        line_end: target.lineEnd,
+        start_offset: target.startOffset,
+        end_offset: target.endOffset,
+        rects: target.rects,
+        comment,
+      });
       renderDraftOverlay();
     } else if (options.source !== 'selection') {
       addSubmittedDraftMark({
@@ -2844,7 +2924,7 @@ function setupTextSelection(eventId) {
   const clearDraftSelection = () => {
     if (draftMark && draftMark.event_id === eventId) {
       draftMark = null;
-      clearOverlay();
+      renderDraftOverlay();
       const state = window._tabulaApp?.getState?.();
       sendSelectionFeedback({
         kind: 'mark_clear_draft',

@@ -344,6 +344,40 @@ test('right-click inline comment leaves a visible comment marker', async ({ page
   await expect.poll(async () => countOverlayMarks(page, 'comment_point')).toBeGreaterThan(0);
 });
 
+test('clicking an existing highlight reopens its comment popover with prior text', async ({ page }) => {
+  await renderArtifact(page, plainTextEvent('evt-highlight-reopen', '# Notes\nReopen this highlighted comment'));
+  await selectTextFromSelector(page, '#canvas-text');
+
+  let popover = page.locator('[data-review-popover="true"]');
+  await expect(popover).toBeVisible();
+  await popover.locator('input').fill('Remember this highlight comment.');
+  await popover.locator('input').press('Enter');
+  await expect(popover).toHaveCount(0);
+  await expect.poll(async () => countOverlayMarks(page, 'highlight')).toBeGreaterThan(0);
+
+  await page.locator('.canvas-mark-overlay .canvas-mark-highlight').first().click();
+  popover = page.locator('[data-review-popover="true"]');
+  await expect(popover).toBeVisible();
+  await expect(popover.locator('input')).toHaveValue('Remember this highlight comment.');
+});
+
+test('clicking an existing point comment reopens its comment popover with prior text', async ({ page }) => {
+  await renderArtifact(page, plainTextEvent('evt-point-reopen', '# Notes\nReopen this point comment'));
+  await page.click('#canvas-text', { button: 'right', position: { x: 90, y: 70 } });
+
+  let popover = page.locator('[data-review-popover="true"]');
+  await expect(popover).toBeVisible();
+  await popover.locator('input').fill('Remember this point comment.');
+  await popover.locator('button[type="submit"]').click();
+  await expect(popover).toHaveCount(0);
+  await expect.poll(async () => countOverlayMarks(page, 'comment_point')).toBeGreaterThan(0);
+
+  await page.locator('.canvas-mark-overlay .canvas-mark-comment_point').first().click();
+  popover = page.locator('[data-review-popover="true"]');
+  await expect(popover).toBeVisible();
+  await expect(popover.locator('input')).toHaveValue('Remember this point comment.');
+});
+
 test('popover opened near viewport edge stays within visible text canvas bounds', async ({ page }) => {
   await renderArtifact(page, plainTextEvent('evt-comment-edge', '# Notes\nEdge positioning test text'));
 
