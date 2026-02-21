@@ -1,23 +1,24 @@
 # tabula
 
-Tabula is a local-first MCP canvas and review runtime.
+Tabula is a local-first MCP canvas and review runtime built around an object-scoped intent interface.
 
-It provides:
-- MCP server tools for canvas sessions and marks
-- Browser canvas UI with review workflows
-- Web runtime with auth, terminal, and canvas relays
-- Handoff import path for producer/consumer integrations
+Core paradigm:
+- Invoke AI on the object itself, not in a persistent global chat panel.
+- Capture intent in context (voice, prompt, or comment mode).
+- Keep all generated output as explicit proposals under user control.
+- Commit changes through review workflows instead of hidden auto-apply.
 
 License: MIT (`LICENSE`)
 
 ## Start Here
 
-- Spec index: `docs/spec-index.md`
-- Interaction model: `docs/object-scoped-intent-ui.md`
-- Review workflow: `docs/review-mode-workflow.md`
-- Interfaces: `docs/interfaces.md`
-- Architecture: `docs/architecture.md`
-- Release freeze notes: `docs/release-v0.0.1.md`
+- **Spec hub**: [`docs/spec-index.md`](docs/spec-index.md)
+- **UI paradigm**: [`docs/object-scoped-intent-ui.md`](docs/object-scoped-intent-ui.md)
+- **Review state and commit flow**: [`docs/review-mode-workflow.md`](docs/review-mode-workflow.md)
+- **HTTP/MCP interface inventory**: [`docs/interfaces.md`](docs/interfaces.md)
+- **System architecture**: [`docs/architecture.md`](docs/architecture.md)
+- **Next release notes (v0.0.2)**: [`docs/release-v0.0.2.md`](docs/release-v0.0.2.md)
+- **Published baseline (v0.0.1)**: [`docs/release-v0.0.1.md`](docs/release-v0.0.1.md)
 
 ## Install
 
@@ -47,7 +48,18 @@ tabula canvas
 - Canvas websocket: `ws://127.0.0.1:9420/ws/canvas`
 - Local browser session id: `local`
 
-## Quick Handoff Import Example
+## Novel UI Focus (What To Evaluate First)
+
+1. Object-scoped invocation behavior (`long press` and local prompt/capture paths).
+2. Explicit proposal lifecycle (`Accept`, `Edit`, `Reject`) with no hidden mutation.
+3. Annotation-first review semantics with commit-controlled persistence.
+4. Low-refresh and e-ink-friendly interaction constraints.
+
+See:
+- [`docs/object-scoped-intent-ui.md`](docs/object-scoped-intent-ui.md)
+- [`docs/review-mode-workflow.md`](docs/review-mode-workflow.md)
+
+## Integration Example (Optional)
 
 ```bash
 PRODUCER=http://127.0.0.1:8090/mcp

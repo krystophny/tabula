@@ -6,14 +6,20 @@ authors:
   - family-names: Albert
     given-names: Christopher
 license: MIT
-version: v0.0.1
+version: v0.0.2
 date-released: 2026-02-21
 repository-code: https://github.com/krystophny/tabula
 url: https://github.com/krystophny/tabula
 abstract: >-
-  Tabula is a local-first MCP canvas and review runtime focused on object-scoped
-  intent capture, annotation, and explicit user-controlled commit flows.
+  Tabula is a local-first MCP canvas and review runtime that defines an
+  object-scoped intent interface with local invocation, mode-aware intent
+  capture, explicit Accept/Edit/Reject controls, and commit-based review
+  workflows.
 keywords:
+  - object-scoped intent interface
+  - human-in-the-loop
+  - document-centric ai
+  - multimodal interaction
   - mcp
   - canvas
   - review
