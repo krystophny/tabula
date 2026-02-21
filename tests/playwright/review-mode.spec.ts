@@ -106,6 +106,17 @@ async function waitForLastSelectionMessage(page: Page): Promise<HarnessMessage> 
   return selections[selections.length - 1];
 }
 
+async function waitForLastMessageOfKind(page: Page, kind: string): Promise<HarnessMessage> {
+  await expect.poll(async () => {
+    const messages = await getHarnessMessages(page);
+    return messages.filter((m) => m.kind === kind).length;
+  }).toBeGreaterThan(0);
+
+  const messages = await getHarnessMessages(page);
+  const matches = messages.filter((m) => m.kind === kind);
+  return matches[matches.length - 1];
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto('/tests/playwright/harness.html');
   await clearHarnessMessages(page);
@@ -150,6 +161,47 @@ test('mail text artifacts keep the same review selection behavior', async ({ pag
   expect(Number(msg.line_start)).toBeGreaterThanOrEqual(1);
 });
 
+test('right-click inline comment popover submits a comment_point draft mark', async ({ page }) => {
+  await renderArtifact(page, plainTextEvent('evt-comment-1', '# Notes\nInline comment target text'));
+  await page.click('#canvas-text', { button: 'right', position: { x: 80, y: 64 } });
+
+  const popover = page.locator('[data-review-popover="true"]');
+  await expect(popover).toBeVisible();
+  await popover.locator('input').fill('Check this sentence.');
+  await popover.locator('button[type="submit"]').click();
+  await expect(popover).toHaveCount(0);
+
+  const markSet = await waitForLastMessageOfKind(page, 'mark_set');
+  expect(markSet.artifact_id).toBe('evt-comment-1');
+  expect(markSet.intent).toBe('draft');
+  expect(markSet.type).toBe('comment_point');
+  expect(markSet.target_kind).toBe('text_range');
+  expect(markSet.comment).toBe('Check this sentence.');
+  expect(Number((markSet.target as any).line_start)).toBeGreaterThanOrEqual(1);
+  expect(Number((markSet.target as any).start_offset)).toBeGreaterThanOrEqual(0);
+});
+
+test('right-click inline comment popover cancel and outside click do not create marks', async ({ page }) => {
+  await renderArtifact(page, plainTextEvent('evt-comment-2', '# Notes\nCancel path text'));
+
+  await page.click('#canvas-text', { button: 'right', position: { x: 82, y: 66 } });
+  const popover = page.locator('[data-review-popover="true"]');
+  await expect(popover).toBeVisible();
+  await popover.locator('button[data-review-cancel]').click();
+  await expect(popover).toHaveCount(0);
+  await page.waitForTimeout(50);
+  let messages = await getHarnessMessages(page);
+  expect(messages.filter((m) => m.kind === 'mark_set')).toHaveLength(0);
+
+  await page.click('#canvas-text', { button: 'right', position: { x: 96, y: 86 } });
+  await expect(popover).toBeVisible();
+  await page.click('#canvas-header');
+  await expect(popover).toHaveCount(0);
+  await page.waitForTimeout(50);
+  messages = await getHarnessMessages(page);
+  expect(messages.filter((m) => m.kind === 'mark_set')).toHaveLength(0);
+});
+
 test('switching artifacts tears down stale review and mail handlers', async ({ page }) => {
   await renderArtifact(page, mailEvent('evt-mail-2', 'gmail', [
     { id: 'm1', date: '2026-02-20T09:00:00Z', sender: 'a@example.com', subject: 'Switch Test' },
@@ -162,12 +214,14 @@ test('switching artifacts tears down stale review and mail handlers', async ({ p
       hasMailClickHandler: Boolean(root?._mailClickHandler),
       hasMailPointerDownHandler: Boolean(root?._mailPointerDownHandler),
       hasMailDetailKeyDownHandler: Boolean(root?._mailDetailKeyDownHandler),
+      hasReviewContextMenuHandler: Boolean(root?._reviewContextMenuHandler),
       hasMailClass: root?.classList.contains('mail-artifact') || false,
     };
   });
   expect(before.hasSelectionHandler).toBe(true);
   expect(before.hasMailClickHandler).toBe(true);
   expect(before.hasMailPointerDownHandler).toBe(true);
+  expect(before.hasReviewContextMenuHandler).toBe(true);
   expect(before.hasMailClass).toBe(true);
 
   await clearHarnessMessages(page);
@@ -180,6 +234,7 @@ test('switching artifacts tears down stale review and mail handlers', async ({ p
       hasMailClickHandler: Boolean(root?._mailClickHandler),
       hasMailPointerDownHandler: Boolean(root?._mailPointerDownHandler),
       hasMailDetailKeyDownHandler: Boolean(root?._mailDetailKeyDownHandler),
+      hasReviewContextMenuHandler: Boolean(root?._reviewContextMenuHandler),
       hasMailClass: root?.classList.contains('mail-artifact') || false,
     };
   });
@@ -187,6 +242,7 @@ test('switching artifacts tears down stale review and mail handlers', async ({ p
   expect(after.hasMailClickHandler).toBe(false);
   expect(after.hasMailPointerDownHandler).toBe(false);
   expect(after.hasMailDetailKeyDownHandler).toBe(false);
+  expect(after.hasReviewContextMenuHandler).toBe(false);
   expect(after.hasMailClass).toBe(false);
 
   await page.evaluate(() => {

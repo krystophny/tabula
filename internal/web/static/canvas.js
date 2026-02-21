@@ -272,6 +272,168 @@ function lineFromOffset(lines, charOffset) {
   return Math.max(1, lines.length);
 }
 
+function textRangeFromClientPoint(clientX, clientY) {
+  if (typeof document.caretRangeFromPoint === 'function') {
+    return document.caretRangeFromPoint(clientX, clientY);
+  }
+  if (typeof document.caretPositionFromPoint === 'function') {
+    const caret = document.caretPositionFromPoint(clientX, clientY);
+    if (!caret) return null;
+    const range = document.createRange();
+    range.setStart(caret.offsetNode, caret.offset);
+    range.collapse(true);
+    return range;
+  }
+  return null;
+}
+
+function pointTargetFromClientPoint(root, clientX, clientY) {
+  const rootRect = root.getBoundingClientRect();
+  const pointX = clientX - rootRect.left + root.scrollLeft;
+  const pointY = clientY - rootRect.top + root.scrollTop;
+  const fallback = {
+    lineStart: 1,
+    lineEnd: 1,
+    startOffset: 0,
+    endOffset: 0,
+    rects: [[pointX - 5, pointY - 5, 10, 10]],
+    pointX,
+    pointY,
+  };
+
+  const range = textRangeFromClientPoint(clientX, clientY);
+  if (!range || !root.contains(range.startContainer)) {
+    return fallback;
+  }
+
+  try {
+    const startProbe = range.cloneRange();
+    startProbe.selectNodeContents(root);
+    startProbe.setEnd(range.startContainer, range.startOffset);
+    const offset = startProbe.toString().length;
+    const lines = (root.textContent || '').split('\n');
+    const line = lineFromOffset(lines, offset);
+    return {
+      lineStart: line,
+      lineEnd: line,
+      startOffset: offset,
+      endOffset: offset,
+      rects: fallback.rects,
+      pointX,
+      pointY,
+    };
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function closeReviewCommentPopover() {
+  const e = getEls();
+  if (!e.text) return;
+  if (e.text._reviewPopoverOutsideHandler) {
+    document.removeEventListener('pointerdown', e.text._reviewPopoverOutsideHandler, true);
+    e.text._reviewPopoverOutsideHandler = null;
+  }
+  if (e.text._reviewPopoverKeyDownHandler) {
+    document.removeEventListener('keydown', e.text._reviewPopoverKeyDownHandler, true);
+    e.text._reviewPopoverKeyDownHandler = null;
+  }
+  if (e.text._reviewPopoverEl && e.text._reviewPopoverEl.parentNode) {
+    e.text._reviewPopoverEl.parentNode.removeChild(e.text._reviewPopoverEl);
+  }
+  e.text._reviewPopoverEl = null;
+}
+
+function positionReviewCommentPopover(popover, root, x, y) {
+  const pad = 10;
+  const width = popover.offsetWidth || 260;
+  const height = popover.offsetHeight || 120;
+  const minX = root.scrollLeft + pad;
+  const minY = root.scrollTop + pad;
+  const maxX = root.scrollLeft + Math.max(pad, root.clientWidth - width - pad);
+  const maxY = root.scrollTop + Math.max(pad, root.clientHeight - height - pad);
+  const left = Math.min(Math.max(minX, x), maxX);
+  const top = Math.min(Math.max(minY, y), maxY);
+  popover.style.left = `${left}px`;
+  popover.style.top = `${top}px`;
+}
+
+function openReviewCommentPopover(eventId, contextmenuEvent) {
+  const e = getEls();
+  if (!e.text) return;
+  const target = pointTargetFromClientPoint(e.text, contextmenuEvent.clientX, contextmenuEvent.clientY);
+  closeReviewCommentPopover();
+
+  const popover = document.createElement('form');
+  popover.className = 'canvas-review-popover';
+  popover.dataset.reviewPopover = 'true';
+  popover.innerHTML = `
+    <label class="sr-only" for="review-comment-input">Comment</label>
+    <input id="review-comment-input" type="text" maxlength="500" placeholder="Add comment (optional)">
+    <div class="canvas-review-popover-actions">
+      <button type="submit">Add Comment</button>
+      <button type="button" data-review-cancel>Cancel</button>
+    </div>
+  `;
+  e.text.appendChild(popover);
+  positionReviewCommentPopover(popover, e.text, target.pointX, target.pointY);
+  requestAnimationFrame(() => {
+    positionReviewCommentPopover(popover, e.text, target.pointX, target.pointY);
+    const input = popover.querySelector('#review-comment-input');
+    if (input && typeof input.focus === 'function') input.focus();
+  });
+
+  const cancelBtn = popover.querySelector('[data-review-cancel]');
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      closeReviewCommentPopover();
+    });
+  }
+
+  popover.addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const input = popover.querySelector('#review-comment-input');
+    const comment = String(input?.value || '').trim();
+    const state = window._tabulaApp?.getState?.();
+    sendSelectionFeedback({
+      kind: 'mark_set',
+      session_id: state?.sessionId || '',
+      artifact_id: eventId,
+      intent: 'draft',
+      type: 'comment_point',
+      target_kind: 'text_range',
+      target: {
+        line_start: target.lineStart,
+        line_end: target.lineEnd,
+        start_offset: target.startOffset,
+        end_offset: target.endOffset,
+        rects: target.rects,
+      },
+      comment,
+    });
+    closeReviewCommentPopover();
+  });
+
+  const outsideHandler = (ev) => {
+    if (!popover.contains(ev.target)) {
+      closeReviewCommentPopover();
+    }
+  };
+  document.addEventListener('pointerdown', outsideHandler, true);
+  e.text._reviewPopoverOutsideHandler = outsideHandler;
+
+  const keyDownHandler = (ev) => {
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      closeReviewCommentPopover();
+    }
+  };
+  document.addEventListener('keydown', keyDownHandler, true);
+  e.text._reviewPopoverKeyDownHandler = keyDownHandler;
+  e.text._reviewPopoverEl = popover;
+}
+
 function sendSelectionFeedback(payload) {
   const { getState } = window._tabulaApp || {};
   if (!getState) return;
@@ -340,6 +502,7 @@ function resetMailAssistDomState() {
 
 function clearSelectionInteractionHandlers() {
   const e = getEls();
+  closeReviewCommentPopover();
   if (e.text._selectionHandler) {
     document.removeEventListener('selectionchange', e.text._selectionHandler);
     e.text._selectionHandler = null;
@@ -359,6 +522,10 @@ function clearSelectionInteractionHandlers() {
   if (e.text._scrollHandler) {
     e.text.removeEventListener('scroll', e.text._scrollHandler);
     e.text._scrollHandler = null;
+  }
+  if (e.text._reviewContextMenuHandler) {
+    e.text.removeEventListener('contextmenu', e.text._reviewContextMenuHandler);
+    e.text._reviewContextMenuHandler = null;
   }
 }
 
@@ -1869,10 +2036,26 @@ function setupTextSelection(eventId) {
   e.text.addEventListener('mouseup', handler);
   e.text.addEventListener('keyup', handler);
 
+  const onContextMenu = (ev) => {
+    if (activeTextEventId !== eventId) return;
+    const target = ev.target;
+    if (!(target instanceof Element)) return;
+    if (!e.text.contains(target)) return;
+    if (target.closest('[data-review-popover]')) return;
+    if (target.closest('button,input,textarea,select,a,[contenteditable="true"]')) return;
+    ev.preventDefault();
+    openReviewCommentPopover(eventId, ev);
+  };
+  e.text._reviewContextMenuHandler = onContextMenu;
+  e.text.addEventListener('contextmenu', onContextMenu);
+
   if (e.text._scrollHandler) {
     e.text.removeEventListener('scroll', e.text._scrollHandler);
   }
-  e.text._scrollHandler = () => renderDraftOverlay();
+  e.text._scrollHandler = () => {
+    renderDraftOverlay();
+    closeReviewCommentPopover();
+  };
   e.text.addEventListener('scroll', e.text._scrollHandler);
 }
 

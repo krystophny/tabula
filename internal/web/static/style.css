@@ -317,6 +317,32 @@ body.desktop-canvas-only #panel-canvas {
 .canvas-mark-squiggly { background: rgba(89, 206, 143, 0.25); border-bottom: 2px dotted #59ce8f; opacity: 0.9; }
 .canvas-mark-comment_point { background: rgba(255, 170, 0, 0.5); border: 1px solid #ffb022; opacity: 0.95; }
 
+.canvas-review-popover {
+  position: absolute;
+  z-index: 12;
+  min-width: 220px;
+  max-width: min(360px, calc(100% - 20px));
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  padding: 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.canvas-review-popover input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.canvas-review-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
