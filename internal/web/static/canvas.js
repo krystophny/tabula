@@ -190,6 +190,30 @@ function sanitizeHtml(html) {
   return doc.body.innerHTML;
 }
 
+function typesetMarkdownMath(root, attempt = 0) {
+  if (!(root instanceof Element) || !root.isConnected) return;
+  const mj = window.MathJax;
+  if (!mj || typeof mj.typesetPromise !== 'function') {
+    if (attempt >= 40) return;
+    window.setTimeout(() => typesetMarkdownMath(root, attempt + 1), 75);
+    return;
+  }
+  const startupReady = mj.startup && mj.startup.promise && typeof mj.startup.promise.then === 'function'
+    ? mj.startup.promise
+    : Promise.resolve();
+  void startupReady
+    .then(() => {
+      if (!root.isConnected) return;
+      if (typeof mj.typesetClear === 'function') {
+        mj.typesetClear([root]);
+      }
+      return mj.typesetPromise([root]);
+    })
+    .catch((err) => {
+      console.warn('MathJax typeset failed:', err);
+    });
+}
+
 function hideAll() {
   const e = getEls();
   e.empty.style.display = 'none';
@@ -1442,10 +1466,10 @@ function base64FromBytes(bytes) {
   return btoa(out);
 }
 
-async function callPushToPromptAction(context, action, payload = {}) {
+async function callPushToPromptAction(context, action, actionPayload = {}) {
   const req = {
     action,
-    ...payload,
+    ...actionPayload,
   };
   const producerMCPURL = String(context?.producerMcpUrl || '').trim();
   if (producerMCPURL) {
@@ -1460,11 +1484,11 @@ async function callPushToPromptAction(context, action, payload = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
   });
-  let payload = {};
+  let responsePayload = {};
   const raw = await resp.text();
   if (raw) {
     try {
-      payload = JSON.parse(raw);
+      responsePayload = JSON.parse(raw);
     } catch (_) {
       if (!resp.ok) {
         throw new Error(raw);
@@ -1472,14 +1496,14 @@ async function callPushToPromptAction(context, action, payload = {}) {
     }
   }
   if (!resp.ok) {
-    throw new Error(typeof payload === 'object' && payload !== null && payload.error
-      ? payload.error
+    throw new Error(typeof responsePayload === 'object' && responsePayload !== null && responsePayload.error
+      ? responsePayload.error
       : raw || 'push-to-prompt request failed');
   }
-  if (typeof payload !== 'object' || payload === null) {
+  if (typeof responsePayload !== 'object' || responsePayload === null) {
     throw new Error('push-to-prompt request returned invalid response');
   }
-  return payload;
+  return responsePayload;
 }
 
 async function callMailSTT(context, audioBlob) {
@@ -4070,6 +4094,7 @@ export function renderCanvas(event) {
     }
     activeMailContext = null;
     e.text.innerHTML = sanitizeHtml(marked.parse(event.text || ''));
+    typesetMarkdownMath(e.text);
     setupTextSelection(event.event_id);
     renderDraftOverlay();
   } else if (event.kind === 'image_artifact') {
