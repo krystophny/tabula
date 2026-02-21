@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/handoff-protocol/schemas/error-v1.json",
+  "title": "Handoff Error v1",
+  "type": "object",
+  "required": ["code", "message"],
+  "properties": {
+    "code": {
+      "type": "string",
+      "enum": [
+        "HANDOFF_NOT_FOUND",
+        "HANDOFF_EXPIRED",
+        "HANDOFF_REVOKED",
+        "HANDOFF_POLICY_VIOLATION",
+        "HANDOFF_INTEGRITY_MISMATCH",
+        "HANDOFF_UNSUPPORTED_KIND"
+      ]
+    },
+    "message": { "type": "string" },
+    "details": { "type": "object" }
+  },
+  "additionalProperties": true
+}

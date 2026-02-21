@@ -16,8 +16,10 @@ License: MIT (`LICENSE`)
 - **UI paradigm**: [`docs/object-scoped-intent-ui.md`](docs/object-scoped-intent-ui.md)
 - **Review state and commit flow**: [`docs/review-mode-workflow.md`](docs/review-mode-workflow.md)
 - **HTTP/MCP interface inventory**: [`docs/interfaces.md`](docs/interfaces.md)
+- **Integrated handoff protocol spec**: [`docs/handoff-protocol/README.md`](docs/handoff-protocol/README.md)
 - **System architecture**: [`docs/architecture.md`](docs/architecture.md)
-- **Next release notes (v0.0.2)**: [`docs/release-v0.0.2.md`](docs/release-v0.0.2.md)
+- **Next release notes (v0.0.3)**: [`docs/release-v0.0.3.md`](docs/release-v0.0.3.md)
+- **Published release (v0.0.2)**: [`docs/release-v0.0.2.md`](docs/release-v0.0.2.md)
 - **Published baseline (v0.0.1)**: [`docs/release-v0.0.1.md`](docs/release-v0.0.1.md)
 
 ## Install
@@ -58,6 +60,7 @@ tabula canvas
 See:
 - [`docs/object-scoped-intent-ui.md`](docs/object-scoped-intent-ui.md)
 - [`docs/review-mode-workflow.md`](docs/review-mode-workflow.md)
+- [`docs/interfaces.md`](docs/interfaces.md)
 
 ## Integration Example (Optional)
 

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/handoff-protocol/schemas/envelope-v1.json",
+  "title": "Handoff Envelope v1",
+  "type": "object",
+  "required": ["spec_version", "handoff_id", "kind", "created_at", "meta", "payload"],
+  "properties": {
+    "spec_version": { "type": "string", "const": "handoff.v1" },
+    "handoff_id": { "type": "string", "minLength": 1 },
+    "kind": { "type": "string", "enum": ["file", "mail_headers"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "meta": { "type": "object" },
+    "payload": { "type": "object" },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "expires_at": { "type": "string", "format": "date-time" },
+        "max_consumes": { "type": "integer", "minimum": 1 },
+        "consumed_count": { "type": "integer", "minimum": 0 },
+        "remaining_consumes": { "type": "integer", "minimum": 0 },
+        "single_use": { "type": "boolean" },
+        "revoked": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

@@ -11,9 +11,14 @@ Read in this order:
 3. `interfaces.md`
 4. `architecture.md`
 
+Integrated protocol reference:
+
+- `handoff-protocol/README.md`
+
 Release notes:
 
-- Upcoming: `release-v0.0.2.md`
+- Upcoming: `release-v0.0.3.md`
+- Published release: `release-v0.0.2.md`
 - Published baseline: `release-v0.0.1.md`
 
 ## Source Code Anchors
@@ -43,4 +48,4 @@ Release notes:
 
 - Tabula defines the interaction/runtime layer for object-scoped intent workflows.
 - Producer-side source access (mail/files/calendar/etc.) is external and pluggable.
-- Handoff transport contracts are integration details defined in `handoff-protocol`.
+- Handoff transport contracts are documented in this repo under `docs/handoff-protocol/`.
