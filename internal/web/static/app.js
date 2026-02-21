@@ -23,12 +23,16 @@ export function getState() {
 window._tabulaApp = { getState };
 
 const MATH_SEGMENT_TOKEN_PREFIX = '@@TABULA_CHAT_MATH_SEGMENT_';
+const DEV_UI_RELOAD_POLL_MS = 1500;
 let localMessageSeq = 0;
 const CHAT_CTRL_LONG_PRESS_MS = 180;
 const sttActionStart = 'start';
 const sttActionAppend = 'append';
 const sttActionStop = 'stop';
 const sttActionCancel = 'cancel';
+let devReloadBootID = '';
+let devReloadTimer = null;
+let devReloadInFlight = false;
 
 const renderer = new marked.Renderer();
 renderer.code = ({ text, lang }) => {
@@ -121,6 +125,66 @@ function typesetMath(root, attempt = 0) {
 function showStatus(text) {
   const el = document.getElementById('status-text');
   if (el) el.textContent = text;
+}
+
+function forceUiHardReload() {
+  const url = new URL(window.location.href);
+  url.searchParams.set('__tabula_reload', Date.now().toString(36));
+  window.location.replace(url.toString());
+}
+
+async function fetchRuntimeMeta() {
+  const resp = await fetch('/api/runtime', {
+    cache: 'no-store',
+    headers: {
+      'Cache-Control': 'no-cache',
+    },
+  });
+  if (!resp.ok) {
+    throw new Error(`runtime metadata failed: HTTP ${resp.status}`);
+  }
+  return resp.json();
+}
+
+async function pollRuntimeForDevReload() {
+  if (devReloadInFlight) return;
+  devReloadInFlight = true;
+  try {
+    const runtime = await fetchRuntimeMeta();
+    const isDevMode = Boolean(runtime?.dev_mode);
+    const bootID = String(runtime?.boot_id || '').trim();
+    if (!isDevMode || !bootID) return;
+    if (!devReloadBootID) {
+      devReloadBootID = bootID;
+      return;
+    }
+    if (devReloadBootID !== bootID) {
+      showStatus('UI changed; reloading...');
+      forceUiHardReload();
+    }
+  } catch (_) {
+    // Ignore transient runtime probe errors during service restarts.
+  } finally {
+    devReloadInFlight = false;
+  }
+}
+
+function startDevReloadWatcher() {
+  if (devReloadTimer !== null) return;
+  void (async () => {
+    try {
+      const runtime = await fetchRuntimeMeta();
+      const isDevMode = Boolean(runtime?.dev_mode);
+      const bootID = String(runtime?.boot_id || '').trim();
+      if (!isDevMode || !bootID) return;
+      devReloadBootID = bootID;
+      devReloadTimer = window.setInterval(() => {
+        void pollRuntimeForDevReload();
+      }, DEV_UI_RELOAD_POLL_MS);
+    } catch (_) {
+      // Ignore startup failures; chat/canvas runtime handles connectivity separately.
+    }
+  })();
 }
 
 function chatInputEl() {
@@ -941,6 +1005,7 @@ function bindUi() {
 
 async function init() {
   bindUi();
+  startDevReloadWatcher();
   initCanvasControls();
   clearCanvas();
   setActiveTab('chat');
