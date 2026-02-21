@@ -206,3 +206,72 @@ func TestSendPromptStreamHonorsContextCancel(t *testing.T) {
 		t.Fatalf("expected prompt cancellation to return promptly, took %s", elapsed)
 	}
 }
+
+func TestSendPromptStreamTimeoutMapsToDeadlineExceeded(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatalf("upgrade: %v", err)
+		}
+		defer conn.Close()
+
+		for {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var msg map[string]interface{}
+			if err := json.Unmarshal(data, &msg); err != nil {
+				t.Fatalf("decode message: %v", err)
+			}
+
+			method, _ := msg["method"].(string)
+			switch method {
+			case "initialize":
+				_ = conn.WriteJSON(map[string]interface{}{
+					"id": msg["id"],
+					"result": map[string]interface{}{
+						"userAgent": "test-client",
+					},
+				})
+			case "thread/start":
+				_ = conn.WriteJSON(map[string]interface{}{
+					"id": msg["id"],
+					"result": map[string]interface{}{
+						"thread": map[string]interface{}{"id": "thread-timeout"},
+					},
+				})
+			case "turn/start":
+				_ = conn.WriteJSON(map[string]interface{}{
+					"id": msg["id"],
+					"result": map[string]interface{}{
+						"turn": map[string]interface{}{"id": "turn-timeout"},
+					},
+				})
+				// Keep socket open and emit no completion events; client should hit deadline.
+			}
+		}
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	client, err := NewClient(wsURL)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	startedAt := time.Now()
+	_, err = client.SendPrompt(context.Background(), PromptRequest{
+		CWD:     "/tmp",
+		Prompt:  "timeout test",
+		Timeout: 120 * time.Millisecond,
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context deadline exceeded, got %v", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > 2*time.Second {
+		t.Fatalf("timeout should return promptly, took %s", elapsed)
+	}
+}

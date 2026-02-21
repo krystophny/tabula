@@ -233,6 +233,12 @@ func contextErr(ctx context.Context, err error) error {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= 200*time.Millisecond {
+			return context.DeadlineExceeded
+		}
+	}
 	return err
 }
 

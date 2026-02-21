@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/krystophny/tabula/internal/appserver"
 	"github.com/krystophny/tabula/internal/store"
 )
+
+const assistantTurnTimeout = 20 * time.Minute
 
 type chatMessageRequest struct {
 	Text string `json:"text"`
@@ -380,7 +383,7 @@ func (a *App) runAssistantTurn(sessionID string) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), assistantTurnTimeout)
 	runID := randomToken()
 	a.registerActiveChatTurn(sessionID, runID, cancel)
 	defer func() {
@@ -434,7 +437,7 @@ func (a *App) runAssistantTurn(sessionID string) {
 		CWD:     a.localProjectDir,
 		Prompt:  prompt,
 		Model:   a.appServerModel,
-		Timeout: 3 * time.Minute,
+		Timeout: assistantTurnTimeout,
 	}, func(ev appserver.StreamEvent) {
 		payload := map[string]interface{}{
 			"type":      ev.Type,
@@ -489,10 +492,7 @@ func (a *App) runAssistantTurn(sessionID string) {
 			a.broadcastChatEvent(sessionID, payload)
 			return
 		}
-		errText := strings.TrimSpace(err.Error())
-		if errText == "" {
-			errText = "assistant request failed"
-		}
+		errText := normalizeAssistantError(err)
 		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
 		payload := map[string]interface{}{
 			"type":  "error",
@@ -544,6 +544,27 @@ func (a *App) runAssistantTurn(sessionID string) {
 		"thread_id": appResp.ThreadID,
 		"message":   assistantText,
 	})
+}
+
+func normalizeAssistantError(err error) string {
+	if err == nil {
+		return "assistant request failed"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "assistant request timed out"
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return "assistant request timed out"
+	}
+	errText := strings.TrimSpace(err.Error())
+	if errText == "" {
+		return "assistant request failed"
+	}
+	if strings.Contains(strings.ToLower(errText), "i/o timeout") {
+		return "assistant request timed out"
+	}
+	return errText
 }
 
 func buildPromptFromHistory(mode string, messages []store.ChatMessage) string {
