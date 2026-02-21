@@ -3531,28 +3531,49 @@ export function initCanvasControls() {
   const e = getEls();
   const commitBtn = document.getElementById('btn-canvas-commit');
   const clearBtn = document.getElementById('btn-canvas-clear-draft');
+  const runCommit = async () => {
+    if (!commitBtn) return;
+    if (commitBtn.dataset.busy === '1') return;
+    const originalText = commitBtn.textContent || 'Commit';
+    commitBtn.dataset.busy = '1';
+    commitBtn.disabled = true;
+    commitBtn.textContent = 'Committing...';
+    try {
+      await commitCanvasDraft();
+      commitBtn.textContent = 'Committed';
+    } catch (err) {
+      console.error('canvas commit failed:', err);
+      commitBtn.textContent = 'Commit failed';
+    } finally {
+      window.setTimeout(() => {
+        delete commitBtn.dataset.busy;
+        commitBtn.disabled = false;
+        commitBtn.textContent = originalText;
+      }, 900);
+    }
+  };
 
   if (commitBtn) {
-    commitBtn.addEventListener('click', async () => {
-      if (commitBtn.dataset.busy === '1') return;
-      const originalText = commitBtn.textContent || 'Commit';
-      commitBtn.dataset.busy = '1';
-      commitBtn.disabled = true;
-      commitBtn.textContent = 'Committing...';
-      try {
-        await commitCanvasDraft();
-        commitBtn.textContent = 'Committed';
-      } catch (err) {
-        console.error('canvas commit failed:', err);
-        commitBtn.textContent = 'Commit failed';
-      } finally {
-        window.setTimeout(() => {
-          delete commitBtn.dataset.busy;
-          commitBtn.disabled = false;
-          commitBtn.textContent = originalText;
-        }, 900);
-      }
-    });
+    commitBtn.addEventListener('click', runCommit);
+
+    if (!document.__tabulaCommitShortcutHandler) {
+      const shortcutHandler = (ev) => {
+        const isCommitShortcut = ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey;
+        if (!isCommitShortcut) return;
+
+        const activeEl = document.activeElement;
+        if (activeEl && document.getElementById('terminal-container')?.contains(activeEl)) {
+          return;
+        }
+        const artifactID = activeArtifactIDForCommit();
+        if (!artifactID) return;
+
+        ev.preventDefault();
+        void runCommit();
+      };
+      document.addEventListener('keydown', shortcutHandler, true);
+      document.__tabulaCommitShortcutHandler = shortcutHandler;
+    }
   }
 
   if (clearBtn) {
