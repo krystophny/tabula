@@ -128,6 +128,16 @@ A pre-commit hook (`scripts/check-version-consistency.sh`) blocks commits when v
 
 Never edit historical release notes. They document what happened in that release. Document new changes in a new release file.
 
+## Playwright Testing Policy
+
+Every UI interaction flow must have a Playwright test. Never skip tests.
+
+- New UI features require corresponding Playwright tests before merge.
+- Touch event flows (touchstart/touchend) must be tested alongside mouse flows (mousedown/mouseup).
+- Async flows (mic capture, STT, WebSocket) must use mock harnesses (see `tests/playwright/chat-harness.html` and `tests/playwright/harness.html`).
+- Run `npx playwright test` locally and verify 100% pass before push.
+- Existing tests: `tests/playwright/review-mode.spec.ts`, `tests/playwright/mail-actions.spec.ts`, `tests/playwright/chat-voice-send.spec.ts`.
+
 ## Cross-Repo Protocol
 
 The generic handoff protocol is maintained in:
