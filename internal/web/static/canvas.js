@@ -3617,6 +3617,10 @@ function setupTextSelection(eventId) {
     mediaRecorder: null,
   });
 
+  const setReviewLongPressSelectionGuard = (enabled) => {
+    e.text.classList.toggle('review-longpress-active', Boolean(enabled));
+  };
+
   const stopReviewVoiceMedia = (capture) => {
     if (!capture) return;
     if (capture.mediaRecorder) {
@@ -3683,6 +3687,7 @@ function setupTextSelection(eventId) {
       window._tabulaApp.sttCancel();
     }
     stopReviewVoiceMedia(capture);
+    setReviewLongPressSelectionGuard(false);
     if (e.text._reviewVoiceCapture === capture) {
       e.text._reviewVoiceCapture = null;
     }
@@ -3774,6 +3779,13 @@ function setupTextSelection(eventId) {
     }
     if (e.text._reviewVoiceCapture) return;
     reviewLongPressIsTouch = isTouch;
+    if (isTouch) {
+      setReviewLongPressSelectionGuard(true);
+      const activeSelection = window.getSelection();
+      if (activeSelection && activeSelection.rangeCount > 0) {
+        activeSelection.removeAllRanges();
+      }
+    }
     const clientX = isTouch ? ev.touches[0].clientX : ev.clientX;
     const clientY = isTouch ? ev.touches[0].clientY : ev.clientY;
     const capture = createReviewVoiceCapture({
@@ -3826,6 +3838,7 @@ function setupTextSelection(eventId) {
   const onReviewLPTouchEnd = (ev) => {
     if (reviewLongPressIsTouch) onReviewLongPressEnd(ev);
     reviewLongPressIsTouch = false;
+    setReviewLongPressSelectionGuard(false);
   };
   const onReviewLPTouchMove = (ev) => {
     if (reviewLongPressIsTouch) onReviewLongPressMove(ev);

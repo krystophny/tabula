@@ -299,9 +299,16 @@ body.desktop-canvas-only #panel-canvas {
   line-height: 1.6;
   white-space: pre-wrap;
   user-select: text;
+  -webkit-user-select: text;
   position: relative;
   -webkit-touch-callout: none;
   touch-action: manipulation;
+}
+
+#canvas-text.review-longpress-active,
+#canvas-text.review-longpress-active * {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 #canvas-pdf {
