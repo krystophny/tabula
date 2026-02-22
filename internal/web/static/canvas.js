@@ -327,27 +327,30 @@ export function getLocationFromSelection() {
   return { line, selectedText, title };
 }
 
-export function showTransientMarker(clientX, clientY) {
-  clearTransientMarker();
+export function showLineHighlight(clientX, clientY) {
+  clearLineHighlight();
   const e = getEls();
   if (!e.text) return;
+  const range = textRangeFromClientPoint(clientX, clientY);
+  if (!range || !e.text.contains(range.startContainer)) return;
+  const rangeRect = range.getBoundingClientRect();
   const rootRect = e.text.getBoundingClientRect();
-  const x = clientX - rootRect.left + e.text.scrollLeft;
-  const y = clientY - rootRect.top + e.text.scrollTop;
-  const marker = document.createElement('div');
-  marker.className = 'transient-marker';
-  marker.style.left = `${x - 4}px`;
-  marker.style.top = `${y - 4}px`;
+  const top = rangeRect.top - rootRect.top + e.text.scrollTop;
+  const lineHeight = rangeRect.height || parseFloat(window.getComputedStyle(e.text).lineHeight) || 22;
   if (window.getComputedStyle(e.text).position === 'static') {
     e.text.style.position = 'relative';
   }
-  e.text.appendChild(marker);
+  const highlight = document.createElement('div');
+  highlight.className = 'review-line-highlight';
+  highlight.style.top = `${top}px`;
+  highlight.style.height = `${lineHeight}px`;
+  e.text.appendChild(highlight);
 }
 
-export function clearTransientMarker() {
+export function clearLineHighlight() {
   const e = getEls();
   if (!e.text) return;
-  e.text.querySelectorAll('.transient-marker').forEach(el => el.remove());
+  e.text.querySelectorAll('.review-line-highlight').forEach(el => el.remove());
 }
 
 function clearTextInteractionHandlers() {

@@ -47,6 +47,7 @@ type ChatMessage struct {
 	ContentMarkdown string `json:"content_markdown"`
 	ContentPlain    string `json:"content_plain"`
 	RenderFormat    string `json:"render_format"`
+	ThreadKey       string `json:"thread_key,omitempty"`
 	CreatedAt       int64  `json:"created_at"`
 }
 
@@ -178,34 +179,42 @@ func hashPassword(password, salt string) string {
 
 func (s *Store) migrateProjectColumns() error {
 	type colDef struct {
-		Name string
-		SQL  string
+		Table string
+		Name  string
+		SQL   string
 	}
 	columns := []colDef{
-		{Name: "mcp_url", SQL: `ALTER TABLE projects ADD COLUMN mcp_url TEXT NOT NULL DEFAULT ''`},
-		{Name: "canvas_session_id", SQL: `ALTER TABLE projects ADD COLUMN canvas_session_id TEXT NOT NULL DEFAULT ''`},
-		{Name: "last_opened_at", SQL: `ALTER TABLE projects ADD COLUMN last_opened_at INTEGER NOT NULL DEFAULT 0`},
+		{Table: "projects", Name: "mcp_url", SQL: `ALTER TABLE projects ADD COLUMN mcp_url TEXT NOT NULL DEFAULT ''`},
+		{Table: "projects", Name: "canvas_session_id", SQL: `ALTER TABLE projects ADD COLUMN canvas_session_id TEXT NOT NULL DEFAULT ''`},
+		{Table: "projects", Name: "last_opened_at", SQL: `ALTER TABLE projects ADD COLUMN last_opened_at INTEGER NOT NULL DEFAULT 0`},
+		{Table: "chat_messages", Name: "thread_key", SQL: `ALTER TABLE chat_messages ADD COLUMN thread_key TEXT NOT NULL DEFAULT ''`},
 	}
 
-	existing := map[string]bool{}
-	rows, err := s.db.Query(`PRAGMA table_info(projects)`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid int
-		var name, ctype string
-		var notNull int
-		var dflt sql.NullString
-		var pk int
-		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dflt, &pk); err != nil {
+	tableColumns := map[string]map[string]bool{}
+	for _, table := range []string{"projects", "chat_messages"} {
+		existing := map[string]bool{}
+		rows, err := s.db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+		if err != nil {
 			return err
 		}
-		existing[strings.ToLower(strings.TrimSpace(name))] = true
+		for rows.Next() {
+			var cid int
+			var name, ctype string
+			var notNull int
+			var dflt sql.NullString
+			var pk int
+			if err := rows.Scan(&cid, &name, &ctype, &notNull, &dflt, &pk); err != nil {
+				rows.Close()
+				return err
+			}
+			existing[strings.ToLower(strings.TrimSpace(name))] = true
+		}
+		rows.Close()
+		tableColumns[table] = existing
 	}
+
 	for _, col := range columns {
-		if existing[col.Name] {
+		if tableColumns[col.Table][col.Name] {
 			continue
 		}
 		if _, err := s.db.Exec(col.SQL); err != nil {
@@ -712,17 +721,23 @@ func normalizeRenderFormat(format string) string {
 	}
 }
 
-func (s *Store) AddChatMessage(sessionID, role, contentMarkdown, contentPlain, renderFormat string) (ChatMessage, error) {
+func (s *Store) AddChatMessage(sessionID, role, contentMarkdown, contentPlain, renderFormat string, opts ...ChatMessageOption) (ChatMessage, error) {
 	role = normalizeChatRole(role)
 	renderFormat = normalizeRenderFormat(renderFormat)
+	var o chatMessageOpts
+	for _, fn := range opts {
+		fn(&o)
+	}
+	threadKey := strings.TrimSpace(o.threadKey)
 	now := time.Now().Unix()
 	res, err := s.db.Exec(
-		`INSERT INTO chat_messages (session_id, role, content_markdown, content_plain, render_format, created_at) VALUES (?,?,?,?,?,?)`,
+		`INSERT INTO chat_messages (session_id, role, content_markdown, content_plain, render_format, thread_key, created_at) VALUES (?,?,?,?,?,?,?)`,
 		strings.TrimSpace(sessionID),
 		role,
 		contentMarkdown,
 		contentPlain,
 		renderFormat,
+		threadKey,
 		now,
 	)
 	if err != nil {
@@ -739,8 +754,21 @@ func (s *Store) AddChatMessage(sessionID, role, contentMarkdown, contentPlain, r
 		ContentMarkdown: contentMarkdown,
 		ContentPlain:    contentPlain,
 		RenderFormat:    renderFormat,
+		ThreadKey:       threadKey,
 		CreatedAt:       now,
 	}, nil
+}
+
+type chatMessageOpts struct {
+	threadKey string
+}
+
+type ChatMessageOption func(*chatMessageOpts)
+
+func WithThreadKey(key string) ChatMessageOption {
+	return func(o *chatMessageOpts) {
+		o.threadKey = key
+	}
 }
 
 func (s *Store) UpdateChatMessageContent(id int64, contentMarkdown, contentPlain, renderFormat string) error {
@@ -758,14 +786,19 @@ func (s *Store) UpdateChatMessageContent(id int64, contentMarkdown, contentPlain
 	return err
 }
 
-func (s *Store) ListChatMessages(sessionID string, limit int) ([]ChatMessage, error) {
+func (s *Store) ListChatMessages(sessionID string, limit int, opts ...ChatMessageOption) ([]ChatMessage, error) {
 	if limit <= 0 {
 		limit = 200
 	}
+	var o chatMessageOpts
+	for _, fn := range opts {
+		fn(&o)
+	}
+	threadKey := strings.TrimSpace(o.threadKey)
 	rows, err := s.db.Query(
-		`SELECT id, session_id, role, content_markdown, content_plain, render_format, created_at
-		 FROM chat_messages WHERE session_id = ? ORDER BY id ASC LIMIT ?`,
-		strings.TrimSpace(sessionID), limit,
+		`SELECT id, session_id, role, content_markdown, content_plain, render_format, thread_key, created_at
+		 FROM chat_messages WHERE session_id = ? AND thread_key = ? ORDER BY id ASC LIMIT ?`,
+		strings.TrimSpace(sessionID), threadKey, limit,
 	)
 	if err != nil {
 		return nil, err
@@ -781,6 +814,7 @@ func (s *Store) ListChatMessages(sessionID string, limit int) ([]ChatMessage, er
 			&item.ContentMarkdown,
 			&item.ContentPlain,
 			&item.RenderFormat,
+			&item.ThreadKey,
 			&item.CreatedAt,
 		); err != nil {
 			return nil, err

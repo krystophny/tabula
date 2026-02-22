@@ -59,10 +59,11 @@ type App struct {
 	mu               sync.Mutex
 	canvasWS         map[string]map[*websocket.Conn]struct{}
 	chatWS           map[string]map[*chatWSConn]struct{}
-	chatTurnCancel   map[string]map[string]context.CancelFunc
-	chatTurnQueue    map[string]int
-	chatTurnWorker   map[string]bool
-	chatAppSessions  map[string]*appserver.Session
+	chatTurnCancel     map[string]map[string]context.CancelFunc
+	chatTurnQueue      map[string]int
+	chatTurnThreadKeys map[string][]string
+	chatTurnWorker     map[string]bool
+	chatAppSessions    map[string]*appserver.Session
 	remoteCanvasWS   map[string]*websocket.Conn
 	tunnelPorts      map[string]int
 	relayCancel      map[string]context.CancelFunc
@@ -110,10 +111,11 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model string, devR
 		upgrader:         websocket.Upgrader{CheckOrigin: checkWSOrigin},
 		canvasWS:         map[string]map[*websocket.Conn]struct{}{},
 		chatWS:           map[string]map[*chatWSConn]struct{}{},
-		chatTurnCancel:   map[string]map[string]context.CancelFunc{},
-		chatTurnQueue:    map[string]int{},
-		chatTurnWorker:   map[string]bool{},
-		chatAppSessions:  map[string]*appserver.Session{},
+		chatTurnCancel:     map[string]map[string]context.CancelFunc{},
+		chatTurnQueue:      map[string]int{},
+		chatTurnThreadKeys: map[string][]string{},
+		chatTurnWorker:     map[string]bool{},
+		chatAppSessions:    map[string]*appserver.Session{},
 		remoteCanvasWS:   map[string]*websocket.Conn{},
 		tunnelPorts:      map[string]int{},
 		relayCancel:      map[string]context.CancelFunc{},

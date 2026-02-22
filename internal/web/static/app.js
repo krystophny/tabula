@@ -1,5 +1,6 @@
 import { marked } from './vendor/marked.esm.js';
-import { renderCanvas, clearCanvas, getLocationFromPoint, getLocationFromSelection, showTransientMarker, clearTransientMarker, escapeHtml, sanitizeHtml } from './canvas.js';
+import { renderCanvas, clearCanvas, getLocationFromPoint, getLocationFromSelection, showLineHighlight, clearLineHighlight, escapeHtml, sanitizeHtml } from './canvas.js';
+import { openAnnotationBubble, closeAnnotationBubble, isAnnotationBubbleOpen, routeBubbleEvent, getActiveThreadKey, setBubbleSendFn, setBubbleVoiceFn, appendBubbleTranscript } from './canvas-bubble.js';
 
 const state = {
   sessionId: 'local',
@@ -31,7 +32,6 @@ const state = {
   chatVoiceCapture: null,
   contextUsed: 0,
   contextMax: 0,
-  promptContext: null,
 };
 
 export function getState() {
@@ -511,6 +511,19 @@ async function stopChatVoiceCaptureAndApply() {
     if (!transcript) {
       throw new Error('speech recognizer returned empty text');
     }
+    if (isAnnotationBubbleOpen()) {
+      appendBubbleTranscript(transcript);
+      if (capture.autoSend) {
+        const threadKey = getActiveThreadKey();
+        const bubbleInput = document.querySelector('.annotation-bubble-input');
+        if (bubbleInput) {
+          const bubbleBar = bubbleInput.closest('.annotation-bubble-bar');
+          if (bubbleBar) bubbleBar.dispatchEvent(new Event('submit', { bubbles: true }));
+        }
+      }
+      showStatus('ready');
+      return;
+    }
     const input = chatInputEl();
     if (!input) return;
     const needsSpace = input.value.trim() && !/[ \n]$/.test(input.value);
@@ -560,59 +573,12 @@ function switchPane(paneId) {
   }
   state.activePane = paneId || 'chat';
   renderTabBar();
-  clearPromptContext();
+  closeAnnotationBubble();
   if (paneId === 'chat') {
     const host = chatHistoryEl();
     if (host) scrollChatToBottom(host);
     window.setTimeout(() => focusChatInput({ placeCursorAtEnd: true }), 0);
   }
-}
-
-function setPromptContext(ctx) {
-  state.promptContext = ctx || null;
-  clearTransientMarker();
-  renderPromptContextBadge();
-}
-
-function clearPromptContext() {
-  state.promptContext = null;
-  clearTransientMarker();
-  renderPromptContextBadge();
-}
-
-function renderPromptContextBadge() {
-  const bar = document.getElementById('prompt-bar');
-  if (!bar) return;
-  let badge = bar.querySelector('.prompt-context');
-  if (!state.promptContext) {
-    if (badge) badge.remove();
-    return;
-  }
-  if (!badge) {
-    badge = document.createElement('span');
-    badge.className = 'prompt-context';
-    const dismiss = document.createElement('button');
-    dismiss.className = 'prompt-context-dismiss';
-    dismiss.type = 'button';
-    dismiss.textContent = '\u00d7';
-    dismiss.addEventListener('click', () => clearPromptContext());
-    badge.appendChild(document.createTextNode(''));
-    badge.appendChild(dismiss);
-    const input = bar.querySelector('#prompt-input');
-    if (input) {
-      bar.insertBefore(badge, input);
-    } else {
-      bar.prepend(badge);
-    }
-  }
-  const ctx = state.promptContext;
-  let label = '';
-  if (ctx.text) {
-    label = `"${ctx.text}" on line ${ctx.line} of "${ctx.title}"`;
-  } else {
-    label = `Line ${ctx.line} of "${ctx.title}"`;
-  }
-  badge.firstChild.textContent = label;
 }
 
 function addArtifactTab(eventId, title, kind) {
@@ -1227,6 +1193,11 @@ function handleChatEvent(payload) {
   const type = String(payload?.type || '').trim();
   if (!type) return;
 
+  if (payload.thread_key && isAnnotationBubbleOpen() && payload.thread_key === getActiveThreadKey()) {
+    routeBubbleEvent(payload);
+    return;
+  }
+
   if (type === 'mode_changed') {
     setChatMode(payload.mode || 'chat');
     const message = String(payload.message || '').trim();
@@ -1394,37 +1365,34 @@ async function switchProject(projectID) {
   }
 }
 
-async function sendChatMessage() {
+async function sendChatMessage(threadKey) {
   const input = document.getElementById('prompt-input');
   if (!(input instanceof HTMLTextAreaElement)) return;
   let text = input.value.trim();
   if (!text || !state.chatSessionId) return;
-  if (state.promptContext) {
-    const ctx = state.promptContext;
-    const loc = ctx.text
-      ? `[Line ${ctx.line} of "${ctx.title}": "${ctx.text}"]`
-      : `[Line ${ctx.line} of "${ctx.title}"]`;
-    text = `${loc} ${text}`;
-  }
-  clearPromptContext();
   state.assistantLastError = '';
   updateAssistantActivityIndicator();
   input.value = '';
   input.style.height = 'auto';
   focusChatInput({ placeCursorAtEnd: true });
-  appendPlainMessage('user', text);
+  if (!threadKey) {
+    appendPlainMessage('user', text);
+  }
 
-  if (!text.startsWith('/')) {
+  if (!text.startsWith('/') && !threadKey) {
     const pending = appendRenderedAssistant('_Thinking..._', { pending: true, localId: nextLocalMessageId() });
     state.pendingQueue.push(pending);
     updateAssistantActivityIndicator();
   }
 
+  const body = { text };
+  if (threadKey) body.thread_key = threadKey;
+
   try {
     const resp = await fetch(`/api/chat/sessions/${encodeURIComponent(state.chatSessionId)}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(body),
     });
     if (!resp.ok) {
       const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
@@ -1753,6 +1721,7 @@ function bindUi() {
     }
 
     if (ev.key === 'Escape' && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
+      if (isAnnotationBubbleOpen()) return;
       ev.preventDefault();
       void cancelActiveAssistantTurn();
       return;
@@ -1852,6 +1821,7 @@ function bindUi() {
     let artHoldIsTouch = false;
     let artHoldX = 0;
     let artHoldY = 0;
+    const ART_HOLD_MOVE_THRESHOLD = 5;
 
     const artStartHold = (clientX, clientY, isTouch) => {
       artHoldActive = false;
@@ -1863,11 +1833,17 @@ function bindUi() {
         artHoldActive = true;
         const loc = getLocationFromPoint(artHoldX, artHoldY);
         if (loc) {
-          showTransientMarker(artHoldX, artHoldY);
-          setPromptContext(loc);
-          void beginChatVoiceCapture({ autoSend: true });
+          showLineHighlight(artHoldX, artHoldY);
+          openAnnotationBubble({ location: loc, clientX: artHoldX, clientY: artHoldY, voiceAutoStart: true });
         }
       }, CHAT_SEND_HOLD_MS);
+    };
+
+    const artCancelHold = () => {
+      if (artHoldTimer) {
+        clearTimeout(artHoldTimer);
+        artHoldTimer = null;
+      }
     };
 
     const artEndHold = () => {
@@ -1890,6 +1866,17 @@ function bindUi() {
       artStartHold(t.clientX, t.clientY, true);
     }, { passive: true });
 
+    canvasText.addEventListener('touchmove', (ev) => {
+      if (!artHoldIsTouch || !artHoldTimer) return;
+      if (ev.touches.length !== 1) return;
+      const t = ev.touches[0];
+      const dx = t.clientX - artHoldX;
+      const dy = t.clientY - artHoldY;
+      if (Math.sqrt(dx * dx + dy * dy) > ART_HOLD_MOVE_THRESHOLD) {
+        artCancelHold();
+      }
+    }, { passive: true });
+
     window.addEventListener('touchend', () => {
       if (!artHoldIsTouch) return;
       artEndHold();
@@ -1897,10 +1884,7 @@ function bindUi() {
 
     window.addEventListener('touchcancel', () => {
       if (!artHoldIsTouch) return;
-      if (artHoldTimer) {
-        clearTimeout(artHoldTimer);
-        artHoldTimer = null;
-      }
+      artCancelHold();
       artHoldIsTouch = false;
     });
 
@@ -1920,39 +1904,14 @@ function bindUi() {
         artHoldActive = false;
         return;
       }
+      if (isAnnotationBubbleOpen()) return;
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed) return;
       const loc = getLocationFromPoint(ev.clientX, ev.clientY);
       if (loc) {
-        showTransientMarker(ev.clientX, ev.clientY);
-        setPromptContext(loc);
-        focusChatInput({ placeCursorAtEnd: true });
+        showLineHighlight(ev.clientX, ev.clientY);
+        openAnnotationBubble({ location: loc, clientX: ev.clientX, clientY: ev.clientY });
       }
-    });
-
-    canvasText.addEventListener('contextmenu', (ev) => {
-      ev.preventDefault();
-      const loc = getLocationFromPoint(ev.clientX, ev.clientY);
-      if (loc) {
-        showTransientMarker(ev.clientX, ev.clientY);
-        setPromptContext(loc);
-        focusChatInput({ placeCursorAtEnd: true });
-      }
-    });
-
-    let selDebounce = null;
-    document.addEventListener('selectionchange', () => {
-      if (selDebounce) clearTimeout(selDebounce);
-      selDebounce = window.setTimeout(() => {
-        selDebounce = null;
-        const sel = window.getSelection();
-        if (!sel || sel.isCollapsed) return;
-        if (!canvasText.contains(sel.anchorNode)) return;
-        const loc = getLocationFromSelection();
-        if (loc) {
-          setPromptContext(loc);
-        }
-      }, 200);
     });
   }
 }
@@ -1966,6 +1925,22 @@ function warmMicStream() {
 
 async function init() {
   bindUi();
+
+  setBubbleSendFn((text, threadKey) => {
+    const input = chatInputEl();
+    if (input) {
+      input.value = text;
+      void sendChatMessage(threadKey);
+    }
+  });
+  setBubbleVoiceFn((start) => {
+    if (start) {
+      void beginChatVoiceCapture({ autoSend: false, bubbleMode: true });
+    } else {
+      void stopChatVoiceCaptureAndApply();
+    }
+  });
+
   warmMicStream();
   updateAssistantActivityIndicator();
   startDevReloadWatcher();
