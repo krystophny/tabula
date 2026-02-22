@@ -984,14 +984,28 @@ async function commitCanvasDraft() {
 
   const ws = state.canvasWs;
   const commitHTTP = async () => {
-    const response = await fetch(`/api/canvas/${encodeURIComponent(sessionID)}/commit`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        artifact_id: artifactID || '',
-        include_draft: true,
-      }),
-    });
+    const commitRequestTimeoutMs = 45000;
+    const controller = new AbortController();
+    const timeoutID = window.setTimeout(() => controller.abort(), commitRequestTimeoutMs);
+    let response;
+    try {
+      response = await fetch(`/api/canvas/${encodeURIComponent(sessionID)}/commit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          artifact_id: artifactID || '',
+          include_draft: true,
+        }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (err && err.name === 'AbortError') {
+        throw new Error(`commit timed out after ${Math.round(commitRequestTimeoutMs / 1000)}s`);
+      }
+      throw err;
+    } finally {
+      window.clearTimeout(timeoutID);
+    }
     if (!response.ok) {
       const detail = (await response.text()).trim();
       throw new Error(detail || `commit failed: HTTP ${response.status}`);

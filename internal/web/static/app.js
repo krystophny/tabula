@@ -1368,11 +1368,20 @@ async function runChatCommand(command) {
 
 async function commitCanvasFromChat() {
   try {
-    const resp = await fetch(`/api/canvas/${encodeURIComponent(state.sessionId)}/commit`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ include_draft: true }),
-    });
+    const commitRequestTimeoutMs = 45000;
+    const controller = new AbortController();
+    const timeoutID = window.setTimeout(() => controller.abort(), commitRequestTimeoutMs);
+    let resp;
+    try {
+      resp = await fetch(`/api/canvas/${encodeURIComponent(state.sessionId)}/commit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ include_draft: true }),
+        signal: controller.signal,
+      });
+    } finally {
+      window.clearTimeout(timeoutID);
+    }
     if (!resp.ok) {
       const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
       appendPlainMessage('system', `Commit failed: ${detail}`);
@@ -1380,6 +1389,10 @@ async function commitCanvasFromChat() {
     }
     appendPlainMessage('system', 'Draft annotations committed.');
   } catch (err) {
+    if (err && err.name === 'AbortError') {
+      appendPlainMessage('system', 'Commit failed: request timed out after 45s');
+      return;
+    }
     appendPlainMessage('system', `Commit failed: ${String(err?.message || err)}`);
   }
 }

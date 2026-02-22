@@ -37,6 +37,7 @@ const (
 	LocalSessionID        = "local"
 	defaultProducerMCPURL = "http://127.0.0.1:8090/mcp"
 	maxMailSTTAudioBytes  = 10 * 1024 * 1024
+	mcpToolsCallTimeout   = 45 * time.Second
 )
 
 //go:embed static/* static/vendor/*
@@ -1192,8 +1193,19 @@ func normalizeLineEndings(text string) string {
 func mcpToolsCallURL(mcpURL, name string, arguments map[string]interface{}) (map[string]interface{}, error) {
 	payload := map[string]interface{}{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]interface{}{"name": name, "arguments": arguments}}
 	b, _ := json.Marshal(payload)
-	resp, err := http.Post(mcpURL, "application/json", strings.NewReader(string(b)))
+	ctx, cancel := context.WithTimeout(context.Background(), mcpToolsCallTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, mcpURL, bytes.NewReader(b))
 	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		var netErr net.Error
+		if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()) {
+			return nil, fmt.Errorf("MCP call timed out after %s", mcpToolsCallTimeout)
+		}
 		return nil, err
 	}
 	defer resp.Body.Close()
