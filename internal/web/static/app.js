@@ -10,14 +10,15 @@ const state = {
   chatWsHasConnected: false,
   chatSessionId: '',
   chatMode: 'chat',
-  activeTab: 'chat',
+  activePane: 'chat',
+  artifactTabs: [],
+  dismissedArtifactIds: new Set(),
   projects: [],
   defaultProjectId: '',
   serverActiveProjectId: '',
   activeProjectId: '',
   projectsOpen: false,
   projectSwitchInFlight: false,
-  canvasHasUnread: false,
   pendingByTurn: new Map(),
   pendingQueue: [],
   assistantActiveTurns: new Set(),
@@ -28,6 +29,8 @@ const state = {
   assistantLastError: '',
   chatCtrlHoldTimer: null,
   chatVoiceCapture: null,
+  contextUsed: 0,
+  contextMax: 0,
 };
 
 export function getState() {
@@ -203,7 +206,7 @@ function startDevReloadWatcher() {
 }
 
 function chatInputEl() {
-  const el = document.getElementById('chat-input');
+  const el = document.getElementById('prompt-input');
   return el instanceof HTMLTextAreaElement ? el : null;
 }
 
@@ -213,7 +216,6 @@ function isEditableTarget(target) {
 }
 
 function focusChatInput({ placeCursorAtEnd = false } = {}) {
-  if (state.activeTab !== 'chat') return;
   const input = chatInputEl();
   if (!input) return;
   if (document.activeElement === input) return;
@@ -400,9 +402,9 @@ function handleSTTWSMessage(payload) {
 }
 
 function setSendButtonRecording(active) {
-  const btn = document.getElementById('btn-chat-send');
+  const btn = document.getElementById('prompt-send');
   if (!btn) return;
-  const inputEl = document.getElementById('chat-input');
+  const inputEl = document.getElementById('prompt-input');
   if (active) {
     btn.classList.add('is-recording');
     btn.textContent = 'Rec';
@@ -465,7 +467,6 @@ function stopChatVoiceMediaAndFlush(capture) {
 }
 
 async function beginChatVoiceCapture(opts) {
-  if (state.activeTab !== 'chat') return;
   if (state.chatVoiceCapture) return;
   if (!canUseMicrophoneCapture()) return;
   const capture = {
@@ -559,28 +560,84 @@ function cancelChatVoiceCapture() {
   state.chatVoiceCapture = null;
 }
 
-function setActiveTab(tab) {
-  const workspace = document.getElementById('workspace');
-  const chatBtn = document.getElementById('tab-chat');
-  const canvasBtn = document.getElementById('tab-canvas');
-  if (!workspace || !chatBtn || !canvasBtn) return;
-  state.activeTab = tab === 'canvas' ? 'canvas' : 'chat';
-  workspace.classList.toggle('workspace-chat', state.activeTab === 'chat');
-  workspace.classList.toggle('workspace-canvas', state.activeTab === 'canvas');
-  chatBtn.classList.toggle('is-active', state.activeTab === 'chat');
-  canvasBtn.classList.toggle('is-active', state.activeTab === 'canvas');
-  if (state.activeTab === 'canvas') {
-    state.canvasHasUnread = false;
-    updateCanvasIndicator();
-  } else {
+function switchPane(paneId) {
+  const viewport = document.getElementById('canvas-viewport');
+  if (!viewport) return;
+  const panes = viewport.querySelectorAll('.canvas-pane');
+  panes.forEach((pane) => pane.classList.remove('is-active'));
+  const target = paneId === 'chat'
+    ? document.getElementById('canvas-chat')
+    : document.getElementById(paneId);
+  if (target) {
+    target.classList.add('is-active');
+  }
+  state.activePane = paneId || 'chat';
+  renderTabBar();
+  if (paneId === 'chat') {
+    const host = chatHistoryEl();
+    if (host) scrollChatToBottom(host);
     window.setTimeout(() => focusChatInput({ placeCursorAtEnd: true }), 0);
   }
 }
 
-function updateCanvasIndicator() {
-  const dot = document.getElementById('tab-canvas-indicator');
-  if (!dot) return;
-  dot.style.display = state.canvasHasUnread ? 'inline-block' : 'none';
+function addArtifactTab(eventId, title, kind) {
+  if (state.dismissedArtifactIds.has(eventId)) return;
+  const existing = state.artifactTabs.find((t) => t.id === eventId);
+  if (existing) {
+    existing.title = title || existing.title;
+    existing.kind = kind || existing.kind;
+  } else {
+    state.artifactTabs.push({ id: eventId, title: title || 'Artifact', kind: kind || 'text' });
+  }
+  const paneId = kind === 'image' ? 'canvas-image'
+    : kind === 'pdf' ? 'canvas-pdf'
+    : 'canvas-text';
+  renderTabBar();
+  switchPane(paneId);
+}
+
+function removeArtifactTab(eventId) {
+  state.dismissedArtifactIds.add(eventId);
+  state.artifactTabs = state.artifactTabs.filter((t) => t.id !== eventId);
+  renderTabBar();
+  switchPane('chat');
+}
+
+function renderTabBar() {
+  const bar = document.getElementById('canvas-tab-bar');
+  if (!bar) return;
+  bar.innerHTML = '';
+
+  const chatTab = document.createElement('button');
+  chatTab.type = 'button';
+  chatTab.className = 'canvas-tab';
+  if (state.activePane === 'chat') chatTab.classList.add('is-active');
+  chatTab.textContent = 'Chat';
+  chatTab.addEventListener('click', () => switchPane('chat'));
+  bar.appendChild(chatTab);
+
+  for (const tab of state.artifactTabs) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'canvas-tab';
+    const paneId = tab.kind === 'image' ? 'canvas-image'
+      : tab.kind === 'pdf' ? 'canvas-pdf'
+      : 'canvas-text';
+    if (state.activePane === paneId) btn.classList.add('is-active');
+    btn.textContent = tab.title;
+
+    const close = document.createElement('span');
+    close.className = 'canvas-tab-close';
+    close.textContent = '\u00d7';
+    close.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      removeArtifactTab(tab.id);
+    });
+
+    btn.appendChild(close);
+    btn.addEventListener('click', () => switchPane(paneId));
+    bar.appendChild(btn);
+  }
 }
 
 function chatHistoryEl() {
@@ -626,25 +683,71 @@ function updateAssistantActivityIndicator() {
     state.assistantUnknownTurns = 0;
     state.assistantActiveTurns.clear();
   }
-  const el = document.getElementById('chat-assistant-state');
+  const el = document.getElementById('prompt-status');
   if (!(el instanceof HTMLElement)) return;
   const working = isAssistantWorking();
   const stopping = state.assistantCancelInFlight;
   const failed = !working && !stopping && Boolean(state.assistantLastError);
-  if (stopping) {
-    el.textContent = 'Assistant stopping...';
-  } else if (failed) {
-    el.textContent = 'Assistant error';
-  } else if (!hasLocalAssistantWork() && state.assistantRemoteActiveCount <= 0 && state.assistantRemoteQueuedCount > 0) {
-    el.textContent = `Assistant queued (${state.assistantRemoteQueuedCount})...`;
-  } else {
-    el.textContent = working ? 'Assistant is working...' : 'Assistant idle';
-  }
-  el.title = failed ? String(state.assistantLastError) : '';
   el.classList.toggle('is-working', working && !stopping);
   el.classList.toggle('is-stopping', stopping);
   el.classList.toggle('is-error', failed);
   el.classList.toggle('is-idle', !working && !stopping && !failed);
+  if (stopping) {
+    el.title = 'Assistant stopping...';
+  } else if (failed) {
+    el.title = String(state.assistantLastError);
+  } else {
+    el.title = working ? 'Assistant is working...' : 'Assistant idle';
+  }
+}
+
+function formatTokenCount(n) {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(0) + 'k';
+  return String(n);
+}
+
+function updateContextIndicator() {
+  let el = document.getElementById('context-indicator');
+  if (!el) {
+    const bar = document.getElementById('prompt-bar');
+    if (!bar) return;
+    el = document.createElement('span');
+    el.id = 'context-indicator';
+    el.className = 'context-indicator';
+    const status = bar.querySelector('.prompt-status');
+    if (status) {
+      status.after(el);
+    } else {
+      bar.prepend(el);
+    }
+  }
+  if (state.contextUsed <= 0) {
+    el.textContent = '';
+    el.title = '';
+    el.classList.remove('is-warning', 'is-critical');
+    return;
+  }
+  const used = state.contextUsed;
+  const max = state.contextMax;
+  if (max > 0) {
+    const pct = Math.round((used / max) * 100);
+    el.textContent = `${formatTokenCount(used)}/${formatTokenCount(max)}`;
+    el.title = `Context: ${pct}% used (${used.toLocaleString()} / ${max.toLocaleString()} tokens)`;
+    el.classList.toggle('is-warning', pct >= 60 && pct < 85);
+    el.classList.toggle('is-critical', pct >= 85);
+  } else {
+    el.textContent = formatTokenCount(used);
+    el.title = `Context: ${used.toLocaleString()} tokens used`;
+    el.classList.remove('is-warning', 'is-critical');
+  }
+}
+
+function showContextCompactNotice() {
+  appendPlainMessage('system', 'Context auto-compacted to free space.');
+  state.contextUsed = 0;
+  state.contextMax = 0;
+  updateContextIndicator();
 }
 
 function trackAssistantTurnStarted(turnID) {
@@ -1101,9 +1204,9 @@ function handleChatEvent(payload) {
   if (type === 'action') {
     const action = String(payload.action || '').trim();
     if (action === 'open_canvas') {
-      setActiveTab('canvas');
+      switchPane('canvas-text');
     } else if (action === 'open_chat') {
-      setActiveTab('chat');
+      switchPane('chat');
     } else if (action === 'commit_canvas') {
       void commitCanvasFromChat();
     }
@@ -1170,6 +1273,18 @@ function handleChatEvent(payload) {
     return;
   }
 
+  if (type === 'context_usage') {
+    state.contextUsed = Number(payload.context_used) || 0;
+    state.contextMax = Number(payload.context_max) || 0;
+    updateContextIndicator();
+    return;
+  }
+
+  if (type === 'context_compact') {
+    showContextCompactNotice();
+    return;
+  }
+
   if (type === 'error') {
     const turnID = String(payload.turn_id || '').trim();
     const row = takePendingRow(turnID);
@@ -1202,6 +1317,9 @@ async function switchProject(projectID) {
   closeCanvasWs();
   clearChatHistory();
   clearCanvas();
+  state.artifactTabs = [];
+  renderTabBar();
+  switchPane('chat');
   resetAssistantTurnTracking({ clearError: true });
   setActiveProjectID(nextProjectID);
   try {
@@ -1216,9 +1334,7 @@ async function switchProject(projectID) {
     openChatWs();
     setProjectOverviewVisible(false);
     showStatus(`ready · ${String(project.name || 'project')}`);
-    if (state.activeTab === 'chat') {
-      focusChatInput({ placeCursorAtEnd: true });
-    }
+    focusChatInput({ placeCursorAtEnd: true });
   } catch (err) {
     const message = String(err?.message || err || 'project switch failed');
     appendPlainMessage('system', `Project switch failed: ${message}`);
@@ -1229,7 +1345,7 @@ async function switchProject(projectID) {
 }
 
 async function sendChatMessage() {
-  const input = document.getElementById('chat-input');
+  const input = document.getElementById('prompt-input');
   if (!(input instanceof HTMLTextAreaElement)) return;
   const text = input.value.trim();
   if (!text || !state.chatSessionId) return;
@@ -1331,9 +1447,17 @@ function openCanvasWs() {
     try {
       const payload = JSON.parse(event.data);
       renderCanvas(payload);
-      if (state.activeTab !== 'canvas') {
-        state.canvasHasUnread = true;
-        updateCanvasIndicator();
+      if (payload.event_id && payload.kind && payload.kind !== 'clear_canvas') {
+        const kind = payload.kind === 'image_artifact' ? 'image'
+          : payload.kind === 'pdf_artifact' ? 'pdf'
+          : 'text';
+        addArtifactTab(payload.event_id, payload.title || 'Artifact', kind);
+      }
+      if (payload.kind === 'clear_canvas') {
+        state.artifactTabs = [];
+        state.dismissedArtifactIds.clear();
+        renderTabBar();
+        switchPane('chat');
       }
     } catch (_) {
       // ignore malformed payloads
@@ -1360,6 +1484,13 @@ async function loadCanvasSnapshot(sessionID = state.sessionId) {
     const payload = await resp.json();
     if (payload?.event) {
       renderCanvas(payload.event);
+      const ev = payload.event;
+      if (ev.event_id && ev.kind && ev.kind !== 'clear_canvas') {
+        const kind = ev.kind === 'image_artifact' ? 'image'
+          : ev.kind === 'pdf_artifact' ? 'pdf'
+          : 'text';
+        addArtifactTab(ev.event_id, ev.title || 'Artifact', kind);
+      }
       return;
     }
     clearCanvas();
@@ -1413,7 +1544,7 @@ async function commitCanvasFromChat() {
     }
     const data = await resp.json().catch(() => ({}));
     if (data.routed_to_chat) {
-      setActiveTab('chat');
+      switchPane('chat');
     } else {
       appendPlainMessage('system', 'Draft annotations committed.');
     }
@@ -1427,8 +1558,6 @@ async function commitCanvasFromChat() {
 }
 
 function bindUi() {
-  document.getElementById('tab-chat')?.addEventListener('click', () => setActiveTab('chat'));
-  document.getElementById('tab-canvas')?.addEventListener('click', () => setActiveTab('canvas'));
   document.getElementById('btn-projects')?.addEventListener('click', () => {
     setProjectOverviewVisible(!state.projectsOpen);
   });
@@ -1436,21 +1565,13 @@ function bindUi() {
     setProjectOverviewVisible(false);
   });
 
-  document.getElementById('btn-plan-toggle')?.addEventListener('click', () => {
-    void runChatCommand('/plan');
-  });
-  document.getElementById('btn-open-canvas')?.addEventListener('click', () => setActiveTab('canvas'));
-  document.getElementById('btn-commit-from-chat')?.addEventListener('click', () => {
-    void commitCanvasFromChat();
-  });
-
-  const form = document.getElementById('chat-form');
+  const form = document.getElementById('prompt-bar');
   form?.addEventListener('submit', (ev) => {
     ev.preventDefault();
     void sendChatMessage();
   });
 
-  const sendBtn = document.getElementById('btn-chat-send');
+  const sendBtn = document.getElementById('prompt-send');
   if (sendBtn) {
     let sendHoldTimer = null;
     let sendHoldActive = false;
@@ -1535,7 +1656,7 @@ function bindUi() {
     syncProjectPathField();
   }
 
-  const input = document.getElementById('chat-input');
+  const input = document.getElementById('prompt-input');
   if (input instanceof HTMLTextAreaElement) {
     input.addEventListener('keydown', (ev) => {
       const isEnter = ev.key === 'Enter';
@@ -1610,7 +1731,6 @@ function bindUi() {
       setProjectOverviewVisible(false);
       return;
     }
-    if (state.activeTab !== 'chat') return;
 
     if (ev.key === 'Escape' && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
       ev.preventDefault();
@@ -1674,7 +1794,7 @@ function bindUi() {
       state.chatCtrlHoldTimer = null;
       return;
     }
-    if (state.activeTab === 'chat' && state.chatVoiceCapture) {
+    if (state.chatVoiceCapture) {
       void stopChatVoiceCaptureAndApply();
     }
   }, true);
@@ -1691,14 +1811,11 @@ function bindUi() {
   });
 
   window.addEventListener('focus', () => {
-    if (state.activeTab === 'chat') {
-      window.setTimeout(() => focusChatInput({ placeCursorAtEnd: true }), 20);
-    }
+    window.setTimeout(() => focusChatInput({ placeCursorAtEnd: true }), 20);
   });
 
-  const panelChat = document.getElementById('panel-chat');
-  panelChat?.addEventListener('click', (ev) => {
-    if (state.activeTab !== 'chat') return;
+  const chatPane = document.getElementById('canvas-chat');
+  chatPane?.addEventListener('click', (ev) => {
     const target = ev.target;
     if (target instanceof Element) {
       if (target.closest('button,a,input,textarea,select,[contenteditable="true"]')) return;
@@ -1725,7 +1842,7 @@ async function init() {
   initCanvasControls();
   setProjectOverviewVisible(false);
   clearCanvas();
-  setActiveTab('chat');
+  switchPane('chat');
   showStatus('starting...');
 
   await fetchProjects();

@@ -63,6 +63,7 @@ type App struct {
 	chatTurnCancel   map[string]map[string]context.CancelFunc
 	chatTurnQueue    map[string]int
 	chatTurnWorker   map[string]bool
+	chatAppSessions  map[string]*appserver.Session
 	remoteCanvasWS   map[string]*websocket.Conn
 	tunnelPorts      map[string]int
 	relayCancel      map[string]context.CancelFunc
@@ -113,6 +114,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model string, devR
 		chatTurnCancel:   map[string]map[string]context.CancelFunc{},
 		chatTurnQueue:    map[string]int{},
 		chatTurnWorker:   map[string]bool{},
+		chatAppSessions:  map[string]*appserver.Session{},
 		remoteCanvasWS:   map[string]*websocket.Conn{},
 		tunnelPorts:      map[string]int{},
 		relayCancel:      map[string]context.CancelFunc{},

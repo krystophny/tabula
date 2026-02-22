@@ -88,13 +88,13 @@ test.beforeEach(async ({ page }) => {
 
 test('touch hold on Send button starts voice recording after threshold', async ({ page }) => {
   await clearLog(page);
-  await touchStart(page, '#btn-chat-send');
+  await touchStart(page, '#prompt-send');
   await page.waitForTimeout(500);
 
   await waitForSTTAction(page, 'start');
   await waitForLogEntry(page, 'recorder', 'start');
 
-  await touchEnd(page, '#btn-chat-send');
+  await touchEnd(page, '#prompt-send');
   await waitForSTTAction(page, 'stop');
   await waitForLogEntry(page, 'recorder', 'stop');
 
@@ -107,10 +107,10 @@ test('touch hold on Send button starts voice recording after threshold', async (
 
 test('short tap on Send button does not start voice recording', async ({ page }) => {
   await clearLog(page);
-  await touchStart(page, '#btn-chat-send');
+  await touchStart(page, '#prompt-send');
   // Release before 300ms threshold
   await page.waitForTimeout(100);
-  await touchEnd(page, '#btn-chat-send');
+  await touchEnd(page, '#prompt-send');
   // Wait a bit to ensure nothing fires
   await page.waitForTimeout(500);
 
@@ -130,11 +130,11 @@ test('touch release during mic init still completes the recording flow', async (
   });
 
   await clearLog(page);
-  await touchStart(page, '#btn-chat-send');
+  await touchStart(page, '#prompt-send');
   // Wait for hold threshold to fire beginChatVoiceCapture
   await page.waitForTimeout(350);
   // Release while getUserMedia is still pending (within 400ms delay)
-  await touchEnd(page, '#btn-chat-send');
+  await touchEnd(page, '#prompt-send');
   // The stopRequested flag should be set, and once getUserMedia resolves
   // the flow should complete: recorder starts then immediately stops
   await waitForSTTAction(page, 'stop');
@@ -147,7 +147,7 @@ test('touch release during mic init still completes the recording flow', async (
 
 test('mouse hold on Send button starts voice recording (desktop)', async ({ page }) => {
   await clearLog(page);
-  const btn = page.locator('#btn-chat-send');
+  const btn = page.locator('#prompt-send');
   const box = await btn.boundingBox();
   if (!box) throw new Error('Send button not found');
 
@@ -175,7 +175,7 @@ test('mouse release during mic init still completes recording (desktop)', async 
   });
 
   await clearLog(page);
-  const btn = page.locator('#btn-chat-send');
+  const btn = page.locator('#prompt-send');
   const box = await btn.boundingBox();
   if (!box) throw new Error('Send button not found');
 
@@ -192,7 +192,7 @@ test('mouse release during mic init still completes recording (desktop)', async 
 });
 
 test('Send button shows recording state while voice capture is active', async ({ page }) => {
-  const btn = page.locator('#btn-chat-send');
+  const btn = page.locator('#prompt-send');
 
   // Before recording: normal state
   await expect(btn).toHaveText('Send');
@@ -222,31 +222,31 @@ test('second tap on Send button stops recording (touch)', async ({ page }) => {
   await clearLog(page);
 
   // Start recording with touch hold
-  await touchStart(page, '#btn-chat-send');
+  await touchStart(page, '#prompt-send');
   await page.waitForTimeout(500);
   await waitForSTTAction(page, 'start');
   await waitForLogEntry(page, 'recorder', 'start');
 
   // Release the first touch
-  await touchEnd(page, '#btn-chat-send');
+  await touchEnd(page, '#prompt-send');
   await waitForSTTAction(page, 'stop');
 
   // Clear log and start a new recording
   await clearLog(page);
-  await touchStart(page, '#btn-chat-send');
+  await touchStart(page, '#prompt-send');
   await page.waitForTimeout(500);
   await waitForSTTAction(page, 'start');
 
   // Second tap (touchstart again) should stop the recording
   await clearLog(page);
-  await touchStart(page, '#btn-chat-send');
+  await touchStart(page, '#prompt-send');
   await waitForSTTAction(page, 'stop');
   await waitForLogEntry(page, 'recorder', 'stop');
 });
 
 test('second click on Send button stops recording (mouse)', async ({ page }) => {
   await clearLog(page);
-  const btn = page.locator('#btn-chat-send');
+  const btn = page.locator('#prompt-send');
   const box = await btn.boundingBox();
   if (!box) throw new Error('Send button not found');
 
@@ -276,21 +276,21 @@ test('second click on Send button stops recording (mouse)', async ({ page }) => 
 
 test('touch hold on empty chat input starts voice recording', async ({ page }) => {
   await clearLog(page);
-  await touchStart(page, '#chat-input');
+  await touchStart(page, '#prompt-input');
   await page.waitForTimeout(500);
 
   await waitForSTTAction(page, 'start');
   await waitForLogEntry(page, 'recorder', 'start');
 
-  const inputRecording = await page.locator('#chat-input').evaluate(
+  const inputRecording = await page.locator('#prompt-input').evaluate(
     (el) => el.classList.contains('is-recording'),
   );
   expect(inputRecording).toBe(true);
 
-  await touchEnd(page, '#chat-input');
+  await touchEnd(page, '#prompt-input');
   await waitForSTTAction(page, 'stop');
 
-  const inputDone = await page.locator('#chat-input').evaluate(
+  const inputDone = await page.locator('#prompt-input').evaluate(
     (el) => el.classList.contains('is-recording'),
   );
   expect(inputDone).toBe(false);
@@ -298,7 +298,7 @@ test('touch hold on empty chat input starts voice recording', async ({ page }) =
 
 test('mouse hold on empty chat input starts voice recording (desktop)', async ({ page }) => {
   await clearLog(page);
-  const input = page.locator('#chat-input');
+  const input = page.locator('#prompt-input');
   const box = await input.boundingBox();
   if (!box) throw new Error('chat input not found');
 
@@ -317,11 +317,11 @@ test('mouse hold on empty chat input starts voice recording (desktop)', async ({
 });
 
 test('hold on chat input with text does NOT start voice recording', async ({ page }) => {
-  await page.locator('#chat-input').fill('some text');
+  await page.locator('#prompt-input').fill('some text');
   await clearLog(page);
-  await touchStart(page, '#chat-input');
+  await touchStart(page, '#prompt-input');
   await page.waitForTimeout(500);
-  await touchEnd(page, '#chat-input');
+  await touchEnd(page, '#prompt-input');
   await page.waitForTimeout(300);
 
   const log = await getLog(page);

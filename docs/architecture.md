@@ -26,12 +26,21 @@ Tabura is a Go-first MCP canvas/runtime stack with a browser UI.
 - `tabura web`: browser-facing runtime
 - `tabura canvas`: convenience browser launcher
 
+## UI Layout
+
+The browser UI uses a unified canvas surface:
+
+- **Chat** is the default pane in the canvas viewport.
+- **Artifacts** (text, image, PDF) appear as closeable tabs in the canvas tab bar.
+- A single **prompt bar** (`#prompt-input` + `#prompt-send`) serves all modes.
+- No dual-mode switching between chat and canvas panels.
+
 ## Primary Data Flows
 
 1. MCP client calls tool on `tabura mcp-server` or `tabura serve`.
 2. Tool dispatch in `internal/mcp/server.go` resolves into adapter operations.
 3. Adapter updates session/artifact/mark state in memory and emits events.
-4. Browser chat and canvas consume websocket events and render UI state.
+4. Browser consumes websocket events: chat messages render in the chat pane, artifacts open as new tabs.
 5. `canvas_commit` persists review annotations sidecar files.
 
 ## Handoff Import Flow

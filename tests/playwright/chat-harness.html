@@ -19,41 +19,23 @@
         <span id="status-text">ready</span>
         <span id="chat-mode-pill" class="badge">chat</span>
         <div class="toolbar-spacer"></div>
-        <div id="main-tabs" role="tablist" aria-label="Primary views">
-          <button id="tab-chat" class="tab-btn is-active" type="button" role="tab" aria-selected="true">Chat</button>
-          <button id="tab-canvas" class="tab-btn" type="button" role="tab" aria-selected="false">Canvas</button>
-        </div>
       </header>
 
-      <div id="workspace" class="workspace-chat">
-        <section id="panel-chat" class="panel" aria-label="Chat canvas">
-          <div id="chat-history" aria-live="polite"></div>
-          <form id="chat-form" autocomplete="off">
-            <div id="chat-action-row">
-              <button type="button" id="btn-plan-toggle">/plan</button>
-              <button type="button" id="btn-open-canvas">Open Canvas</button>
-              <button type="button" id="btn-commit-from-chat">Commit Draft</button>
-            </div>
-            <textarea id="chat-input" rows="2" placeholder="Message, or hold to speak"></textarea>
-            <div class="chat-compose-row">
-              <div class="chat-compose-meta">
-                <span id="chat-hint">Enter sends. Shift+Enter newline. Hold input area to voice-send. Esc stops.</span>
-                <span id="chat-assistant-state" class="chat-assistant-state is-idle" aria-live="polite">Assistant idle</span>
-              </div>
-              <button id="btn-chat-send" type="submit">Send</button>
-            </div>
-          </form>
-        </section>
-
-        <section id="panel-canvas" class="panel" aria-label="Review canvas">
-          <div id="canvas-header"><span id="canvas-title">Canvas</span><span id="canvas-mode" class="badge">prompt</span></div>
-          <div id="canvas-content">
-            <div id="canvas-empty">No artifact.</div>
-            <div id="canvas-text" style="display:none"></div>
-            <div id="canvas-image" style="display:none"><img id="canvas-img" alt="artifact"></div>
-            <div id="canvas-pdf" style="display:none"></div>
-          </div>
-        </section>
+      <div id="workspace">
+        <div id="canvas-tab-bar" role="tablist" aria-label="Canvas tabs"></div>
+        <div id="canvas-viewport">
+          <section id="canvas-chat" class="canvas-pane is-active" aria-label="Chat">
+            <div id="chat-history" aria-live="polite"></div>
+          </section>
+          <section id="canvas-text" class="canvas-pane" aria-label="Text artifact" style="display:none"></section>
+          <section id="canvas-image" class="canvas-pane" aria-label="Image artifact" style="display:none"><img id="canvas-img" alt="artifact"></section>
+          <section id="canvas-pdf" class="canvas-pane" aria-label="PDF artifact" style="display:none"></section>
+        </div>
+        <form id="prompt-bar" autocomplete="off">
+          <span id="prompt-status" class="prompt-status is-idle" aria-live="polite"></span>
+          <textarea id="prompt-input" rows="1" placeholder="Message, or hold to speak"></textarea>
+          <button id="prompt-send" type="submit">Send</button>
+        </form>
       </div>
     </div>
   </div>
@@ -63,12 +45,9 @@
     <option value="comment_point">Point Comment</option>
   </select>
   <input id="canvas-mark-comment" type="text" style="display:none">
-  <button id="btn-canvas-commit" type="button" style="display:none">Commit</button>
-  <button id="btn-canvas-clear-draft" type="button" style="display:none">Clear Draft</button>
   <div id="project-overview" class="project-overview is-hidden"></div>
   <div id="project-cards" class="project-cards"></div>
   <form id="project-create-form" style="display:none"></form>
-  <span id="tab-canvas-indicator" style="display:none"></span>
 
   <script>
     // Harness log for test assertions

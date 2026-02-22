@@ -5,19 +5,13 @@
 For direct runtime requests, run the obvious command first, then verify.
 Do not scan source/docs unless the command fails.
 
-## Desktop Canvas Mode
+## Unified Canvas
 
-Use one of:
-
-- Browser URL when `tabura web` is already running: `http://localhost:8420/canvas`
-- Equivalent URL: `http://localhost:8420/?desktop=1`
-- CLI launcher: `tabura canvas`
-
-`tabura canvas` starts web UI and opens desktop canvas route.
+Chat is the default pane. Artifacts (text, image, PDF) appear as closeable tabs in the canvas tab bar. A single prompt bar (`#prompt-input` + `#prompt-send`) serves all modes. No dual-mode switching.
 
 ## Post-Adjustment Artifact Rule
 
-After making a UI/interaction adjustment, always render a new test artifact in the local desktop canvas session (`session_id: local`) so the user can immediately try the latest behavior.
+After making a UI/interaction adjustment, always render a new test artifact in the local session (`session_id: local`) so the user can immediately try the latest behavior.
 
 ## Local Services (systemd --user)
 
@@ -136,6 +130,7 @@ Every UI interaction flow must have a Playwright test. Never skip tests.
 - New UI features require corresponding Playwright tests before merge.
 - Touch event flows (touchstart/touchend) must be tested alongside mouse flows (mousedown/mouseup).
 - Async flows (mic capture, STT, WebSocket) must use mock harnesses (see `tests/playwright/chat-harness.html` and `tests/playwright/harness.html`).
+- Key selectors: `#prompt-input` (textarea), `#prompt-send` (send button), `#prompt-bar` (form), `#canvas-tab-bar` (tab bar), `.canvas-pane` (panes).
 - Run `npx playwright test` locally and verify 100% pass before push.
 - Existing tests: `tests/playwright/review-mode.spec.ts`, `tests/playwright/mail-actions.spec.ts`, `tests/playwright/chat-voice-send.spec.ts`.
 

@@ -7,23 +7,19 @@
   <link rel="stylesheet" href="../../internal/web/static/style.css">
   <style>
     body { margin: 0; padding: 0; }
-    #harness-root { width: 100vw; height: 100vh; display: flex; }
-    #panel-canvas { width: 100%; }
+    #harness-root { width: 100vw; height: 100vh; display: flex; flex-direction: column; }
+    #canvas-viewport { flex: 1; overflow: auto; }
+    .canvas-pane { display: none; height: 100%; }
+    .canvas-pane.is-active { display: flex; flex-direction: column; }
   </style>
 </head>
 <body>
   <div id="harness-root">
-    <div id="panel-canvas" class="panel">
-      <div id="canvas-header">
-        <span id="canvas-title">Canvas</span>
-        <span id="canvas-mode" class="badge">prompt</span>
-      </div>
-      <div id="canvas-content">
-        <div id="canvas-empty">No artifact.</div>
-        <div id="canvas-text" style="display:none"></div>
-        <div id="canvas-image" style="display:none"><img id="canvas-img" alt="artifact"></div>
-        <div id="canvas-pdf" style="display:none"></div>
-      </div>
+    <div id="canvas-tab-bar"></div>
+    <div id="canvas-viewport">
+      <section id="canvas-text" class="canvas-pane" style="display:none"></section>
+      <section id="canvas-image" class="canvas-pane" style="display:none"><img id="canvas-img" alt="artifact"></section>
+      <section id="canvas-pdf" class="canvas-pane" style="display:none"></section>
     </div>
   </div>
 
@@ -35,8 +31,6 @@
     <option value="comment_point">Point Comment</option>
   </select>
   <input id="canvas-mark-comment" type="text" style="display:none">
-  <button id="btn-canvas-commit" type="button" style="display:none">Commit</button>
-  <button id="btn-canvas-clear-draft" type="button" style="display:none">Clear Draft</button>
 
   <script type="module">
     window.__TABURA_UNDO_TIMEOUT_MS = 80;

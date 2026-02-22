@@ -154,14 +154,11 @@ const POINT_COMMENT_MARK_SIZE_PX = 16;
 const MATH_SEGMENT_TOKEN_PREFIX = '@@TABURA_MATH_SEGMENT_';
 
 function getEls() {
-  if (!els.empty) {
-    els.empty = document.getElementById('canvas-empty');
+  if (!els.text) {
     els.text = document.getElementById('canvas-text');
     els.image = document.getElementById('canvas-image');
     els.img = document.getElementById('canvas-img');
     els.pdf = document.getElementById('canvas-pdf');
-    els.title = document.getElementById('canvas-title');
-    els.mode = document.getElementById('canvas-mode');
     els.markType = document.getElementById('canvas-mark-type');
     els.markComment = document.getElementById('canvas-mark-comment');
   }
@@ -273,10 +270,13 @@ function typesetMarkdownMath(root, attempt = 0) {
 
 function hideAll() {
   const e = getEls();
-  e.empty.style.display = 'none';
-  e.text.style.display = 'none';
-  e.image.style.display = 'none';
-  e.pdf.style.display = 'none';
+  if (e.text) e.text.style.display = 'none';
+  if (e.image) e.image.style.display = 'none';
+  if (e.pdf) e.pdf.style.display = 'none';
+  // Remove is-active from artifact panes (chat pane managed by app.js)
+  if (e.text) e.text.classList.remove('is-active');
+  if (e.image) e.image.classList.remove('is-active');
+  if (e.pdf) e.pdf.classList.remove('is-active');
 }
 
 function ensureTextOverlay() {
@@ -1034,7 +1034,7 @@ async function commitCanvasDraft() {
 }
 
 function ensureUndoToast() {
-  const host = document.getElementById('canvas-content');
+  const host = document.getElementById('canvas-text');
   if (!host) return null;
   let toast = host.querySelector('.mail-undo-toast');
   if (!toast) {
@@ -4185,10 +4185,8 @@ export function renderCanvas(event) {
   if (event.kind === 'text_artifact') {
     hideAll();
     e.text.style.display = '';
+    e.text.classList.add('is-active');
     clearTextInteractionHandlers();
-    e.title.textContent = event.title || 'Text';
-    e.mode.textContent = 'review';
-    e.mode.className = 'badge review';
     activeTextEventId = event.event_id;
     activePdfEvent = null;
     clearOverlay();
@@ -4212,13 +4210,11 @@ export function renderCanvas(event) {
     clearTextInteractionHandlers();
     hideAll();
     e.image.style.display = '';
+    e.image.classList.add('is-active');
     const state = (window._taburaApp || {}).getState ? window._taburaApp.getState() : {};
     const sid = state.sessionId || '';
     e.img.src = `/api/files/${encodeURIComponent(sid)}/${encodeURIComponent(event.path)}`;
     e.img.alt = event.title || 'Image';
-    e.title.textContent = event.title || 'Image';
-    e.mode.textContent = 'review';
-    e.mode.className = 'badge review';
     activeTextEventId = null;
     activePdfEvent = null;
     draftMark = null;
@@ -4228,10 +4224,8 @@ export function renderCanvas(event) {
     clearTextInteractionHandlers();
     hideAll();
     e.pdf.style.display = '';
+    e.pdf.classList.add('is-active');
     void renderPdfSurface(event);
-    e.title.textContent = event.title || 'PDF';
-    e.mode.textContent = 'review';
-    e.mode.className = 'badge review';
     activeTextEventId = null;
     activePdfEvent = event;
     draftMark = null;
@@ -4245,13 +4239,8 @@ export function renderCanvas(event) {
 }
 
 export function clearCanvas() {
-  const e = getEls();
   clearTextInteractionHandlers();
   hideAll();
-  e.empty.style.display = '';
-  e.title.textContent = 'Canvas';
-  e.mode.textContent = 'prompt';
-  e.mode.className = 'badge';
   activeTextEventId = null;
   activePdfEvent = null;
   draftMark = null;
@@ -4261,91 +4250,6 @@ export function clearCanvas() {
 
 export function initCanvasControls() {
   const e = getEls();
-  const commitBtn = document.getElementById('btn-canvas-commit');
-  const clearBtn = document.getElementById('btn-canvas-clear-draft');
-  const runCommit = async () => {
-    if (!commitBtn) return;
-    if (commitBtn.dataset.busy === '1') return;
-    const originalText = commitBtn.textContent || 'Commit';
-    commitBtn.dataset.busy = '1';
-    commitBtn.disabled = true;
-    commitBtn.textContent = 'Committing...';
-    try {
-      await commitCanvasDraft();
-      commitBtn.textContent = 'Committed';
-    } catch (err) {
-      console.error('canvas commit failed:', err);
-      commitBtn.textContent = 'Commit failed';
-    } finally {
-      window.setTimeout(() => {
-        delete commitBtn.dataset.busy;
-        commitBtn.disabled = false;
-        commitBtn.textContent = originalText;
-      }, 900);
-    }
-  };
-
-  if (commitBtn) {
-    commitBtn.addEventListener('click', runCommit);
-
-	    if (!document.__taburaCommitShortcutHandler) {
-	      const shortcutHandler = (ev) => {
-	        const isCommitShortcut = ev.key === 'Enter' && !ev.shiftKey && !ev.altKey;
-	        if (!isCommitShortcut) return;
-
-	        const appState = window._taburaApp?.getState?.();
-	        if (appState?.activeTab && appState.activeTab !== 'canvas') {
-	          return;
-	        }
-
-	        if (document.querySelector('[data-review-popover="true"]')) {
-	          return;
-	        }
-	        const eventTarget = ev.target instanceof Element ? ev.target : null;
-	        if (eventTarget && eventTarget.closest('form, [role="dialog"], #project-overview')) {
-	          return;
-	        }
-	        const activeEl = document.activeElement;
-	        if (activeEl && activeEl.matches('input,textarea,select,[contenteditable="true"]')) {
-	          return;
-	        }
-	        if (activeEl instanceof Element && activeEl.closest('form, [role="dialog"], #project-overview')) {
-	          return;
-	        }
-	        if (activeEl && document.getElementById('terminal-container')?.contains(activeEl)) {
-	          return;
-	        }
-        const artifactID = activeArtifactIDForCommit();
-        if (!artifactID) return;
-
-        ev.preventDefault();
-        void runCommit();
-      };
-      document.addEventListener('keydown', shortcutHandler, true);
-      document.__taburaCommitShortcutHandler = shortcutHandler;
-    }
-  }
-
-  if (clearBtn) {
-    clearBtn.addEventListener('click', () => {
-      const { getState } = window._taburaApp || {};
-      if (!getState) return;
-      const state = getState();
-      if (!state.canvasWs || state.canvasWs.readyState !== WebSocket.OPEN) return;
-      const artifactID = activeArtifactIDForCommit();
-      state.canvasWs.send(JSON.stringify({
-        kind: 'mark_clear_draft',
-        session_id: state.sessionId,
-        artifact_id: artifactID,
-      }));
-      draftMark = null;
-      clearSubmittedDraftMarksForEvent(artifactID);
-      if (activePdfEvent && artifactID === activePdfEvent.event_id) {
-        clearPdfMarkers();
-      }
-      clearOverlay();
-    });
-  }
 
   if (e.markType) {
     e.markType.addEventListener('change', () => {

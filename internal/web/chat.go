@@ -301,43 +301,6 @@ func (a *App) executeChatCommand(sessionID, raw string) (map[string]interface{},
 			"mode":    updated.Mode,
 			"message": message,
 		}, nil
-	case "canvas", "review":
-		message := "Open canvas requested."
-		_, _ = a.store.AddChatMessage(sessionID, "system", message, message, "text")
-		a.broadcastChatEvent(sessionID, map[string]interface{}{
-			"type":    "action",
-			"action":  "open_canvas",
-			"message": message,
-		})
-		return map[string]interface{}{
-			"name":    name,
-			"action":  "open_canvas",
-			"message": message,
-		}, nil
-	case "chat":
-		message := "Open chat requested."
-		a.broadcastChatEvent(sessionID, map[string]interface{}{
-			"type":    "action",
-			"action":  "open_chat",
-			"message": message,
-		})
-		return map[string]interface{}{
-			"name":    name,
-			"action":  "open_chat",
-			"message": message,
-		}, nil
-	case "commit":
-		message := "Commit requested."
-		a.broadcastChatEvent(sessionID, map[string]interface{}{
-			"type":    "action",
-			"action":  "commit_canvas",
-			"message": message,
-		})
-		return map[string]interface{}{
-			"name":    name,
-			"action":  "commit_canvas",
-			"message": message,
-		}, nil
 	case "stop", "cancel":
 		activeCanceled, queuedCanceled := a.cancelChatWork(sessionID)
 		canceled := activeCanceled + queuedCanceled
@@ -483,6 +446,38 @@ func (a *App) runAssistantTurnQueue(sessionID string) {
 	}
 }
 
+func (a *App) getOrCreateAppSession(sessionID string, cwd string) (*appserver.Session, bool, error) {
+	a.mu.Lock()
+	s := a.chatAppSessions[sessionID]
+	a.mu.Unlock()
+	if s != nil && s.IsOpen() {
+		return s, true, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	s, err := a.appServerClient.OpenSession(ctx, cwd, a.appServerModel)
+	if err != nil {
+		return nil, false, err
+	}
+	a.mu.Lock()
+	if old := a.chatAppSessions[sessionID]; old != nil {
+		_ = old.Close()
+	}
+	a.chatAppSessions[sessionID] = s
+	a.mu.Unlock()
+	return s, false, nil
+}
+
+func (a *App) closeAppSession(sessionID string) {
+	a.mu.Lock()
+	s := a.chatAppSessions[sessionID]
+	delete(a.chatAppSessions, sessionID)
+	a.mu.Unlock()
+	if s != nil {
+		_ = s.Close()
+	}
+}
+
 func (a *App) runAssistantTurn(sessionID string) {
 	session, err := a.store.GetChatSession(sessionID)
 	if err != nil {
@@ -494,16 +489,218 @@ func (a *App) runAssistantTurn(sessionID string) {
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": err.Error()})
 		return
 	}
-	canvasCtx := a.resolveCanvasContext(session.ProjectKey)
-	prompt := buildPromptFromHistory(session.Mode, messages, canvasCtx)
-	if strings.TrimSpace(prompt) == "" {
-		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
-		return
-	}
 	if a.appServerClient == nil {
 		errText := "app-server is not configured"
 		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": errText})
+		return
+	}
+
+	cwd := a.cwdForProjectKey(session.ProjectKey)
+	appSess, resumed, sessErr := a.getOrCreateAppSession(sessionID, cwd)
+	if sessErr != nil {
+		// Fall back to single-shot mode.
+		a.runAssistantTurnLegacy(sessionID, session, messages)
+		return
+	}
+
+	canvasCtx := a.resolveCanvasContext(session.ProjectKey)
+	var prompt string
+	if resumed {
+		prompt = buildTurnPrompt(messages, canvasCtx)
+	} else {
+		prompt = buildPromptFromHistory(session.Mode, messages, canvasCtx)
+		_ = a.store.UpdateChatSessionThread(sessionID, appSess.ThreadID())
+	}
+	if strings.TrimSpace(prompt) == "" {
+		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), assistantTurnTimeout)
+	runID := randomToken()
+	a.registerActiveChatTurn(sessionID, runID, cancel)
+	defer func() {
+		cancel()
+		a.unregisterActiveChatTurn(sessionID, runID)
+	}()
+
+	latestMessage := ""
+	latestTurnID := ""
+	persistedAssistantID := int64(0)
+	persistedAssistantText := ""
+	persistWriteFailed := false
+	persistAssistantSnapshot := func(text string) {
+		candidate := strings.TrimSpace(text)
+		if candidate == "" {
+			return
+		}
+		if persistedAssistantID == 0 {
+			storedAssistant, storeErr := a.store.AddChatMessage(sessionID, "assistant", candidate, candidate, "markdown")
+			if storeErr != nil {
+				if !persistWriteFailed {
+					persistWriteFailed = true
+					a.broadcastChatEvent(sessionID, map[string]interface{}{
+						"type":  "error",
+						"error": storeErr.Error(),
+					})
+				}
+				return
+			}
+			persistedAssistantID = storedAssistant.ID
+			persistedAssistantText = candidate
+			return
+		}
+		if candidate == persistedAssistantText {
+			return
+		}
+		if storeErr := a.store.UpdateChatMessageContent(persistedAssistantID, candidate, candidate, "markdown"); storeErr != nil {
+			if !persistWriteFailed {
+				persistWriteFailed = true
+				a.broadcastChatEvent(sessionID, map[string]interface{}{
+					"type":  "error",
+					"error": storeErr.Error(),
+				})
+			}
+			return
+		}
+		persistedAssistantText = candidate
+	}
+
+	appResp, err := appSess.SendTurn(ctx, prompt, "", func(ev appserver.StreamEvent) {
+		payload := map[string]interface{}{
+			"type":      ev.Type,
+			"thread_id": ev.ThreadID,
+			"turn_id":   ev.TurnID,
+		}
+		shouldBroadcast := true
+		switch ev.Type {
+		case "thread_started":
+			// Thread ID already stored on session open.
+		case "turn_started":
+			if strings.TrimSpace(ev.TurnID) != "" {
+				latestTurnID = ev.TurnID
+			}
+		case "assistant_message":
+			latestMessage = ev.Message
+			latestTurnID = ev.TurnID
+			persistAssistantSnapshot(ev.Message)
+			payload["message"] = ev.Message
+			payload["delta"] = ev.Delta
+		case "turn_completed":
+			if strings.TrimSpace(ev.Message) != "" {
+				latestMessage = ev.Message
+			}
+			latestTurnID = ev.TurnID
+			persistAssistantSnapshot(latestMessage)
+			payload["message"] = latestMessage
+		case "context_usage":
+			payload["context_used"] = ev.ContextUsed
+			payload["context_max"] = ev.ContextMax
+		case "context_compact":
+			// pass through to frontend
+		case "error":
+			if strings.TrimSpace(ev.TurnID) != "" {
+				latestTurnID = ev.TurnID
+			}
+			shouldBroadcast = false
+		}
+		if shouldBroadcast {
+			a.broadcastChatEvent(sessionID, payload)
+		}
+	})
+	if err != nil {
+		a.closeAppSession(sessionID)
+		if errors.Is(err, context.Canceled) {
+			a.broadcastChatEvent(sessionID, map[string]interface{}{
+				"type":    "turn_cancelled",
+				"turn_id": latestTurnID,
+			})
+			return
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			errText := "assistant request timed out"
+			_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
+			payload := map[string]interface{}{
+				"type":  "error",
+				"error": errText,
+			}
+			if strings.TrimSpace(latestTurnID) != "" {
+				payload["turn_id"] = latestTurnID
+			}
+			a.broadcastChatEvent(sessionID, payload)
+			return
+		}
+		errText := normalizeAssistantError(err)
+		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
+		payload := map[string]interface{}{
+			"type":  "error",
+			"error": errText,
+		}
+		if strings.TrimSpace(latestTurnID) != "" {
+			payload["turn_id"] = latestTurnID
+		}
+		a.broadcastChatEvent(sessionID, payload)
+		return
+	}
+
+	assistantText := strings.TrimSpace(appResp.Message)
+	if assistantText == "" {
+		assistantText = strings.TrimSpace(latestMessage)
+	}
+	if assistantText == "" {
+		assistantText = "(assistant returned no content)"
+	}
+
+	if actions, cleaned := parseCanvasActions(assistantText); len(actions) > 0 {
+		canvasSessionID := a.resolveCanvasSessionID(session.ProjectKey)
+		if canvasSessionID != "" {
+			a.executeCanvasActions(canvasSessionID, actions)
+		}
+		assistantText = cleaned
+	}
+
+	if persistedAssistantID == 0 {
+		storedAssistant, storeErr := a.store.AddChatMessage(sessionID, "assistant", assistantText, assistantText, "markdown")
+		if storeErr != nil {
+			a.broadcastChatEvent(sessionID, map[string]interface{}{
+				"type":  "error",
+				"error": storeErr.Error(),
+			})
+			return
+		}
+		persistedAssistantID = storedAssistant.ID
+		persistedAssistantText = assistantText
+	} else if assistantText != persistedAssistantText {
+		if storeErr := a.store.UpdateChatMessageContent(persistedAssistantID, assistantText, assistantText, "markdown"); storeErr != nil {
+			a.broadcastChatEvent(sessionID, map[string]interface{}{
+				"type":  "error",
+				"error": storeErr.Error(),
+			})
+			return
+		}
+	}
+	turnID := strings.TrimSpace(appResp.TurnID)
+	if turnID == "" {
+		turnID = latestTurnID
+	}
+	a.broadcastChatEvent(sessionID, map[string]interface{}{
+		"type":      "message_persisted",
+		"role":      "assistant",
+		"id":        persistedAssistantID,
+		"turn_id":   turnID,
+		"thread_id": appResp.ThreadID,
+		"message":   assistantText,
+	})
+}
+
+// runAssistantTurnLegacy is the single-shot fallback when persistent session
+// fails to connect. Each call creates a new WS + thread.
+func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession, messages []store.ChatMessage) {
+	canvasCtx := a.resolveCanvasContext(session.ProjectKey)
+	prompt := buildPromptFromHistory(session.Mode, messages, canvasCtx)
+	if strings.TrimSpace(prompt) == "" {
+		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
 		return
 	}
 
@@ -595,8 +792,6 @@ func (a *App) runAssistantTurn(sessionID string) {
 			if strings.TrimSpace(ev.TurnID) != "" {
 				latestTurnID = ev.TurnID
 			}
-			// Stream-level errors are normalized and emitted by the final error path
-			// below so the UI receives one clean terminal error event.
 			shouldBroadcast = false
 		}
 		if shouldBroadcast {
@@ -609,19 +804,6 @@ func (a *App) runAssistantTurn(sessionID string) {
 				"type":    "turn_cancelled",
 				"turn_id": latestTurnID,
 			})
-			return
-		}
-		if errors.Is(err, context.DeadlineExceeded) {
-			errText := "assistant request timed out"
-			_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
-			payload := map[string]interface{}{
-				"type":  "error",
-				"error": errText,
-			}
-			if strings.TrimSpace(latestTurnID) != "" {
-				payload["turn_id"] = latestTurnID
-			}
-			a.broadcastChatEvent(sessionID, payload)
 			return
 		}
 		errText := normalizeAssistantError(err)
@@ -645,7 +827,6 @@ func (a *App) runAssistantTurn(sessionID string) {
 		assistantText = "(assistant returned no content)"
 	}
 
-	// Process canvas action markers: push content to canvas and strip markers from chat text.
 	if actions, cleaned := parseCanvasActions(assistantText); len(actions) > 0 {
 		canvasSessionID := a.resolveCanvasSessionID(session.ProjectKey)
 		if canvasSessionID != "" {
@@ -664,15 +845,8 @@ func (a *App) runAssistantTurn(sessionID string) {
 			return
 		}
 		persistedAssistantID = storedAssistant.ID
-		persistedAssistantText = assistantText
 	} else if assistantText != persistedAssistantText {
-		if storeErr := a.store.UpdateChatMessageContent(persistedAssistantID, assistantText, assistantText, "markdown"); storeErr != nil {
-			a.broadcastChatEvent(sessionID, map[string]interface{}{
-				"type":  "error",
-				"error": storeErr.Error(),
-			})
-			return
-		}
+		_ = a.store.UpdateChatMessageContent(persistedAssistantID, assistantText, assistantText, "markdown")
 	}
 	turnID := strings.TrimSpace(appResp.TurnID)
 	if turnID == "" {
@@ -786,20 +960,20 @@ func buildPromptFromHistory(mode string, messages []store.ChatMessage, canvas *c
 	}
 	var b strings.Builder
 
-	b.WriteString("You are Tabura, an AI assistant with access to a canvas for showing artifacts.\n\n")
+	b.WriteString("You are Tabura, an AI assistant. Chat is the default tab; artifacts appear as additional tabs.\n\n")
 	b.WriteString("## Available Actions\n")
 	b.WriteString("When appropriate, include these action markers in your response:\n\n")
-	b.WriteString("- To show text/markdown on canvas: wrap content in :::canvas_show{title=\"Title\"}...:::\n")
-	b.WriteString("- To show code on canvas: wrap in :::canvas_show{title=\"file.go\" kind=\"code\"}...:::\n")
+	b.WriteString("- To show text/markdown as an artifact tab: wrap content in :::canvas_show{title=\"Title\"}...:::\n")
+	b.WriteString("- To show code as an artifact tab: wrap in :::canvas_show{title=\"file.go\" kind=\"code\"}...:::\n")
 	b.WriteString("- When asked to apply review comments, output the full revised document wrapped in canvas_show markers.\n\n")
 	b.WriteString("## Guidelines\n")
-	b.WriteString("- Use canvas_show for any substantial content (documents, code, analysis) so the user can review it visually.\n")
+	b.WriteString("- Use canvas_show for any substantial content (documents, code, analysis) so the user can review it in an artifact tab.\n")
 	b.WriteString("- For short answers or conversational replies, respond normally without canvas markers.\n")
 	b.WriteString("- When applying review comments from a commit, output the complete revised artifact.\n\n")
 
 	if canvas != nil && canvas.HasArtifact {
-		b.WriteString("## Current Canvas State\n")
-		fmt.Fprintf(&b, "- Active artifact: %q (kind: %s)\n\n", canvas.ArtifactTitle, canvas.ArtifactKind)
+		b.WriteString("## Current Artifact\n")
+		fmt.Fprintf(&b, "- Active artifact tab: %q (kind: %s)\n\n", canvas.ArtifactTitle, canvas.ArtifactKind)
 	}
 
 	if strings.EqualFold(strings.TrimSpace(mode), "plan") {
@@ -825,6 +999,30 @@ func buildPromptFromHistory(mode string, messages []store.ChatMessage, canvas *c
 		b.WriteString("\n\n")
 	}
 	b.WriteString("Reply as ASSISTANT.")
+	return b.String()
+}
+
+// buildTurnPrompt constructs a prompt for a resumed thread: only the latest
+// user message plus optional canvas context update.
+func buildTurnPrompt(messages []store.ChatMessage, canvas *canvasContext) string {
+	var lastUserMsg string
+	for i := len(messages) - 1; i >= 0; i-- {
+		if strings.EqualFold(strings.TrimSpace(messages[i].Role), "user") {
+			lastUserMsg = strings.TrimSpace(messages[i].ContentPlain)
+			if lastUserMsg == "" {
+				lastUserMsg = strings.TrimSpace(messages[i].ContentMarkdown)
+			}
+			break
+		}
+	}
+	if lastUserMsg == "" {
+		return ""
+	}
+	var b strings.Builder
+	if canvas != nil && canvas.HasArtifact {
+		fmt.Fprintf(&b, "[Active artifact tab: %q (kind: %s)]\n\n", canvas.ArtifactTitle, canvas.ArtifactKind)
+	}
+	b.WriteString(lastUserMsg)
 	return b.String()
 }
 

@@ -35,12 +35,14 @@ type PromptResponse struct {
 }
 
 type StreamEvent struct {
-	Type     string
-	ThreadID string
-	TurnID   string
-	Message  string
-	Delta    string
-	Error    string
+	Type        string
+	ThreadID    string
+	TurnID      string
+	Message     string
+	Delta       string
+	Error       string
+	ContextUsed int64
+	ContextMax  int64
 }
 
 func NewClient(rawURL string) (*Client, error) {

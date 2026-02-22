@@ -76,7 +76,7 @@ Install/restart scripts were updated so app-server is started and restarted with
 
 ## Current Tabura Behavior
 
-1. Chat tab is the default shell and persists per-project message history.
+1. Chat is the default pane and persists per-project message history.
 2. Assistant responses stream to browser chat and render Markdown + LaTeX.
-3. Canvas tab stays manual-switch (no forced auto-switch on new artifacts).
+3. Artifacts open as new tabs in the canvas tab bar.
 4. Commit triggers backend aggregation of persistent comments and app-server rewrite/review output.

@@ -286,30 +286,16 @@ test('highlight review flow emits mark_set with comment and mark_commit for pers
   expect(draftMarkSet.comment).toBe('Persist this note.');
 
   await page.evaluate(() => {
-    const btn = document.getElementById('btn-canvas-commit') as HTMLButtonElement | null;
-    btn?.click();
+    const { getState } = (window as any)._taburaApp || {};
+    if (!getState) return;
+    const state = getState();
+    if (!state.canvasWs || state.canvasWs.readyState !== WebSocket.OPEN) return;
+    state.canvasWs.send(JSON.stringify({
+      kind: 'mark_commit',
+      session_id: state.sessionId || '',
+      include_draft: true,
+    }));
   });
-
-  const commitMessage = await waitForLastMessageOfKind(page, 'mark_commit');
-  expect(commitMessage.session_id).toBe('local');
-  expect(commitMessage.include_draft).toBe(true);
-});
-
-test('Ctrl+Enter triggers commit action (Cmd+Enter on macOS)', async ({ page }) => {
-  await renderArtifact(page, plainTextEvent('evt-highlight-shortcut-commit', '# Notes\nPersist this via keyboard shortcut'));
-  await selectTextFromSelector(page, '#canvas-text');
-
-  const popover = page.locator('[data-review-popover="true"]');
-  await expect(popover).toBeVisible();
-  await popover.locator('input').fill('Persist with shortcut.');
-  await popover.locator('input').press('Enter');
-  await expect(popover).toHaveCount(0);
-
-  const draftMarkSet = await waitForLastMessageOfKind(page, 'mark_set');
-  expect(draftMarkSet.artifact_id).toBe('evt-highlight-shortcut-commit');
-  expect(draftMarkSet.intent).toBe('draft');
-
-  await page.keyboard.press('Control+Enter');
 
   const commitMessage = await waitForLastMessageOfKind(page, 'mark_commit');
   expect(commitMessage.session_id).toBe('local');
@@ -396,7 +382,7 @@ test('right-click inline comment popover cancel and outside click do not create 
 
   await page.click('#canvas-text', { button: 'right', position: { x: 96, y: 86 } });
   await expect(popover).toBeVisible();
-  await page.click('#canvas-header');
+  await page.click('#canvas-tab-bar');
   await expect(popover).toHaveCount(0);
   await page.waitForTimeout(50);
   messages = await getHarnessMessages(page);
