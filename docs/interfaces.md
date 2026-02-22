@@ -48,7 +48,6 @@ Mail interaction endpoints:
 - `POST /api/mail/draft-reply`
 - `POST /api/mail/draft-intent`
 - `POST /api/mail/stt`
-- `POST /api/stt/push-to-prompt`
 
 Websocket routes:
 - `GET /ws/chat/{session_id}`

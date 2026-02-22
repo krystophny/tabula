@@ -104,7 +104,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL string, devRuntime 
 		noAuth:           noAuth,
 		store:            s,
 		appServerClient:  appServerClient,
-		upgrader:         websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }},
+		upgrader:         websocket.Upgrader{CheckOrigin: checkWSOrigin},
 		canvasWS:         map[string]map[*websocket.Conn]struct{}{},
 		chatWS:           map[string]map[*chatWSConn]struct{}{},
 		chatTurnCancel:   map[string]map[string]context.CancelFunc{},
@@ -222,7 +222,18 @@ func staticSubFS() fs.FS {
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'")
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; "+
+				"script-src 'self'; "+
+				"style-src 'self' 'unsafe-inline'; "+
+				"img-src 'self' data:; "+
+				"connect-src 'self' ws: wss:; "+
+				"frame-ancestors 'none'; "+
+				"base-uri 'none'; "+
+				"form-action 'self'")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), geolocation=()")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -254,7 +265,7 @@ func (a *App) serveCanvas(w http.ResponseWriter, r *http.Request) {
 
 func decodeJSON(r *http.Request, out interface{}) error {
 	defer r.Body.Close()
-	return json.NewDecoder(r.Body).Decode(out)
+	return json.NewDecoder(io.LimitReader(r.Body, 16*1024*1024)).Decode(out)
 }
 
 func writeJSON(w http.ResponseWriter, payload interface{}) {
@@ -1365,6 +1376,29 @@ func normalizeProducerMCPURL(raw string) (string, error) {
 		return "", fmt.Errorf("producer_mcp_url must not include query or fragment")
 	}
 	return u.String(), nil
+}
+
+func checkWSOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if host == "" {
+		return true
+	}
+	requestHost := r.Host
+	if i := strings.LastIndex(requestHost, ":"); i >= 0 {
+		requestHost = requestHost[:i]
+	}
+	if strings.EqualFold(host, requestHost) {
+		return true
+	}
+	return isLoopbackHost(host)
 }
 
 func isLoopbackHost(host string) bool {

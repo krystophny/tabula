@@ -473,7 +473,7 @@ async function beginChatVoiceCapture(opts) {
     mediaRecorder: null,
   };
   state.chatVoiceCapture = capture;
-  showStatus('push-to-prompt recording...');
+  showStatus('recording...');
   try {
     const stream = await acquireMicStream();
     if (state.chatVoiceCapture !== capture) return;
@@ -494,8 +494,8 @@ async function beginChatVoiceCapture(opts) {
     }
   } catch (err) {
     setSendButtonRecording(false);
-    const message = String(err?.message || err || 'push-to-prompt failed');
-    showStatus(`push-to-prompt failed: ${message}`);
+    const message = String(err?.message || err || 'voice capture failed');
+    showStatus(`voice capture failed: ${message}`);
     sttCancel();
     stopChatVoiceMedia(capture);
     if (state.chatVoiceCapture === capture) {
@@ -532,8 +532,8 @@ async function stopChatVoiceCaptureAndApply() {
     focusChatInput({ placeCursorAtEnd: true });
     showStatus('dictation ready (press Enter to send)');
   } catch (err) {
-    const message = String(err?.message || err || 'push-to-prompt failed');
-    showStatus(`push-to-prompt failed: ${message}`);
+    const message = String(err?.message || err || 'voice capture failed');
+    showStatus(`voice capture failed: ${message}`);
   } finally {
     setSendButtonRecording(false);
     if (!remoteStopped) {
