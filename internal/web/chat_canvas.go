@@ -1,11 +1,13 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 type canvasAction struct {
@@ -103,58 +105,128 @@ func resolveArtifactFilePath(cwd, title string) string {
 	return abs
 }
 
-// refreshCanvasFromDisk checks whether the active canvas artifact corresponds
-// to a file on disk and pushes updated content via MCP if the file has changed.
-func (a *App) refreshCanvasFromDisk(projectKey string) {
+// canvasFileTarget holds the resolved file-to-canvas binding for refresh.
+type canvasFileTarget struct {
+	sessionID string
+	port      int
+	title     string
+	filePath  string
+}
+
+// resolveCanvasFileTarget resolves the active canvas artifact to a disk file.
+// Returns nil if the artifact is not a text file or the title doesn't map to
+// an existing file on disk.
+func (a *App) resolveCanvasFileTarget(projectKey string) *canvasFileTarget {
 	key := strings.TrimSpace(projectKey)
 	if key == "" {
-		return
+		return nil
 	}
 	project, err := a.store.GetProjectByProjectKey(key)
 	if err != nil {
-		return
+		return nil
 	}
 	sid := a.canvasSessionIDForProject(project)
 	a.mu.Lock()
 	port, ok := a.tunnelPorts[sid]
 	a.mu.Unlock()
 	if !ok {
-		return
+		return nil
 	}
 	status, err := a.mcpToolsCall(port, "canvas_status", map[string]interface{}{"session_id": sid})
 	if err != nil {
-		return
+		return nil
 	}
 	active, _ := status["active_artifact"].(map[string]interface{})
 	if active == nil {
-		return
+		return nil
 	}
 	kind := strings.TrimSpace(fmt.Sprint(active["kind"]))
 	if kind != "text_artifact" && kind != "text" {
-		return
+		return nil
 	}
 	title := strings.TrimSpace(fmt.Sprint(active["title"]))
 	if title == "" || title == "<nil>" {
-		return
+		return nil
 	}
 	cwd := a.cwdForProjectKey(key)
 	filePath := resolveArtifactFilePath(cwd, title)
 	if filePath == "" {
-		return
+		return nil
 	}
-	diskBytes, err := os.ReadFile(filePath)
+	return &canvasFileTarget{sessionID: sid, port: port, title: title, filePath: filePath}
+}
+
+// refreshCanvasFromDisk does a single check: reads the file, compares with
+// the canvas text, and pushes if different. Returns true if an update was pushed.
+func (a *App) refreshCanvasFromDisk(projectKey string) bool {
+	t := a.resolveCanvasFileTarget(projectKey)
+	if t == nil {
+		return false
+	}
+	return a.pushCanvasFileIfChanged(t)
+}
+
+func (a *App) pushCanvasFileIfChanged(t *canvasFileTarget) bool {
+	diskBytes, err := os.ReadFile(t.filePath)
 	if err != nil {
-		return
+		return false
 	}
 	diskContent := string(diskBytes)
+	status, err := a.mcpToolsCall(t.port, "canvas_status", map[string]interface{}{"session_id": t.sessionID})
+	if err != nil {
+		return false
+	}
+	active, _ := status["active_artifact"].(map[string]interface{})
+	if active == nil {
+		return false
+	}
 	currentText, _ := active["text"].(string)
 	if strings.TrimSpace(diskContent) == strings.TrimSpace(currentText) {
-		return
+		return false
 	}
-	_, _ = a.mcpToolsCall(port, "canvas_artifact_show", map[string]interface{}{
-		"session_id":       sid,
+	_, _ = a.mcpToolsCall(t.port, "canvas_artifact_show", map[string]interface{}{
+		"session_id":       t.sessionID,
 		"kind":             "text",
-		"title":            title,
+		"title":            t.title,
 		"markdown_or_text": diskContent,
 	})
+	return true
+}
+
+// pollCanvasFileRefresh polls the disk file backing the active canvas artifact
+// every 500ms until ctx is cancelled. Intended to run in a goroutine for the
+// duration of an assistant turn.
+func (a *App) pollCanvasFileRefresh(ctx context.Context, projectKey string) {
+	t := a.resolveCanvasFileTarget(projectKey)
+	if t == nil {
+		return
+	}
+	lastContent := ""
+	if b, err := os.ReadFile(t.filePath); err == nil {
+		lastContent = string(b)
+	}
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			b, err := os.ReadFile(t.filePath)
+			if err != nil {
+				continue
+			}
+			content := string(b)
+			if content == lastContent {
+				continue
+			}
+			lastContent = content
+			_, _ = a.mcpToolsCall(t.port, "canvas_artifact_show", map[string]interface{}{
+				"session_id":       t.sessionID,
+				"kind":             "text",
+				"title":            t.title,
+				"markdown_or_text": content,
+			})
+		}
+	}
 }

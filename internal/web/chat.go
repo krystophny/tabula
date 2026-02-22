@@ -556,6 +556,8 @@ func (a *App) runAssistantTurn(sessionID string) {
 		a.unregisterActiveChatTurn(sessionID, runID)
 	}()
 
+	go a.pollCanvasFileRefresh(ctx, session.ProjectKey)
+
 	latestMessage := ""
 	latestTurnID := ""
 	persistedAssistantID := int64(0)
@@ -629,9 +631,6 @@ func (a *App) runAssistantTurn(sessionID string) {
 		case "context_usage":
 			payload["context_used"] = ev.ContextUsed
 			payload["context_max"] = ev.ContextMax
-		case "item_completed":
-			go a.refreshCanvasFromDisk(session.ProjectKey)
-			shouldBroadcast = false
 		case "context_compact":
 			// pass through to frontend
 		case "error":
@@ -748,6 +747,8 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 		cancel()
 		a.unregisterActiveChatTurn(sessionID, runID)
 	}()
+
+	go a.pollCanvasFileRefresh(ctx, session.ProjectKey)
 
 	latestMessage := ""
 	latestTurnID := ""
