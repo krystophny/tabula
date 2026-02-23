@@ -4,6 +4,11 @@ Tabura is a Go monolithic web runtime with a split listener model:
 - public web/UI listener
 - local-only MCP listener
 
+Runtime stack:
+- `tabura-web.service` runs the Go monolith (`tabura server`)
+- `tabura-codex-app-server.service` runs Codex app-server
+- `tabura-piper-tts.service` runs Piper TTS API on loopback
+
 ## Components
 
 - `cmd/tabura/main.go`
@@ -25,6 +30,12 @@ Tabura is a Go monolithic web runtime with a split listener model:
 
 - `tabura mcp-server`: stdio MCP runtime
 - `tabura server`: monolithic runtime (web + local MCP listeners)
+
+## Local Sidecars
+
+- Codex app-server remains a separate local service and is consumed over `ws://127.0.0.1:8787`.
+- Piper TTS remains a separate local HTTP service on `http://127.0.0.1:8424`.
+- Piper is intentionally not linked into the Go binary (`libpiper`) to avoid GPL-linked distribution coupling.
 
 ## UI Layout (Zen Canvas)
 

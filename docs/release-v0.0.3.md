@@ -1,5 +1,7 @@
 # Release v0.0.3
 
+> Historical note: This file documents a past release. For the current runtime stack, use README.md and docs/architecture.md.
+
 ## Scope
 
 `v0.0.3` consolidates protocol publication into Tabura while keeping the object-scoped UI paradigm as the primary project framing.

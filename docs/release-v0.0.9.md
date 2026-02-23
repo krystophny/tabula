@@ -1,5 +1,7 @@
 # Release v0.0.9
 
+> Historical note: This file documents a past release. For the current runtime stack, use README.md and docs/architecture.md.
+
 ## Scope
 
 `v0.0.9` stabilizes the chat/canvas pipeline around a single file-backed canvas model, improves delegated Codex job lifecycle handling, and hardens runtime/CI reliability for this experimental phase.

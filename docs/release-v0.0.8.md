@@ -1,5 +1,7 @@
 # Release v0.0.8
 
+> Historical note: This file documents a past release. For the current runtime stack, use README.md and docs/architecture.md.
+
 ## Scope
 
 `v0.0.8` replaces the two-column layout with a zen canvas: a full-viewport surface with no visible chrome. Chat is invisible, responses stream as ephemeral overlays, and all interaction happens through tap, voice, and keyboard on a blank canvas or artifact.

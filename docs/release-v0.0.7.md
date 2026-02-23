@@ -1,5 +1,7 @@
 # Release v0.0.7
 
+> Historical note: This file documents a past release. For the current runtime stack, use README.md and docs/architecture.md.
+
 ## Scope
 
 `v0.0.7` introduces a two-column canvas layout, tap-to-reference artifact interaction, and live canvas auto-refresh via fsnotify when the agent edits files on disk.

@@ -1,5 +1,7 @@
 # Release v0.0.6
 
+> Historical note: This file documents a past release. For the current runtime stack, use README.md and docs/architecture.md.
+
 ## Scope
 
 `v0.0.6` adds multi-model chat architecture with `gpt-5.3-codex-spark` as the fast default, canvas-aware system prompts, and fixes iOS mic battery drain.
