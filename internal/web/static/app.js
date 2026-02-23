@@ -63,10 +63,16 @@ const ASSISTANT_ACTIVITY_POLL_MS = 1200;
 let localMessageSeq = 0;
 const CHAT_CTRL_LONG_PRESS_MS = 180;
 const CHAT_SEND_HOLD_MS = 300;
-const VOICE_EOU_AUTO_SEND_ENABLED = true;
+// Frontend end-of-utterance policy:
+// - start/end speech from local mic energy
+// - auto-stop after sustained silence (~700ms)
+// - no-speech timeout + hard max to avoid hanging capture
+const VOICE_EOU_AUTO_SEND_DEFAULT = true;
+const VOICE_EOU_AUTO_SEND_STORAGE_KEY = 'tabura.voiceEouAutoSend';
+const VOICE_EOU_AUTO_SEND_QUERY_PARAM = 'voice_eou_auto_send';
 const VOICE_EOU_MIN_UTTERANCE_MS = 300;
 const VOICE_EOU_EOS_SILENCE_MS = 700;
-const VOICE_EOU_NO_SPEECH_MS = 2000;
+const VOICE_EOU_NO_SPEECH_MS = 2800;
 const VOICE_EOU_MAX_RECORDING_MS = 20000;
 const VOICE_EOU_FRAME_MS = 40;
 const VOICE_EOU_NOISE_FLOOR_SAMPLES = 8;
@@ -569,6 +575,28 @@ function releaseMicStream() {
   _cachedMicStream = null;
 }
 
+function parseOptionalBoolean(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === '1' || normalized === 'true' || normalized === 'on' || normalized === 'yes') return true;
+  if (normalized === '0' || normalized === 'false' || normalized === 'off' || normalized === 'no') return false;
+  return null;
+}
+
+function isVoiceEOUAutoSendEnabled() {
+  try {
+    const queryValue = new URL(window.location.href).searchParams.get(VOICE_EOU_AUTO_SEND_QUERY_PARAM);
+    const queryFlag = parseOptionalBoolean(queryValue);
+    if (queryFlag !== null) return queryFlag;
+  } catch (_) {}
+  try {
+    const storedValue = window.localStorage.getItem(VOICE_EOU_AUTO_SEND_STORAGE_KEY);
+    const storedFlag = parseOptionalBoolean(storedValue);
+    if (storedFlag !== null) return storedFlag;
+  } catch (_) {}
+  return VOICE_EOU_AUTO_SEND_DEFAULT;
+}
+
 let _sttResolve = null;
 let _sttReject = null;
 let _sttActive = false;
@@ -677,7 +705,7 @@ function computeDecibelFromTimeDomain(data) {
 }
 
 function startVADMonitor(capture) {
-  if (!VOICE_EOU_AUTO_SEND_ENABLED) return;
+  if (!isVoiceEOUAutoSendEnabled()) return;
   if (!capture || capture.vadState) return;
   if (!capture.mediaStream) return;
   if (!ttsAudioCtx || typeof ttsAudioCtx.createAnalyser !== 'function' || typeof ttsAudioCtx.createMediaStreamSource !== 'function') return;
@@ -748,7 +776,7 @@ function startVADMonitor(capture) {
       if (!options.hasSpeech) {
         if (elapsed >= VOICE_EOU_NO_SPEECH_MS) {
           stopVADMonitor(capture);
-          cancelChatVoiceCapture();
+          void stopZenVoiceCaptureAndSend();
           return;
         }
       } else {

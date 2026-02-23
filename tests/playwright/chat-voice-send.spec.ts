@@ -60,6 +60,29 @@ test('click on canvas starts voice recording', async ({ page }) => {
   expect(sttActions).toContain('stop');
 });
 
+test('silence auto-stop sends transcript without manual stop click', async ({ page }) => {
+  await clearLog(page);
+  await page.evaluate(() => {
+    (window as any).__setVadDbFrames([
+      -80, -80, -80, -80, -80, -80, -80, -80,
+      -12, -12, -12, -12, -12, -12, -12, -12, -12, -12,
+      -80, -80, -80, -80, -80, -80, -80, -80, -80, -80,
+      -80, -80, -80, -80, -80, -80, -80, -80, -80, -80,
+    ]);
+  });
+
+  await page.mouse.click(400, 400);
+  await waitForLogEntry(page, 'recorder', 'start');
+  await waitForSTTAction(page, 'stop');
+  await page.waitForTimeout(200);
+
+  const log = await getLog(page);
+  const sent = log.find(e => e.type === 'message_sent');
+  expect(sent).toBeTruthy();
+  expect(sent!.text).toBe('hello world');
+  expect(log.some(e => e.type === 'stt' && e.action === 'cancel')).toBe(false);
+});
+
 test('Control long-press starts voice recording (desktop PTT)', async ({ page }) => {
   await clearLog(page);
 

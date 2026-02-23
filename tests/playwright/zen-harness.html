@@ -185,14 +185,55 @@
     }
     window.WebSocket = MockWebSocket;
 
-    // Mock AudioContext for TTS playback
+    // Mock AudioContext for TTS playback and VAD analyser input.
+    function fillTimeDomainForDb(target, db) {
+      if (!(target instanceof Uint8Array)) return;
+      const clampedDb = Number.isFinite(db) ? db : -20;
+      if (clampedDb <= -95) {
+        target.fill(128);
+        return;
+      }
+      const amplitude = Math.max(1, Math.min(127, Math.round(128 * Math.pow(10, clampedDb / 20))));
+      for (let i = 0; i < target.length; i += 1) {
+        target[i] = (i % 2 === 0) ? 128 + amplitude : 128 - amplitude;
+      }
+    }
+    window.__setVadDbFrames = (frames) => {
+      window.__vadDbFrames = Array.isArray(frames) ? frames.slice() : [];
+    };
+    window.__setVadDbFrames([]);
+
     const MockAudioContext = class {
       constructor() {
         this.currentTime = 0;
         this.destination = {};
+        this.state = 'running';
+      }
+      async resume() {
+        this.state = 'running';
       }
       async decodeAudioData(buf) {
         return { duration: 0.1, length: 4410, sampleRate: 44100, numberOfChannels: 1 };
+      }
+      createMediaStreamSource() {
+        return {
+          connect() {},
+          disconnect() {},
+        };
+      }
+      createAnalyser() {
+        return {
+          fftSize: 1024,
+          smoothingTimeConstant: 0,
+          frequencyBinCount: 512,
+          connect() {},
+          disconnect() {},
+          getByteTimeDomainData(target) {
+            const script = Array.isArray(window.__vadDbFrames) ? window.__vadDbFrames : [];
+            const nextDb = script.length > 0 ? Number(script.shift()) : -20;
+            fillTimeDomainForDb(target, nextDb);
+          },
+        };
       }
       createBufferSource() {
         const node = {
