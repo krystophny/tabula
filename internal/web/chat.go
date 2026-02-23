@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"unicode/utf8"
 	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
@@ -26,13 +26,13 @@ const (
 )
 
 const (
-	assistantLongResponseRuneThreshold   = 1400
-	assistantListLineThreshold          = 3
-	assistantListDensityThreshold       = 40
+	assistantLongResponseRuneThreshold = 1400
+	assistantListLineThreshold         = 3
+	assistantListDensityThreshold      = 40
 )
 
 var assistantListLineRe = regexp.MustCompile(`(?m)^\s*(?:[-*+]\s+|\d+[.)]\s+)`)
-var codeFenceRe = regexp.MustCompile(`(?s)```[\s\S]*?```|~~~[\s\S]*?~~~`)
+var codeFenceRe = regexp.MustCompile("(?s)```[\\s\\S]*?```|~~~[\\s\\S]*?~~~")
 
 type chatMessageRequest struct {
 	Text       string `json:"text"`
@@ -596,15 +596,17 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string) {
 	latestTurnID := ""
 	persistedAssistantID := int64(0)
 	persistedAssistantText := ""
+	persistedAssistantPlain := ""
+	persistedAssistantFormat := ""
 	persistWriteFailed := false
 
-	persistAssistantSnapshot := func(text string) {
-		candidate := strings.TrimSpace(text)
-		if candidate == "" {
+	persistAssistantSnapshot := func(text string, renderOnCanvas bool) {
+		candidateMarkdown, candidatePlain, candidateFormat := assistantSnapshotContent(text, renderOnCanvas)
+		if candidateMarkdown == "" && candidatePlain == "" {
 			return
 		}
 		if persistedAssistantID == 0 {
-			storedAssistant, storeErr := a.store.AddChatMessage(sessionID, "assistant", candidate, candidate, "markdown")
+			storedAssistant, storeErr := a.store.AddChatMessage(sessionID, "assistant", candidateMarkdown, candidatePlain, candidateFormat)
 			if storeErr != nil {
 				if !persistWriteFailed {
 					persistWriteFailed = true
@@ -616,13 +618,17 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string) {
 				return
 			}
 			persistedAssistantID = storedAssistant.ID
-			persistedAssistantText = candidate
+			persistedAssistantText = candidateMarkdown
+			persistedAssistantPlain = candidatePlain
+			persistedAssistantFormat = candidateFormat
 			return
 		}
-		if candidate == persistedAssistantText {
+		if candidateMarkdown == persistedAssistantText &&
+			candidatePlain == persistedAssistantPlain &&
+			candidateFormat == persistedAssistantFormat {
 			return
 		}
-		if storeErr := a.store.UpdateChatMessageContent(persistedAssistantID, candidate, candidate, "markdown"); storeErr != nil {
+		if storeErr := a.store.UpdateChatMessageContent(persistedAssistantID, candidateMarkdown, candidatePlain, candidateFormat); storeErr != nil {
 			if !persistWriteFailed {
 				persistWriteFailed = true
 				a.broadcastChatEvent(sessionID, map[string]interface{}{
@@ -632,7 +638,9 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string) {
 			}
 			return
 		}
-		persistedAssistantText = candidate
+		persistedAssistantText = candidateMarkdown
+		persistedAssistantPlain = candidatePlain
+		persistedAssistantFormat = candidateFormat
 	}
 
 	appResp, err := appSess.SendTurnWithParams(ctx, prompt, "", appServerReasoningParamsForModel(a.appServerModel, a.appServerSparkReasoningEffort), func(ev appserver.StreamEvent) {
@@ -652,10 +660,11 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string) {
 		case "assistant_message":
 			latestMessage = ev.Message
 			latestTurnID = ev.TurnID
-			persistAssistantSnapshot(ev.Message)
+			renderOnCanvas := shouldRenderAssistantOutputOnCanvas(outputMode, ev.Message)
+			persistAssistantSnapshot(ev.Message, renderOnCanvas)
 			payload["message"] = ev.Message
 			payload["delta"] = ev.Delta
-			if normalizeTurnOutputMode(outputMode) == turnOutputModeCanvas {
+			if renderOnCanvas {
 				payload["render_on_canvas"] = true
 			}
 		case "turn_completed":
@@ -663,9 +672,10 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string) {
 				latestMessage = ev.Message
 			}
 			latestTurnID = ev.TurnID
-			persistAssistantSnapshot(latestMessage)
+			renderOnCanvas := shouldRenderAssistantOutputOnCanvas(outputMode, latestMessage)
+			persistAssistantSnapshot(latestMessage, renderOnCanvas)
 			payload["message"] = latestMessage
-			if normalizeTurnOutputMode(outputMode) == turnOutputModeCanvas {
+			if renderOnCanvas {
 				payload["render_on_canvas"] = true
 			}
 		case "context_usage":
@@ -755,14 +765,16 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 	latestTurnID := ""
 	persistedAssistantID := int64(0)
 	persistedAssistantText := ""
+	persistedAssistantPlain := ""
+	persistedAssistantFormat := ""
 	persistWriteFailed := false
-	persistAssistantSnapshot := func(text string) {
-		candidate := strings.TrimSpace(text)
-		if candidate == "" {
+	persistAssistantSnapshot := func(text string, renderOnCanvas bool) {
+		candidateMarkdown, candidatePlain, candidateFormat := assistantSnapshotContent(text, renderOnCanvas)
+		if candidateMarkdown == "" && candidatePlain == "" {
 			return
 		}
 		if persistedAssistantID == 0 {
-			storedAssistant, storeErr := a.store.AddChatMessage(sessionID, "assistant", candidate, candidate, "markdown")
+			storedAssistant, storeErr := a.store.AddChatMessage(sessionID, "assistant", candidateMarkdown, candidatePlain, candidateFormat)
 			if storeErr != nil {
 				if !persistWriteFailed {
 					persistWriteFailed = true
@@ -774,13 +786,17 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 				return
 			}
 			persistedAssistantID = storedAssistant.ID
-			persistedAssistantText = candidate
+			persistedAssistantText = candidateMarkdown
+			persistedAssistantPlain = candidatePlain
+			persistedAssistantFormat = candidateFormat
 			return
 		}
-		if candidate == persistedAssistantText {
+		if candidateMarkdown == persistedAssistantText &&
+			candidatePlain == persistedAssistantPlain &&
+			candidateFormat == persistedAssistantFormat {
 			return
 		}
-		if storeErr := a.store.UpdateChatMessageContent(persistedAssistantID, candidate, candidate, "markdown"); storeErr != nil {
+		if storeErr := a.store.UpdateChatMessageContent(persistedAssistantID, candidateMarkdown, candidatePlain, candidateFormat); storeErr != nil {
 			if !persistWriteFailed {
 				persistWriteFailed = true
 				a.broadcastChatEvent(sessionID, map[string]interface{}{
@@ -790,7 +806,9 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 			}
 			return
 		}
-		persistedAssistantText = candidate
+		persistedAssistantText = candidateMarkdown
+		persistedAssistantPlain = candidatePlain
+		persistedAssistantFormat = candidateFormat
 	}
 
 	appResp, err := a.appServerClient.SendPromptStream(ctx, appserver.PromptRequest{
@@ -819,10 +837,11 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 		case "assistant_message":
 			latestMessage = ev.Message
 			latestTurnID = ev.TurnID
-			persistAssistantSnapshot(ev.Message)
+			renderOnCanvas := shouldRenderAssistantOutputOnCanvas(outputMode, ev.Message)
+			persistAssistantSnapshot(ev.Message, renderOnCanvas)
 			payload["message"] = ev.Message
 			payload["delta"] = ev.Delta
-			if normalizeTurnOutputMode(outputMode) == turnOutputModeCanvas {
+			if renderOnCanvas {
 				payload["render_on_canvas"] = true
 			}
 		case "turn_completed":
@@ -830,9 +849,10 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 				latestMessage = ev.Message
 			}
 			latestTurnID = ev.TurnID
-			persistAssistantSnapshot(latestMessage)
+			renderOnCanvas := shouldRenderAssistantOutputOnCanvas(outputMode, latestMessage)
+			persistAssistantSnapshot(latestMessage, renderOnCanvas)
 			payload["message"] = latestMessage
-			if normalizeTurnOutputMode(outputMode) == turnOutputModeCanvas {
+			if renderOnCanvas {
 				payload["render_on_canvas"] = true
 			}
 		case "error":
@@ -881,7 +901,7 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 
 // finalizeAssistantResponse handles post-processing shared by both turn paths:
 // parse and execute canvas/file blocks, strip lang tags, route text to chat/canvas,
-// persist final text, and broadcast message_persisted.
+// persist final text, and broadcast assistant_output.
 func (a *App) finalizeAssistantResponse(
 	sessionID, projectKey, text string,
 	persistedID *int64, persistedText *string,
@@ -893,7 +913,6 @@ func (a *App) finalizeAssistantResponse(
 	canvasSessionID := a.resolveCanvasSessionID(projectKey)
 	hasCanvasBlocks := false
 	hasFileBlocks := false
-	isVoiceMode := outputMode == turnOutputModeVoice
 	if cBlocks, cleaned := parseCanvasBlocks(text); len(cBlocks) > 0 {
 		hasCanvasBlocks = true
 		if canvasSessionID != "" {
@@ -910,18 +929,20 @@ func (a *App) finalizeAssistantResponse(
 	}
 	text = stripLangTags(text)
 	renderOnCanvas = hasCanvasBlocks || hasFileBlocks
-	if !isVoiceMode && !renderOnCanvas && canvasSessionID != "" && shouldRenderAssistantTextInCanvas(text) {
+	if !renderOnCanvas && canvasSessionID != "" && shouldRenderAssistantOutputOnCanvas(outputMode, text) {
 		renderOnCanvas = true
 	}
 
 	chatMarkdown := text
 	chatPlain := text
 	renderFormat := "markdown"
+	assistantOutputTitle := ""
 	if outputMode == turnOutputModeCanvas || renderOnCanvas {
 		canvasText := strings.TrimSpace(stripCanvasFileMarkers(text))
 		if canvasSessionID != "" {
 			if canvasText != "" {
 				a.executeAssistantTextBlock(canvasSessionID, "Assistant Output", canvasText)
+				assistantOutputTitle = "Assistant Output"
 			}
 			// Keep plain text for prompt continuity, but suppress assistant markdown in chat UI.
 			chatMarkdown = ""
@@ -941,7 +962,7 @@ func (a *App) finalizeAssistantResponse(
 		}
 		*persistedID = stored.ID
 		*persistedText = chatMarkdown
-	} else if chatMarkdown != *persistedText {
+	} else {
 		if err := a.store.UpdateChatMessageContent(*persistedID, chatMarkdown, chatPlain, renderFormat); err != nil {
 			a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": err.Error()})
 			return chatMarkdown
@@ -952,16 +973,46 @@ func (a *App) finalizeAssistantResponse(
 	if tid == "" {
 		tid = fallbackTurnID
 	}
-	a.broadcastChatEvent(sessionID, map[string]interface{}{
-		"type":             "message_persisted",
+	payload := map[string]interface{}{
+		"type":             "assistant_output",
 		"role":             "assistant",
 		"id":               *persistedID,
 		"turn_id":          tid,
 		"thread_id":        threadID,
 		"message":          chatMarkdown,
 		"render_on_canvas": renderOnCanvas,
-	})
+	}
+	if assistantOutputTitle != "" {
+		payload["title"] = assistantOutputTitle
+	}
+	a.broadcastChatEvent(sessionID, payload)
 	return chatMarkdown
+}
+
+func shouldRenderAssistantOutputOnCanvas(outputMode, text string) bool {
+	if normalizeTurnOutputMode(outputMode) == turnOutputModeCanvas {
+		return true
+	}
+	clean := strings.TrimSpace(stripCanvasFileMarkers(stripLangTags(text)))
+	if clean == "" {
+		return false
+	}
+	return shouldRenderAssistantTextInCanvas(clean)
+}
+
+func assistantSnapshotContent(text string, renderOnCanvas bool) (string, string, string) {
+	candidate := strings.TrimSpace(text)
+	if candidate == "" {
+		return "", "", "markdown"
+	}
+	if !renderOnCanvas {
+		return candidate, candidate, "markdown"
+	}
+	plain := strings.TrimSpace(stripCanvasFileMarkers(stripLangTags(candidate)))
+	if plain == "" {
+		plain = candidate
+	}
+	return "", plain, "text"
 }
 
 func shouldRenderAssistantTextInCanvas(text string) bool {

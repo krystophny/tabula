@@ -57,6 +57,9 @@ window._taburaApp = { getState, acquireMicStream, sttStart, sttSendBlob, sttStop
 const MATH_SEGMENT_TOKEN_PREFIX = '@@TABURA_CHAT_MATH_SEGMENT_';
 const DEV_UI_RELOAD_POLL_MS = 1500;
 const ASSISTANT_ACTIVITY_POLL_MS = 1200;
+const ASSISTANT_CANVAS_CHAR_THRESHOLD = 1400;
+const ASSISTANT_LIST_LINE_THRESHOLD = 3;
+const ASSISTANT_LIST_DENSITY_THRESHOLD = 40;
 let localMessageSeq = 0;
 const CHAT_CTRL_LONG_PRESS_MS = 180;
 const CHAT_SEND_HOLD_MS = 300;
@@ -88,6 +91,7 @@ const _boldUnderscoreRe = /__([^_]+)__/g;
 const _italicUnderscoreRe = /_([^_\s][^_]*?)_/g;
 const _strikethroughRe = /~~([^~]+)~~/g;
 const _htmlTagRe = /<[^>]+>/g;
+const _listLineDetectRe = /^\s*(?:[-*+]\s+|\d+[.)]\s+)/;
 
 // Strip complete and partial :::canvas{}/:::file{} blocks from text.
 function stripBlocks(text) {
@@ -1039,7 +1043,7 @@ async function loadChatHistory() {
     const markdown = String(msg.content_markdown || '');
     const plain = String(msg.content_plain || markdown);
     if (role === 'assistant') {
-      if (renderFormat === 'text') continue;
+      if (!shouldRenderAssistantHistoryInChat(renderFormat, markdown, plain)) continue;
       appendRenderedAssistant(markdown || plain);
     } else {
       appendPlainMessage(role, plain);
@@ -1150,11 +1154,29 @@ function closeCanvasWs() {
   state.canvasWs = null;
 }
 
-function isShortResponse(text) {
-  if (!text) return true;
-  if (text.length > 500) return false;
-  if (/```/.test(text)) return false;
-  return true;
+function shouldRenderAssistantTextOnCanvas(text) {
+  const clean = String(text || '').trim();
+  if (!clean) return false;
+  if (clean.length >= ASSISTANT_CANVAS_CHAR_THRESHOLD) return true;
+  const withoutCode = clean.replace(_codeFenceRe, '\n');
+  const lines = withoutCode.split('\n');
+  let totalLines = 0;
+  let listLines = 0;
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    totalLines += 1;
+    if (_listLineDetectRe.test(line)) listLines += 1;
+  }
+  if (totalLines === 0) return false;
+  if (listLines >= ASSISTANT_LIST_LINE_THRESHOLD) return true;
+  return Math.floor((listLines * 100) / totalLines) >= ASSISTANT_LIST_DENSITY_THRESHOLD;
+}
+
+function shouldRenderAssistantHistoryInChat(renderFormat, markdown, plain) {
+  const format = String(renderFormat || '').trim().toLowerCase();
+  if (format === 'text' || format === 'canvas') return false;
+  const source = String(markdown || plain || '');
+  return !shouldRenderAssistantTextOnCanvas(source);
 }
 
 function handleChatEvent(payload) {
@@ -1206,10 +1228,14 @@ function handleChatEvent(payload) {
     const turnID = String(payload.turn_id || '').trim();
     trackAssistantTurnStarted(turnID);
     const md = String(payload.message || '');
-    const renderOnCanvas = Boolean(payload.render_on_canvas);
+    const renderOnCanvas = Boolean(payload.render_on_canvas) || shouldRenderAssistantTextOnCanvas(md);
     if (isVoiceTurn()) {
       const row = ensurePendingForTurn(turnID);
-      updateAssistantRow(row, md, true);
+      if (renderOnCanvas) {
+        updateAssistantRow(row, '_Thinking..._', true);
+      } else {
+        updateAssistantRow(row, md, true);
+      }
     }
 
     if (ttsEnabled) {
@@ -1239,16 +1265,19 @@ function handleChatEvent(payload) {
     return;
   }
 
-  if (type === 'message_persisted') {
+  if (type === 'assistant_output' || type === 'message_persisted') {
     if (String(payload.role || '') !== 'assistant') return;
     const turnID = String(payload.turn_id || '').trim();
     const md = String(payload.message || '');
-    const renderOnCanvas = Boolean(payload.render_on_canvas);
+    const inferredText = md || ttsLastSpeakText;
+    const renderOnCanvas = Boolean(payload.render_on_canvas) || shouldRenderAssistantTextOnCanvas(inferredText);
     // Persisted text may be empty for voice-only responses; fall back to TTS text.
     const displayMd = md || (ttsLastSpeakText ? `_${ttsLastSpeakText}_` : '');
     if (isVoiceTurn()) {
       const row = takePendingRow(turnID);
-      if (row) {
+      if (renderOnCanvas) {
+        row?.remove();
+      } else if (row) {
         updateAssistantRow(row, displayMd, false);
       } else {
         appendRenderedAssistant(displayMd);

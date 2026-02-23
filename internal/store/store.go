@@ -225,6 +225,7 @@ func (s *Store) migrateProjectColumns() error {
 	_, _ = s.db.Exec(`UPDATE projects SET canvas_session_id = 'local' WHERE is_default <> 0 AND trim(canvas_session_id) = ''`)
 	_, _ = s.db.Exec(`UPDATE projects SET canvas_session_id = id WHERE trim(canvas_session_id) = ''`)
 	_, _ = s.db.Exec(`UPDATE projects SET last_opened_at = updated_at WHERE last_opened_at = 0`)
+	_, _ = s.db.Exec(`UPDATE chat_messages SET render_format = 'text' WHERE lower(trim(render_format)) = 'canvas'`)
 	return nil
 }
 
@@ -717,7 +718,7 @@ func normalizeRenderFormat(format string) string {
 	case "text":
 		return "text"
 	case "canvas":
-		return "canvas"
+		return "text"
 	default:
 		return "markdown"
 	}
@@ -837,7 +838,6 @@ func (s *Store) ResetChatSessionThread(sessionID string) error {
 	_, err := s.db.Exec("UPDATE chat_sessions SET app_thread_id = '' WHERE id = ?", sessionID)
 	return err
 }
-
 
 func (s *Store) AddChatEvent(sessionID, turnID, eventType, payloadJSON string) error {
 	_, err := s.db.Exec(
