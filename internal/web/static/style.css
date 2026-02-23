@@ -38,13 +38,12 @@ html, body {
   max-width: 360px;
   margin: 20vh auto;
   padding: 2rem;
-  background: var(--bg-surface);
-  border-radius: 8px;
-  border: 1px solid var(--border);
+  background: transparent;
+  border: none;
   text-align: center;
 }
-.auth-card h1 { margin-bottom: 0.5rem; color: var(--accent); }
-.auth-card p { margin-bottom: 1rem; color: var(--text-dim); }
+.auth-card h1 { margin-bottom: 1.5rem; color: var(--accent); }
+.auth-card p { display: none; }
 .auth-card form { display: flex; flex-direction: column; gap: 0.75rem; }
 .error { color: var(--error); font-size: 0.85rem; min-height: 1.2em; }
 
@@ -90,15 +89,18 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 #canvas-column {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
 #canvas-viewport {
   flex: 1;
-  overflow: auto;
+  overflow: hidden;
   min-height: 0;
   position: relative;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .canvas-pane {
@@ -106,6 +108,11 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   flex-direction: column;
   min-height: 0;
   height: 100%;
+  overflow: auto;
+  overflow-x: hidden;
+  position: relative;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 .canvas-pane.is-active {
@@ -117,6 +124,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 #canvas-image,
 #canvas-pdf {
   padding: 1rem;
+  height: 100%;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -127,7 +136,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   -webkit-user-select: text;
   position: relative;
   -webkit-touch-callout: none;
-  touch-action: manipulation;
+  touch-action: pan-y;
 }
 
 #canvas-text:focus {
@@ -230,12 +239,68 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   transform: translate(-50%, -50%);
 }
 
+.zen-indicator.is-thinking {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.zen-delegate-indicator {
+  position: fixed;
+  z-index: 101;
+  transform: translate(-50%, -50%);
+  width: 12px;
+  height: 12px;
+  border: 1px solid #666;
+  border-radius: 50%;
+  background: transparent;
+  pointer-events: auto;
+  cursor: pointer;
+  user-select: none;
+}
+
+.zen-delegate-indicator::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1px;
+  height: 4px;
+  background: #666;
+  transform-origin: bottom center;
+  transform: translate(-50%, -100%) rotate(30deg);
+}
+
 .zen-indicator-dot {
   display: block;
   width: 14px;
   height: 14px;
   border-radius: 50%;
   background: #d44;
+}
+
+.zen-indicator-dots {
+  display: none;
+  font-size: 14px;
+  color: #888;
+  letter-spacing: 2px;
+  line-height: 1;
+}
+
+/* Zen: Speaking indicator — play triangle (green) / stop square (black) */
+.zen-speaking-icon {
+  display: block;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 7px 0 7px 12px;
+  border-color: transparent transparent transparent #4a4;
+}
+
+.zen-speaking-icon.is-done {
+  width: 12px;
+  height: 12px;
+  border: none;
+  background: #000;
 }
 
 /* Zen: Floating text input */
@@ -855,4 +920,27 @@ button[data-mail-record-action="stop"] {
     overflow-x: auto;
     white-space: nowrap;
   }
+}
+#canvas-text ul,
+#canvas-text ol {
+  margin: 0.4rem 0 0.4rem 1.25rem;
+  padding-left: 1.25rem;
+  list-style-position: outside;
+}
+
+#canvas-text li {
+  margin: 0.15rem 0;
+  padding-left: 0.35rem;
+}
+
+.chat-bubble.markdown ul,
+.chat-bubble.markdown ol {
+  margin: 0.4rem 0 0.4rem 1.25rem;
+  padding-left: 1.25rem;
+  list-style-position: outside;
+}
+
+.chat-bubble.markdown li {
+  margin: 0.15rem 0;
+  padding-left: 0.35rem;
 }

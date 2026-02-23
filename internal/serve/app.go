@@ -14,13 +14,15 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
+	"github.com/krystophny/tabura/internal/appserver"
 	"github.com/krystophny/tabura/internal/canvas"
 	"github.com/krystophny/tabura/internal/mcp"
 )
 
 const (
-	DefaultHost = "127.0.0.1"
-	DefaultPort = 9420
+	DefaultHost            = "127.0.0.1"
+	DefaultPort            = 9420
+	DefaultMCPAppServerURL = "ws://127.0.0.1:8787"
 )
 
 type App struct {
@@ -44,8 +46,21 @@ func NewApp(projectDir string) *App {
 		shutdownDone: make(chan struct{}),
 	}
 	a.Adapter = canvas.NewAdapter(projectDir, a.queueEvent)
-	a.Server = mcp.NewServer(a.Adapter)
+	a.Server = mcp.NewServer(a.Adapter, mcpAppServerClient())
 	return a
+}
+
+func mcpAppServerClient() *appserver.Client {
+	appServerURL := strings.TrimSpace(os.Getenv("TABURA_APP_SERVER_URL"))
+	if appServerURL == "" {
+		appServerURL = DefaultMCPAppServerURL
+	}
+	client, err := appserver.NewClient(appServerURL)
+	if err != nil {
+		fmt.Printf("delegation tool disabled: app-server URL unavailable (%v)\n", err)
+		return nil
+	}
+	return client
 }
 
 func (a *App) queueEvent(ev canvas.Event) {

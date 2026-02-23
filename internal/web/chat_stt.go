@@ -96,6 +96,8 @@ func handleChatWSTextMessage(a *App, conn *chatWSConn, sessionID string, data []
 	var msg struct {
 		Type     string `json:"type"`
 		MimeType string `json:"mime_type"`
+		Text     string `json:"text"`
+		Lang     string `json:"lang"`
 	}
 	if err := json.Unmarshal(data, &msg); err != nil {
 		return
@@ -107,5 +109,7 @@ func handleChatWSTextMessage(a *App, conn *chatWSConn, sessionID string, data []
 		handleSTTStop(conn)
 	case "stt_cancel":
 		handleSTTCancel(conn)
+	case "tts_speak":
+		go a.handleTTSSpeak(conn, msg.Text, msg.Lang)
 	}
 }

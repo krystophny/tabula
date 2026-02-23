@@ -207,6 +207,99 @@ func TestSendPromptStreamHonorsContextCancel(t *testing.T) {
 	}
 }
 
+func TestSendPromptCollectsFileChanges(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatalf("upgrade: %v", err)
+		}
+		defer conn.Close()
+
+		for {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var msg map[string]interface{}
+			if err := json.Unmarshal(data, &msg); err != nil {
+				t.Fatalf("decode message: %v", err)
+			}
+
+			method, _ := msg["method"].(string)
+			switch method {
+			case "initialize":
+				_ = conn.WriteJSON(map[string]interface{}{
+					"id":     msg["id"],
+					"result": map[string]interface{}{"userAgent": "test-client"},
+				})
+			case "thread/start":
+				_ = conn.WriteJSON(map[string]interface{}{
+					"id": msg["id"],
+					"result": map[string]interface{}{
+						"thread": map[string]interface{}{"id": "thread-fc"},
+					},
+				})
+			case "turn/start":
+				_ = conn.WriteJSON(map[string]interface{}{
+					"id": msg["id"],
+					"result": map[string]interface{}{
+						"turn": map[string]interface{}{"id": "turn-fc"},
+					},
+				})
+				_ = conn.WriteJSON(map[string]interface{}{
+					"method": "item/completed",
+					"params": map[string]interface{}{
+						"item": map[string]interface{}{
+							"type": "fileChange",
+							"file": "server.go",
+						},
+					},
+				})
+				_ = conn.WriteJSON(map[string]interface{}{
+					"method": "item/completed",
+					"params": map[string]interface{}{
+						"item": map[string]interface{}{
+							"type": "agentMessage",
+							"text": "edited server.go",
+						},
+					},
+				})
+				_ = conn.WriteJSON(map[string]interface{}{
+					"method": "turn/completed",
+					"params": map[string]interface{}{
+						"turn": map[string]interface{}{"id": "turn-fc", "status": "completed"},
+					},
+				})
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	client, err := NewClient(wsURL)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	resp, err := client.SendPrompt(ctx, PromptRequest{
+		CWD:    "/tmp",
+		Prompt: "edit server.go",
+	})
+	if err != nil {
+		t.Fatalf("send prompt: %v", err)
+	}
+	if len(resp.FileChanges) != 1 {
+		t.Fatalf("expected 1 file change, got %d", len(resp.FileChanges))
+	}
+	if resp.FileChanges[0] != "server.go" {
+		t.Fatalf("expected server.go, got %q", resp.FileChanges[0])
+	}
+}
+
 func TestSendPromptStreamTimeoutMapsToDeadlineExceeded(t *testing.T) {
 	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 

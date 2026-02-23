@@ -1,0 +1,15 @@
+[Unit]
+Description=Tabura TTS (Chatterbox Multilingual)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/tabura-tts/server
+Environment=HOME=%h
+ExecStart=%h/.local/share/tabura-tts/server/venv/bin/python -m uvicorn server:app --host 127.0.0.1 --port 8423
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target

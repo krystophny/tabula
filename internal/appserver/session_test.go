@@ -234,12 +234,22 @@ func TestSessionItemCompletedForwarding(t *testing.T) {
 				"turn": map[string]interface{}{"id": "turn-edit"},
 			},
 		})
-		// Emit a fileChange item before the agentMessage.
+		// Emit fileChange items with paths before the agentMessage.
 		_ = conn.WriteJSON(map[string]interface{}{
 			"method": "item/completed",
 			"params": map[string]interface{}{
 				"item": map[string]interface{}{
 					"type": "fileChange",
+					"file": "src/main.go",
+				},
+			},
+		})
+		_ = conn.WriteJSON(map[string]interface{}{
+			"method": "item/completed",
+			"params": map[string]interface{}{
+				"item": map[string]interface{}{
+					"type": "fileChange",
+					"path": "src/util.go",
 				},
 			},
 		})
@@ -286,11 +296,20 @@ func TestSessionItemCompletedForwarding(t *testing.T) {
 	if resp.Message != "done editing" {
 		t.Fatalf("unexpected message: %q", resp.Message)
 	}
-	if len(itemEvents) != 1 {
-		t.Fatalf("expected 1 item_completed event, got %d", len(itemEvents))
+	if len(itemEvents) != 2 {
+		t.Fatalf("expected 2 item_completed events, got %d", len(itemEvents))
 	}
 	if itemEvents[0].Message != "fileChange" {
 		t.Fatalf("expected fileChange type, got %q", itemEvents[0].Message)
+	}
+	if len(resp.FileChanges) != 2 {
+		t.Fatalf("expected 2 file changes, got %d", len(resp.FileChanges))
+	}
+	if resp.FileChanges[0] != "src/main.go" {
+		t.Fatalf("expected src/main.go, got %q", resp.FileChanges[0])
+	}
+	if resp.FileChanges[1] != "src/util.go" {
+		t.Fatalf("expected src/util.go, got %q", resp.FileChanges[1])
 	}
 }
 

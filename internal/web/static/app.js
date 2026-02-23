@@ -2,12 +2,14 @@ import { marked } from './vendor/marked.esm.js';
 import { renderCanvas, clearCanvas, getLocationFromPoint, getLocationFromSelection, showLineHighlight, clearLineHighlight, escapeHtml, sanitizeHtml, getActiveTextEventId } from './canvas.js';
 import {
   getZenState, setZenMode,
-  showIndicator, hideIndicator,
+  showIndicator, hideIndicator, showThinkingIndicator,
+  showDelegateIndicator, hideDelegateIndicator,
   showTextInput, hideTextInput,
   showOverlay, hideOverlay, updateOverlay,
   isOverlayVisible, isTextInputVisible, isRecording, setRecording,
   getInputAnchor, setInputAnchor, getAnchorFromPoint,
   buildContextPrefix, getLastInputPosition,
+  showSpeakingIndicator, hideSpeakingIndicator, dismissSpeakingIndicator,
 } from './zen.js';
 
 const state = {
@@ -32,7 +34,9 @@ const state = {
   assistantUnknownTurns: 0,
   assistantRemoteActiveCount: 0,
   assistantRemoteQueuedCount: 0,
+  assistantRemoteDelegateActiveCount: 0,
   assistantCancelInFlight: false,
+  assistantDelegateCancelInFlight: false,
   assistantLastError: '',
   chatCtrlHoldTimer: null,
   chatVoiceCapture: null,
@@ -40,10 +44,15 @@ const state = {
   contextMax: 0,
   // Zen-specific: track if a canvas action happened during this turn
   zenCanvasActionThisTurn: false,
+  lastInputOrigin: 'text',
 };
 
 export function getState() {
   return state;
+}
+
+function isVoiceTurn() {
+  return state.lastInputOrigin === 'voice';
 }
 
 window._taburaApp = { getState, acquireMicStream, sttStart, sttSendBlob, sttStop, sttCancel };
@@ -63,6 +72,214 @@ let assistantActivityInFlight = false;
 
 const ACTIVE_PROJECT_STORAGE_KEY = 'tabura.activeProjectId';
 const LAST_VIEW_STORAGE_KEY = 'tabura.lastView';
+
+// --- Block stripping & TTS infrastructure ---
+
+const _canvasFileBlockRe = /:::\s*file\s*\{[^}]*\}\s*[\s\S]*?:::/gi;
+const _partialBlockRe = /:::\s*file\s*\{[^}]*\}[\s\S]*$/gi;
+const _canvasFileMarkerRefRe = /\[file:[^\]]*\]/g;
+const _canvasDirectiveOpenRe = /^\s*:::\s*file\s*\{[^}]*\}\s*$/gim;
+const _canvasDirectiveCloseRe = /^\s*:::\s*$/gm;
+const _langTagRe = /\[lang:([a-z]{2})\]/gi;
+const _codeFenceRe = /```[\s\S]*?```/g;
+const _inlineCodeRe = /`([^`]+)`/g;
+const _inlineLinkRe = /\[([^\]]+)\]\([^)]*\)/g;
+const _inlineImageRe = /!\[([^\]]*)\]\([^)]*\)/g;
+const _headingRe = /^\s{0,3}#{1,6}\s+/gm;
+const _blockquoteRe = /^\s*>\s?/gm;
+const _listMarkerRe = /^\s*(?:[-*+]\s+|\d+\.\s+)/gm;
+const _boldAsteriskRe = /\*\*([^*]+)\*\*/g;
+const _italicAsteriskRe = /\*([^*\s][^*]*?)\*/g;
+const _boldUnderscoreRe = /__([^_]+)__/g;
+const _italicUnderscoreRe = /_([^_\s][^_]*?)_/g;
+const _strikethroughRe = /~~([^~]+)~~/g;
+const _htmlTagRe = /<[^>]+>/g;
+
+// Strip complete and partial :::file{} blocks from text.
+function stripBlocks(text) {
+  text = text.replace(_canvasFileBlockRe, ' ');
+  text = text.replace(_partialBlockRe, ' ');
+  text = text.replace(_canvasFileMarkerRefRe, ' ');
+  text = text.replace(_canvasDirectiveOpenRe, ' ');
+  text = text.replace(_canvasDirectiveCloseRe, ' ');
+  return text;
+}
+
+function stripMarkdownForSpeech(text) {
+  text = text.replace(_codeFenceRe, (m) => m.replace(/```/g, ''));
+  text = text.replace(_inlineCodeRe, '$1');
+  text = text.replace(_inlineImageRe, '$1');
+  text = text.replace(_inlineLinkRe, '$1');
+  text = text.replace(_headingRe, '');
+  text = text.replace(_blockquoteRe, '');
+  text = text.replace(_listMarkerRe, '');
+  text = text.replace(_strikethroughRe, '$1');
+  text = text.replace(_boldAsteriskRe, '$1');
+  text = text.replace(_italicAsteriskRe, '$1');
+  text = text.replace(_boldUnderscoreRe, '$1');
+  text = text.replace(_italicUnderscoreRe, '$1');
+  text = text.replace(_htmlTagRe, '');
+  text = text.replace(/\|/g, ' ');
+  text = text.replace(/[ \t]+\n/g, '\n');
+  text = text.replace(/\n+/g, ' ');
+  text = text.replace(/\s{2,}/g, ' ');
+  return text.trim();
+}
+
+// Clean markdown for overlay display: strip blocks and lang tags.
+function cleanForOverlay(markdown) {
+  return stripBlocks(markdown).replace(_langTagRe, '').trim();
+}
+
+// Extract speakable text for TTS (everything except blocks).
+function extractTTSText(markdown) {
+  let text = stripBlocks(markdown);
+  let lang = '';
+  text = text.replace(_langTagRe, (_, l) => { if (!lang) lang = l.toLowerCase(); return ''; });
+  text = stripMarkdownForSpeech(text);
+  text = text.trim();
+  return { ttsText: text, ttsLang: lang };
+}
+
+
+class SentenceChunker {
+  constructor(onSentence) {
+    this._buffer = '';
+    this._onSentence = onSentence;
+    this._timer = null;
+  }
+  add(text) {
+    this._buffer += text;
+    this._tryEmit();
+  }
+  _tryEmit() {
+    if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+    const boundaries = /([.!?])\s+/g;
+    let lastIndex = 0;
+    let match;
+    while ((match = boundaries.exec(this._buffer)) !== null) {
+      const end = match.index + match[1].length;
+      const sentence = this._buffer.slice(lastIndex, end).trim();
+      if (sentence) this._onSentence(sentence);
+      lastIndex = end;
+    }
+    if (lastIndex > 0) {
+      this._buffer = this._buffer.slice(lastIndex).trimStart();
+    }
+    if (this._buffer.length > 0) {
+      this._timer = setTimeout(() => {
+        this._timer = null;
+        this.flush();
+      }, 300);
+    }
+  }
+  flush() {
+    if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+    const sentence = this._buffer.trim();
+    this._buffer = '';
+    if (sentence) this._onSentence(sentence);
+  }
+  reset() {
+    if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+    this._buffer = '';
+  }
+}
+
+class TTSPlayer {
+  constructor() {
+    this._queue = [];
+    this._playing = false;
+    this._stopped = false;
+    this._ctx = null;
+    this._currentSource = null;
+    this._nextStartTime = 0;
+  }
+  _ensureCtx() {
+    if (!this._ctx) {
+      this._ctx = ttsAudioCtx;
+    }
+    return this._ctx;
+  }
+  enqueue(wavArrayBuffer) {
+    if (this._stopped) return;
+    this._queue.push(wavArrayBuffer);
+    if (!this._playing) this._playNext();
+  }
+  stop() {
+    this._stopped = true;
+    this._queue = [];
+    if (this._currentSource) {
+      try { this._currentSource.stop(); } catch (_) {}
+      this._currentSource = null;
+    }
+    this._playing = false;
+    this._nextStartTime = 0;
+    dismissSpeakingIndicator();
+  }
+  async _playNext() {
+    if (this._stopped || this._queue.length === 0) {
+      this._playing = false;
+      this._nextStartTime = 0;
+      hideSpeakingIndicator();
+      return;
+    }
+    this._playing = true;
+    const wavData = this._queue.shift();
+    const pos = getLastInputPosition();
+    hideIndicator();
+    showSpeakingIndicator(pos.x, pos.y);
+    try {
+      const ctx = this._ensureCtx();
+      if (ctx.state === 'suspended') await ctx.resume();
+      const audioBuffer = await ctx.decodeAudioData(wavData.slice(0));
+      if (this._stopped) return;
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.playbackRate.value = 1.1;
+      source.connect(ctx.destination);
+      this._currentSource = source;
+      const now = ctx.currentTime;
+      const startAt = this._nextStartTime > now ? this._nextStartTime : now;
+      this._nextStartTime = startAt + audioBuffer.duration / 1.1;
+      source.start(startAt);
+      source.onended = () => {
+        this._currentSource = null;
+        if (!this._stopped) this._playNext();
+      };
+    } catch (err) {
+      console.warn('TTS playback error:', err);
+      this._currentSource = null;
+      if (!this._stopped) this._playNext();
+    }
+  }
+}
+
+let ttsPlayer = null;
+let ttsSentenceChunker = null;
+let ttsEnabled = false;
+let ttsLastSpeakText = '';
+let ttsSpeakLang = 'en';
+
+// Single shared AudioContext — created once, unlocked via resume() on user
+// gesture per Web Audio API best practice (MDN). Safari iOS requires resume()
+// to be called from a user-initiated event; once resumed the context stays
+// running until the page is closed.
+const ttsAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function unlockAudioContext() {
+  if (ttsAudioCtx.state === 'suspended') {
+    ttsAudioCtx.resume();
+  }
+}
+['touchstart', 'touchend', 'mousedown', 'keydown'].forEach(evt =>
+  document.body.addEventListener(evt, unlockAudioContext, { once: false })
+);
+
+function stopTTSPlayback() {
+  if (ttsPlayer) { ttsPlayer.stop(); ttsPlayer = null; }
+  if (ttsSentenceChunker) { ttsSentenceChunker.reset(); ttsSentenceChunker = null; }
+  ttsLastSpeakText = '';
+  ttsSpeakLang = 'en';
+}
 
 const renderer = new marked.Renderer();
 renderer.code = ({ text, lang }) => {
@@ -358,6 +575,10 @@ function handleSTTWSMessage(payload) {
   if (type === 'stt_started' || type === 'stt_cancelled') {
     return true;
   }
+  if (type === 'tts_error') {
+    console.warn('TTS error:', payload.error);
+    return true;
+  }
   return false;
 }
 
@@ -412,6 +633,8 @@ function stopChatVoiceMediaAndFlush(capture) {
 async function beginZenVoiceCapture(x, y, anchor) {
   if (state.chatVoiceCapture) return;
   if (!canUseMicrophoneCapture()) return;
+  // Interrupt TTS playback when starting recording
+  stopTTSPlayback();
   const capture = {
     active: false,
     stopping: false,
@@ -422,9 +645,13 @@ async function beginZenVoiceCapture(x, y, anchor) {
     chunks: [],
   };
   state.chatVoiceCapture = capture;
+  state.lastInputOrigin = 'voice';
   setRecording(true);
   setInputAnchor(anchor || null);
   showIndicator(x, y);
+  const zenS = getZenState();
+  zenS.lastInputX = x;
+  zenS.lastInputY = y;
   showStatus('recording...');
   try {
     const stream = await acquireMicStream();
@@ -462,6 +689,11 @@ async function stopZenVoiceCaptureAndSend() {
   capture.stopRequested = true;
   if (!capture.active) return;
   capture.stopping = true;
+  // Transition immediately: recording dot -> thinking dots (before network latency)
+  const pos = getLastInputPosition();
+  hideIndicator();
+  showThinkingIndicator(pos.x, pos.y);
+  showStatus('transcribing...');
   let remoteStopped = false;
   try {
     await stopChatVoiceMediaAndFlush(capture);
@@ -481,11 +713,11 @@ async function stopZenVoiceCaptureAndSend() {
     showStatus('sending...');
     void zenSubmitMessage(transcript);
   } catch (err) {
+    hideIndicator();
     const message = String(err?.message || err || 'voice capture failed');
     showStatus(`voice capture failed: ${message}`);
   } finally {
     setRecording(false);
-    hideIndicator();
     if (!remoteStopped) {
       sttCancel();
     }
@@ -524,6 +756,10 @@ function showCanvasColumn(paneId) {
   state.hasArtifact = true;
   setZenMode('artifact');
   persistLastView({ mode: 'artifact' });
+  if (!isVoiceTurn() && isDirectAssistantWorking()) {
+    hideOverlay();
+  }
+  updateAssistantActivityIndicator();
 }
 
 function hideCanvasColumn() {
@@ -539,6 +775,7 @@ function hideCanvasColumn() {
       p.classList.remove('is-active');
     });
   }
+  updateAssistantActivityIndicator();
 }
 
 function chatHistoryEl() {
@@ -572,11 +809,24 @@ function hasLocalAssistantWork() {
     || state.assistantUnknownTurns > 0;
 }
 
-function isAssistantWorking() {
+function isDirectAssistantWorking() {
   return hasLocalAssistantWork()
     || state.assistantRemoteActiveCount > 0
     || state.assistantRemoteQueuedCount > 0
     || state.assistantCancelInFlight;
+}
+
+function isDelegateAssistantWorking() {
+  return state.assistantRemoteDelegateActiveCount > 0
+    || state.assistantDelegateCancelInFlight;
+}
+
+function isAssistantWorking() {
+  return isDirectAssistantWorking() || isDelegateAssistantWorking();
+}
+
+function shouldUseSymbolIndicator() {
+  return isVoiceTurn() || state.hasArtifact;
 }
 
 function updateAssistantActivityIndicator() {
@@ -584,6 +834,35 @@ function updateAssistantActivityIndicator() {
     state.assistantUnknownTurns = 0;
     state.assistantActiveTurns.clear();
   }
+  const pos = getLastInputPosition();
+  const px = Number.isFinite(pos?.x) && pos.x > 0 ? pos.x : Math.floor(window.innerWidth / 2);
+  const py = Number.isFinite(pos?.y) && pos.y > 0 ? pos.y : Math.floor(window.innerHeight / 2);
+  if (isRecording()) {
+    if (isDelegateAssistantWorking()) {
+      showDelegateIndicator(px + 22, py);
+    } else {
+      hideDelegateIndicator();
+    }
+    return;
+  }
+  if (isDirectAssistantWorking() && shouldUseSymbolIndicator()) {
+    showThinkingIndicator(px, py);
+  } else {
+    hideIndicator();
+  }
+  if (isDelegateAssistantWorking()) {
+    showDelegateIndicator(px + 22, py);
+  } else {
+    hideDelegateIndicator();
+  }
+}
+
+function paneIdForCanvasKind(kind) {
+  const normalized = String(kind || '').trim().toLowerCase();
+  if (normalized === 'image_artifact' || normalized === 'image') return 'canvas-image';
+  if (normalized === 'pdf_artifact' || normalized === 'pdf') return 'canvas-pdf';
+  if (normalized === 'text_artifact' || normalized === 'text') return 'canvas-text';
+  return '';
 }
 
 function trackAssistantTurnStarted(turnID) {
@@ -717,7 +996,9 @@ function resetAssistantTurnTracking({ clearError = false } = {}) {
   state.assistantUnknownTurns = 0;
   state.assistantRemoteActiveCount = 0;
   state.assistantRemoteQueuedCount = 0;
+  state.assistantRemoteDelegateActiveCount = 0;
   state.assistantCancelInFlight = false;
+  state.assistantDelegateCancelInFlight = false;
   if (clearError) {
     state.assistantLastError = '';
   }
@@ -817,9 +1098,11 @@ async function loadChatHistory() {
   const messages = Array.isArray(payload?.messages) ? payload.messages : [];
   for (const msg of messages) {
     const role = String(msg.role || 'assistant').toLowerCase();
+    const renderFormat = String(msg.render_format || '').toLowerCase();
     const markdown = String(msg.content_markdown || '');
     const plain = String(msg.content_plain || markdown);
     if (role === 'assistant') {
+      if (!shouldRenderAssistantHistoryInChat(renderFormat, markdown, plain)) continue;
       appendRenderedAssistant(markdown || plain);
     } else {
       appendPlainMessage(role, plain);
@@ -840,10 +1123,13 @@ async function refreshAssistantActivity() {
     const payload = await resp.json();
     const activeTurns = Number(payload?.active_turns || 0);
     const queuedTurns = Number(payload?.queued_turns || 0);
+    const delegateActive = Number(payload?.delegate_active || 0);
     if (!Number.isFinite(activeTurns) || activeTurns < 0) return;
     if (!Number.isFinite(queuedTurns) || queuedTurns < 0) return;
+    if (!Number.isFinite(delegateActive) || delegateActive < 0) return;
     state.assistantRemoteActiveCount = activeTurns;
     state.assistantRemoteQueuedCount = queuedTurns;
+    state.assistantRemoteDelegateActiveCount = delegateActive;
     updateAssistantActivityIndicator();
   } catch (_) {
   } finally {
@@ -881,6 +1167,7 @@ function openChatWs() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${proto}//${location.host}/ws/chat/${encodeURIComponent(targetSessionID)}`;
   const ws = new WebSocket(wsUrl);
+  ws.binaryType = 'arraybuffer';
   state.chatWs = ws;
 
   ws.onopen = () => {
@@ -899,6 +1186,10 @@ function openChatWs() {
 
   ws.onmessage = (event) => {
     if (turnToken !== state.chatWsToken || targetSessionID !== state.chatSessionId) return;
+    if (event.data instanceof ArrayBuffer) {
+      if (ttsPlayer) ttsPlayer.enqueue(event.data);
+      return;
+    }
     if (typeof event.data !== 'string') return;
     let payload = null;
     try { payload = JSON.parse(event.data); } catch (_) { return; }
@@ -925,11 +1216,15 @@ function closeCanvasWs() {
   state.canvasWs = null;
 }
 
-function isShortResponse(text) {
-  if (!text) return true;
-  if (text.length > 500) return false;
-  if (/```/.test(text)) return false;
-  return true;
+function assistantMessageUsesCanvasBlocks(text) {
+  const lower = String(text || '').toLowerCase();
+  return lower.includes(':::file{');
+}
+
+function shouldRenderAssistantHistoryInChat(renderFormat, markdown, plain) {
+  const format = String(renderFormat || '').trim().toLowerCase();
+  if (format === 'text' || format === 'canvas') return false;
+  return Boolean(String(markdown || plain || '').trim());
 }
 
 function handleChatEvent(payload) {
@@ -956,52 +1251,147 @@ function handleChatEvent(payload) {
 
   if (type === 'turn_started') {
     trackAssistantTurnStarted(payload.turn_id);
-    ensurePendingForTurn(payload.turn_id);
+    if (isVoiceTurn()) {
+      ensurePendingForTurn(payload.turn_id);
+    }
     state.zenCanvasActionThisTurn = false;
-    // Show overlay for streaming response
+    // Reset TTS state for new turn
+    stopTTSPlayback();
     const pos = getLastInputPosition();
-    showOverlay(pos.x, pos.y + 24);
-    updateOverlay('_Thinking..._');
-    getZenState().overlayTurnId = payload.turn_id || null;
+    if (shouldUseSymbolIndicator()) {
+      hideOverlay();
+      showThinkingIndicator(pos.x, pos.y);
+    } else {
+      hideIndicator();
+      showOverlay(pos.x, pos.y + 24);
+      updateOverlay('_Thinking..._');
+      getZenState().overlayTurnId = payload.turn_id || null;
+    }
     return;
   }
 
   if (type === 'assistant_message') {
     const turnID = String(payload.turn_id || '').trim();
     trackAssistantTurnStarted(turnID);
-    const row = ensurePendingForTurn(turnID);
     const md = String(payload.message || '');
-    updateAssistantRow(row, md, true);
-    // Stream into overlay
-    updateOverlay(md);
+    const autoCanvas = Boolean(payload.auto_canvas);
+    const renderOnCanvas = Boolean(payload.render_on_canvas) || autoCanvas || assistantMessageUsesCanvasBlocks(md);
+    if (isVoiceTurn()) {
+      const row = ensurePendingForTurn(turnID);
+      if (renderOnCanvas) {
+        updateAssistantRow(row, '_Thinking..._', true);
+      } else {
+        updateAssistantRow(row, md, true);
+      }
+    }
+
+    if (autoCanvas) {
+      stopTTSPlayback();
+      if (!isVoiceTurn()) {
+        hideOverlay();
+      }
+      return;
+    }
+
+    if (ttsEnabled) {
+      const { ttsText, ttsLang } = extractTTSText(md);
+      if (ttsLang) ttsSpeakLang = ttsLang;
+      if (ttsText && ttsText !== ttsLastSpeakText) {
+        const newText = ttsText.slice(ttsLastSpeakText.length);
+        ttsLastSpeakText = ttsText;
+        if (newText.trim()) {
+          if (!ttsSentenceChunker) {
+            ttsPlayer = new TTSPlayer();
+            ttsSentenceChunker = new SentenceChunker((sentence) => {
+              const ws = state.chatWs;
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'tts_speak', text: sentence, lang: ttsSpeakLang }));
+              }
+            });
+          }
+          ttsSentenceChunker.add(newText);
+        }
+      }
+    }
+    if (!isVoiceTurn() && !state.hasArtifact) {
+      const cleaned = cleanForOverlay(md);
+      if (cleaned) updateOverlay(cleaned);
+    } else if (!isVoiceTurn()) {
+      hideOverlay();
+    }
     return;
   }
 
-  if (type === 'message_persisted') {
+  if (type === 'assistant_output' || type === 'message_persisted') {
     if (String(payload.role || '') !== 'assistant') return;
     const turnID = String(payload.turn_id || '').trim();
     const md = String(payload.message || '');
-    const row = takePendingRow(turnID);
-    if (row) {
-      updateAssistantRow(row, md, false);
-    } else {
-      appendRenderedAssistant(md);
+    const autoCanvas = Boolean(payload.auto_canvas);
+    const inferredText = md || ttsLastSpeakText;
+    const renderOnCanvas = Boolean(payload.render_on_canvas) || autoCanvas || assistantMessageUsesCanvasBlocks(inferredText);
+    // Persisted text may be empty for voice-only responses; fall back to TTS text.
+    const displayMd = md || (ttsLastSpeakText ? `_${ttsLastSpeakText}_` : '');
+    const hasDisplayMd = Boolean(String(displayMd || '').trim());
+    if (isVoiceTurn()) {
+      const row = takePendingRow(turnID);
+      if (autoCanvas || (renderOnCanvas && !hasDisplayMd)) {
+        row?.remove();
+      } else if (row) {
+        updateAssistantRow(row, displayMd, false);
+      } else if (hasDisplayMd) {
+        appendRenderedAssistant(displayMd);
+      }
     }
     trackAssistantTurnFinished(turnID);
     state.assistantLastError = '';
     showStatus('ready');
     updateAssistantActivityIndicator();
     void refreshAssistantActivity();
-    // Route response
-    if (state.zenCanvasActionThisTurn) {
-      // Canvas updated in-place, auto-dismiss overlay
-      hideOverlay();
-    } else if (isShortResponse(md)) {
-      // Keep in overlay, finalize it
-      updateOverlay(md);
+
+    if (autoCanvas) {
+      stopTTSPlayback();
+    } else if (ttsEnabled && md.trim()) {
+      const { ttsText, ttsLang } = extractTTSText(md);
+      if (ttsLang) ttsSpeakLang = ttsLang;
+      if (ttsText && ttsText !== ttsLastSpeakText) {
+        const newText = ttsText.startsWith(ttsLastSpeakText)
+          ? ttsText.slice(ttsLastSpeakText.length)
+          : ttsText;
+        ttsLastSpeakText = ttsText;
+        if (newText.trim()) {
+          if (!ttsSentenceChunker) {
+            ttsPlayer = new TTSPlayer();
+            ttsSentenceChunker = new SentenceChunker((sentence) => {
+              const ws = state.chatWs;
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'tts_speak', text: sentence, lang: ttsSpeakLang }));
+              }
+            });
+          }
+          ttsSentenceChunker.add(newText);
+        }
+      }
+    }
+
+    if (!autoCanvas && ttsSentenceChunker) {
+      ttsSentenceChunker.flush();
+    }
+    if (isVoiceTurn()) {
+      hideIndicator();
     } else {
-      // Long standalone result - keep in overlay for now
-      updateOverlay(md);
+      if (autoCanvas || state.hasArtifact) {
+        hideOverlay();
+        state.zenCanvasActionThisTurn = false;
+        return;
+      }
+      const cleaned = cleanForOverlay(md);
+      if (state.zenCanvasActionThisTurn && !cleaned) {
+        hideOverlay();
+      } else if (cleaned) {
+        updateOverlay(cleaned);
+      } else {
+        hideOverlay();
+      }
     }
     state.zenCanvasActionThisTurn = false;
     return;
@@ -1050,6 +1440,7 @@ function handleChatEvent(payload) {
   }
 
   if (type === 'chat_cleared') {
+    stopTTSPlayback();
     clearChatHistory();
     resetAssistantTurnTracking({ clearError: true });
     appendPlainMessage('system', 'Chat cleared.');
@@ -1121,6 +1512,9 @@ async function switchProject(projectID) {
 async function zenSubmitMessage(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed || !state.chatSessionId) return;
+  // Interrupt TTS playback when sending a new message
+  if (ttsPlayer) { ttsPlayer.stop(); ttsPlayer = null; }
+  if (ttsSentenceChunker) { ttsSentenceChunker.reset(); ttsSentenceChunker = null; }
   let finalText = trimmed;
   const anchor = getInputAnchor();
   if (anchor) {
@@ -1133,13 +1527,16 @@ async function zenSubmitMessage(text) {
   updateAssistantActivityIndicator();
   appendPlainMessage('user', finalText);
 
-  if (!finalText.startsWith('/')) {
+  if (!finalText.startsWith('/') && isVoiceTurn()) {
     const pending = appendRenderedAssistant('_Thinking..._', { pending: true, localId: nextLocalMessageId() });
     state.pendingQueue.push(pending);
     updateAssistantActivityIndicator();
   }
 
-  const body = { text: finalText };
+  const body = {
+    text: finalText,
+    output_mode: 'voice',
+  };
   try {
     const resp = await fetch(`/api/chat/sessions/${encodeURIComponent(state.chatSessionId)}/messages`, {
       method: 'POST',
@@ -1203,6 +1600,37 @@ async function cancelActiveAssistantTurn() {
   }
 }
 
+async function cancelActiveDelegatedJobs() {
+  if (!state.chatSessionId || state.assistantDelegateCancelInFlight) return;
+  await refreshAssistantActivity();
+  if (!isDelegateAssistantWorking()) {
+    updateAssistantActivityIndicator();
+    return;
+  }
+  state.assistantDelegateCancelInFlight = true;
+  updateAssistantActivityIndicator();
+  showStatus('stopping delegated jobs...');
+  try {
+    const resp = await fetch(`/api/chat/sessions/${encodeURIComponent(state.chatSessionId)}/cancel-delegates`, { method: 'POST' });
+    if (!resp.ok) {
+      const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
+      showStatus(`delegate stop failed: ${detail}`);
+      return;
+    }
+    const payload = await resp.json();
+    const canceled = Number(payload?.canceled || 0);
+    if (canceled <= 0) {
+      await refreshAssistantActivity();
+    }
+  } catch (err) {
+    showStatus(`delegate stop failed: ${String(err?.message || err)}`);
+  } finally {
+    state.assistantDelegateCancelInFlight = false;
+    updateAssistantActivityIndicator();
+    window.setTimeout(() => { void refreshAssistantActivity(); }, 120);
+  }
+}
+
 function openCanvasWs() {
   const turnToken = state.canvasWsToken + 1;
   state.canvasWsToken = turnToken;
@@ -1222,14 +1650,12 @@ function openCanvasWs() {
     try {
       const payload = JSON.parse(event.data);
       renderCanvas(payload);
-      if (payload.event_id && payload.kind && payload.kind !== 'clear_canvas') {
-        const paneId = payload.kind === 'image_artifact' ? 'canvas-image'
-          : payload.kind === 'pdf_artifact' ? 'canvas-pdf'
-          : 'canvas-text';
+      const paneId = paneIdForCanvasKind(payload.kind);
+      if (paneId) {
         showCanvasColumn(paneId);
         state.zenCanvasActionThisTurn = true;
       }
-      if (payload.kind === 'clear_canvas') {
+      if (String(payload.kind || '').trim().toLowerCase() === 'clear_canvas') {
         hideCanvasColumn();
       }
     } catch (_) {}
@@ -1253,10 +1679,8 @@ async function loadCanvasSnapshot(sessionID = state.sessionId) {
     if (payload?.event) {
       renderCanvas(payload.event);
       const ev = payload.event;
-      if (ev.event_id && ev.kind && ev.kind !== 'clear_canvas') {
-        const paneId = ev.kind === 'image_artifact' ? 'canvas-image'
-          : ev.kind === 'pdf_artifact' ? 'canvas-pdf'
-          : 'canvas-text';
+      const paneId = paneIdForCanvasKind(ev.kind);
+      if (paneId) {
         showCanvasColumn(paneId);
       }
       return;
@@ -1381,6 +1805,25 @@ function closeEdgePanels() {
 function bindUi() {
   const canvasText = document.getElementById('canvas-text');
   const canvasViewport = document.getElementById('canvas-viewport');
+  const zenIndicator = document.getElementById('zen-indicator');
+  const zenDelegateIndicator = document.getElementById('zen-delegate-indicator');
+
+  if (zenIndicator) {
+    zenIndicator.addEventListener('pointerdown', (ev) => {
+      if (!(ev.currentTarget instanceof HTMLElement)) return;
+      if (!ev.currentTarget.classList.contains('is-thinking')) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      void cancelActiveAssistantTurn();
+    });
+  }
+  if (zenDelegateIndicator) {
+    zenDelegateIndicator.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      void cancelActiveDelegatedJobs();
+    });
+  }
 
   // Zen: Left-click/tap on canvas -> toggle voice recording
   const zenClickTarget = canvasViewport || document.getElementById('workspace');
@@ -1439,6 +1882,7 @@ function bindUi() {
         ev.preventDefault();
         const text = zenInput.value.trim();
         if (text) {
+          state.lastInputOrigin = 'text';
           zenInput.value = '';
           hideTextInput();
           void zenSubmitMessage(text);
@@ -1673,6 +2117,14 @@ async function init() {
   hideCanvasColumn();
   showStatus('starting...');
 
+  // Check TTS availability from runtime
+  try {
+    const runtime = await fetchRuntimeMeta();
+    ttsEnabled = Boolean(runtime?.tts_enabled);
+  } catch (_) {
+    ttsEnabled = false;
+  }
+
   await fetchProjects();
   const initialProjectID = resolveInitialProjectID();
   if (!initialProjectID) throw new Error('no projects available');
@@ -1694,15 +2146,12 @@ async function authGate() {
   const loginBtn = document.getElementById('btn-login');
 
   if (!data.has_password) {
-    loginPrompt.textContent = 'No password set. Run "tabura set-password" on the server.';
-    loginBtn.style.display = 'none';
     loginPassword.style.display = 'none';
     loginView.style.display = '';
     mainView.style.display = 'none';
     return new Promise(() => {});
   }
 
-  loginPrompt.textContent = 'Enter your password.';
   loginView.style.display = '';
   mainView.style.display = 'none';
 

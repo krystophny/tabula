@@ -30,3 +30,9 @@ func (c *chatWSConn) writeText(data []byte) error {
 	defer c.writeMu.Unlock()
 	return c.conn.WriteMessage(websocket.TextMessage, data)
 }
+
+func (c *chatWSConn) writeBinary(data []byte) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	return c.conn.WriteMessage(websocket.BinaryMessage, data)
+}

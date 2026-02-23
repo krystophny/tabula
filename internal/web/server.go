@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,32 +24,36 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/krystophny/tabura/internal/appserver"
 	"github.com/krystophny/tabura/internal/serve"
-	"github.com/krystophny/tabura/internal/stt"
 	"github.com/krystophny/tabura/internal/store"
+	"github.com/krystophny/tabura/internal/stt"
 )
 
 const (
-	DefaultHost           = "127.0.0.1"
-	DefaultPort           = 8420
-	DefaultAppServerURL   = "ws://127.0.0.1:8787"
-	SessionCookie         = "tabura_session"
-	cookieMaxAgeSec       = 60 * 60 * 24 * 365
-	DaemonPort            = 9420
-	LocalSessionID        = "local"
-	defaultProducerMCPURL = "http://127.0.0.1:8090/mcp"
-	mcpToolsCallTimeout   = 45 * time.Second
+	DefaultHost                 = "127.0.0.1"
+	DefaultPort                 = 8420
+	DefaultAppServerURL         = "ws://127.0.0.1:8787"
+	SessionCookie               = "tabura_session"
+	cookieMaxAgeSec             = 60 * 60 * 24 * 365
+	DaemonPort                  = 9420
+	LocalSessionID              = "local"
+	defaultProducerMCPURL       = "http://127.0.0.1:8090/mcp"
+	DefaultSparkReasoningEffort = "low"
+	SparkModel                  = "gpt-5.3-codex-spark"
+	mcpToolsCallTimeout         = 45 * time.Second
 )
 
 //go:embed static/* static/vendor/*
 var staticFiles embed.FS
 
 type App struct {
-	dataDir         string
-	localProjectDir string
-	localMCPURL     string
-	appServerURL    string
-	appServerModel  string
-	devRuntime      bool
+	dataDir                       string
+	localProjectDir               string
+	localMCPURL                   string
+	appServerURL                  string
+	appServerModel                string
+	appServerSparkReasoningEffort string
+	ttsURL                        string
+	devRuntime                    bool
 
 	store *store.Store
 
@@ -56,20 +61,21 @@ type App struct {
 
 	upgrader websocket.Upgrader
 
-	mu               sync.Mutex
-	canvasWS         map[string]map[*websocket.Conn]struct{}
-	chatWS           map[string]map[*chatWSConn]struct{}
-	chatTurnCancel  map[string]map[string]context.CancelFunc
-	chatTurnQueue   map[string]int
-	chatTurnWorker  map[string]bool
+	mu                 sync.Mutex
+	canvasWS           map[string]map[*websocket.Conn]struct{}
+	chatWS             map[string]map[*chatWSConn]struct{}
+	chatTurnCancel     map[string]map[string]context.CancelFunc
+	chatTurnQueue      map[string]int
+	chatTurnOutputMode map[string][]string
+	chatTurnWorker     map[string]bool
 	chatAppSessions    map[string]*appserver.Session
-	remoteCanvasWS   map[string]*websocket.Conn
-	tunnelPorts      map[string]int
-	relayCancel      map[string]context.CancelFunc
-	localServe       *serve.App
-	localServeCancel context.CancelFunc
-	projectServes    map[string]*serve.App
-	projectServeStop map[string]context.CancelFunc
+	remoteCanvasWS     map[string]*websocket.Conn
+	tunnelPorts        map[string]int
+	relayCancel        map[string]context.CancelFunc
+	localServe         *serve.App
+	localServeCancel   context.CancelFunc
+	projectServes      map[string]*serve.App
+	projectServeStop   map[string]context.CancelFunc
 
 	bootID    string
 	startedAt string
@@ -77,8 +83,8 @@ type App struct {
 
 const DefaultModel = "gpt-5.3-codex-spark"
 
-func New(dataDir, localProjectDir, localMCPURL, appServerURL, model string, devRuntime bool) (*App, error) {
-	s, err := store.New(pathJoin(dataDir, "tabura.db"))
+func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, sparkReasoningEffort string, devRuntime bool) (*App, error) {
+	s, err := store.New(filepath.Join(dataDir, "tabura.db"))
 	if err != nil {
 		return nil, err
 	}
@@ -98,39 +104,50 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model string, devR
 	if resolvedModel == "" {
 		resolvedModel = DefaultModel
 	}
+	if strings.TrimSpace(sparkReasoningEffort) == "" {
+		sparkReasoningEffort = strings.TrimSpace(os.Getenv("TABURA_APP_SERVER_SPARK_REASONING_EFFORT"))
+	}
+	resolvedSparkReasoningEffort := resolveSparkReasoningEffort(strings.TrimSpace(sparkReasoningEffort))
+	resolvedTTSURL := strings.TrimSpace(ttsURL)
+	if resolvedTTSURL == "" {
+		resolvedTTSURL = strings.TrimSpace(os.Getenv("TABURA_TTS_URL"))
+	}
 	app := &App{
-		dataDir:          dataDir,
-		localProjectDir:  localProjectDir,
-		localMCPURL:      localMCPURL,
-		appServerURL:     appServerURL,
-		appServerModel:   resolvedModel,
-		devRuntime:       devRuntime,
-		store:            s,
-		appServerClient:  appServerClient,
-		upgrader:         websocket.Upgrader{CheckOrigin: checkWSOrigin},
-		canvasWS:         map[string]map[*websocket.Conn]struct{}{},
-		chatWS:           map[string]map[*chatWSConn]struct{}{},
-		chatTurnCancel:  map[string]map[string]context.CancelFunc{},
-		chatTurnQueue:   map[string]int{},
-		chatTurnWorker:  map[string]bool{},
-		chatAppSessions:    map[string]*appserver.Session{},
-		remoteCanvasWS:   map[string]*websocket.Conn{},
-		tunnelPorts:      map[string]int{},
-		relayCancel:      map[string]context.CancelFunc{},
-		projectServes:    map[string]*serve.App{},
-		projectServeStop: map[string]context.CancelFunc{},
-		bootID:           strconv.FormatInt(time.Now().UnixNano(), 16),
-		startedAt:        time.Now().UTC().Format(time.RFC3339Nano),
+		dataDir:                       dataDir,
+		localProjectDir:               localProjectDir,
+		localMCPURL:                   localMCPURL,
+		appServerURL:                  appServerURL,
+		appServerModel:                resolvedModel,
+		appServerSparkReasoningEffort: resolvedSparkReasoningEffort,
+		ttsURL:                        resolvedTTSURL,
+		devRuntime:                    devRuntime,
+		store:                         s,
+		appServerClient:               appServerClient,
+		upgrader:                      websocket.Upgrader{CheckOrigin: checkWSOrigin},
+		canvasWS:                      map[string]map[*websocket.Conn]struct{}{},
+		chatWS:                        map[string]map[*chatWSConn]struct{}{},
+		chatTurnCancel:                map[string]map[string]context.CancelFunc{},
+		chatTurnQueue:                 map[string]int{},
+		chatTurnOutputMode:            map[string][]string{},
+		chatTurnWorker:                map[string]bool{},
+		chatAppSessions:               map[string]*appserver.Session{},
+		remoteCanvasWS:                map[string]*websocket.Conn{},
+		tunnelPorts:                   map[string]int{},
+		relayCancel:                   map[string]context.CancelFunc{},
+		projectServes:                 map[string]*serve.App{},
+		projectServeStop:              map[string]context.CancelFunc{},
+		bootID:                        strconv.FormatInt(time.Now().UnixNano(), 16),
+		startedAt:                     time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	if _, err := app.ensureDefaultProjectRecord(); err != nil {
 		_ = s.Close()
 		return nil, err
 	}
+	if err := app.ensurePromptContractFresh(); err != nil {
+		_ = s.Close()
+		return nil, err
+	}
 	return app, nil
-}
-
-func pathJoin(parts ...string) string {
-	return strings.Join(parts, "/")
 }
 
 func randomToken() string {
@@ -192,6 +209,7 @@ func (a *App) Router() http.Handler {
 	r.Post("/api/chat/sessions/{session_id}/messages", a.handleChatSessionMessage)
 	r.Post("/api/chat/sessions/{session_id}/commands", a.handleChatSessionCommand)
 	r.Post("/api/chat/sessions/{session_id}/cancel", a.handleChatSessionCancel)
+	r.Post("/api/chat/sessions/{session_id}/cancel-delegates", a.handleChatSessionCancelDelegates)
 
 	// canvas/file proxy
 	r.Get("/api/canvas/{session_id}/snapshot", a.handleCanvasSnapshot)
@@ -212,7 +230,7 @@ func (a *App) Router() http.Handler {
 	r.Get("/", a.serveIndex)
 	r.Get("/canvas", a.serveCanvas)
 	if a.devRuntime {
-		diskDir := pathJoin(a.localProjectDir, "internal", "web", "static")
+		diskDir := filepath.Join(a.localProjectDir, "internal", "web", "static")
 		r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir(diskDir))))
 	} else {
 		r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticSubFS()))))
@@ -223,7 +241,7 @@ func (a *App) Router() http.Handler {
 func staticSubFS() fs.FS {
 	sub, err := fs.Sub(staticFiles, "static")
 	if err != nil {
-		return staticFiles
+		panic("embedded static/ directory missing: " + err.Error())
 	}
 	return sub
 }
@@ -251,7 +269,7 @@ func (a *App) serveIndex(w http.ResponseWriter, r *http.Request) {
 	var data []byte
 	var err error
 	if a.devRuntime {
-		data, err = os.ReadFile(pathJoin(a.localProjectDir, "internal", "web", "static", "index.html"))
+		data, err = os.ReadFile(filepath.Join(a.localProjectDir, "internal", "web", "static", "index.html"))
 	} else {
 		data, err = staticFiles.ReadFile("static/index.html")
 	}
@@ -327,29 +345,52 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
-
-
 func (a *App) handleRuntime(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
+	sparkReasoningEffort := ""
+	if isSparkModel(a.appServerModel) {
+		sparkReasoningEffort = a.appServerSparkReasoningEffort
+	}
 	writeJSON(w, map[string]interface{}{
-		"boot_id":          a.bootID,
-		"started_at":       a.startedAt,
-		"version":          "0.0.9-dev",
-		"dev_mode":         a.devRuntime,
-		"local_mcp_url":    emptyToNil(a.localMCPURL),
-		"app_server_url":   emptyToNil(a.appServerURL),
-		"app_server_model": emptyToNil(a.appServerModel),
-		"available_models":  []string{"gpt-5.3-codex-spark", "gpt-5.3-codex", "gpt-5.2"},
+		"boot_id":                     a.bootID,
+		"started_at":                  a.startedAt,
+		"version":                     "0.0.9-dev",
+		"dev_mode":                    a.devRuntime,
+		"local_mcp_url":               a.localMCPURL,
+		"app_server_url":              a.appServerURL,
+		"app_server_model":            a.appServerModel,
+		"app_server_reasoning_effort": sparkReasoningEffort,
+		"available_models":            []string{"gpt-5.3-codex-spark", "gpt-5.3-codex", "gpt-5.2"},
+		"tts_enabled":                 a.ttsURL != "",
 	})
 }
 
-func emptyToNil(v string) interface{} {
-	if strings.TrimSpace(v) == "" {
+func resolveSparkReasoningEffort(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "low", "medium", "high":
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return DefaultSparkReasoningEffort
+	}
+}
+
+func isSparkModel(model string) bool {
+	return strings.EqualFold(strings.TrimSpace(model), SparkModel)
+}
+
+func appServerReasoningParamsForModel(model, effort string) map[string]interface{} {
+	if !isSparkModel(model) {
 		return nil
 	}
-	return v
+	effort = resolveSparkReasoningEffort(strings.TrimSpace(effort))
+	if strings.TrimSpace(effort) == "" {
+		return nil
+	}
+	return map[string]interface{}{
+		"model_reasoning_effort": effort,
+	}
 }
 
 func intFromAny(v interface{}, d int) int {
@@ -420,7 +461,6 @@ func (a *App) handleCanvasSnapshot(w http.ResponseWriter, r *http.Request) {
 	event, _ := status["active_artifact"].(map[string]interface{})
 	writeJSON(w, map[string]interface{}{"status": status, "event": event})
 }
-
 
 func (a *App) handleMailActionCapabilities(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
@@ -815,11 +855,37 @@ func mcpToolsCallURL(mcpURL, name string, arguments map[string]interface{}) (map
 		return nil, fmt.Errorf("MCP error: %v", e["message"])
 	}
 	result, _ := out["result"].(map[string]interface{})
+	if isErr, _ := result["isError"].(bool); isErr {
+		return nil, fmt.Errorf("MCP tool %q failed: %s", name, mcpResultErrorText(result))
+	}
 	sc, _ := result["structuredContent"].(map[string]interface{})
 	if sc == nil {
 		return nil, errors.New("MCP call failed: missing structuredContent")
 	}
 	return sc, nil
+}
+
+func mcpResultErrorText(result map[string]interface{}) string {
+	if result == nil {
+		return "unknown error"
+	}
+	content, _ := result["content"].([]interface{})
+	parts := make([]string, 0, len(content))
+	for _, item := range content {
+		entry, _ := item.(map[string]interface{})
+		if entry == nil {
+			continue
+		}
+		text := strings.TrimSpace(fmt.Sprint(entry["text"]))
+		if text == "" || text == "<nil>" {
+			continue
+		}
+		parts = append(parts, text)
+	}
+	if len(parts) == 0 {
+		return "unknown error"
+	}
+	return strings.Join(parts, " | ")
 }
 
 func normalizeProducerMCPURL(raw string) (string, error) {

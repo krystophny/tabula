@@ -25,13 +25,16 @@ type PromptRequest struct {
 	Prompt    string
 	Model     string        // thread-level default model
 	TurnModel string        // per-turn model override (sent in turn/start if set)
+	ThreadParams map[string]interface{} // additional params for thread/start
+	TurnParams  map[string]interface{} // additional params for turn/start
 	Timeout   time.Duration
 }
 
 type PromptResponse struct {
-	ThreadID string
-	TurnID   string
-	Message  string
+	ThreadID    string
+	TurnID      string
+	Message     string
+	FileChanges []string
 }
 
 type StreamEvent struct {
@@ -182,6 +185,13 @@ func (c *Client) SendPromptStream(ctx context.Context, req PromptRequest, onEven
 	if strings.TrimSpace(req.Model) != "" {
 		threadParams["model"] = strings.TrimSpace(req.Model)
 	}
+	if len(req.ThreadParams) > 0 {
+		for key, value := range req.ThreadParams {
+			if strings.TrimSpace(key) != "" {
+				threadParams[key] = value
+			}
+		}
+	}
 	if err := c.writeJSON(ctx, conn, map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      2,
@@ -213,6 +223,13 @@ func (c *Client) SendPromptStream(ctx context.Context, req PromptRequest, onEven
 	if strings.TrimSpace(req.TurnModel) != "" {
 		turnParams["model"] = strings.TrimSpace(req.TurnModel)
 	}
+	if len(req.TurnParams) > 0 {
+		for key, value := range req.TurnParams {
+			if strings.TrimSpace(key) != "" {
+				turnParams[key] = value
+			}
+		}
+	}
 	if err := c.writeJSON(ctx, conn, map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      3,
@@ -222,14 +239,15 @@ func (c *Client) SendPromptStream(ctx context.Context, req PromptRequest, onEven
 		return nil, contextErr(ctx, err)
 	}
 
-	turnID, message, err := c.readTurnUntilComplete(ctx, conn, threadID, onEvent)
+	turnID, message, fileChanges, err := c.readTurnUntilComplete(ctx, conn, threadID, onEvent)
 	if err != nil {
 		return nil, contextErr(ctx, err)
 	}
 	return &PromptResponse{
-		ThreadID: threadID,
-		TurnID:   turnID,
-		Message:  message,
+		ThreadID:    threadID,
+		TurnID:      turnID,
+		Message:     message,
+		FileChanges: fileChanges,
 	}, nil
 }
 
@@ -273,17 +291,18 @@ func (c *Client) waitForResponse(ctx context.Context, conn *websocket.Conn, id i
 	}
 }
 
-func (c *Client) readTurnUntilComplete(ctx context.Context, conn *websocket.Conn, threadID string, onEvent func(StreamEvent)) (string, string, error) {
+func (c *Client) readTurnUntilComplete(ctx context.Context, conn *websocket.Conn, threadID string, onEvent func(StreamEvent)) (string, string, []string, error) {
 	turnResponseSeen := false
 	turnID := ""
 	message := ""
 	previousMessage := ""
 	turnCompleted := false
+	var fileChanges []string
 
 	for {
 		msg, err := readJSON(ctx, conn)
 		if err != nil {
-			return "", "", err
+			return "", "", nil, err
 		}
 
 		if msgID, hasID := jsonRPCID(msg); hasID && msgID == 3 {
@@ -292,7 +311,7 @@ func (c *Client) readTurnUntilComplete(ctx context.Context, conn *websocket.Conn
 				if onEvent != nil {
 					onEvent(StreamEvent{Type: "error", ThreadID: threadID, TurnID: turnID, Error: errText})
 				}
-				return "", "", fmt.Errorf("turn/start rpc error: %s", errText)
+				return "", "", nil, fmt.Errorf("turn/start rpc error: %s", errText)
 			}
 			turnResponseSeen = true
 			if result, _ := msg["result"].(map[string]interface{}); result != nil {
@@ -317,6 +336,13 @@ func (c *Client) readTurnUntilComplete(ctx context.Context, conn *websocket.Conn
 				if typ == "agentMessage" {
 					if text, _ := item["text"].(string); strings.TrimSpace(text) != "" {
 						message = text
+					}
+				} else if typ == "fileChange" {
+					if p := extractFileChangePath(item); p != "" {
+						fileChanges = append(fileChanges, p)
+					}
+					if onEvent != nil {
+						onEvent(StreamEvent{Type: "item_completed", ThreadID: threadID, TurnID: turnID, Message: typ})
 					}
 				} else if typ != "" && onEvent != nil {
 					onEvent(StreamEvent{Type: "item_completed", ThreadID: threadID, TurnID: turnID, Message: typ})
@@ -351,7 +377,7 @@ func (c *Client) readTurnUntilComplete(ctx context.Context, conn *websocket.Conn
 					if onEvent != nil {
 						onEvent(StreamEvent{Type: "error", ThreadID: threadID, TurnID: turnID, Error: errText})
 					}
-					return "", "", errors.New(errText)
+					return "", "", nil, errors.New(errText)
 				}
 			}
 		}
@@ -374,11 +400,20 @@ func (c *Client) readTurnUntilComplete(ctx context.Context, conn *websocket.Conn
 				if onEvent != nil {
 					onEvent(StreamEvent{Type: "error", ThreadID: threadID, TurnID: turnID, Error: "app-server returned an empty assistant message"})
 				}
-				return turnID, "", errors.New("app-server returned an empty assistant message")
+				return turnID, "", nil, errors.New("app-server returned an empty assistant message")
 			}
-			return turnID, final, nil
+			return turnID, final, fileChanges, nil
 		}
 	}
+}
+
+func extractFileChangePath(item map[string]interface{}) string {
+	for _, key := range []string{"file", "path", "filename"} {
+		if v, _ := item[key].(string); strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 func computeSuffixDelta(previous, current string) string {

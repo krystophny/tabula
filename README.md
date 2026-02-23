@@ -50,10 +50,15 @@ tabura canvas
 - Codex app-server websocket: `ws://127.0.0.1:8787`
 - VoxType MCP bridge: `http://127.0.0.1:8091/mcp`
 - Local canvas session id: `local`
+- Spark thinking budget for Spark model (fast path): `TABURA_APP_SERVER_SPARK_REASONING_EFFORT=low` (low|medium|high)
 
 Zen canvas behavior:
 - Browser opens to tabula rasa (blank white screen) or last artifact.
 - Tap anywhere to start/stop voice recording. Right-click to type. Keyboard auto-activates.
+- Assistant output follows one path only:
+  - chat-only (spoken), or
+  - file-backed canvas (`:::file`) with canvas content rendered only on canvas.
+- Multi-paragraph assistant output is auto-promoted to a temp canvas file and not shown/spoken in chat.
 - Responses stream as ephemeral overlays. Click outside to dismiss.
 - Edge panels: hover near top edge for projects, right edge for chat log.
 - Slash commands: `/plan`, `/plan on`, `/plan off`, `/clear`, `/compact`.
@@ -77,7 +82,7 @@ Markdown text artifacts support TeX math rendering via MathJax.
 
 1. Zen canvas: invisible chrome, full-viewport document surface.
 2. Tap-to-talk voice capture with recording dot indicator.
-3. Ephemeral response overlays (no persistent chat panel).
+3. Ephemeral response overlays with hidden chat history in the edge panel.
 4. Edge-reveal panels for hidden project/diagnostics chrome.
 5. E-ink-friendly: no animations for functional elements, static indicators.
 

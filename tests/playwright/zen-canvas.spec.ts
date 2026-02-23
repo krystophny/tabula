@@ -25,6 +25,8 @@ async function injectCanvasModuleRef(page: Page) {
   await page.evaluate(async () => {
     const mod = await import('../../internal/web/static/canvas.js');
     (window as any).__canvasModule = mod;
+    const zen = await import('../../internal/web/static/zen.js');
+    (window as any).__zenModule = zen;
   });
 }
 
@@ -63,6 +65,16 @@ async function injectChatEvent(page: Page, payload: Record<string, unknown>) {
     const chatWs = sessions.find((ws: any) => ws.url && ws.url.includes('/ws/chat/'));
     if (chatWs) {
       chatWs.injectEvent(p);
+    }
+  }, payload);
+}
+
+async function injectCanvasEvent(page: Page, payload: Record<string, unknown>) {
+  await page.evaluate((p) => {
+    const sessions = (window as any).__mockWsSessions || [];
+    const canvasWs = sessions.find((ws: any) => ws.url && ws.url.includes('/ws/canvas/'));
+    if (canvasWs) {
+      canvasWs.injectEvent(p);
     }
   }, payload);
 }
@@ -131,12 +143,17 @@ test.describe('zen canvas - tabula rasa', () => {
     // Wait for recorder to start
     await waitForLogEntry(page, 'recorder', 'start');
 
-    // Click again to stop
+    // Click again to stop — transitions to thinking dots
     await page.mouse.click(400, 400);
     await waitForLogEntry(page, 'stt', 'stop');
 
-    // Indicator should disappear
-    await expect(indicator).toBeHidden();
+    // Recording dot should be hidden, thinking dots visible
+    const dot = page.locator('.zen-indicator-dot');
+    const dotDisplay = await dot.evaluate(el => (el as HTMLElement).style.display);
+    expect(dotDisplay).toBe('none');
+    const dots = page.locator('.zen-indicator-dots');
+    const dotsDisplay = await dots.evaluate(el => getComputedStyle(el).display);
+    expect(dotsDisplay).not.toBe('none');
   });
 
   test('right-click opens text input at position', async ({ page }) => {
@@ -196,6 +213,47 @@ test.describe('zen canvas - response overlay', () => {
     await page.mouse.click(10, 10);
     await page.waitForTimeout(100);
     await expect(overlay).toBeHidden();
+  });
+
+  test('empty canvas switches from text overlay to symbol on first artifact event', async ({ page }) => {
+    await page.evaluate(() => {
+      const zenMod = (window as any).__zenModule;
+      if (zenMod?.getZenState) {
+        const zs = zenMod.getZenState();
+        zs.lastInputX = 400;
+        zs.lastInputY = 300;
+      }
+    });
+
+    await page.keyboard.type('draw');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+
+    await injectChatEvent(page, { type: 'turn_started', turn_id: 'draw-1' });
+    await page.waitForTimeout(100);
+    await expect(page.locator('#zen-overlay')).toBeVisible();
+    await expect(page.locator('#zen-indicator')).toBeHidden();
+
+    // No event_id on purpose: empty->drawn transition must still flip to artifact symbol mode.
+    await injectCanvasEvent(page, {
+      kind: 'text_artifact',
+      title: 'drawn.txt',
+      text: 'Drawn content',
+    });
+    await page.waitForTimeout(120);
+
+    await expect(page.locator('#canvas-text')).toBeVisible();
+    await expect(page.locator('#canvas-text')).toContainText('Drawn content');
+    await expect(page.locator('#zen-overlay')).toBeHidden();
+    await expect(page.locator('#zen-indicator')).toBeVisible();
+
+    const dotDisplay = await page.locator('.zen-indicator-dot').evaluate(el => (el as HTMLElement).style.display);
+    expect(dotDisplay).toBe('none');
+    const dotsDisplay = await page.locator('.zen-indicator-dots').evaluate(el => getComputedStyle(el).display);
+    expect(dotsDisplay).not.toBe('none');
+
+    const hasArtifact = await page.evaluate(() => Boolean((window as any)._taburaApp?.getState?.().hasArtifact));
+    expect(hasArtifact).toBe(true);
   });
 
   test('error shows in overlay and auto-dismisses', async ({ page }) => {
@@ -278,6 +336,165 @@ test.describe('zen canvas - artifact mode', () => {
     const highlighted = page.locator('.diff-highlight');
     const count = await highlighted.count();
     expect(count).toBeGreaterThan(0);
+  });
+});
+
+test.describe('zen canvas - TTS voice output', () => {
+  test.beforeEach(async ({ page }) => {
+    await waitReady(page);
+    await injectCanvasModuleRef(page);
+  });
+
+  async function setVoiceOrigin(page: Page) {
+    await page.evaluate(() => {
+      const app = (window as any)._taburaApp;
+      if (app?.getState) app.getState().lastInputOrigin = 'voice';
+      // Set a valid position so indicators are visible in viewport
+      const zenMod = (window as any).__zenModule;
+      if (zenMod?.getZenState) {
+        const zs = zenMod.getZenState();
+        zs.lastInputX = 400;
+        zs.lastInputY = 300;
+      }
+    });
+  }
+
+  test('voice turn shows thinking dots, no overlay', async ({ page }) => {
+    await clearLog(page);
+    await setVoiceOrigin(page);
+
+    await injectChatEvent(page, { type: 'turn_started', turn_id: 'tts-dots' });
+    await page.waitForTimeout(100);
+
+    // Thinking dots visible, overlay hidden
+    const indicator = page.locator('#zen-indicator');
+    await expect(indicator).toBeVisible();
+    const dots = page.locator('.zen-indicator-dots');
+    const dotsDisplay = await dots.evaluate(el => getComputedStyle(el).display);
+    expect(dotsDisplay).not.toBe('none');
+    const dot = page.locator('.zen-indicator-dot');
+    const dotDisplay = await dot.evaluate(el => (el as HTMLElement).style.display);
+    expect(dotDisplay).toBe('none');
+
+    const overlay = page.locator('#zen-overlay');
+    await expect(overlay).toBeHidden();
+  });
+
+  test('text turn shows overlay with Thinking, no indicator', async ({ page }) => {
+    await clearLog(page);
+    // Default is text origin; send via keyboard to confirm
+    await page.keyboard.type('hello');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+
+    await injectChatEvent(page, { type: 'turn_started', turn_id: 'text-t1' });
+    await page.waitForTimeout(100);
+
+    const overlay = page.locator('#zen-overlay');
+    await expect(overlay).toBeVisible();
+    const content = await page.locator('.zen-overlay-content').textContent();
+    expect(content).toContain('Thinking');
+
+    // Indicator should NOT show thinking dots
+    const indicator = page.locator('#zen-indicator');
+    await expect(indicator).toBeHidden();
+  });
+
+  test('voice response triggers TTS, no overlay', async ({ page }) => {
+    await clearLog(page);
+    await setVoiceOrigin(page);
+
+    await injectChatEvent(page, { type: 'turn_started', turn_id: 'tts-1' });
+    await page.waitForTimeout(100);
+
+    await injectChatEvent(page, {
+      type: 'assistant_message',
+      turn_id: 'tts-1',
+      message: 'Hello, how can I help you today?',
+    });
+    await page.waitForTimeout(500);
+
+    await injectChatEvent(page, {
+      type: 'message_persisted',
+      role: 'assistant',
+      turn_id: 'tts-1',
+      message: '',
+    });
+    await page.waitForTimeout(500);
+
+    // TTS fetch should have been called
+    const log = await getLog(page);
+    const ttsCalls = log.filter(e => e.type === 'tts');
+    expect(ttsCalls.length).toBeGreaterThan(0);
+    expect(ttsCalls[0].text).toBeTruthy();
+
+    // Overlay should NOT be visible for voice turns
+    const overlay = page.locator('#zen-overlay');
+    await expect(overlay).toBeHidden();
+  });
+
+  test('text turn also triggers TTS and shows overlay', async ({ page }) => {
+    await clearLog(page);
+    // Text origin (default)
+    await page.keyboard.type('analyze');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+
+    await injectChatEvent(page, { type: 'turn_started', turn_id: 'tts-text' });
+    await page.waitForTimeout(100);
+
+    await injectChatEvent(page, {
+      type: 'assistant_message',
+      turn_id: 'tts-text',
+      message: 'Here is the analysis with some visual content.',
+    });
+    await page.waitForTimeout(500);
+
+    // Overlay shows markdown
+    const overlay = page.locator('#zen-overlay');
+    await expect(overlay).toBeVisible();
+
+    await injectChatEvent(page, {
+      type: 'message_persisted',
+      role: 'assistant',
+      turn_id: 'tts-text',
+      message: 'Here is the analysis with some visual content.',
+    });
+    await page.waitForTimeout(500);
+
+    // TTS fires on all turns now
+    const log = await getLog(page);
+    const ttsCalls = log.filter(e => e.type === 'tts');
+    expect(ttsCalls.length).toBeGreaterThan(0);
+  });
+
+  test('lang tag sends lang=de for German text', async ({ page }) => {
+    await clearLog(page);
+    await setVoiceOrigin(page);
+
+    await injectChatEvent(page, { type: 'turn_started', turn_id: 'tts-de' });
+    await page.waitForTimeout(100);
+
+    await injectChatEvent(page, {
+      type: 'assistant_message',
+      turn_id: 'tts-de',
+      message: '[lang:de] Hallo, ich bin Tabura und kann dir helfen.',
+    });
+    await page.waitForTimeout(300);
+
+    await injectChatEvent(page, {
+      type: 'message_persisted',
+      role: 'assistant',
+      turn_id: 'tts-de',
+      message: '',
+    });
+    await page.waitForTimeout(500);
+
+    const log = await getLog(page);
+    const ttsCalls = log.filter(e => e.type === 'tts');
+    expect(ttsCalls.length).toBeGreaterThan(0);
+    const deCalls = ttsCalls.filter(e => e.lang === 'de');
+    expect(deCalls.length).toBeGreaterThan(0);
   });
 });
 

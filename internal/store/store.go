@@ -225,6 +225,7 @@ func (s *Store) migrateProjectColumns() error {
 	_, _ = s.db.Exec(`UPDATE projects SET canvas_session_id = 'local' WHERE is_default <> 0 AND trim(canvas_session_id) = ''`)
 	_, _ = s.db.Exec(`UPDATE projects SET canvas_session_id = id WHERE trim(canvas_session_id) = ''`)
 	_, _ = s.db.Exec(`UPDATE projects SET last_opened_at = updated_at WHERE last_opened_at = 0`)
+	_, _ = s.db.Exec(`UPDATE chat_messages SET render_format = 'text' WHERE lower(trim(render_format)) = 'canvas'`)
 	return nil
 }
 
@@ -575,21 +576,37 @@ func (s *Store) SetActiveProjectID(projectID string) error {
 	if id == "" {
 		return errors.New("project id is required")
 	}
-	_, err := s.db.Exec(`INSERT INTO app_state (key, value) VALUES ('active_project_id', ?)
-		ON CONFLICT(key) DO UPDATE SET value=excluded.value`, id)
-	return err
+	return s.SetAppState("active_project_id", id)
 }
 
 func (s *Store) ActiveProjectID() (string, error) {
-	var id string
-	err := s.db.QueryRow(`SELECT value FROM app_state WHERE key = 'active_project_id'`).Scan(&id)
+	return s.AppState("active_project_id")
+}
+
+func (s *Store) SetAppState(key, value string) error {
+	cleanKey := strings.TrimSpace(key)
+	if cleanKey == "" {
+		return errors.New("app state key is required")
+	}
+	_, err := s.db.Exec(`INSERT INTO app_state (key, value) VALUES (?, ?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value`, cleanKey, strings.TrimSpace(value))
+	return err
+}
+
+func (s *Store) AppState(key string) (string, error) {
+	cleanKey := strings.TrimSpace(key)
+	if cleanKey == "" {
+		return "", errors.New("app state key is required")
+	}
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM app_state WHERE key = ?`, cleanKey).Scan(&value)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(id), nil
+	return strings.TrimSpace(value), nil
 }
 
 func (s *Store) TouchProject(projectID string) error {
@@ -680,6 +697,34 @@ func (s *Store) GetChatSession(id string) (ChatSession, error) {
 	return out, nil
 }
 
+func (s *Store) ListChatSessions() ([]ChatSession, error) {
+	rows, err := s.db.Query(
+		`SELECT id, project_key, app_thread_id, mode, created_at, updated_at
+		 FROM chat_sessions ORDER BY created_at ASC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]ChatSession, 0, 32)
+	for rows.Next() {
+		var item ChatSession
+		if err := rows.Scan(
+			&item.ID,
+			&item.ProjectKey,
+			&item.AppThreadID,
+			&item.Mode,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		item.Mode = normalizeChatMode(item.Mode)
+		out = append(out, item)
+	}
+	return out, nil
+}
+
 func (s *Store) UpdateChatSessionMode(id, mode string) (ChatSession, error) {
 	normalizedMode := normalizeChatMode(mode)
 	now := time.Now().Unix()
@@ -715,6 +760,8 @@ func normalizeChatRole(role string) string {
 func normalizeRenderFormat(format string) string {
 	switch strings.ToLower(strings.TrimSpace(format)) {
 	case "text":
+		return "text"
+	case "canvas":
 		return "text"
 	default:
 		return "markdown"
@@ -831,11 +878,25 @@ func (s *Store) ClearChatMessages(sessionID string) error {
 	return err
 }
 
+func (s *Store) ClearAllChatMessages() error {
+	_, err := s.db.Exec("DELETE FROM chat_messages")
+	return err
+}
+
+func (s *Store) ClearAllChatEvents() error {
+	_, err := s.db.Exec("DELETE FROM chat_events")
+	return err
+}
+
 func (s *Store) ResetChatSessionThread(sessionID string) error {
 	_, err := s.db.Exec("UPDATE chat_sessions SET app_thread_id = '' WHERE id = ?", sessionID)
 	return err
 }
 
+func (s *Store) ResetAllChatSessionThreads() error {
+	_, err := s.db.Exec("UPDATE chat_sessions SET app_thread_id = '', updated_at = ?", time.Now().Unix())
+	return err
+}
 
 func (s *Store) AddChatEvent(sessionID, turnID, eventType, payloadJSON string) error {
 	_, err := s.db.Exec(

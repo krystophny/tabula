@@ -11,11 +11,11 @@
   <div id="app">
     <div id="view-login" class="view" style="display:none">
       <div class="auth-card">
-        <h1>tabura</h1>
+        <h1>&#x30BF;&#x30D6;&#x30E9;</h1>
         <p id="login-prompt"></p>
         <form id="login-form" autocomplete="off">
-          <input id="login-password" type="password" placeholder="Password" autofocus>
-          <button id="btn-login" type="submit">Login</button>
+          <input id="login-password" type="password" placeholder="" autofocus>
+          <button id="btn-login" type="submit" style="display:none">Login</button>
           <div id="login-error" class="error"></div>
         </form>
       </div>
@@ -34,6 +34,13 @@
 
       <div id="zen-indicator" class="zen-indicator" style="display:none">
         <span class="zen-indicator-dot"></span>
+        <span class="zen-indicator-dots">&#x2022;&#x2022;&#x2022;</span>
+      </div>
+
+      <div id="zen-delegate-indicator" class="zen-delegate-indicator" style="display:none"></div>
+
+      <div id="zen-speaking" class="zen-indicator" style="display:none">
+        <span class="zen-speaking-icon"></span>
       </div>
 
       <textarea id="zen-input" class="zen-input" style="display:none" rows="1" placeholder=""></textarea>

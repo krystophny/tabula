@@ -25,6 +25,11 @@
 
       <div id="zen-indicator" class="zen-indicator" style="display:none">
         <span class="zen-indicator-dot"></span>
+        <span class="zen-indicator-dots">&#x2022;&#x2022;&#x2022;</span>
+      </div>
+
+      <div id="zen-speaking" class="zen-indicator" style="display:none">
+        <span class="zen-speaking-icon"></span>
       </div>
 
       <textarea id="zen-input" class="zen-input" style="display:none" rows="1" placeholder=""></textarea>
@@ -110,7 +115,7 @@
         return new Response(JSON.stringify({ active: 0, queued: 0 }), { status: 200 });
       }
       if (u.includes('/api/runtime')) {
-        return new Response(JSON.stringify({ dev_mode: false, boot_id: 'test' }), { status: 200 });
+        return new Response(JSON.stringify({ dev_mode: false, boot_id: 'test', tts_enabled: true }), { status: 200 });
       }
       if (u.includes('/api/canvas/')) {
         return new Response(JSON.stringify({}), { status: 200 });
@@ -128,6 +133,7 @@
       constructor(url) {
         this.url = url;
         this.readyState = MockWebSocket.OPEN;
+        this.binaryType = 'blob';
         this.onopen = null;
         this.onmessage = null;
         this.onclose = null;
@@ -155,6 +161,21 @@
             }, 5);
           } else if (msg.type === 'stt_cancel') {
             window.__harnessLog.push({ type: 'stt', action: 'cancel' });
+          } else if (msg.type === 'tts_speak') {
+            window.__harnessLog.push({ type: 'tts', text: msg.text, lang: msg.lang });
+            const ws = this;
+            // Return minimal WAV as binary ArrayBuffer
+            const wavHeader = new Uint8Array([
+              0x52,0x49,0x46,0x46, 0x24,0x00,0x00,0x00, 0x57,0x41,0x56,0x45,
+              0x66,0x6D,0x74,0x20, 0x10,0x00,0x00,0x00, 0x01,0x00,0x01,0x00,
+              0x44,0xAC,0x00,0x00, 0x88,0x58,0x01,0x00, 0x02,0x00,0x10,0x00,
+              0x64,0x61,0x74,0x61, 0x00,0x00,0x00,0x00,
+            ]);
+            setTimeout(() => {
+              if (ws.onmessage) {
+                ws.onmessage({ data: wavHeader.buffer });
+              }
+            }, 5);
           }
         } catch (_) {}
       }
@@ -167,6 +188,31 @@
       }
     }
     window.WebSocket = MockWebSocket;
+
+    // Mock AudioContext for TTS playback
+    const MockAudioContext = class {
+      constructor() {
+        this.currentTime = 0;
+        this.destination = {};
+      }
+      async decodeAudioData(buf) {
+        return { duration: 0.1, length: 4410, sampleRate: 44100, numberOfChannels: 1 };
+      }
+      createBufferSource() {
+        const node = {
+          buffer: null,
+          onended: null,
+          connect() {},
+          start() {
+            setTimeout(() => { if (node.onended) node.onended(); }, 10);
+          },
+          stop() {},
+        };
+        return node;
+      }
+    };
+    window.AudioContext = MockAudioContext;
+    window.webkitAudioContext = MockAudioContext;
 
     // Mock getUserMedia
     const fakeTrack = {
