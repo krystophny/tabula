@@ -76,11 +76,15 @@ const VOICE_EOU_NO_SPEECH_MS = 4000;
 const VOICE_EOU_MAX_RECORDING_MS = 20000;
 const VOICE_EOU_FRAME_MS = 40;
 const VOICE_EOU_NOISE_FLOOR_SAMPLES = 8;
-const VOICE_EOU_SPEECH_START_OFFSET_DB = 5;
-const VOICE_EOU_SPEECH_END_HYSTERESIS_DB = 2;
-const VOICE_EOU_SPEECH_THRESHOLD_MIN_DB = -45;
-const VOICE_EOU_NOISE_FLOOR_MIN_DB = -70;
-const VOICE_EOU_NOISE_FLOOR_MAX_DB = -20;
+const VOICE_EOU_NOISE_FLOOR_PERCENTILE = 0.35;
+const VOICE_EOU_NOISE_FLOOR_ADAPT_ALPHA = 0.12;
+const VOICE_EOU_SPEECH_START_OFFSET_DB = 3;
+const VOICE_EOU_SPEECH_END_OFFSET_DB = 1.5;
+const VOICE_EOU_SPEECH_START_THRESHOLD_MIN_DB = -42;
+const VOICE_EOU_SPEECH_END_THRESHOLD_MIN_DB = -45;
+const VOICE_EOU_SPEECH_START_FRAMES = 4;
+const VOICE_EOU_NOISE_FLOOR_MIN_DB = -60;
+const VOICE_EOU_NOISE_FLOOR_MAX_DB = -18;
 let devReloadBootID = '';
 let devReloadTimer = null;
 let devReloadInFlight = false;
@@ -706,13 +710,23 @@ function computeDecibelFromTimeDomain(data) {
   return 20 * Math.log10(rms);
 }
 
-function averageNumbers(values) {
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function percentileValue(values, percentile) {
   if (!Array.isArray(values) || values.length === 0) return null;
-  let total = 0;
-  for (const value of values) {
-    total += Number(value) || 0;
-  }
-  return total / values.length;
+  const sorted = values
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b);
+  if (sorted.length === 0) return null;
+  const rank = clampNumber(percentile, 0, 1) * (sorted.length - 1);
+  const lower = Math.floor(rank);
+  const upper = Math.ceil(rank);
+  if (lower === upper) return sorted[lower];
+  const weight = rank - lower;
+  return (sorted[lower] * (1 - weight)) + (sorted[upper] * weight);
 }
 
 function startVADMonitor(capture) {
@@ -730,6 +744,7 @@ function startVADMonitor(capture) {
     speechMs: 0,
     silenceMs: 0,
     hasSpeech: false,
+    speechFrames: 0,
     noiseSamples: [],
     noiseFloorDb: null,
     isRunning: true,
@@ -759,34 +774,78 @@ function startVADMonitor(capture) {
       if (options.noiseFloorDb == null && options.noiseSamples.length < VOICE_EOU_NOISE_FLOOR_SAMPLES) {
         options.noiseSamples.push(db);
         if (options.noiseSamples.length >= VOICE_EOU_NOISE_FLOOR_SAMPLES) {
-          const sum = options.noiseSamples.reduce((a, v) => a + v, 0);
-          const avg = sum / options.noiseSamples.length;
-          options.noiseFloorDb = Math.max(
-            VOICE_EOU_NOISE_FLOOR_MIN_DB,
-            Math.min(VOICE_EOU_NOISE_FLOOR_MAX_DB, avg),
-          );
+          const seededFloor = percentileValue(options.noiseSamples, VOICE_EOU_NOISE_FLOOR_PERCENTILE);
+          if (seededFloor != null) {
+            options.noiseFloorDb = clampNumber(
+              seededFloor,
+              VOICE_EOU_NOISE_FLOOR_MIN_DB,
+              VOICE_EOU_NOISE_FLOOR_MAX_DB,
+            );
+          }
         }
       }
 
-      const sampledFloorDb = averageNumbers(options.noiseSamples);
-      const estimatedFloorDb = options.noiseFloorDb == null
-        ? (sampledFloorDb == null ? VOICE_EOU_NOISE_FLOOR_MIN_DB : sampledFloorDb)
-        : options.noiseFloorDb;
-      const startThresholdDb = Math.max(
-        VOICE_EOU_SPEECH_THRESHOLD_MIN_DB,
-        estimatedFloorDb + VOICE_EOU_SPEECH_START_OFFSET_DB,
-      );
-      const endThresholdDb = startThresholdDb - VOICE_EOU_SPEECH_END_HYSTERESIS_DB;
-      const isSpeaking = options.hasSpeech ? db >= endThresholdDb : db >= startThresholdDb;
+      if (options.noiseFloorDb == null) {
+        if (elapsed >= VOICE_EOU_NO_SPEECH_MS) {
+          stopVADMonitor(capture);
+          state.indicatorSuppressedByCanvasUpdate = false;
+          showStatus('no speech detected');
+          setRecording(false);
+          sttCancel();
+          stopChatVoiceMedia(capture);
+          if (state.chatVoiceCapture === capture) {
+            state.chatVoiceCapture = null;
+          }
+          updateAssistantActivityIndicator();
+          window.setTimeout(() => {
+            if (!state.chatVoiceCapture && !isAssistantWorking() && !isTTSSpeaking()) {
+              showStatus('ready');
+            }
+          }, 800);
+          return;
+        }
+        return;
+      }
 
-      if (isSpeaking) {
-        if (!options.hasSpeech) {
+      const startThresholdBefore = Math.max(
+        VOICE_EOU_SPEECH_START_THRESHOLD_MIN_DB,
+        options.noiseFloorDb + VOICE_EOU_SPEECH_START_OFFSET_DB,
+      );
+      const endThresholdBefore = Math.max(
+        VOICE_EOU_SPEECH_END_THRESHOLD_MIN_DB,
+        options.noiseFloorDb + VOICE_EOU_SPEECH_END_OFFSET_DB,
+      );
+      const floorUpdateCeilDb = options.hasSpeech ? endThresholdBefore + 2 : startThresholdBefore;
+      // Keep tracking ambient floor but avoid pulling it up while speech is active.
+      if (db <= floorUpdateCeilDb) {
+        options.noiseFloorDb = clampNumber(
+          ((1 - VOICE_EOU_NOISE_FLOOR_ADAPT_ALPHA) * options.noiseFloorDb) + (VOICE_EOU_NOISE_FLOOR_ADAPT_ALPHA * db),
+          VOICE_EOU_NOISE_FLOOR_MIN_DB,
+          VOICE_EOU_NOISE_FLOOR_MAX_DB,
+        );
+      }
+
+      const startThresholdDb = Math.max(
+        VOICE_EOU_SPEECH_START_THRESHOLD_MIN_DB,
+        options.noiseFloorDb + VOICE_EOU_SPEECH_START_OFFSET_DB,
+      );
+      const endThresholdDb = Math.max(
+        VOICE_EOU_SPEECH_END_THRESHOLD_MIN_DB,
+        options.noiseFloorDb + VOICE_EOU_SPEECH_END_OFFSET_DB,
+      );
+
+      if (!options.hasSpeech) {
+        if (db >= startThresholdDb) {
+          options.speechFrames += 1;
+        } else {
+          options.speechFrames = 0;
+        }
+        if (options.speechFrames >= VOICE_EOU_SPEECH_START_FRAMES) {
           options.hasSpeech = true;
           options.speechStartAt = now;
+          options.silenceMs = 0;
+          options.speechFrames = 0;
         }
-        options.silenceMs = 0;
-      } else {
-        options.silenceMs += VOICE_EOU_FRAME_MS;
       }
 
       if (!options.hasSpeech) {
@@ -808,14 +867,21 @@ function startVADMonitor(capture) {
           }, 800);
           return;
         }
+        return;
+      }
+
+      if (db >= endThresholdDb) {
+        options.silenceMs = 0;
       } else {
-        options.speechMs = Math.max(0, now - options.speechStartAt);
-        if (options.speechMs < VOICE_EOU_MIN_UTTERANCE_MS) return;
-        if (options.silenceMs >= VOICE_EOU_EOS_SILENCE_MS || elapsed >= VOICE_EOU_MAX_RECORDING_MS) {
-          stopVADMonitor(capture);
-          void stopZenVoiceCaptureAndSend();
-          return;
-        }
+        options.silenceMs += VOICE_EOU_FRAME_MS;
+      }
+
+      options.speechMs = Math.max(0, now - options.speechStartAt);
+      if (options.speechMs < VOICE_EOU_MIN_UTTERANCE_MS) return;
+      if (options.silenceMs >= VOICE_EOU_EOS_SILENCE_MS || elapsed >= VOICE_EOU_MAX_RECORDING_MS) {
+        stopVADMonitor(capture);
+        void stopZenVoiceCaptureAndSend();
+        return;
       }
     };
 
@@ -833,6 +899,7 @@ function stopVADMonitor(capture) {
   if (!capture || !capture.vadState) return;
   const state = capture.vadState;
   capture.vadState = null;
+  if (state.options) state.options.isRunning = false;
   state.isRunning = false;
   if (state.timer) window.clearInterval(state.timer);
   if (state.source) {

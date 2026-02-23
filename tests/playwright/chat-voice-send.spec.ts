@@ -108,6 +108,50 @@ test('silence auto-stop works with low-level speech near ambient floor', async (
   expect(log.some(e => e.type === 'stt' && e.action === 'cancel')).toBe(false);
 });
 
+test('silence auto-stop works when speech is only slightly above noisy ambient baseline', async ({ page }) => {
+  await clearLog(page);
+  await page.evaluate(() => {
+    // High ambient noise (~-22 dB), speech only +4 dB above baseline.
+    // Regression: this used to miss speech onset and fall into no-speech cancel.
+    (window as any).__setVadDbFrames([
+      -22, -22, -22, -22, -22, -22, -22, -22,
+      -18, -18, -18, -18, -18, -18, -18, -18, -18, -18, -18, -18,
+      -22, -22, -22, -22, -22, -22, -22, -22, -22, -22,
+      -22, -22, -22, -22, -22, -22, -22, -22, -22, -22,
+    ]);
+  });
+
+  await page.mouse.click(400, 400);
+  await waitForLogEntry(page, 'recorder', 'start');
+  await waitForSTTAction(page, 'stop');
+  await page.waitForTimeout(200);
+
+  const log = await getLog(page);
+  const sent = log.find(e => e.type === 'message_sent');
+  expect(sent).toBeTruthy();
+  expect(sent!.text).toBe('hello world');
+  expect(log.some(e => e.type === 'stt' && e.action === 'cancel')).toBe(false);
+});
+
+test('no-speech timeout cancels capture in sustained ambient noise', async ({ page }) => {
+  await clearLog(page);
+  await page.evaluate(() => {
+    (window as any).__setVadDbFrames(Array.from({ length: 220 }, () => -41));
+  });
+
+  await page.mouse.click(400, 400);
+  await waitForLogEntry(page, 'recorder', 'start');
+  await expect.poll(async () => {
+    const log = await getLog(page);
+    return log.some(e => e.type === 'stt' && e.action === 'cancel');
+  }, { timeout: 8_000 }).toBe(true);
+
+  const log = await getLog(page);
+  expect(log.some(e => e.type === 'stt' && e.action === 'cancel')).toBe(true);
+  expect(log.some(e => e.type === 'stt' && e.action === 'stop')).toBe(false);
+  expect(log.some(e => e.type === 'message_sent')).toBe(false);
+});
+
 test('Control long-press starts voice recording (desktop PTT)', async ({ page }) => {
   await clearLog(page);
 
