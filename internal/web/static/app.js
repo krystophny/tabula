@@ -776,7 +776,15 @@ function startVADMonitor(capture) {
       if (!options.hasSpeech) {
         if (elapsed >= VOICE_EOU_NO_SPEECH_MS) {
           stopVADMonitor(capture);
-          void stopZenVoiceCaptureAndSend();
+          state.indicatorSuppressedByCanvasUpdate = false;
+          showStatus('ready');
+          setRecording(false);
+          sttCancel();
+          stopChatVoiceMedia(capture);
+          if (state.chatVoiceCapture === capture) {
+            state.chatVoiceCapture = null;
+          }
+          updateAssistantActivityIndicator();
           return;
         }
       } else {
