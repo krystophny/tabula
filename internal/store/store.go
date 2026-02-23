@@ -716,6 +716,8 @@ func normalizeRenderFormat(format string) string {
 	switch strings.ToLower(strings.TrimSpace(format)) {
 	case "text":
 		return "text"
+	case "canvas":
+		return "canvas"
 	default:
 		return "markdown"
 	}

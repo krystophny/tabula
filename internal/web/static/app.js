@@ -1081,9 +1081,11 @@ async function loadChatHistory() {
   const messages = Array.isArray(payload?.messages) ? payload.messages : [];
   for (const msg of messages) {
     const role = String(msg.role || 'assistant').toLowerCase();
+    const renderFormat = String(msg.render_format || '').toLowerCase();
     const markdown = String(msg.content_markdown || '');
     const plain = String(msg.content_plain || markdown);
     if (role === 'assistant') {
+      if (renderFormat === 'canvas') continue;
       appendRenderedAssistant(markdown || plain);
     } else {
       appendPlainMessage(role, plain);
@@ -1454,13 +1456,16 @@ async function zenSubmitMessage(text) {
   updateAssistantActivityIndicator();
   appendPlainMessage('user', finalText);
 
-  if (!finalText.startsWith('/')) {
+  if (!finalText.startsWith('/') && isVoiceTurn()) {
     const pending = appendRenderedAssistant('_Thinking..._', { pending: true, localId: nextLocalMessageId() });
     state.pendingQueue.push(pending);
     updateAssistantActivityIndicator();
   }
 
-  const body = { text: finalText };
+  const body = {
+    text: finalText,
+    output_mode: isVoiceTurn() ? 'voice' : 'canvas',
+  };
   try {
     const resp = await fetch(`/api/chat/sessions/${encodeURIComponent(state.chatSessionId)}/messages`, {
       method: 'POST',

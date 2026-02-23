@@ -18,10 +18,19 @@ import (
 )
 
 const assistantTurnTimeout = 20 * time.Minute
-const assistantLongResponseCanvasChars = 1400
+
+const (
+	turnOutputModeVoice  = "voice"
+	turnOutputModeCanvas = "canvas"
+	assistantCanvasTextLengthThreshold = 1400
+	assistantCanvasListItemThreshold   = 4
+)
+
+var assistantListPattern = regexp.MustCompile(`(?m)^\s*(?:[-*+]\s+|\d+[.)]\s+)\S`)
 
 type chatMessageRequest struct {
-	Text string `json:"text"`
+	Text       string `json:"text"`
+	OutputMode string `json:"output_mode"`
 }
 
 type chatCommandRequest struct {
@@ -211,6 +220,7 @@ func (a *App) handleChatSessionMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text := strings.TrimSpace(req.Text)
+	outputMode := normalizeTurnOutputMode(req.OutputMode)
 	if text == "" {
 		http.Error(w, "text is required", http.StatusBadRequest)
 		return
@@ -239,7 +249,7 @@ func (a *App) handleChatSessionMessage(w http.ResponseWriter, r *http.Request) {
 		"content": text,
 		"id":      storedUser.ID,
 	})
-	queuedTurns := a.enqueueAssistantTurn(sessionID)
+	queuedTurns := a.enqueueAssistantTurn(sessionID, outputMode)
 	writeJSON(w, map[string]interface{}{
 		"ok":         true,
 		"kind":       "turn_queued",
@@ -400,6 +410,7 @@ func (a *App) clearQueuedChatTurns(sessionID string) int {
 	defer a.mu.Unlock()
 	queued := a.chatTurnQueue[sessionID]
 	delete(a.chatTurnQueue, sessionID)
+	delete(a.chatTurnOutputMode, sessionID)
 	return queued
 }
 
@@ -427,8 +438,10 @@ func (a *App) queuedChatTurnCount(sessionID string) int {
 	return a.chatTurnQueue[sessionID]
 }
 
-func (a *App) enqueueAssistantTurn(sessionID string) int {
+func (a *App) enqueueAssistantTurn(sessionID, outputMode string) int {
+	mode := normalizeTurnOutputMode(outputMode)
 	a.mu.Lock()
+	a.chatTurnOutputMode[sessionID] = append(a.chatTurnOutputMode[sessionID], mode)
 	a.chatTurnQueue[sessionID] = a.chatTurnQueue[sessionID] + 1
 	queued := a.chatTurnQueue[sessionID]
 	workerRunning := a.chatTurnWorker[sessionID]
@@ -442,20 +455,32 @@ func (a *App) enqueueAssistantTurn(sessionID string) int {
 	return queued
 }
 
-func (a *App) dequeueAssistantTurn(sessionID string) bool {
+func (a *App) dequeueAssistantTurn(sessionID string) (string, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	queued := a.chatTurnQueue[sessionID]
 	if queued <= 0 {
-		return false
+		return "", false
+	}
+	modes := a.chatTurnOutputMode[sessionID]
+	mode := turnOutputModeVoice
+	if len(modes) > 0 {
+		mode = normalizeTurnOutputMode(modes[0])
+		modes = modes[1:]
+		if len(modes) == 0 {
+			delete(a.chatTurnOutputMode, sessionID)
+		} else {
+			a.chatTurnOutputMode[sessionID] = modes
+		}
 	}
 	queued--
 	if queued <= 0 {
 		delete(a.chatTurnQueue, sessionID)
-		return true
+		delete(a.chatTurnOutputMode, sessionID)
+		return mode, true
 	}
 	a.chatTurnQueue[sessionID] = queued
-	return true
+	return mode, true
 }
 
 func (a *App) markAssistantWorkerIdleIfQueueEmpty(sessionID string) bool {
@@ -470,13 +495,14 @@ func (a *App) markAssistantWorkerIdleIfQueueEmpty(sessionID string) bool {
 
 func (a *App) runAssistantTurnQueue(sessionID string) {
 	for {
-		if !a.dequeueAssistantTurn(sessionID) {
+		outputMode, ok := a.dequeueAssistantTurn(sessionID)
+		if !ok {
 			if a.markAssistantWorkerIdleIfQueueEmpty(sessionID) {
 				return
 			}
 			continue
 		}
-		a.runAssistantTurn(sessionID)
+		a.runAssistantTurn(sessionID, outputMode)
 	}
 }
 
@@ -512,7 +538,7 @@ func (a *App) closeAppSession(sessionID string) {
 	}
 }
 
-func (a *App) runAssistantTurn(sessionID string) {
+func (a *App) runAssistantTurn(sessionID string, outputMode string) {
 	session, err := a.store.GetChatSession(sessionID)
 	if err != nil {
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": err.Error()})
@@ -533,7 +559,7 @@ func (a *App) runAssistantTurn(sessionID string) {
 	cwd := a.cwdForProjectKey(session.ProjectKey)
 	appSess, resumed, sessErr := a.getOrCreateAppSession(sessionID, cwd)
 	if sessErr != nil {
-		a.runAssistantTurnLegacy(sessionID, session, messages)
+		a.runAssistantTurnLegacy(sessionID, session, messages, outputMode)
 		return
 	}
 
@@ -617,25 +643,25 @@ func (a *App) runAssistantTurn(sessionID string) {
 			if strings.TrimSpace(ev.TurnID) != "" {
 				latestTurnID = ev.TurnID
 			}
-		case "assistant_message":
-			latestMessage = ev.Message
-			latestTurnID = ev.TurnID
-			persistAssistantSnapshot(ev.Message)
-			payload["message"] = ev.Message
-			payload["delta"] = ev.Delta
-			if shouldRenderOnCanvas(ev.Message) {
-				payload["render_on_canvas"] = true
-			}
+			case "assistant_message":
+				latestMessage = ev.Message
+				latestTurnID = ev.TurnID
+				persistAssistantSnapshot(ev.Message)
+				payload["message"] = ev.Message
+				payload["delta"] = ev.Delta
+				if normalizeTurnOutputMode(outputMode) == turnOutputModeCanvas {
+					payload["render_on_canvas"] = true
+				}
 		case "turn_completed":
 			if strings.TrimSpace(ev.Message) != "" {
 				latestMessage = ev.Message
 			}
-			latestTurnID = ev.TurnID
-			persistAssistantSnapshot(latestMessage)
-			payload["message"] = latestMessage
-			if shouldRenderOnCanvas(latestMessage) {
-				payload["render_on_canvas"] = true
-			}
+				latestTurnID = ev.TurnID
+				persistAssistantSnapshot(latestMessage)
+				payload["message"] = latestMessage
+				if normalizeTurnOutputMode(outputMode) == turnOutputModeCanvas {
+					payload["render_on_canvas"] = true
+				}
 		case "context_usage":
 			payload["context_used"] = ev.ContextUsed
 			payload["context_max"] = ev.ContextMax
@@ -695,13 +721,13 @@ func (a *App) runAssistantTurn(sessionID string) {
 	}
 
 	assistantText = a.finalizeAssistantResponse(sessionID, session.ProjectKey, assistantText,
-		&persistedAssistantID, &persistedAssistantText, appResp.TurnID, latestTurnID, appResp.ThreadID)
+		&persistedAssistantID, &persistedAssistantText, appResp.TurnID, latestTurnID, appResp.ThreadID, outputMode)
 	_ = assistantText
 }
 
 // runAssistantTurnLegacy is the single-shot fallback when persistent session
 // fails to connect. Each call creates a new WS + thread.
-func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession, messages []store.ChatMessage) {
+func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession, messages []store.ChatMessage, outputMode string) {
 	canvasCtx := a.resolveCanvasContext(session.ProjectKey)
 	prompt := buildPromptFromHistory(session.Mode, messages, canvasCtx)
 	if strings.TrimSpace(prompt) == "" {
@@ -784,25 +810,25 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 			if strings.TrimSpace(ev.TurnID) != "" {
 				latestTurnID = ev.TurnID
 			}
-		case "assistant_message":
-			latestMessage = ev.Message
-			latestTurnID = ev.TurnID
-			persistAssistantSnapshot(ev.Message)
-			payload["message"] = ev.Message
-			payload["delta"] = ev.Delta
-			if shouldRenderOnCanvas(ev.Message) {
-				payload["render_on_canvas"] = true
-			}
+			case "assistant_message":
+				latestMessage = ev.Message
+				latestTurnID = ev.TurnID
+				persistAssistantSnapshot(ev.Message)
+				payload["message"] = ev.Message
+				payload["delta"] = ev.Delta
+				if normalizeTurnOutputMode(outputMode) == turnOutputModeCanvas {
+					payload["render_on_canvas"] = true
+				}
 		case "turn_completed":
 			if strings.TrimSpace(ev.Message) != "" {
 				latestMessage = ev.Message
 			}
-			latestTurnID = ev.TurnID
-			persistAssistantSnapshot(latestMessage)
-			payload["message"] = latestMessage
-			if shouldRenderOnCanvas(latestMessage) {
-				payload["render_on_canvas"] = true
-			}
+				latestTurnID = ev.TurnID
+				persistAssistantSnapshot(latestMessage)
+				payload["message"] = latestMessage
+				if normalizeTurnOutputMode(outputMode) == turnOutputModeCanvas {
+					payload["render_on_canvas"] = true
+				}
 		case "error":
 			if strings.TrimSpace(ev.TurnID) != "" {
 				latestTurnID = ev.TurnID
@@ -843,17 +869,18 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 	}
 
 	assistantText = a.finalizeAssistantResponse(sessionID, session.ProjectKey, assistantText,
-		&persistedAssistantID, &persistedAssistantText, appResp.TurnID, latestTurnID, appResp.ThreadID)
+		&persistedAssistantID, &persistedAssistantText, appResp.TurnID, latestTurnID, appResp.ThreadID, outputMode)
 	_ = assistantText
 }
 
 // finalizeAssistantResponse handles post-processing shared by both turn paths:
-// parse and execute canvas/file blocks, strip lang tags, optionally promote long
-// plain text to canvas, persist final text, and broadcast message_persisted.
+// parse and execute canvas/file blocks, strip lang tags, route text to chat/canvas,
+// persist final text, and broadcast message_persisted.
 func (a *App) finalizeAssistantResponse(
 	sessionID, projectKey, text string,
 	persistedID *int64, persistedText *string,
 	turnID, fallbackTurnID, threadID string,
+	outputMode string,
 ) string {
 	renderOnCanvas := false
 	canvasSessionID := a.resolveCanvasSessionID(projectKey)
@@ -875,28 +902,45 @@ func (a *App) finalizeAssistantResponse(
 	}
 	text = stripLangTags(text)
 	renderOnCanvas = hasCanvasBlocks || hasFileBlocks
-	if !renderOnCanvas && shouldRenderOnCanvas(text) {
-		if canvasSessionID != "" {
-			a.executeAssistantTextBlock(canvasSessionID, "Assistant Output", text)
-			renderOnCanvas = true
+
+	chatMarkdown := text
+	chatPlain := text
+	renderFormat := "markdown"
+	if normalizeTurnOutputMode(outputMode) == turnOutputModeCanvas {
+		canvasText := strings.TrimSpace(stripCanvasFileMarkers(text))
+		if canvasText != "" && canvasSessionID != "" {
+			a.executeAssistantTextBlock(canvasSessionID, "Assistant Output", canvasText)
 		}
+		renderOnCanvas = true
+	} else if shouldAutoRenderOnCanvas(text) && canvasSessionID != "" && !hasCanvasBlocks && !hasFileBlocks {
+		canvasText := strings.TrimSpace(stripCanvasFileMarkers(text))
+		if canvasText != "" {
+			a.executeAssistantTextBlock(canvasSessionID, "Assistant Output", canvasText)
+		}
+		renderOnCanvas = true
+	}
+	if renderOnCanvas {
+		// Keep plain text for prompt continuity, but suppress assistant markdown in chat UI.
+		chatMarkdown = ""
+		renderFormat = "canvas"
 	}
 
 	a.refreshCanvasFromDisk(projectKey)
 
 	if *persistedID == 0 {
-		stored, err := a.store.AddChatMessage(sessionID, "assistant", text, text, "markdown")
+		stored, err := a.store.AddChatMessage(sessionID, "assistant", chatMarkdown, chatPlain, renderFormat)
 		if err != nil {
 			a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": err.Error()})
-			return text
+			return chatMarkdown
 		}
 		*persistedID = stored.ID
-		*persistedText = text
-	} else if text != *persistedText {
-		if err := a.store.UpdateChatMessageContent(*persistedID, text, text, "markdown"); err != nil {
+		*persistedText = chatMarkdown
+	} else if chatMarkdown != *persistedText {
+		if err := a.store.UpdateChatMessageContent(*persistedID, chatMarkdown, chatPlain, renderFormat); err != nil {
 			a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": err.Error()})
-			return text
+			return chatMarkdown
 		}
+		*persistedText = chatMarkdown
 	}
 	tid := strings.TrimSpace(turnID)
 	if tid == "" {
@@ -908,14 +952,36 @@ func (a *App) finalizeAssistantResponse(
 		"id":               *persistedID,
 		"turn_id":          tid,
 		"thread_id":        threadID,
-		"message":          text,
+		"message":          chatMarkdown,
 		"render_on_canvas": renderOnCanvas,
 	})
-	return text
+	return chatMarkdown
 }
 
-func shouldRenderOnCanvas(text string) bool {
-	return len(strings.TrimSpace(text)) >= assistantLongResponseCanvasChars
+func normalizeTurnOutputMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case turnOutputModeCanvas:
+		return turnOutputModeCanvas
+	default:
+		return turnOutputModeVoice
+	}
+}
+
+func shouldAutoRenderOnCanvas(text string) bool {
+	cleaned := strings.TrimSpace(text)
+	if cleaned == "" {
+		return false
+	}
+	if len(cleaned) > assistantCanvasTextLengthThreshold {
+		return true
+	}
+	listItems := 0
+	for _, line := range strings.Split(cleaned, "\n") {
+		if assistantListPattern.MatchString(line) {
+			listItems++
+		}
+	}
+	return listItems >= assistantCanvasListItemThreshold
 }
 
 func (a *App) cwdForProjectKey(projectKey string) string {
