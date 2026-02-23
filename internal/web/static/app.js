@@ -141,7 +141,7 @@ class TTSPlayer {
   }
   _ensureCtx() {
     if (!this._ctx) {
-      this._ctx = ensureSharedAudioCtx();
+      this._ctx = ttsAudioCtx;
     }
     return this._ctx;
   }
@@ -175,7 +175,6 @@ class TTSPlayer {
     showSpeakingIndicator(pos.x, pos.y);
     try {
       const ctx = this._ensureCtx();
-      // Safari iOS: ensure context is running before decoding
       if (ctx.state === 'suspended') await ctx.resume();
       const audioBuffer = await ctx.decodeAudioData(wavData.slice(0));
       if (this._stopped) return;
@@ -207,21 +206,18 @@ let ttsSpeakAccumulator = '';
 let ttsLastSpeakText = '';
 let ttsSpeakLang = 'en';
 
-// Shared AudioContext, created/resumed on first user gesture so Safari iOS
-// does not block playback. TTSPlayer reuses this instead of creating its own.
-let _sharedAudioCtx = null;
-function ensureSharedAudioCtx() {
-  if (!_sharedAudioCtx) {
-    _sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+// Single shared AudioContext — created once, unlocked via resume() on user
+// gesture per Web Audio API best practice (MDN). Safari iOS requires resume()
+// to be called from a user-initiated event; once resumed the context stays
+// running until the page is closed.
+const ttsAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function unlockAudioContext() {
+  if (ttsAudioCtx.state === 'suspended') {
+    ttsAudioCtx.resume();
   }
-  if (_sharedAudioCtx.state === 'suspended') {
-    _sharedAudioCtx.resume().catch(() => {});
-  }
-  return _sharedAudioCtx;
 }
-// Warm up on first user interaction (click, touch, key).
-['click', 'touchstart', 'keydown'].forEach(evt =>
-  document.addEventListener(evt, () => ensureSharedAudioCtx(), { once: true, capture: true })
+['touchstart', 'touchend', 'mousedown', 'keydown'].forEach(evt =>
+  document.body.addEventListener(evt, unlockAudioContext, { once: false })
 );
 
 const renderer = new marked.Renderer();
@@ -576,8 +572,6 @@ function stopChatVoiceMediaAndFlush(capture) {
 async function beginZenVoiceCapture(x, y, anchor) {
   if (state.chatVoiceCapture) return;
   if (!canUseMicrophoneCapture()) return;
-  // Safari iOS: resume AudioContext while still in user gesture call stack
-  if (ttsEnabled) ensureSharedAudioCtx();
   // Interrupt TTS playback when starting recording
   if (ttsPlayer) { ttsPlayer.stop(); ttsPlayer = null; }
   if (ttsSentenceChunker) { ttsSentenceChunker.reset(); ttsSentenceChunker = null; }
@@ -1392,8 +1386,6 @@ async function switchProject(projectID) {
 async function zenSubmitMessage(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed || !state.chatSessionId) return;
-  // Safari iOS: resume AudioContext while still in user gesture call stack
-  if (ttsEnabled) ensureSharedAudioCtx();
   // Interrupt TTS playback when sending a new message
   if (ttsPlayer) { ttsPlayer.stop(); ttsPlayer = null; }
   if (ttsSentenceChunker) { ttsSentenceChunker.reset(); ttsSentenceChunker = null; }
