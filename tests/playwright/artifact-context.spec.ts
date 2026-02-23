@@ -18,16 +18,16 @@ async function injectCanvasModuleRef(page: Page) {
   });
 }
 
-async function renderTestArtifact(page: Page) {
-  await page.evaluate(() => {
+async function renderTestArtifact(page: Page, text = 'Line one\nLine two\nLine three\nLine four\nLine five') {
+  await page.evaluate((content) => {
     const mod = (window as any).__canvasModule;
     mod.renderCanvas({
       event_id: 'art-1',
       kind: 'text_artifact',
       title: 'test.txt',
-      text: 'Line one\nLine two\nLine three\nLine four\nLine five',
+      text: content,
     });
-  });
+  }, text);
   // Show canvas pane
   await page.evaluate(() => {
     const ct = document.getElementById('canvas-text');
@@ -80,6 +80,43 @@ test.describe('zen canvas layout', () => {
 
     const canvasText = page.locator('#canvas-text');
     await expect(canvasText).toBeVisible();
+  });
+
+  test('long canvas artifact scrolls in text pane', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const longText = Array.from({ length: 500 }, (_, i) => `Line ${i + 1}`).join('\n');
+    await renderTestArtifact(page, longText);
+
+    const metricsBefore = await page.evaluate(() => {
+      const text = document.getElementById('canvas-text');
+      const viewport = document.getElementById('canvas-viewport');
+      if (!(text instanceof HTMLElement) || !(viewport instanceof HTMLElement)) return null;
+      return {
+        textTop: text.scrollTop,
+        textScrollHeight: text.scrollHeight,
+        textClientHeight: text.clientHeight,
+        viewportTop: viewport.scrollTop,
+      };
+    });
+    expect(metricsBefore).toBeTruthy();
+    expect(metricsBefore!.textScrollHeight).toBeGreaterThan(metricsBefore!.textClientHeight);
+
+    await page.mouse.move(640, 360);
+    await page.mouse.wheel(0, 1200);
+    await page.waitForTimeout(120);
+
+    const metricsAfter = await page.evaluate(() => {
+      const text = document.getElementById('canvas-text');
+      const viewport = document.getElementById('canvas-viewport');
+      if (!(text instanceof HTMLElement) || !(viewport instanceof HTMLElement)) return null;
+      return {
+        textTop: text.scrollTop,
+        viewportTop: viewport.scrollTop,
+      };
+    });
+    expect(metricsAfter).toBeTruthy();
+    expect(metricsAfter!.textTop).toBeGreaterThan(metricsBefore!.textTop);
+    expect(metricsAfter!.viewportTop).toBe(metricsBefore!.viewportTop);
   });
 
   test('right-click on artifact opens text input', async ({ page }) => {

@@ -96,10 +96,11 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 #canvas-viewport {
   flex: 1;
-  overflow: auto;
+  overflow: hidden;
   min-height: 0;
   position: relative;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .canvas-pane {
@@ -111,6 +112,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   overflow-x: hidden;
   position: relative;
   touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 .canvas-pane.is-active {
@@ -134,7 +136,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   -webkit-user-select: text;
   position: relative;
   -webkit-touch-callout: none;
-  touch-action: manipulation;
+  touch-action: pan-y;
 }
 
 #canvas-text:focus {
