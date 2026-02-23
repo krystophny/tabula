@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -556,6 +557,7 @@ func (a *App) delegateActiveJobsForProject(projectKey string) int {
 	}
 	status, err := a.mcpToolsCall(port, "delegate_to_model_active_count", map[string]interface{}{"cwd_prefix": cwd})
 	if err != nil {
+		log.Printf("delegate activity probe failed for project=%q cwd=%q: %v", projectKey, cwd, err)
 		return 0
 	}
 	return intFromAny(status["active"], 0)
@@ -578,6 +580,7 @@ func (a *App) cancelDelegatedJobsForProject(projectKey string) int {
 	}
 	status, err := a.mcpToolsCall(port, "delegate_to_model_cancel_all", map[string]interface{}{"cwd_prefix": cwd})
 	if err != nil {
+		log.Printf("delegate cancel-all failed for project=%q cwd=%q: %v", projectKey, cwd, err)
 		return 0
 	}
 	return intFromAny(status["canceled"], 0)

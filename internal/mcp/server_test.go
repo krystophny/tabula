@@ -314,6 +314,8 @@ func TestToolDefinitionsEmitsProperties(t *testing.T) {
 	var delegateDef map[string]interface{}
 	var statusDef map[string]interface{}
 	var cancelDef map[string]interface{}
+	var activeCountDef map[string]interface{}
+	var cancelAllDef map[string]interface{}
 	var tempCreateDef map[string]interface{}
 	var tempRemoveDef map[string]interface{}
 	for _, d := range defs {
@@ -324,6 +326,10 @@ func TestToolDefinitionsEmitsProperties(t *testing.T) {
 			statusDef = d
 		case "delegate_to_model_cancel":
 			cancelDef = d
+		case "delegate_to_model_active_count":
+			activeCountDef = d
+		case "delegate_to_model_cancel_all":
+			cancelAllDef = d
 		case "temp_file_create":
 			tempCreateDef = d
 		case "temp_file_remove":
@@ -338,6 +344,12 @@ func TestToolDefinitionsEmitsProperties(t *testing.T) {
 	}
 	if cancelDef == nil {
 		t.Fatal("delegate_to_model_cancel not found in tool definitions")
+	}
+	if activeCountDef == nil {
+		t.Fatal("delegate_to_model_active_count not found in tool definitions")
+	}
+	if cancelAllDef == nil {
+		t.Fatal("delegate_to_model_cancel_all not found in tool definitions")
 	}
 	if tempCreateDef == nil {
 		t.Fatal("temp_file_create not found in tool definitions")
@@ -375,6 +387,16 @@ func TestToolDefinitionsEmitsProperties(t *testing.T) {
 	cancelProps, _ := cancelSchema["properties"].(map[string]interface{})
 	if cancelProps["job_id"] == nil {
 		t.Fatalf("cancel tool missing job_id property: %#v", cancelProps)
+	}
+	activeCountSchema, _ := activeCountDef["inputSchema"].(map[string]interface{})
+	activeCountProps, _ := activeCountSchema["properties"].(map[string]interface{})
+	if activeCountProps["cwd_prefix"] == nil {
+		t.Fatalf("active count tool missing cwd_prefix property: %#v", activeCountProps)
+	}
+	cancelAllSchema, _ := cancelAllDef["inputSchema"].(map[string]interface{})
+	cancelAllProps, _ := cancelAllSchema["properties"].(map[string]interface{})
+	if cancelAllProps["cwd_prefix"] == nil {
+		t.Fatalf("cancel all tool missing cwd_prefix property: %#v", cancelAllProps)
 	}
 	tempCreateSchema, _ := tempCreateDef["inputSchema"].(map[string]interface{})
 	tempCreateProps, _ := tempCreateSchema["properties"].(map[string]interface{})

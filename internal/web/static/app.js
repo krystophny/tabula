@@ -756,6 +756,10 @@ function showCanvasColumn(paneId) {
   state.hasArtifact = true;
   setZenMode('artifact');
   persistLastView({ mode: 'artifact' });
+  if (!isVoiceTurn() && isDirectAssistantWorking()) {
+    hideOverlay();
+  }
+  updateAssistantActivityIndicator();
 }
 
 function hideCanvasColumn() {
@@ -771,6 +775,7 @@ function hideCanvasColumn() {
       p.classList.remove('is-active');
     });
   }
+  updateAssistantActivityIndicator();
 }
 
 function chatHistoryEl() {
@@ -820,6 +825,10 @@ function isAssistantWorking() {
   return isDirectAssistantWorking() || isDelegateAssistantWorking();
 }
 
+function shouldUseSymbolIndicator() {
+  return isVoiceTurn() || state.hasArtifact;
+}
+
 function updateAssistantActivityIndicator() {
   if (!hasLocalAssistantWork() && state.assistantRemoteActiveCount <= 0 && state.assistantRemoteQueuedCount <= 0) {
     state.assistantUnknownTurns = 0;
@@ -836,7 +845,7 @@ function updateAssistantActivityIndicator() {
     }
     return;
   }
-  if (isDirectAssistantWorking()) {
+  if (isDirectAssistantWorking() && shouldUseSymbolIndicator()) {
     showThinkingIndicator(px, py);
   } else {
     hideIndicator();
@@ -846,6 +855,14 @@ function updateAssistantActivityIndicator() {
   } else {
     hideDelegateIndicator();
   }
+}
+
+function paneIdForCanvasKind(kind) {
+  const normalized = String(kind || '').trim().toLowerCase();
+  if (normalized === 'image_artifact' || normalized === 'image') return 'canvas-image';
+  if (normalized === 'pdf_artifact' || normalized === 'pdf') return 'canvas-pdf';
+  if (normalized === 'text_artifact' || normalized === 'text') return 'canvas-text';
+  return '';
 }
 
 function trackAssistantTurnStarted(turnID) {
@@ -1241,9 +1258,11 @@ function handleChatEvent(payload) {
     // Reset TTS state for new turn
     stopTTSPlayback();
     const pos = getLastInputPosition();
-    if (isVoiceTurn()) {
+    if (shouldUseSymbolIndicator()) {
+      hideOverlay();
       showThinkingIndicator(pos.x, pos.y);
     } else {
+      hideIndicator();
       showOverlay(pos.x, pos.y + 24);
       updateOverlay('_Thinking..._');
       getZenState().overlayTurnId = payload.turn_id || null;
@@ -1294,9 +1313,11 @@ function handleChatEvent(payload) {
         }
       }
     }
-    if (!isVoiceTurn()) {
+    if (!isVoiceTurn() && !state.hasArtifact) {
       const cleaned = cleanForOverlay(md);
       if (cleaned) updateOverlay(cleaned);
+    } else if (!isVoiceTurn()) {
+      hideOverlay();
     }
     return;
   }
@@ -1358,7 +1379,7 @@ function handleChatEvent(payload) {
     if (isVoiceTurn()) {
       hideIndicator();
     } else {
-      if (autoCanvas) {
+      if (autoCanvas || state.hasArtifact) {
         hideOverlay();
         state.zenCanvasActionThisTurn = false;
         return;
@@ -1629,14 +1650,12 @@ function openCanvasWs() {
     try {
       const payload = JSON.parse(event.data);
       renderCanvas(payload);
-      if (payload.event_id && payload.kind && payload.kind !== 'clear_canvas') {
-        const paneId = payload.kind === 'image_artifact' ? 'canvas-image'
-          : payload.kind === 'pdf_artifact' ? 'canvas-pdf'
-          : 'canvas-text';
+      const paneId = paneIdForCanvasKind(payload.kind);
+      if (paneId) {
         showCanvasColumn(paneId);
         state.zenCanvasActionThisTurn = true;
       }
-      if (payload.kind === 'clear_canvas') {
+      if (String(payload.kind || '').trim().toLowerCase() === 'clear_canvas') {
         hideCanvasColumn();
       }
     } catch (_) {}
@@ -1660,10 +1679,8 @@ async function loadCanvasSnapshot(sessionID = state.sessionId) {
     if (payload?.event) {
       renderCanvas(payload.event);
       const ev = payload.event;
-      if (ev.event_id && ev.kind && ev.kind !== 'clear_canvas') {
-        const paneId = ev.kind === 'image_artifact' ? 'canvas-image'
-          : ev.kind === 'pdf_artifact' ? 'canvas-pdf'
-          : 'canvas-text';
+      const paneId = paneIdForCanvasKind(ev.kind);
+      if (paneId) {
         showCanvasColumn(paneId);
       }
       return;

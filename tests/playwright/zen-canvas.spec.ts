@@ -69,6 +69,16 @@ async function injectChatEvent(page: Page, payload: Record<string, unknown>) {
   }, payload);
 }
 
+async function injectCanvasEvent(page: Page, payload: Record<string, unknown>) {
+  await page.evaluate((p) => {
+    const sessions = (window as any).__mockWsSessions || [];
+    const canvasWs = sessions.find((ws: any) => ws.url && ws.url.includes('/ws/canvas/'));
+    if (canvasWs) {
+      canvasWs.injectEvent(p);
+    }
+  }, payload);
+}
+
 test.describe('zen canvas - tabula rasa', () => {
   test.beforeEach(async ({ page }) => {
     await waitReady(page);
@@ -203,6 +213,47 @@ test.describe('zen canvas - response overlay', () => {
     await page.mouse.click(10, 10);
     await page.waitForTimeout(100);
     await expect(overlay).toBeHidden();
+  });
+
+  test('empty canvas switches from text overlay to symbol on first artifact event', async ({ page }) => {
+    await page.evaluate(() => {
+      const zenMod = (window as any).__zenModule;
+      if (zenMod?.getZenState) {
+        const zs = zenMod.getZenState();
+        zs.lastInputX = 400;
+        zs.lastInputY = 300;
+      }
+    });
+
+    await page.keyboard.type('draw');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+
+    await injectChatEvent(page, { type: 'turn_started', turn_id: 'draw-1' });
+    await page.waitForTimeout(100);
+    await expect(page.locator('#zen-overlay')).toBeVisible();
+    await expect(page.locator('#zen-indicator')).toBeHidden();
+
+    // No event_id on purpose: empty->drawn transition must still flip to artifact symbol mode.
+    await injectCanvasEvent(page, {
+      kind: 'text_artifact',
+      title: 'drawn.txt',
+      text: 'Drawn content',
+    });
+    await page.waitForTimeout(120);
+
+    await expect(page.locator('#canvas-text')).toBeVisible();
+    await expect(page.locator('#canvas-text')).toContainText('Drawn content');
+    await expect(page.locator('#zen-overlay')).toBeHidden();
+    await expect(page.locator('#zen-indicator')).toBeVisible();
+
+    const dotDisplay = await page.locator('.zen-indicator-dot').evaluate(el => (el as HTMLElement).style.display);
+    expect(dotDisplay).toBe('none');
+    const dotsDisplay = await page.locator('.zen-indicator-dots').evaluate(el => getComputedStyle(el).display);
+    expect(dotsDisplay).not.toBe('none');
+
+    const hasArtifact = await page.evaluate(() => Boolean((window as any)._taburaApp?.getState?.().hasArtifact));
+    expect(hasArtifact).toBe(true);
   });
 
   test('error shows in overlay and auto-dismisses', async ({ page }) => {

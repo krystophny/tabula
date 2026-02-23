@@ -146,6 +146,26 @@ var MCPTools = []Tool{
 			},
 		},
 	},
+	{
+		Name:        "delegate_to_model_active_count",
+		Description: "Return count of running delegated jobs, optionally scoped by cwd prefix.",
+		Properties: map[string]ToolProperty{
+			"cwd_prefix": {
+				Type:        "string",
+				Description: "Optional absolute cwd prefix to scope active job count.",
+			},
+		},
+	},
+	{
+		Name:        "delegate_to_model_cancel_all",
+		Description: "Cancel all running delegated jobs, optionally scoped by cwd prefix.",
+		Properties: map[string]ToolProperty{
+			"cwd_prefix": {
+				Type:        "string",
+				Description: "Optional absolute cwd prefix to scope canceled jobs.",
+			},
+		},
+	},
 }
 
 var MCPDaemonRoutes = []string{

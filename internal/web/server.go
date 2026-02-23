@@ -855,11 +855,37 @@ func mcpToolsCallURL(mcpURL, name string, arguments map[string]interface{}) (map
 		return nil, fmt.Errorf("MCP error: %v", e["message"])
 	}
 	result, _ := out["result"].(map[string]interface{})
+	if isErr, _ := result["isError"].(bool); isErr {
+		return nil, fmt.Errorf("MCP tool %q failed: %s", name, mcpResultErrorText(result))
+	}
 	sc, _ := result["structuredContent"].(map[string]interface{})
 	if sc == nil {
 		return nil, errors.New("MCP call failed: missing structuredContent")
 	}
 	return sc, nil
+}
+
+func mcpResultErrorText(result map[string]interface{}) string {
+	if result == nil {
+		return "unknown error"
+	}
+	content, _ := result["content"].([]interface{})
+	parts := make([]string, 0, len(content))
+	for _, item := range content {
+		entry, _ := item.(map[string]interface{})
+		if entry == nil {
+			continue
+		}
+		text := strings.TrimSpace(fmt.Sprint(entry["text"]))
+		if text == "" || text == "<nil>" {
+			continue
+		}
+		parts = append(parts, text)
+	}
+	if len(parts) == 0 {
+		return "unknown error"
+	}
+	return strings.Join(parts, " | ")
 }
 
 func normalizeProducerMCPURL(raw string) (string, error) {

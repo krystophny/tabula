@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"os"
@@ -379,6 +380,7 @@ func (s *Server) startDelegateJob(args map[string]interface{}) (map[string]inter
 		Text: "delegate job started",
 	})
 	s.delegateMu.Unlock()
+	log.Printf("delegate job started id=%s model=%s cwd=%s timeout_s=%d", job.ID, job.Model, job.CWD, job.TimeoutSeconds)
 
 	go func() {
 		resp, runErr := s.appServerClient.SendPromptStream(ctx, appserver.PromptRequest{
@@ -563,6 +565,17 @@ func (s *Server) finalizeDelegateJob(job *delegateJob, status, errText string, r
 	if len(job.Events) > delegateEventHistoryLimit {
 		job.Events = append([]delegateProgressEvent(nil), job.Events[len(job.Events)-delegateEventHistoryLimit:]...)
 	}
+	log.Printf(
+		"delegate job finished id=%s status=%s model=%s cwd=%s thread=%s turn=%s files_changed=%d error=%q",
+		job.ID,
+		job.Status,
+		job.Model,
+		job.CWD,
+		job.ThreadID,
+		job.TurnID,
+		len(job.FilesChanged),
+		job.Error,
+	)
 }
 
 func (s *Server) pruneDelegateJobsLocked(now time.Time) {
