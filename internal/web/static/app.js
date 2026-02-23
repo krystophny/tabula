@@ -37,6 +37,7 @@ const state = {
   assistantLastError: '',
   ttsPlaying: false,
   voiceAwaitingTurn: false,
+  voiceTurns: new Set(),
   indicatorSuppressedByCanvasUpdate: false,
   chatCtrlHoldTimer: null,
   chatVoiceCapture: null,
@@ -1187,6 +1188,7 @@ function trackAssistantTurnStarted(turnID) {
 function trackAssistantTurnFinished(turnID) {
   const key = String(turnID || '').trim();
   if (key) {
+    state.voiceTurns.delete(key);
     if (!state.assistantActiveTurns.delete(key) && state.assistantUnknownTurns > 0) {
       state.assistantUnknownTurns -= 1;
     }
@@ -1300,6 +1302,7 @@ function ensurePendingForTurn(turnID) {
 function resetAssistantTurnTracking({ clearError = false } = {}) {
   state.pendingByTurn.clear();
   state.pendingQueue = [];
+  state.voiceTurns.clear();
   state.assistantActiveTurns.clear();
   state.assistantUnknownTurns = 0;
   state.assistantRemoteActiveCount = 0;
@@ -1559,11 +1562,17 @@ function handleChatEvent(payload) {
   }
 
   if (type === 'turn_started') {
-    trackAssistantTurnStarted(payload.turn_id);
+    const turnID = String(payload.turn_id || '').trim();
+    const turnIsVoice = state.voiceAwaitingTurn || isVoiceTurn();
+    if (turnID) {
+      if (turnIsVoice) state.voiceTurns.add(turnID);
+      else state.voiceTurns.delete(turnID);
+    }
+    trackAssistantTurnStarted(turnID);
     state.voiceAwaitingTurn = false;
     state.indicatorSuppressedByCanvasUpdate = false;
-    if (isVoiceTurn()) {
-      ensurePendingForTurn(payload.turn_id);
+    if (turnIsVoice) {
+      ensurePendingForTurn(turnID);
     }
     state.zenCanvasActionThisTurn = false;
     // Reset TTS state for new turn
@@ -1638,7 +1647,8 @@ function handleChatEvent(payload) {
     updateAssistantActivityIndicator();
     void refreshAssistantActivity();
 
-    if (!autoCanvas && ttsEnabled && md.trim()) {
+    const shouldSpeakTurn = turnID ? state.voiceTurns.has(turnID) : false;
+    if (shouldSpeakTurn && !autoCanvas && ttsEnabled && md.trim()) {
       const { ttsText, ttsLang } = extractTTSText(md);
       if (ttsLang) ttsSpeakLang = ttsLang;
       const diff = computeTTSDiff(ttsText);

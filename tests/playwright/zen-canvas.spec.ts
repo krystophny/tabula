@@ -501,7 +501,7 @@ test.describe('zen canvas - TTS voice output', () => {
     expect(spoken.some((t) => t.includes('current repository snapshot'))).toBe(true);
   });
 
-  test('text turn also triggers TTS and shows overlay', async ({ page }) => {
+  test('text turn does not trigger TTS and still shows overlay', async ({ page }) => {
     await clearLog(page);
     // Text origin (default)
     await page.keyboard.type('analyze');
@@ -530,10 +530,10 @@ test.describe('zen canvas - TTS voice output', () => {
     });
     await page.waitForTimeout(500);
 
-    // TTS fires on all turns now
+    // Text-entry turns should not be spoken.
     const log = await getLog(page);
     const ttsCalls = log.filter(e => e.type === 'tts');
-    expect(ttsCalls.length).toBeGreaterThan(0);
+    expect(ttsCalls.length).toBe(0);
   });
 
   test('lang tag sends lang=de for German text', async ({ page }) => {
