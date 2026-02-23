@@ -1,5 +1,7 @@
 # Release v0.0.5
 
+> Historical note: This file documents a past release. For the current runtime stack, use README.md and docs/architecture.md.
+
 ## Scope
 
 `v0.0.5` introduces Push To Prompt voice capture backed by VoxType MCP and removes the Helpy STT provider path from Tabura.

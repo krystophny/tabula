@@ -1,5 +1,7 @@
 # Release v0.0.2
 
+> Historical note: This file documents a past release. For the current runtime stack, use README.md and docs/architecture.md.
+
 ## Scope
 
 `v0.0.2` is a documentation and metadata refinement release focused on clarity and publication quality.

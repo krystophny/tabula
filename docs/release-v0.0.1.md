@@ -1,5 +1,7 @@
 # Release v0.0.1
 
+> Historical note: This file documents a past release. For the current runtime stack, use README.md and docs/architecture.md.
+
 ## Version Scope
 
 `v0.0.1` defines the first public baseline of Tabura documentation and release metadata.

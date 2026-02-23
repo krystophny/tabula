@@ -227,76 +227,50 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   background: transparent;
 }
 
-/* Zen: Recording indicator */
+/* Zen: Voice activity indicator (record dot / stop square) */
 .zen-indicator {
   position: fixed;
   z-index: 100;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   pointer-events: none;
+  user-select: none;
   transform: translate(-50%, -50%);
+  touch-action: manipulation;
 }
 
-.zen-indicator.is-thinking {
+.zen-indicator.is-stop {
   pointer-events: auto;
-  cursor: pointer;
 }
 
-.zen-delegate-indicator {
-  position: fixed;
-  z-index: 101;
-  transform: translate(-50%, -50%);
+.zen-record-dot,
+.zen-stop-square {
+  display: none;
+}
+
+.zen-record-dot {
   width: 12px;
   height: 12px;
-  border: 1px solid #666;
-  border-radius: 50%;
-  background: transparent;
-  pointer-events: auto;
-  cursor: pointer;
-  user-select: none;
-}
-
-.zen-delegate-indicator::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 1px;
-  height: 4px;
-  background: #666;
-  transform-origin: bottom center;
-  transform: translate(-50%, -100%) rotate(30deg);
-}
-
-.zen-indicator-dot {
-  display: block;
-  width: 14px;
-  height: 14px;
   border-radius: 50%;
   background: #d44;
 }
 
-.zen-indicator-dots {
-  display: none;
-  font-size: 14px;
-  color: #888;
-  letter-spacing: 2px;
-  line-height: 1;
+.zen-stop-square {
+  width: 10px;
+  height: 10px;
+  border-radius: 1px;
+  background: #111;
 }
 
-/* Zen: Speaking indicator — play triangle (green) / stop square (black) */
-.zen-speaking-icon {
+.zen-indicator.is-recording .zen-record-dot {
   display: block;
-  width: 0;
-  height: 0;
-  border-style: solid;
-  border-width: 7px 0 7px 12px;
-  border-color: transparent transparent transparent #4a4;
 }
 
-.zen-speaking-icon.is-done {
-  width: 12px;
-  height: 12px;
-  border: none;
-  background: #000;
+.zen-indicator.is-stop .zen-stop-square {
+  display: block;
 }
 
 /* Zen: Floating text input */

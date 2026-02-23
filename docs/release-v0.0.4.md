@@ -1,5 +1,7 @@
 # Release v0.0.4
 
+> Historical note: This file documents a past release. For the current runtime stack, use README.md and docs/architecture.md.
+
 ## Scope
 
 `v0.0.4` adds practical legal/risk guidance for open-source usage and includes review UX refinements already landed on `main`.

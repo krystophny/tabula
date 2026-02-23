@@ -2,8 +2,6 @@ import { marked } from './vendor/marked.esm.js';
 import {
   getLocationFromPoint,
   getLocationFromSelection,
-  showLineHighlight,
-  clearLineHighlight,
   escapeHtml,
   sanitizeHtml,
   getActiveTextEventId,
@@ -19,9 +17,12 @@ const zenState = {
   inputAnchor: null,
   inputVisible: false,
   indicatorVisible: false,
-  delegateIndicatorVisible: false,
+  indicatorMode: '',
   lastInputX: 0,
   lastInputY: 0,
+  lastInputPaneId: '',
+  lastInputPaneLocalX: 0,
+  lastInputPaneLocalY: 0,
 };
 
 const renderer = new marked.Renderer();
@@ -80,8 +81,36 @@ function inputEl() {
   return document.getElementById('zen-input');
 }
 
-function delegateIndicatorEl() {
-  return document.getElementById('zen-delegate-indicator');
+function activeCanvasPaneEl() {
+  return document.querySelector('#canvas-viewport .canvas-pane.is-active');
+}
+
+function setPaneAnchor(x, y) {
+  const pane = activeCanvasPaneEl();
+  if (!(pane instanceof HTMLElement)) {
+    zenState.lastInputPaneId = '';
+    return;
+  }
+  const rect = pane.getBoundingClientRect();
+  if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+    zenState.lastInputPaneId = '';
+    return;
+  }
+  zenState.lastInputPaneId = pane.id || '';
+  zenState.lastInputPaneLocalX = x - rect.left + pane.scrollLeft;
+  zenState.lastInputPaneLocalY = y - rect.top + pane.scrollTop;
+}
+
+function paneAnchoredPosition() {
+  const paneID = String(zenState.lastInputPaneId || '').trim();
+  if (!paneID) return null;
+  const pane = document.getElementById(paneID);
+  if (!(pane instanceof HTMLElement)) return null;
+  const rect = pane.getBoundingClientRect();
+  return {
+    x: rect.left + zenState.lastInputPaneLocalX - pane.scrollLeft,
+    y: rect.top + zenState.lastInputPaneLocalY - pane.scrollTop,
+  };
 }
 
 function overlayEl() {
@@ -93,56 +122,26 @@ function overlayContentEl() {
   return ol ? ol.querySelector('.zen-overlay-content') : null;
 }
 
-export function showIndicator(x, y) {
+export function showIndicatorMode(mode, x, y) {
   const el = indicatorEl();
   if (!el) return;
-  el.classList.remove('is-thinking');
+  const nextMode = mode === 'recording' ? 'recording' : 'stop';
+  el.classList.remove('is-recording', 'is-stop');
+  el.classList.add(nextMode === 'recording' ? 'is-recording' : 'is-stop');
   el.style.display = '';
   el.style.left = `${x}px`;
   el.style.top = `${y}px`;
   zenState.indicatorVisible = true;
+  zenState.indicatorMode = nextMode;
 }
 
 export function hideIndicator() {
   const el = indicatorEl();
   if (!el) return;
-  el.classList.remove('is-thinking');
+  el.classList.remove('is-recording', 'is-stop');
   el.style.display = 'none';
-  const dot = el.querySelector('.zen-indicator-dot');
-  const dots = el.querySelector('.zen-indicator-dots');
-  if (dot) dot.style.display = '';
-  if (dots) dots.style.display = 'none';
   zenState.indicatorVisible = false;
-}
-
-export function showThinkingIndicator(x, y) {
-  const el = indicatorEl();
-  if (!el) return;
-  el.classList.add('is-thinking');
-  const dot = el.querySelector('.zen-indicator-dot');
-  const dots = el.querySelector('.zen-indicator-dots');
-  if (dot) dot.style.display = 'none';
-  if (dots) dots.style.display = 'inline';
-  el.style.display = '';
-  el.style.left = `${x}px`;
-  el.style.top = `${y}px`;
-  zenState.indicatorVisible = true;
-}
-
-export function showDelegateIndicator(x, y) {
-  const el = delegateIndicatorEl();
-  if (!el) return;
-  el.style.display = '';
-  el.style.left = `${x}px`;
-  el.style.top = `${y}px`;
-  zenState.delegateIndicatorVisible = true;
-}
-
-export function hideDelegateIndicator() {
-  const el = delegateIndicatorEl();
-  if (!el) return;
-  el.style.display = 'none';
-  zenState.delegateIndicatorVisible = false;
+  zenState.indicatorMode = '';
 }
 
 export function showTextInput(x, y, anchor) {
@@ -150,8 +149,7 @@ export function showTextInput(x, y, anchor) {
   if (!el) return;
   zenState.inputAnchor = anchor || null;
   zenState.inputVisible = true;
-  zenState.lastInputX = x;
-  zenState.lastInputY = y;
+  setLastInputPosition(x, y);
   el.style.display = '';
   el.style.left = `${Math.min(x, window.innerWidth - 280)}px`;
   el.style.top = `${Math.min(y, window.innerHeight - 60)}px`;
@@ -249,34 +247,13 @@ export function buildContextPrefix(anchor) {
 }
 
 export function getLastInputPosition() {
+  const anchored = paneAnchoredPosition();
+  if (anchored) return anchored;
   return { x: zenState.lastInputX, y: zenState.lastInputY };
 }
 
-function speakingEl() {
-  return document.getElementById('zen-speaking');
-}
-
-export function showSpeakingIndicator(x, y) {
-  const el = speakingEl();
-  if (!el) return;
-  const icon = el.querySelector('.zen-speaking-icon');
-  if (icon) icon.classList.remove('is-done');
-  el.style.display = '';
-  el.style.left = `${x}px`;
-  el.style.top = `${y}px`;
-}
-
-export function hideSpeakingIndicator() {
-  const el = speakingEl();
-  if (!el) return;
-  const icon = el.querySelector('.zen-speaking-icon');
-  if (icon) icon.classList.add('is-done');
-}
-
-export function dismissSpeakingIndicator() {
-  const el = speakingEl();
-  if (!el) return;
-  el.style.display = 'none';
-  const icon = el.querySelector('.zen-speaking-icon');
-  if (icon) icon.classList.remove('is-done');
+export function setLastInputPosition(x, y) {
+  zenState.lastInputX = x;
+  zenState.lastInputY = y;
+  setPaneAnchor(x, y);
 }

@@ -2,6 +2,11 @@
 
 Canonical documentation.
 
+Current runtime baseline:
+- `tabura-web.service`
+- `tabura-codex-app-server.service`
+- `tabura-piper-tts.service`
+
 ## Product and Behavior Specs
 
 Read in this order:
@@ -19,6 +24,7 @@ Release notes:
 - Published release: `release-v0.0.9.md`
 - Previous release: `release-v0.0.8.md`
 - Published baseline: `release-v0.0.1.md`
+- Older release notes are historical and may mention retired runtime paths.
 
 Migration/support docs:
 

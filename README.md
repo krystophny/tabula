@@ -12,14 +12,11 @@ Risk notice: see [`DISCLAIMER.md`](DISCLAIMER.md)
 ## Start Here
 
 - **Spec hub**: [`docs/spec-index.md`](docs/spec-index.md)
-- **UI paradigm**: [`docs/object-scoped-intent-ui.md`](docs/object-scoped-intent-ui.md)
-- **HTTP/MCP interface inventory**: [`docs/interfaces.md`](docs/interfaces.md)
-- **Integrated handoff protocol spec**: [`docs/handoff-protocol/README.md`](docs/handoff-protocol/README.md)
 - **System architecture**: [`docs/architecture.md`](docs/architecture.md)
-- **Codex app-server pivot notes**: [`docs/codex-app-server-pivot.md`](docs/codex-app-server-pivot.md)
-- **Published release (v0.0.9)**: [`docs/release-v0.0.9.md`](docs/release-v0.0.9.md)
-- **Previous release (v0.0.8)**: [`docs/release-v0.0.8.md`](docs/release-v0.0.8.md)
-- **Published baseline (v0.0.1)**: [`docs/release-v0.0.1.md`](docs/release-v0.0.1.md)
+- **Codex app-server integration**: [`docs/codex-app-server-pivot.md`](docs/codex-app-server-pivot.md)
+- **HTTP/MCP interface inventory**: [`docs/interfaces.md`](docs/interfaces.md)
+- **UI paradigm**: [`docs/object-scoped-intent-ui.md`](docs/object-scoped-intent-ui.md)
+- **Current release notes (v0.0.9)**: [`docs/release-v0.0.9.md`](docs/release-v0.0.9.md)
 
 ## Install
 
@@ -36,8 +33,20 @@ Requirements:
 ```bash
 tabura bootstrap --project-dir .
 tabura mcp-server --project-dir .
-tabura server --project-dir . --data-dir ~/.tabura-web --web-host 0.0.0.0 --web-port 8420 --mcp-host 127.0.0.1 --mcp-port 9420 --app-server-url ws://127.0.0.1:8787
+tabura server --project-dir . --data-dir ~/.tabura-web --web-host 0.0.0.0 --web-port 8420 --mcp-host 127.0.0.1 --mcp-port 9420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424
 ```
+
+## Runtime Stack (Canonical)
+
+Tabura runs as one Go runtime plus two local sidecars:
+
+1. `tabura-web.service` (`tabura server`)
+2. `tabura-codex-app-server.service` (`codex app-server`)
+3. `tabura-piper-tts.service` (Piper `/v1/audio/speech`)
+
+Why Piper remains an HTTP sidecar:
+- Piper `libpiper` linking is GPL-governed; direct linking would change distribution obligations.
+- A local loopback HTTP sidecar keeps integration simple and license boundaries clear.
 
 ## Local Integration Defaults
 
@@ -45,6 +54,7 @@ tabura server --project-dir . --data-dir ~/.tabura-web --web-host 0.0.0.0 --web-
 - MCP listener: `http://127.0.0.1:9420/mcp` (loopback-only)
 - Canvas websocket relay source: `ws://127.0.0.1:9420/ws/canvas`
 - Codex app-server websocket: `ws://127.0.0.1:8787`
+- Piper TTS endpoint: `http://127.0.0.1:8424/v1/audio/speech`
 - Local canvas session id: `local`
 - Spark thinking budget for Spark model (fast path): `TABURA_APP_SERVER_SPARK_REASONING_EFFORT=low` (low|medium|high)
 

@@ -146,7 +146,7 @@ func cmdServer(args []string) int {
 		Host:   net.JoinHostPort(*mcpHost, fmt.Sprintf("%d", *mcpPort)),
 		Path:   "/mcp",
 	}).String()
-	if err := waitForMCPHealth(*mcpHost, *mcpPort, 10*time.Second); err != nil {
+	if err := waitForMCPReady(*mcpHost, *mcpPort, 10*time.Second, mcpErrCh); err != nil {
 		_ = mcpApp.Stop(context.Background())
 		fmt.Fprintf(os.Stderr, "failed to start local MCP listener: %v\n", err)
 		return 1
@@ -189,11 +189,20 @@ func isLoopbackOnlyHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-func waitForMCPHealth(host string, port int, timeout time.Duration) error {
+func waitForMCPReady(host string, port int, timeout time.Duration, mcpErrCh <-chan error) error {
 	deadline := time.Now().Add(timeout)
 	url := fmt.Sprintf("http://%s/health", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
+	client := &http.Client{Timeout: 750 * time.Millisecond}
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(url)
+		select {
+		case err := <-mcpErrCh:
+			if err == nil {
+				return errors.New("mcp listener exited before becoming healthy")
+			}
+			return fmt.Errorf("mcp listener failed to start: %w", err)
+		default:
+		}
+		resp, err := client.Get(url)
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
@@ -201,6 +210,14 @@ func waitForMCPHealth(host string, port int, timeout time.Duration) error {
 			}
 		}
 		time.Sleep(200 * time.Millisecond)
+	}
+	select {
+	case err := <-mcpErrCh:
+		if err == nil {
+			return errors.New("mcp listener exited before becoming healthy")
+		}
+		return fmt.Errorf("mcp listener failed to start: %w", err)
+	default:
 	}
 	return errors.New("mcp health check timeout")
 }

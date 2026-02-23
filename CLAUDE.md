@@ -16,6 +16,9 @@ Tabura uses one monolithic runtime command for app operation:
 
 No separate `tabura-mcp.service` or `tabura-voxtype-mcp.service` sidecars are used.
 No Helpy integration/runtime is active in Tabura.
+Tabura keeps two local sidecars:
+- `tabura-codex-app-server.service` for Codex app-server
+- `tabura-piper-tts.service` for Piper TTS over loopback HTTP
 
 ## Security Boundary
 
@@ -56,9 +59,7 @@ Key selectors:
 Primary units:
 - `tabura-web.service`
 - `tabura-codex-app-server.service`
-- `tabura-piper-tts.service` (default TTS)
-- `tabura-f5-tts.service` (optional alternative)
-- `tabura-tts.service` (optional alternative)
+- `tabura-piper-tts.service`
 
 Quick status:
 
@@ -78,7 +79,7 @@ systemctl --user restart tabura-codex-app-server.service tabura-piper-tts.servic
 - MCP: `http://127.0.0.1:9420/mcp`
 - MCP canvas WS: `ws://127.0.0.1:9420/ws/canvas`
 - App-server: `ws://127.0.0.1:8787`
-- TTS (default Piper): `http://127.0.0.1:8424`
+- TTS (Piper): `http://127.0.0.1:8424`
 - Local canvas session: `local`
 
 ## Start Local Web UI In Temporary Directory
