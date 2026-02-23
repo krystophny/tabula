@@ -70,14 +70,27 @@ let assistantActivityInFlight = false;
 const ACTIVE_PROJECT_STORAGE_KEY = 'tabura.activeProjectId';
 const LAST_VIEW_STORAGE_KEY = 'tabura.lastView';
 
-// --- TTS infrastructure ---
+// --- Block stripping & TTS infrastructure ---
 
-// Extract text for TTS: everything except :::canvas{}/:::file{} blocks.
-// Language from [lang:xx] markers, defaults to "en".
 const _canvasFileBlockRe = /:::(?:canvas|file)\{[^}]*\}\n?[\s\S]*?:::/g;
+const _partialBlockRe = /:::(?:canvas|file)\{[^}]*\}[\s\S]*$/g;
 const _langTagRe = /\[lang:([a-z]{2})\]/gi;
+
+// Strip complete and partial :::canvas{}/:::file{} blocks from text.
+function stripBlocks(text) {
+  text = text.replace(_canvasFileBlockRe, ' ');
+  text = text.replace(_partialBlockRe, ' ');
+  return text;
+}
+
+// Clean markdown for overlay display: strip blocks and lang tags.
+function cleanForOverlay(markdown) {
+  return stripBlocks(markdown).replace(_langTagRe, '').trim();
+}
+
+// Extract speakable text for TTS (everything except blocks).
 function extractTTSText(markdown) {
-  let text = markdown.replace(_canvasFileBlockRe, ' ');
+  let text = stripBlocks(markdown);
   let lang = '';
   text = text.replace(_langTagRe, (_, l) => { if (!lang) lang = l.toLowerCase(); return ''; });
   text = text.trim();
@@ -113,7 +126,7 @@ class SentenceChunker {
       this._timer = setTimeout(() => {
         this._timer = null;
         this.flush();
-      }, 2000);
+      }, 800);
     }
   }
   flush() {
@@ -1228,7 +1241,8 @@ function handleChatEvent(payload) {
       }
     }
     if (!isVoiceTurn()) {
-      updateOverlay(md);
+      const cleaned = cleanForOverlay(md);
+      if (cleaned) updateOverlay(cleaned);
     }
     return;
   }
@@ -1262,8 +1276,8 @@ function handleChatEvent(payload) {
       if (state.zenCanvasActionThisTurn) {
         hideOverlay();
       } else {
-        updateOverlay(md);
-      }
+        const cleaned = cleanForOverlay(md);
+        if (cleaned) { updateOverlay(cleaned); } else { hideOverlay(); }
     }
     state.zenCanvasActionThisTurn = false;
     return;
