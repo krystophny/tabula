@@ -221,10 +221,57 @@ func TestAssistantRenderPlan_NoAutoCanvasForSingleParagraph(t *testing.T) {
 	}
 }
 
+func TestAssistantRenderPlan_FileOnlyBlockDoesNotTriggerAutoCanvas(t *testing.T) {
+	text := `:::file{path="notes.md"}
+Paragraph one in file body.
+
+Paragraph two in file body.
+:::`
+	plan := assistantRenderPlan(text)
+	if !plan.RenderOnCanvas {
+		t.Fatal("expected renderOnCanvas=true for file block")
+	}
+	if plan.AutoCanvas {
+		t.Fatal("expected autoCanvas=false for file-only block content")
+	}
+}
+
+func TestAssistantRenderPlan_FileBlockWithLongCompanionTriggersAutoCanvas(t *testing.T) {
+	text := `Intro paragraph.
+
+Second paragraph.
+
+:::file{path="notes.md"}
+File body.
+:::`
+	plan := assistantRenderPlan(text)
+	if !plan.RenderOnCanvas {
+		t.Fatal("expected renderOnCanvas=true")
+	}
+	if !plan.AutoCanvas {
+		t.Fatal("expected autoCanvas=true for long spoken companion")
+	}
+}
+
 func TestAssistantSnapshotContent_AutoCanvasSuppressesChat(t *testing.T) {
 	markdown, plain, format := assistantSnapshotContent("Paragraph one.\n\nParagraph two.", true, true)
 	if markdown != "" || plain != "" {
 		t.Fatalf("expected empty snapshot for auto canvas, got markdown=%q plain=%q", markdown, plain)
+	}
+	if format != "text" {
+		t.Fatalf("format = %q, want text", format)
+	}
+}
+
+func TestAssistantSnapshotContent_FileOnlyBlockSuppressesChat(t *testing.T) {
+	input := `:::file{path="notes.md"}
+File body line 1.
+
+File body line 2.
+:::`
+	markdown, plain, format := assistantSnapshotContent(input, true, false)
+	if markdown != "" || plain != "" {
+		t.Fatalf("expected no chat snapshot, got markdown=%q plain=%q", markdown, plain)
 	}
 	if format != "text" {
 		t.Fatalf("format = %q, want text", format)

@@ -1116,14 +1116,16 @@ func (a *App) finalizeAssistantResponse(
 		fileBlocks = append(fileBlocks, fBlocks...)
 		text = cleaned
 	}
-	autoCanvas := false
-	if len(fileBlocks) == 0 && canvasSessionID != "" {
-		longForm := strings.TrimSpace(stripCanvasFileMarkers(stripLangTags(text)))
-		if assistantNeedsAutoCanvas(longForm) {
+	autoCanvas := assistantNeedsAutoCanvas(text)
+	if autoCanvas && len(fileBlocks) == 0 && canvasSessionID != "" {
+		longForm := assistantCompanionText(text)
+		if longForm != "" {
 			autoCanvas = a.writeCanvasFileBlock(projectKey, canvasSessionID, fileBlock{
 				Path:    "",
 				Content: longForm,
 			})
+		} else {
+			autoCanvas = false
 		}
 	}
 	renderOnCanvas := len(fileBlocks) > 0 || autoCanvas
@@ -1197,8 +1199,21 @@ type assistantRenderDecision struct {
 
 var assistantParagraphSplitRe = regexp.MustCompile(`\n\s*\n+`)
 
+func assistantCompanionText(text string) string {
+	candidate := strings.TrimSpace(text)
+	if candidate == "" {
+		return ""
+	}
+	if _, cleaned := parseFileBlocks(candidate); cleaned != "" {
+		candidate = cleaned
+	}
+	candidate = stripLangTags(candidate)
+	candidate = stripCanvasFileMarkers(candidate)
+	return strings.TrimSpace(candidate)
+}
+
 func assistantParagraphCount(text string) int {
-	cleaned := strings.TrimSpace(stripCanvasFileMarkers(stripLangTags(text)))
+	cleaned := assistantCompanionText(text)
 	if cleaned == "" {
 		return 0
 	}
@@ -1219,7 +1234,7 @@ func assistantNeedsAutoCanvas(text string) bool {
 
 func assistantRenderPlan(text string) assistantRenderDecision {
 	hasFileBlocks := assistantMessageUsesCanvasBlocks(text)
-	autoCanvas := !hasFileBlocks && assistantNeedsAutoCanvas(text)
+	autoCanvas := assistantNeedsAutoCanvas(text)
 	return assistantRenderDecision{
 		RenderOnCanvas: hasFileBlocks || autoCanvas,
 		AutoCanvas:     autoCanvas,
@@ -1234,7 +1249,7 @@ func assistantSnapshotContent(text string, renderOnCanvas bool, autoCanvas bool)
 	if candidate == "" {
 		return "", "", "markdown"
 	}
-	chat := strings.TrimSpace(stripCanvasFileMarkers(candidate))
+	chat := assistantCompanionText(candidate)
 	if chat == "" {
 		if renderOnCanvas {
 			return "", "", "text"
