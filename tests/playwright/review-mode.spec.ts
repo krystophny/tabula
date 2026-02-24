@@ -75,12 +75,19 @@ test('pdf artifacts render without iframe using object surface', async ({ page }
   await expect(page.locator('#canvas-pdf iframe')).toHaveCount(0);
   await expect(page.locator('#canvas-pdf .canvas-pdf-object')).toHaveCount(1);
   await expect(page.locator('#canvas-pdf .canvas-pdf-hit-layer')).toHaveCount(1);
+  await expect(page.locator('#canvas-pdf .canvas-pdf-fallback a')).toHaveCount(1);
 
   const dataAttr = await page.locator('#canvas-pdf .canvas-pdf-object').evaluate((el) => {
     return (el as HTMLObjectElement).data || '';
   });
   expect(dataAttr).toContain('/api/files/');
   expect(dataAttr).toContain('missing.pdf');
+
+  const fallbackHref = await page.locator('#canvas-pdf .canvas-pdf-fallback a').evaluate((el) => {
+    return (el as HTMLAnchorElement).href || '';
+  });
+  expect(fallbackHref).toContain('/api/files/');
+  expect(fallbackHref).toContain('missing.pdf');
 });
 
 test('clearCanvas hides all artifact panes', async ({ page }) => {

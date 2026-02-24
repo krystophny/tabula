@@ -588,6 +588,18 @@ func (a *App) handleFilesProxy(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
+	// Files are rendered inside same-origin canvas panes (image/PDF), so this
+	// route must allow same-origin embedding instead of the global DENY policy.
+	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+	w.Header().Set("Content-Security-Policy",
+		"default-src 'self'; "+
+			"script-src 'self'; "+
+			"style-src 'self' 'unsafe-inline'; "+
+			"img-src 'self' data:; "+
+			"connect-src 'self' ws: wss:; "+
+			"frame-ancestors 'self'; "+
+			"base-uri 'none'; "+
+			"form-action 'self'")
 	sid := chi.URLParam(r, "session_id")
 	filePath := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
 	if strings.Contains(filePath, "..") || strings.ContainsRune(filePath, '\x00') {
