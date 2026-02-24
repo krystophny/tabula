@@ -292,8 +292,14 @@ func (a *App) handleChatSessionMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "text is required", http.StatusBadRequest)
 		return
 	}
+	commandText := ""
 	if strings.HasPrefix(text, "/") {
-		result, err := a.executeChatCommand(sessionID, text)
+		commandText = text
+	} else {
+		commandText = inferImplicitChatCommand(text)
+	}
+	if commandText != "" {
+		result, err := a.executeChatCommand(sessionID, commandText)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -1695,6 +1701,63 @@ type delegationHint struct {
 var delegationPatterns = regexp.MustCompile(
 	`(?i)^(?:let |ask |use )(codex|gpt|spark|the big model)\b[,: ]*(.*)`,
 )
+
+var implicitPRActionPatterns = regexp.MustCompile(`\b(?:show|open|load|view|switch|enter)\b`)
+var implicitPRRefreshPatterns = regexp.MustCompile(`\b(?:refresh|reload|update)\b`)
+var implicitPRReferencePatterns = regexp.MustCompile(`\b(?:pr|pull request)\b`)
+var implicitPRReviewModePatterns = regexp.MustCompile(`\b(?:pr review|pull request review|review mode|diff view)\b`)
+var implicitPRNumberPatterns = regexp.MustCompile(`\b(?:pr|pull request)\s*#?\s*(\d+)\b`)
+var implicitPRHashNumberPatterns = regexp.MustCompile(`(?:^|\s)#(\d+)\b`)
+var implicitIntentPunctuationPatterns = regexp.MustCompile(`[^\w#\s]+`)
+
+func normalizeImplicitIntentText(text string) string {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	if normalized == "" {
+		return ""
+	}
+	normalized = implicitIntentPunctuationPatterns.ReplaceAllString(normalized, " ")
+	normalized = strings.Join(strings.Fields(normalized), " ")
+	return strings.TrimSpace(normalized)
+}
+
+func implicitPRSelector(text string) string {
+	if m := implicitPRNumberPatterns.FindStringSubmatch(text); len(m) == 2 {
+		return strings.TrimSpace(m[1])
+	}
+	if !implicitPRReferencePatterns.MatchString(text) {
+		return ""
+	}
+	if m := implicitPRHashNumberPatterns.FindStringSubmatch(text); len(m) == 2 {
+		return strings.TrimSpace(m[1])
+	}
+	return ""
+}
+
+func inferImplicitChatCommand(text string) string {
+	normalized := normalizeImplicitIntentText(text)
+	if normalized == "" {
+		return ""
+	}
+	hasPRReference := implicitPRReferencePatterns.MatchString(normalized)
+	hasReviewModeHint := implicitPRReviewModePatterns.MatchString(normalized)
+	if !hasPRReference && !hasReviewModeHint {
+		return ""
+	}
+	selector := implicitPRSelector(normalized)
+	if implicitPRRefreshPatterns.MatchString(normalized) {
+		if selector != "" {
+			return "/pr " + selector
+		}
+		return "/pr refresh"
+	}
+	if implicitPRActionPatterns.MatchString(normalized) || hasReviewModeHint {
+		if selector != "" {
+			return "/pr " + selector
+		}
+		return "/pr"
+	}
+	return ""
+}
 
 func detectDelegationHint(text string) delegationHint {
 	m := delegationPatterns.FindStringSubmatch(strings.TrimSpace(text))
