@@ -781,6 +781,12 @@ function canUseMicrophoneCapture() {
     && typeof navigator.mediaDevices.getUserMedia === 'function';
 }
 
+const MIC_CAPTURE_CONSTRAINTS = {
+  echoCancellation: true,
+  autoGainControl: true,
+  noiseSuppression: true,
+};
+
 let _cachedMicStream = null;
 let _micStreamPromise = null;
 
@@ -794,7 +800,7 @@ function acquireMicStream() {
   }
   if (_micStreamPromise) return _micStreamPromise;
   _micStreamPromise = navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, autoGainControl: true, noiseSuppression: true },
+    audio: { ...MIC_CAPTURE_CONSTRAINTS },
   }).then((stream) => {
     _cachedMicStream = stream;
     _micStreamPromise = null;
@@ -806,8 +812,12 @@ function acquireMicStream() {
   return _micStreamPromise;
 }
 
-function releaseMicStream() {
+function releaseMicStream({ force = false } = {}) {
   if (!_cachedMicStream) return;
+  const activeCapture = state.chatVoiceCapture;
+  if (!force && activeCapture && activeCapture.mediaStream === _cachedMicStream && !activeCapture.stopping) {
+    return;
+  }
   _cachedMicStream.getTracks().forEach((t) => t.stop());
   _cachedMicStream = null;
 }
@@ -3782,7 +3792,11 @@ function showSplash() {
 
 function warmMicStream() {
   if (!canUseMicrophoneCapture()) return;
-  acquireMicStream().then(() => releaseMicStream()).catch(() => {});
+  navigator.mediaDevices.getUserMedia({ audio: { ...MIC_CAPTURE_CONSTRAINTS } })
+    .then((stream) => {
+      stream.getTracks().forEach((track) => track.stop());
+    })
+    .catch(() => {});
 }
 
 async function init() {
