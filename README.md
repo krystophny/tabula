@@ -43,6 +43,7 @@ Tabura runs as one Go runtime plus three local sidecars:
 1. `tabura-web.service` (`tabura server`)
 2. `tabura-codex-app-server.service` (`codex app-server`)
 3. `tabura-piper-tts.service` (Piper `/v1/audio/speech`)
+4. No semantic EOU sidecar (voice commit is VAD-only)
 
 Why Piper remains an HTTP sidecar:
 - Piper `libpiper` linking is GPL-governed; direct linking would change distribution obligations.
@@ -65,7 +66,7 @@ Security model:
 Zen canvas behavior:
 - Browser opens to tabula rasa (blank white screen) or last artifact.
 - Tap anywhere to start/stop voice recording. Right-click to type. Keyboard auto-activates.
-- Pure VAD auto-stop detects utterance end and commits speech.
+- Pure VAD auto-stop detects utterance end and commits speech (no semantic EOU detector service).
 - Assistant output follows one path only:
   - chat-only (spoken), or
   - file-backed canvas (`:::file`) with canvas content rendered only on canvas.
