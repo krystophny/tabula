@@ -332,6 +332,46 @@ function isMobileSilent() {
   return state.ttsSilent && window.matchMedia('(max-width: 767px)').matches;
 }
 
+// iPhone corner-radius profiles for bottom-edge frame rounding.
+const IPHONE_CORNER_RADIUS_PROFILES = [
+  { shortSide: 375, longSide: 812, dpr: 3, radius: 44 },
+  { shortSide: 390, longSide: 844, dpr: 3, radius: 47 },
+  { shortSide: 393, longSide: 852, dpr: 3, radius: 55 },
+  { shortSide: 402, longSide: 874, dpr: 3, radius: 62 },
+  { shortSide: 414, longSide: 896, dpr: 2, radius: 41 },
+  { shortSide: 428, longSide: 926, dpr: 3, radius: 53 },
+  { shortSide: 430, longSide: 932, dpr: 3, radius: 55 },
+  { shortSide: 440, longSide: 956, dpr: 3, radius: 62 },
+];
+
+function isIPhoneStandalone() {
+  const ua = String(navigator.userAgent || '').toLowerCase();
+  const plat = String(navigator.platform || '').toLowerCase();
+  const isIPhone = /iphone/.test(ua) || plat === 'iphone' || (plat === 'macintel' && navigator.maxTouchPoints > 1);
+  if (!isIPhone) return false;
+  try {
+    return navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+  } catch (_) {
+    return false;
+  }
+}
+
+function applyIPhoneFrameCorners() {
+  const root = document.documentElement;
+  if (!isIPhoneStandalone()) {
+    root.style.removeProperty('--zen-cue-corner-radius');
+    return;
+  }
+  const short = Math.min(Math.round(screen.width), Math.round(screen.height));
+  const long = Math.max(Math.round(screen.width), Math.round(screen.height));
+  const dpr = Math.max(1, Math.round(devicePixelRatio || 1));
+  const match = IPHONE_CORNER_RADIUS_PROFILES.find(
+    (p) => p.shortSide === short && p.longSide === long && p.dpr === dpr,
+  );
+  const r = match ? match.radius : (dpr >= 3 ? 55 : 44);
+  root.style.setProperty('--zen-cue-corner-radius', `0 0 ${r}px ${r}px`);
+}
+
 function setTTSSilentMode(silent, { persist = true } = {}) {
   const next = Boolean(silent);
   if (state.ttsSilent === next) return;
@@ -3084,6 +3124,8 @@ function warmMicStream() {
 }
 
 async function init() {
+  applyIPhoneFrameCorners();
+  window.addEventListener('resize', applyIPhoneFrameCorners);
   bindUi();
   warmMicStream();
   updateAssistantActivityIndicator();
