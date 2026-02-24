@@ -222,7 +222,12 @@ export function isRecording() {
 }
 
 export function setRecording(active) {
-  zenState.recording = Boolean(active);
+  const next = Boolean(active);
+  zenState.recording = next;
+  const body = document.body;
+  if (body) {
+    body.classList.toggle('zen-recording', next);
+  }
 }
 
 export function getInputAnchor() {
