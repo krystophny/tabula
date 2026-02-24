@@ -249,8 +249,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   left: 0;
   width: 100vw;
   height: 100vh;
-  width: 100lvw;
-  height: 100lvh;
+  width: 100dvw;
+  height: 100dvh;
   pointer-events: none;
   z-index: 1000;
   border: 0;
@@ -262,6 +262,12 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   max-height: none;
   transition: none;
   animation: none;
+}
+
+body.keyboard-open .zen-indicator.is-recording,
+body.keyboard-open .zen-indicator.is-working {
+  width: 100lvw;
+  height: 100lvh;
 }
 
 .zen-indicator.is-recording { --cue-frame-color: #d92d20; }

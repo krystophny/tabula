@@ -403,7 +403,7 @@ function settleKeyboardAfterSubmit() {
   clearKeyboardOpenState();
   const sync = syncKeyboardStateNow;
   if (typeof sync !== 'function') return;
-  [0, 100, 220, 380].forEach((delay) => {
+  [0, 100, 220, 380, 600, 900, 1300].forEach((delay) => {
     window.setTimeout(() => {
       if (syncKeyboardStateNow !== sync) return;
       sync();
@@ -2825,22 +2825,23 @@ function initEdgePanels() {
         }
       };
 
-      let baselineHeight = Math.max(window.innerHeight, window.visualViewport.height);
+      let baselineHeight = Math.max(
+        window.innerHeight,
+        window.visualViewport.height + Math.max(0, window.visualViewport.offsetTop || 0),
+      );
       const syncKeyboardState = () => {
         const vv = window.visualViewport;
         if (!vv) return;
-        const viewportHeight = vv.height;
+        const offsetTop = Math.max(0, Number(vv.offsetTop) || 0);
+        const viewportExtent = vv.height + offsetTop;
+        if (viewportExtent > baselineHeight) baselineHeight = viewportExtent;
         const focused = isFocusedTextInput();
-        if (!focused) {
-          baselineHeight = Math.max(window.innerHeight, viewportHeight);
-          setKeyboardOpen(false);
-          return;
-        }
-        if (viewportHeight > baselineHeight) baselineHeight = viewportHeight;
-        const keyboardOpen = viewportHeight < baselineHeight - 100;
+        const shifted = offsetTop > 1;
+        const shrunkenWhileFocused = focused && viewportExtent < baselineHeight - 100;
+        const keyboardOpen = shifted || shrunkenWhileFocused;
         setKeyboardOpen(keyboardOpen);
         if (!keyboardOpen) {
-          baselineHeight = Math.max(window.innerHeight, viewportHeight);
+          baselineHeight = Math.max(window.innerHeight, viewportExtent);
         }
       };
 
@@ -2850,7 +2851,7 @@ function initEdgePanels() {
         baselineHeight = Math.max(
           window.innerHeight,
           window.visualViewport
-            ? window.visualViewport.height
+            ? (window.visualViewport.height + Math.max(0, window.visualViewport.offsetTop || 0))
             : window.innerHeight,
         );
         window.setTimeout(syncKeyboardState, 80);
@@ -2858,6 +2859,7 @@ function initEdgePanels() {
       document.addEventListener('focusin', syncKeyboardState, true);
       document.addEventListener('focusout', () => {
         window.setTimeout(syncKeyboardState, 80);
+        window.setTimeout(syncKeyboardState, 260);
       }, true);
       syncKeyboardStateNow = syncKeyboardState;
       syncKeyboardState();
