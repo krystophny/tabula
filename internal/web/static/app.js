@@ -1985,7 +1985,7 @@ async function zenSubmitMessage(text) {
 
   const body = {
     text: finalText,
-    output_mode: 'voice',
+    output_mode: state.ttsSilent ? 'silent' : 'voice',
   };
   try {
     const resp = await fetch(`/api/chat/sessions/${encodeURIComponent(state.chatSessionId)}/messages`, {

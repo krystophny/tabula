@@ -26,6 +26,7 @@ const assistantTurnTimeout = 2 * time.Hour
 
 const (
 	turnOutputModeVoice    = "voice"
+	turnOutputModeSilent   = "silent"
 	promptContractStateKey = "chat_prompt_contract_sha256"
 )
 
@@ -730,9 +731,9 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string) {
 	canvasCtx := a.resolveCanvasContext(session.ProjectKey)
 	var prompt string
 	if resumed {
-		prompt = buildTurnPrompt(messages, canvasCtx)
+		prompt = buildTurnPromptForMode(messages, canvasCtx, outputMode)
 	} else {
-		prompt = buildPromptFromHistory(session.Mode, messages, canvasCtx)
+		prompt = buildPromptFromHistoryForMode(session.Mode, messages, canvasCtx, outputMode)
 		_ = a.store.UpdateChatSessionThread(sessionID, appSess.ThreadID())
 	}
 	if strings.TrimSpace(prompt) == "" {
@@ -837,7 +838,7 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string) {
 		case "assistant_message":
 			latestMessage = ev.Message
 			latestTurnID = ev.TurnID
-			renderPlan := assistantRenderPlan(ev.Message)
+			renderPlan := assistantRenderPlanForMode(ev.Message, outputMode)
 			persistAssistantSnapshot(ev.Message, renderPlan.RenderOnCanvas, renderPlan.AutoCanvas)
 			payload["message"] = ev.Message
 			payload["delta"] = ev.Delta
@@ -852,7 +853,7 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string) {
 				latestMessage = ev.Message
 			}
 			latestTurnID = ev.TurnID
-			renderPlan := assistantRenderPlan(latestMessage)
+			renderPlan := assistantRenderPlanForMode(latestMessage, outputMode)
 			persistAssistantSnapshot(latestMessage, renderPlan.RenderOnCanvas, renderPlan.AutoCanvas)
 			payload["message"] = latestMessage
 			if renderPlan.RenderOnCanvas {
@@ -928,7 +929,7 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string) {
 // fails to connect. Each call creates a new WS + thread.
 func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession, messages []store.ChatMessage, outputMode string, profile appServerModelProfile) {
 	canvasCtx := a.resolveCanvasContext(session.ProjectKey)
-	prompt := buildPromptFromHistory(session.Mode, messages, canvasCtx)
+	prompt := buildPromptFromHistoryForMode(session.Mode, messages, canvasCtx, outputMode)
 	if strings.TrimSpace(prompt) == "" {
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
 		return
@@ -1039,7 +1040,7 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 		case "assistant_message":
 			latestMessage = ev.Message
 			latestTurnID = ev.TurnID
-			renderPlan := assistantRenderPlan(ev.Message)
+			renderPlan := assistantRenderPlanForMode(ev.Message, outputMode)
 			persistAssistantSnapshot(ev.Message, renderPlan.RenderOnCanvas, renderPlan.AutoCanvas)
 			payload["message"] = ev.Message
 			payload["delta"] = ev.Delta
@@ -1054,7 +1055,7 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 				latestMessage = ev.Message
 			}
 			latestTurnID = ev.TurnID
-			renderPlan := assistantRenderPlan(latestMessage)
+			renderPlan := assistantRenderPlanForMode(latestMessage, outputMode)
 			persistAssistantSnapshot(latestMessage, renderPlan.RenderOnCanvas, renderPlan.AutoCanvas)
 			payload["message"] = latestMessage
 			if renderPlan.RenderOnCanvas {
@@ -1116,7 +1117,7 @@ func (a *App) finalizeAssistantResponse(
 	turnID, fallbackTurnID, threadID string,
 	outputMode string,
 ) string {
-	_ = normalizeTurnOutputMode(outputMode)
+	outputMode = normalizeTurnOutputMode(outputMode)
 	canvasSessionID := a.resolveCanvasSessionID(projectKey)
 	fileBlocks := make([]fileBlock, 0)
 	if fBlocks, cleaned := parseFileBlocks(text); len(fBlocks) > 0 {
@@ -1124,6 +1125,9 @@ func (a *App) finalizeAssistantResponse(
 		text = cleaned
 	}
 	autoCanvas := assistantNeedsAutoCanvas(text)
+	if !isVoiceOutputMode(outputMode) {
+		autoCanvas = true
+	}
 	if autoCanvas && len(fileBlocks) == 0 && canvasSessionID != "" {
 		longForm := assistantCompanionText(text)
 		if longForm != "" {
@@ -1237,8 +1241,16 @@ func assistantNeedsAutoCanvas(text string) bool {
 }
 
 func assistantRenderPlan(text string) assistantRenderDecision {
+	return assistantRenderPlanForMode(text, turnOutputModeVoice)
+}
+
+func assistantRenderPlanForMode(text string, outputMode string) assistantRenderDecision {
+	outputMode = normalizeTurnOutputMode(outputMode)
 	hasFileBlocks := assistantMessageUsesCanvasBlocks(text)
 	autoCanvas := assistantNeedsAutoCanvas(text)
+	if !isVoiceOutputMode(outputMode) {
+		autoCanvas = true
+	}
 	return assistantRenderDecision{
 		RenderOnCanvas: hasFileBlocks || autoCanvas,
 		AutoCanvas:     autoCanvas,
@@ -1264,8 +1276,17 @@ func assistantSnapshotContent(text string, renderOnCanvas bool, autoCanvas bool)
 }
 
 func normalizeTurnOutputMode(mode string) string {
-	_ = mode
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", turnOutputModeVoice:
+		return turnOutputModeVoice
+	case turnOutputModeSilent:
+		return turnOutputModeSilent
+	}
 	return turnOutputModeVoice
+}
+
+func isVoiceOutputMode(mode string) bool {
+	return normalizeTurnOutputMode(mode) == turnOutputModeVoice
 }
 
 func (a *App) cwdForProjectKey(projectKey string) string {
@@ -1360,6 +1381,11 @@ type canvasContext struct {
 }
 
 func buildPromptFromHistory(mode string, messages []store.ChatMessage, canvas *canvasContext) string {
+	return buildPromptFromHistoryForMode(mode, messages, canvas, turnOutputModeVoice)
+}
+
+func buildPromptFromHistoryForMode(mode string, messages []store.ChatMessage, canvas *canvasContext, outputMode string) string {
+	isVoiceMode := isVoiceOutputMode(outputMode)
 	const maxHistory = 80
 	if len(messages) > maxHistory {
 		messages = messages[len(messages)-maxHistory:]
@@ -1367,23 +1393,25 @@ func buildPromptFromHistory(mode string, messages []store.ChatMessage, canvas *c
 	var b strings.Builder
 
 	b.WriteString("You are Tabura, an AI assistant.\n")
-	b.WriteString("Chat text is always spoken via TTS. Canvas content is never spoken and must be file-backed.\n\n")
-	b.WriteString("Use exactly one response shape:\n")
-	b.WriteString("1) Chat-only: write only spoken chat text (no blocks).\n")
-	b.WriteString("2) Chat + file-canvas: write a brief spoken chat line, then one or more :::file blocks.\n\n")
-	b.WriteString("## Response Format\n\n")
-	b.WriteString("Write naturally. Your text is read aloud, so avoid raw paths, URLs, or code in prose.\n")
-	b.WriteString("Use [lang:de] at the start of your answer when responding in German. Default is English.\n\n")
-	b.WriteString("Canvas/file rules:\n")
-	b.WriteString("- Spoken chat must be one paragraph max.\n")
-	b.WriteString("- If your response needs more than one paragraph, write that long content to a temp file and respond with :::file block content (no chat prose).\n")
-	b.WriteString("- Canvas content must appear only inside :::file blocks; do not duplicate it in chat prose.\n")
-	b.WriteString("- Use :::file{path=\"relative/or/absolute/path\"}...::: for all canvas content.\n")
-	b.WriteString("- For temporary canvas files, create/remove paths via temp_file_create and temp_file_remove tools.\n")
-	b.WriteString("- When user asks to show/open an existing file, do NOT paste that file body into chat markdown or :::file blocks.\n")
-	b.WriteString("- For existing files, use canvas_artifact_show (title=path, markdown_or_text=file content) and keep chat text brief.\n")
-	b.WriteString("- Do not use :::canvas blocks.\n")
-	b.WriteString("- Line references: when the user mentions [Line N of \"file\"], apply at that location.\n\n")
+	if isVoiceMode {
+		b.WriteString("Chat text is always spoken via TTS. Canvas content is never spoken and must be file-backed.\n\n")
+		b.WriteString("Use exactly one response shape:\n")
+		b.WriteString("1) Chat-only: write only spoken chat text (no blocks).\n")
+		b.WriteString("2) Chat + file-canvas: write a brief spoken chat line, then one or more :::file blocks.\n\n")
+		b.WriteString("## Response Format\n\n")
+		b.WriteString("Write naturally. Your text is read aloud, so avoid raw paths, URLs, or code in prose.\n")
+		b.WriteString("Use [lang:de] at the start of your answer when responding in German. Default is English.\n\n")
+		b.WriteString("Canvas/file rules:\n")
+		b.WriteString("- Spoken chat must be one paragraph max.\n")
+		b.WriteString("- If your response needs more than one paragraph, write that long content to a temp file and respond with :::file block content (no chat prose).\n")
+		b.WriteString("- Canvas content must appear only inside :::file blocks; do not duplicate it in chat prose.\n")
+		b.WriteString("- Use :::file{path=\"relative/or/absolute/path\"}...::: for all canvas content.\n")
+		b.WriteString("- For temporary canvas files, create/remove paths via temp_file_create and temp_file_remove tools.\n")
+		b.WriteString("- When user asks to show/open an existing file, do NOT paste that file body into chat markdown or :::file blocks.\n")
+		b.WriteString("- For existing files, use canvas_artifact_show (title=path, markdown_or_text=file content) and keep chat text brief.\n")
+		b.WriteString("- Do not use :::canvas blocks.\n")
+		b.WriteString("- Line references: when the user mentions [Line N of \"file\"], apply at that location.\n\n")
+	}
 
 	b.WriteString("## Delegation\n")
 	b.WriteString("Use `delegate_to_model` for tasks that benefit from another model.\n")
@@ -1436,6 +1464,11 @@ func buildPromptFromHistory(mode string, messages []store.ChatMessage, canvas *c
 // buildTurnPrompt constructs a prompt for a resumed thread: only the latest
 // user message plus optional canvas context update.
 func buildTurnPrompt(messages []store.ChatMessage, canvas *canvasContext) string {
+	return buildTurnPromptForMode(messages, canvas, turnOutputModeVoice)
+}
+
+func buildTurnPromptForMode(messages []store.ChatMessage, canvas *canvasContext, outputMode string) string {
+	isVoiceMode := isVoiceOutputMode(outputMode)
 	var lastUserMsg string
 	for i := len(messages) - 1; i >= 0; i-- {
 		if strings.EqualFold(strings.TrimSpace(messages[i].Role), "user") {
@@ -1451,12 +1484,14 @@ func buildTurnPrompt(messages []store.ChatMessage, canvas *canvasContext) string
 	}
 	var b strings.Builder
 	b.WriteString("Use one response shape only:\n")
-	b.WriteString("- Chat-only (spoken text only), or\n")
-	b.WriteString("- Chat + file-canvas: short spoken chat text plus :::file blocks for canvas content.\n")
-	b.WriteString("Spoken chat must be one paragraph max.\n")
-	b.WriteString("If output needs more than one paragraph, put it in a temp file with temp_file_create and respond with :::file block(s) only (no chat prose).\n")
-	b.WriteString("Canvas content must be in :::file blocks only. Use temp_file_create/temp_file_remove for temporary files. Do not use :::canvas blocks.\n\n")
-	b.WriteString("When user asks to show/open an existing file, do NOT paste file body into chat markdown or :::file blocks; use canvas_artifact_show and keep chat text brief.\n\n")
+	if isVoiceMode {
+		b.WriteString("- Chat-only (spoken text only), or\n")
+		b.WriteString("- Chat + file-canvas: short spoken chat text plus :::file blocks for canvas content.\n")
+		b.WriteString("Spoken chat must be one paragraph max.\n")
+		b.WriteString("If output needs more than one paragraph, put it in a temp file with temp_file_create and respond with :::file block(s) only (no chat prose).\n")
+		b.WriteString("Canvas content must be in :::file blocks only. Use temp_file_create/temp_file_remove for temporary files. Do not use :::canvas blocks.\n\n")
+		b.WriteString("When user asks to show/open an existing file, do NOT paste file body into chat markdown or :::file blocks; use canvas_artifact_show and keep chat text brief.\n\n")
+	}
 	if canvas != nil && canvas.HasArtifact {
 		fmt.Fprintf(&b, "[Active artifact tab: %q (kind: %s)]\n\n", canvas.ArtifactTitle, canvas.ArtifactKind)
 	}
