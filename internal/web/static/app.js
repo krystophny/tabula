@@ -2506,6 +2506,13 @@ function initEdgePanels() {
       ev.preventDefault();
       if (edgeRight) edgeRight.classList.add('edge-pinned');
     });
+    // Direct touch handler: iOS system gesture recognizer can intercept
+    // document-level touch events near screen edges. Handle on the button
+    // itself with touch-action:manipulation to bypass system gestures.
+    edgeRightTap.addEventListener('touchend', (ev) => {
+      ev.preventDefault();
+      if (edgeRight) edgeRight.classList.add('edge-pinned');
+    }, { passive: false });
   }
 
   const edgeBottomTap = document.getElementById('edge-bottom-tap');

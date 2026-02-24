@@ -549,11 +549,14 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   bottom: 0;
   width: 380px;
   transform: translateX(100%);
+  pointer-events: none;
+  border-left: 1px solid var(--border);
 }
 
 .edge-right.edge-active,
 .edge-right.edge-pinned {
   transform: translateX(0);
+  pointer-events: auto;
 }
 
 .edge-right #chat-history {
