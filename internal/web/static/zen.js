@@ -126,11 +126,15 @@ export function showIndicatorMode(mode, x, y) {
   const el = indicatorEl();
   if (!el) return;
   const nextMode = mode === 'recording' ? 'recording' : 'stop';
+  const body = document.body;
   el.classList.remove('is-recording', 'is-stop');
   el.classList.add(nextMode === 'recording' ? 'is-recording' : 'is-stop');
   el.style.display = '';
   el.style.left = `${x}px`;
   el.style.top = `${y}px`;
+  if (body) {
+    body.classList.toggle('zen-recording', nextMode === 'recording');
+  }
   zenState.indicatorVisible = true;
   zenState.indicatorMode = nextMode;
 }
@@ -140,6 +144,10 @@ export function hideIndicator() {
   if (!el) return;
   el.classList.remove('is-recording', 'is-stop');
   el.style.display = 'none';
+  const body = document.body;
+  if (body) {
+    body.classList.remove('zen-recording');
+  }
   zenState.indicatorVisible = false;
   zenState.indicatorMode = '';
 }
