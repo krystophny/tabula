@@ -77,7 +77,7 @@ const CHAT_SEND_HOLD_MS = 300;
 // Frontend end-of-utterance policy:
 // - start/end speech from local mic energy
 // - pure VAD commit (no semantic EOU sidecar)
-// - no-speech timeout + adaptive max duration to avoid hanging capture
+// - no-speech timeout + relaxed max duration to avoid hanging capture
 const VOICE_VAD_AUTO_SEND_DEFAULT = true;
 const VOICE_VAD_AUTO_SEND_STORAGE_KEY = 'tabura.voiceVadAutoSend';
 const VOICE_VAD_AUTO_SEND_QUERY_PARAM = 'voice_vad_auto_send';
@@ -86,7 +86,7 @@ const VOICE_VAD_CANDIDATE_SILENCE_MS = 900;
 const VOICE_VAD_CANDIDATE_RECHECK_MS = 450;
 const VOICE_VAD_HARD_SILENCE_MS = 2500;
 const VOICE_VAD_NO_SPEECH_MS = 4000;
-const VOICE_VAD_MAX_RECORDING_SOFT_MS = 90000;
+const VOICE_VAD_MAX_RECORDING_SOFT_MS = 120000;
 const VOICE_VAD_MAX_RECORDING_HARD_MS = 240000;
 const VOICE_VAD_FRAME_MS = 40;
 const VOICE_VAD_RECORDER_CHUNK_MS = 250;
@@ -960,7 +960,6 @@ function startVADMonitor(capture) {
     noiseSamples: [],
     noiseFloorDb: null,
     isRunning: true,
-    lastVoiceEnergyAt: performance.now(),
   };
 
   let source;
@@ -1057,7 +1056,6 @@ function startVADMonitor(capture) {
 
       if (db >= endThresholdDb) {
         options.silenceMs = 0;
-        options.lastVoiceEnergyAt = now;
       } else {
         options.silenceMs += VOICE_VAD_FRAME_MS;
       }
@@ -1068,10 +1066,8 @@ function startVADMonitor(capture) {
       const hitHardSilence = options.silenceMs >= VOICE_VAD_HARD_SILENCE_MS;
       const hitSoftMaxDuration = elapsed >= VOICE_VAD_MAX_RECORDING_SOFT_MS;
       const hitHardMaxDuration = elapsed >= VOICE_VAD_MAX_RECORDING_HARD_MS;
-      const recentVoiceEnergy = (now - options.lastVoiceEnergyAt) < VOICE_VAD_HARD_SILENCE_MS;
-      const hitAdaptiveMaxDuration = hitSoftMaxDuration && !recentVoiceEnergy;
 
-      if (hitHardSilence || hitHardMaxDuration || hitAdaptiveMaxDuration) {
+      if (hitHardSilence || hitHardMaxDuration || hitSoftMaxDuration) {
         stopVADMonitor(capture);
         void stopZenVoiceCaptureAndSend();
         return;
