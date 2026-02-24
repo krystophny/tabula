@@ -331,6 +331,62 @@ function isMobileSilent() {
   return state.ttsSilent && window.matchMedia('(max-width: 767px)').matches;
 }
 
+function isDisplayMode(mode) {
+  try {
+    return window.matchMedia(`(display-mode: ${mode})`).matches;
+  } catch (_) {
+    return false;
+  }
+}
+
+function isHomeScreenStandaloneLike() {
+  const standalone = typeof navigator !== 'undefined'
+    && 'standalone' in navigator
+    && navigator.standalone === true;
+  return standalone || isDisplayMode('standalone') || isDisplayMode('fullscreen');
+}
+
+function isIPhone() {
+  const userAgent = String(navigator.userAgent || '').toLowerCase();
+  const platform = String(navigator.platform || '').toLowerCase();
+  return /iphone/.test(userAgent) || platform === 'iphone' || (platform === 'macintel' && navigator.maxTouchPoints > 1);
+}
+
+function iPhoneRoundedCornerRadiusPx() {
+  if (!isIPhone()) return null;
+  const shortSide = Math.min(
+    Math.round(window.innerWidth),
+    Math.round(window.innerHeight),
+    Number.isFinite(window.screen?.width) ? Math.round(window.screen.width) : Number.POSITIVE_INFINITY,
+    Number.isFinite(window.screen?.height) ? Math.round(window.screen.height) : Number.POSITIVE_INFINITY,
+  );
+  if (!Number.isFinite(shortSide) || shortSide <= 0) return null;
+  const dpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
+  if (dpr >= 3 && shortSide >= 392) return 55;
+  if (dpr >= 3 && shortSide >= 360) return 47;
+  if (dpr === 2 && shortSide >= 360) return 44;
+  return 43;
+}
+
+function applyIPhoneStandaloneCueHints() {
+  const body = document.body;
+  const root = document.documentElement;
+  if (!body || !root) return;
+  const isStandaloneLike = isHomeScreenStandaloneLike() && isIPhone();
+  body.classList.toggle('ios-cue-fullscreen', isStandaloneLike);
+  if (isStandaloneLike) {
+    const radius = iPhoneRoundedCornerRadiusPx();
+    if (Number.isFinite(radius) && radius > 0) {
+      root.style.setProperty('--zen-cue-corner-radius', `${radius}px`);
+    }
+    return;
+  }
+  root.style.removeProperty('--zen-cue-corner-radius');
+}
+
+window.addEventListener('resize', applyIPhoneStandaloneCueHints);
+window.addEventListener('orientationchange', applyIPhoneStandaloneCueHints);
+
 function setTTSSilentMode(silent, { persist = true } = {}) {
   const next = Boolean(silent);
   if (state.ttsSilent === next) return;
@@ -3010,6 +3066,7 @@ function warmMicStream() {
 }
 
 async function init() {
+  applyIPhoneStandaloneCueHints();
   bindUi();
   warmMicStream();
   updateAssistantActivityIndicator();
