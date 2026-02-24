@@ -70,6 +70,10 @@
   <script>
     // Harness log for test assertions
     window.__harnessLog = [];
+    window.__eouResponses = [];
+    window.__setEOUResponses = (responses) => {
+      window.__eouResponses = Array.isArray(responses) ? responses.slice() : [];
+    };
 
     // Mock fetch for /api/setup etc.
     const _realFetch = window.fetch;
@@ -103,6 +107,29 @@
           window.__harnessLog.push({ type: 'message_sent', text: body.text });
         } catch (_) {}
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      if (u.includes('/api/stt/eou-check') && opts?.method === 'POST') {
+        let payload = null;
+        if (window.__eouResponses.length > 0) {
+          payload = window.__eouResponses.shift();
+        }
+        if (!payload) {
+          payload = {
+            transcript: 'hello world',
+            p_end: 0.9,
+            should_commit: true,
+            reason: 'high_confidence_end',
+            latency_ms: 12,
+          };
+        }
+        window.__harnessLog.push({
+          type: 'eou_check',
+          action: 'checked',
+          should_commit: !!payload.should_commit,
+          reason: payload.reason || '',
+          p_end: Number(payload.p_end) || 0,
+        });
+        return new Response(JSON.stringify(payload), { status: 200 });
       }
       if (u.includes('/api/chat/')) {
         return new Response(JSON.stringify({ messages: [], turns: [] }), { status: 200 });
@@ -273,6 +300,7 @@
         this.state = 'inactive';
         this.mimeType = 'audio/webm;codecs=opus';
         this._handlers = {};
+        this._chunkTimer = null;
       }
       static isTypeSupported() { return true; }
       addEventListener(type, fn, opts) {
@@ -296,8 +324,18 @@
         this.state = 'recording';
         this._timeslice = timeslice;
         window.__harnessLog.push({ type: 'recorder', action: 'start', timeslice });
+        const intervalMs = Math.max(20, Number(timeslice) || 100);
+        this._chunkTimer = setInterval(() => {
+          if (this.state !== 'recording') return;
+          const blob = new Blob([new Uint8Array([1, 2, 3, 4, 5])], { type: this.mimeType });
+          this._emit('dataavailable', { data: blob });
+        }, intervalMs);
       }
       stop() {
+        if (this._chunkTimer) {
+          clearInterval(this._chunkTimer);
+          this._chunkTimer = null;
+        }
         this.state = 'inactive';
         window.__harnessLog.push({ type: 'recorder', action: 'stop' });
         const blob = new Blob([new Uint8Array([1, 2, 3, 4, 5])], { type: this.mimeType });

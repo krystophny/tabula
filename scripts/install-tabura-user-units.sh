@@ -22,6 +22,7 @@ required_units=(
   tabura-dev-watch.service
 )
 optional_units=(
+  tabura-eou.service
   tabura-ptyd.service
 )
 

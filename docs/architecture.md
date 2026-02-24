@@ -8,6 +8,7 @@ Runtime stack:
 - `tabura-web.service` runs the Go monolith (`tabura server`)
 - `tabura-codex-app-server.service` runs Codex app-server
 - `tabura-piper-tts.service` runs Piper TTS API on loopback
+- `tabura-eou.service` runs semantic end-of-utterance inference on loopback
 
 ## Components
 
@@ -56,6 +57,7 @@ The browser UI is a full-viewport canvas with no visible chrome:
 ## Interaction Model
 
 - **Tap/left-click** toggles voice recording. A red dot appears at the tap position.
+- VAD provides candidate end-of-utterance points; semantic EOU confirms commit vs continue.
 - **Right-click** opens a floating text input at the cursor position.
 - **Keyboard typing** (when nothing is focused) auto-activates text input.
 - **Enter** sends the message; input is cleared.

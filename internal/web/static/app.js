@@ -66,16 +66,20 @@ const CHAT_CTRL_LONG_PRESS_MS = 180;
 const CHAT_SEND_HOLD_MS = 300;
 // Frontend end-of-utterance policy:
 // - start/end speech from local mic energy
-// - auto-stop after sustained silence (~700ms)
+// - VAD only proposes endpoint candidates; semantic EOU confirms commit
 // - no-speech timeout + hard max to avoid hanging capture
 const VOICE_EOU_AUTO_SEND_DEFAULT = true;
 const VOICE_EOU_AUTO_SEND_STORAGE_KEY = 'tabura.voiceEouAutoSend';
 const VOICE_EOU_AUTO_SEND_QUERY_PARAM = 'voice_eou_auto_send';
 const VOICE_EOU_MIN_UTTERANCE_MS = 300;
-const VOICE_EOU_EOS_SILENCE_MS = 700;
+const VOICE_EOU_CANDIDATE_SILENCE_MS = 900;
+const VOICE_EOU_RECHECK_SILENCE_MS = 700;
+const VOICE_EOU_HARD_SILENCE_MS = 2500;
+const VOICE_EOU_CHECK_MIN_INTERVAL_MS = 600;
 const VOICE_EOU_NO_SPEECH_MS = 4000;
 const VOICE_EOU_MAX_RECORDING_MS = 20000;
 const VOICE_EOU_FRAME_MS = 40;
+const VOICE_EOU_RECORDER_CHUNK_MS = 250;
 const VOICE_EOU_NOISE_FLOOR_SAMPLES = 8;
 const VOICE_EOU_NOISE_FLOOR_PERCENTILE = 0.35;
 const VOICE_EOU_NOISE_FLOOR_ADAPT_ALPHA = 0.12;
@@ -700,6 +704,100 @@ function stopChatVoiceMedia(capture) {
   releaseMicStream();
 }
 
+function buildCaptureBlob(capture) {
+  if (!capture || !Array.isArray(capture.chunks) || capture.chunks.length === 0) return null;
+  const mimeType = capture.mimeType || 'audio/webm';
+  return new Blob(capture.chunks, { type: mimeType });
+}
+
+async function requestEOUDecision(capture, silenceMs, elapsedMs) {
+  const blob = buildCaptureBlob(capture);
+  if (!blob || blob.size <= 0) {
+    return { transcript: '', p_end: 0, should_commit: false, reason: 'empty_audio_continue' };
+  }
+  const mimeType = capture.mimeType || 'audio/webm';
+  const form = new FormData();
+  form.append('audio', blob, 'capture.webm');
+  form.append('mime_type', mimeType);
+  form.append('silence_ms', String(Math.max(0, Math.round(Number(silenceMs) || 0))));
+  form.append('elapsed_ms', String(Math.max(0, Math.round(Number(elapsedMs) || 0))));
+
+  const resp = await fetch('/api/stt/eou-check', {
+    method: 'POST',
+    body: form,
+  });
+  if (!resp.ok) {
+    const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
+    throw new Error(`EOU check failed: ${detail}`);
+  }
+  const payload = await resp.json();
+  return payload || {};
+}
+
+async function commitVoiceCaptureWithTranscript(capture, transcript) {
+  if (!capture || capture.stopping || state.chatVoiceCapture !== capture) return;
+  const text = String(transcript || '').trim();
+  if (!text) return;
+  capture.stopRequested = true;
+  capture.stopping = true;
+  setRecording(false);
+  state.voiceAwaitingTurn = true;
+  state.indicatorSuppressedByCanvasUpdate = false;
+  updateAssistantActivityIndicator();
+  showStatus('sending...');
+  stopVADMonitor(capture);
+  try {
+    await stopChatVoiceMediaAndFlush(capture);
+    if (state.chatVoiceCapture === capture) {
+      state.chatVoiceCapture = null;
+    }
+    void zenSubmitMessage(text);
+  } catch (err) {
+    state.voiceAwaitingTurn = false;
+    const message = String(err?.message || err || 'voice capture failed');
+    showStatus(`voice capture failed: ${message}`);
+    stopChatVoiceMedia(capture);
+    if (state.chatVoiceCapture === capture) {
+      state.chatVoiceCapture = null;
+    }
+  } finally {
+    updateAssistantActivityIndicator();
+  }
+}
+
+async function evaluateEOUCandidate(capture, silenceMs, elapsedMs) {
+  if (!capture || capture.stopping || state.chatVoiceCapture !== capture) return;
+  if (capture.eouCheckInFlight) return;
+  const nowMs = performance.now();
+  if (capture.nextEOUCheckAtMs && nowMs < capture.nextEOUCheckAtMs && elapsedMs < VOICE_EOU_MAX_RECORDING_MS && silenceMs < VOICE_EOU_HARD_SILENCE_MS) {
+    return;
+  }
+  if (capture.lastEOUCheckAtMs && (nowMs - capture.lastEOUCheckAtMs) < VOICE_EOU_CHECK_MIN_INTERVAL_MS && elapsedMs < VOICE_EOU_MAX_RECORDING_MS && silenceMs < VOICE_EOU_HARD_SILENCE_MS) {
+    return;
+  }
+  capture.eouCheckInFlight = true;
+  capture.lastEOUCheckAtMs = nowMs;
+  try {
+    const decision = await requestEOUDecision(capture, silenceMs, elapsedMs);
+    if (!capture || capture.stopping || state.chatVoiceCapture !== capture) return;
+    const transcript = String(decision?.transcript || '').trim();
+    const shouldCommit = Boolean(decision?.should_commit);
+    capture.lastEOUTranscript = transcript;
+    capture.lastEOUP = Number(decision?.p_end) || 0;
+    if (shouldCommit && transcript) {
+      await commitVoiceCaptureWithTranscript(capture, transcript);
+      return;
+    }
+    capture.nextEOUCheckAtMs = performance.now() + VOICE_EOU_RECHECK_SILENCE_MS;
+  } catch (_) {
+    // Fallback: keep legacy behavior if semantic endpoint is unavailable.
+    stopVADMonitor(capture);
+    void stopZenVoiceCaptureAndSend();
+  } finally {
+    capture.eouCheckInFlight = false;
+  }
+}
+
 function computeDecibelFromTimeDomain(data) {
   let sumSquares = 0;
   for (let i = 0; i < data.length; i++) {
@@ -869,10 +967,11 @@ function startVADMonitor(capture) {
 
       options.speechMs = Math.max(0, now - options.speechStartAt);
       if (options.speechMs < VOICE_EOU_MIN_UTTERANCE_MS) return;
-      if (options.silenceMs >= VOICE_EOU_EOS_SILENCE_MS || elapsed >= VOICE_EOU_MAX_RECORDING_MS) {
-        stopVADMonitor(capture);
-        void stopZenVoiceCaptureAndSend();
-        return;
+      const hitCandidate = options.silenceMs >= VOICE_EOU_CANDIDATE_SILENCE_MS;
+      const hitHardSilence = options.silenceMs >= VOICE_EOU_HARD_SILENCE_MS;
+      const hitMaxDuration = elapsed >= VOICE_EOU_MAX_RECORDING_MS;
+      if (hitCandidate || hitHardSilence || hitMaxDuration) {
+        void evaluateEOUCandidate(capture, options.silenceMs, elapsed);
       }
     };
 
@@ -950,6 +1049,11 @@ async function beginZenVoiceCapture(x, y, anchor, options = null) {
     mediaStream: null,
     mediaRecorder: null,
     chunks: [],
+    eouCheckInFlight: false,
+    lastEOUCheckAtMs: 0,
+    nextEOUCheckAtMs: 0,
+    lastEOUTranscript: '',
+    lastEOUP: 0,
   };
   state.chatVoiceCapture = capture;
   state.lastInputOrigin = 'voice';
@@ -973,7 +1077,7 @@ async function beginZenVoiceCapture(x, y, anchor, options = null) {
       if (!ev?.data || ev.data.size <= 0) return;
       capture.chunks.push(ev.data);
     });
-    recorder.start();
+    recorder.start(VOICE_EOU_RECORDER_CHUNK_MS);
     if (!capture.stopRequested && !capture.manualStopOnly) {
       startVADMonitor(capture);
     }
