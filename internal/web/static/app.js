@@ -2492,6 +2492,7 @@ function initEdgePanels() {
     });
   }
 
+  // Desktop: button clicks for left/bottom edge taps
   if (edgeLeftTap) {
     edgeLeftTap.addEventListener('click', (ev) => {
       ev.preventDefault();
@@ -2507,34 +2508,63 @@ function initEdgePanels() {
     });
   }
 
-  // Mobile: swipe from edge
+  // Mobile: touch tap and swipe from all four edges.
+  // Buttons don't reliably fire click on iOS, so handle everything here.
+  let edgeTouchHandled = false;
   document.addEventListener('touchstart', (ev) => {
     if (ev.touches.length !== 1) return;
     const t = ev.touches[0];
     const edgeTapSize = getEdgeTapSizePx();
-    if (t.clientX > window.innerWidth - edgeTapSize || t.clientY < edgeTapSize || t.clientX < edgeTapSize || t.clientY > window.innerHeight - edgeTapSize) {
-      edgeTouchStart = { x: t.clientX, y: t.clientY, edge: null };
-      if (t.clientX > window.innerWidth - edgeTapSize) edgeTouchStart.edge = 'right';
-      else if (t.clientY < edgeTapSize) edgeTouchStart.edge = 'top';
-      else if (t.clientY > window.innerHeight - edgeTapSize) edgeTouchStart.edge = 'bottom';
+    edgeTouchHandled = false;
+    if (t.clientX < edgeTapSize) {
+      edgeTouchStart = { x: t.clientX, y: t.clientY, edge: 'left' };
+    } else if (t.clientX > window.innerWidth - edgeTapSize) {
+      edgeTouchStart = { x: t.clientX, y: t.clientY, edge: 'right' };
+    } else if (t.clientY < edgeTapSize) {
+      edgeTouchStart = { x: t.clientX, y: t.clientY, edge: 'top' };
+    } else if (t.clientY > window.innerHeight - edgeTapSize) {
+      edgeTouchStart = { x: t.clientX, y: t.clientY, edge: 'bottom' };
+    } else {
+      edgeTouchStart = null;
     }
   }, { passive: true });
 
   document.addEventListener('touchmove', (ev) => {
-    if (!edgeTouchStart || ev.touches.length !== 1) return;
+    if (!edgeTouchStart || edgeTouchHandled || ev.touches.length !== 1) return;
     const t = ev.touches[0];
     const dx = t.clientX - edgeTouchStart.x;
     const dy = t.clientY - edgeTouchStart.y;
     if (edgeTouchStart.edge === 'right' && dx < -30 && edgeRight) {
       edgeRight.classList.add('edge-active');
+      edgeTouchHandled = true;
     } else if (edgeTouchStart.edge === 'top' && dy > 30 && edgeTop) {
       edgeTop.classList.add('edge-active');
+      edgeTouchHandled = true;
     } else if (edgeTouchStart.edge === 'bottom' && dy < -30) {
       openChatPaneWithInput();
+      edgeTouchHandled = true;
     }
   }, { passive: true });
 
-  document.addEventListener('touchend', () => {
+  document.addEventListener('touchend', (ev) => {
+    if (!edgeTouchStart || edgeTouchHandled) {
+      edgeTouchStart = null;
+      return;
+    }
+    // Tap (not swipe): small movement from start point
+    const touch = ev.changedTouches && ev.changedTouches[0];
+    if (touch) {
+      const dx = Math.abs(touch.clientX - edgeTouchStart.x);
+      const dy = Math.abs(touch.clientY - edgeTouchStart.y);
+      if (dx < 20 && dy < 20) {
+        switch (edgeTouchStart.edge) {
+          case 'left': handleLeftEdgeTap(); break;
+          case 'right': if (edgeRight) edgeRight.classList.add('edge-pinned'); break;
+          case 'top': if (edgeTop) edgeTop.classList.add('edge-pinned'); break;
+          case 'bottom': openChatPaneWithInput(); break;
+        }
+      }
+    }
     edgeTouchStart = null;
   }, { passive: true });
 
@@ -2587,9 +2617,14 @@ function bindUi() {
   let lastMouseX = Math.floor(window.innerWidth / 2);
   let lastMouseY = Math.floor(window.innerHeight / 2);
   let hasLastMousePosition = false;
-  const isVoiceInteractionTarget = (target) => (
-    target instanceof Element
-    && target.closest('button,a,input,textarea,select,[contenteditable="true"],.zen-overlay,.zen-input,.edge-panel')
+  const isInEdgeZone = (x, y) => {
+    const s = getEdgeTapSizePx();
+    return x < s || x > window.innerWidth - s || y < s || y > window.innerHeight - s;
+  };
+  const isVoiceInteractionTarget = (target, x, y) => (
+    isInEdgeZone(x, y)
+    || (target instanceof Element
+      && target.closest('button,a,input,textarea,select,[contenteditable="true"],.zen-overlay,.zen-input,.edge-panel,.chat-bottom-bar'))
   );
   const rememberMousePosition = (x, y) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
@@ -2695,7 +2730,7 @@ function bindUi() {
     // A short click still uses tap-to-talk via the click handler below.
     zenClickTarget.addEventListener('pointerdown', (ev) => {
       if (ev.pointerType !== 'mouse' || !ev.isPrimary || ev.button !== 0) return;
-      if (isVoiceInteractionTarget(ev.target)) return;
+      if (isVoiceInteractionTarget(ev.target, ev.clientX, ev.clientY)) return;
       if (isRecording() || shouldStopInUiClick()) return;
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed) return;
@@ -2765,7 +2800,7 @@ function bindUi() {
       }
 
       // Ignore clicks on interactive elements
-      if (isVoiceInteractionTarget(ev.target)) return;
+      if (isVoiceInteractionTarget(ev.target, ev.clientX, ev.clientY)) return;
       // Ignore if right-click
       if (ev.button !== 0) return;
       // Ignore text selection
