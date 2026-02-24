@@ -190,7 +190,7 @@ func TestBuildPromptFromHistory_PlanMode(t *testing.T) {
 }
 
 func TestBuildPromptFromHistoryForMode_SilentUsesToolOnlyPreamble(t *testing.T) {
-	prompt := buildPromptFromHistoryForMode("chat", nil, nil, turnOutputModeSilent)
+	prompt := buildPromptFromHistoryForMode("chat", nil, nil, turnOutputModeSilent, "")
 	if strings.Contains(prompt, "You are Tabura") {
 		t.Error("silent prompt should not include identity preamble")
 	}
@@ -211,9 +211,36 @@ func TestBuildPromptFromHistoryForMode_SilentUsesToolOnlyPreamble(t *testing.T) 
 	}
 }
 
+func TestBuildPromptFromHistoryForMode_SparkIncludesModelHints(t *testing.T) {
+	prompt := buildPromptFromHistoryForMode("chat", nil, nil, turnOutputModeVoice, "spark")
+	if !strings.Contains(prompt, "merge conflicts") {
+		t.Error("spark prompt should include git conflict delegation hints")
+	}
+	if !strings.Contains(prompt, "delegate to codex") {
+		t.Error("spark prompt should instruct delegation to codex for conflicts")
+	}
+}
+
+func TestBuildPromptFromHistoryForMode_CodexOmitsSparkHints(t *testing.T) {
+	prompt := buildPromptFromHistoryForMode("chat", nil, nil, turnOutputModeVoice, "codex")
+	if strings.Contains(prompt, "Model-Specific Rules (spark)") {
+		t.Error("codex prompt should not include spark-specific hints")
+	}
+}
+
+func TestBuildTurnPromptForMode_SparkIncludesModelHints(t *testing.T) {
+	prompt := buildTurnPromptForMode([]store.ChatMessage{{
+		Role:         "user",
+		ContentPlain: "fix the merge",
+	}}, nil, turnOutputModeSilent, "spark")
+	if !strings.Contains(prompt, "merge conflicts") {
+		t.Error("spark turn prompt should include git conflict delegation hints")
+	}
+}
+
 func TestBuildPromptFromHistoryForMode_SilentSkipsCanvasContext(t *testing.T) {
 	ctx := &canvasContext{HasArtifact: true, ArtifactTitle: "Report.md", ArtifactKind: "text_artifact"}
-	prompt := buildPromptFromHistoryForMode("chat", nil, ctx, turnOutputModeSilent)
+	prompt := buildPromptFromHistoryForMode("chat", nil, ctx, turnOutputModeSilent, "")
 	if strings.Contains(prompt, "Report.md") {
 		t.Error("silent prompt should not include canvas context")
 	}
@@ -343,7 +370,7 @@ func TestBuildTurnPromptForMode_SilentUsesToolOnlyPreamble(t *testing.T) {
 	prompt := buildTurnPromptForMode([]store.ChatMessage{{
 		Role:         "user",
 		ContentPlain: "Please summarize this module.",
-	}}, nil, turnOutputModeSilent)
+	}}, nil, turnOutputModeSilent, "")
 	if strings.Contains(prompt, "Reply as ASSISTANT.") {
 		t.Error("silent turn prompt should not include assistant reply style")
 	}
@@ -363,7 +390,7 @@ func TestBuildTurnPromptForMode_SilentSkipsCanvasContext(t *testing.T) {
 	prompt := buildTurnPromptForMode([]store.ChatMessage{{
 		Role:         "user",
 		ContentPlain: "hello",
-	}}, ctx, turnOutputModeSilent)
+	}}, ctx, turnOutputModeSilent, "")
 	if strings.Contains(prompt, "Summary.md") {
 		t.Error("silent turn prompt should not include canvas context")
 	}

@@ -240,24 +240,13 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 
 .zen-indicator.is-recording,
-.zen-indicator.is-stop {
-  --cue-frame-color: #000000;
-  --cue-chip-border-color: #000000;
+.zen-indicator.is-working {
   --cue-chip-size: 22px;
-  --cue-frame-border: 5px;
-  --cue-frame-radius: var(--zen-cue-corner-radius);
-  --cue-frame-inset: 0px;
-  --cue-frame-top-offset: 0px;
-  --cue-frame-border-top: var(--cue-frame-border);
   display: block;
   position: fixed;
   inset: 0;
   width: 100%;
   height: 100%;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
   pointer-events: none;
   z-index: 1000;
   border: 0;
@@ -271,58 +260,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   animation: none;
 }
 
-body.ios-cue-fullscreen .zen-indicator.is-recording,
-body.ios-cue-fullscreen .zen-indicator.is-stop,
-body.ios-cue-fullscreen .zen-indicator.is-recording::before,
-body.ios-cue-fullscreen .zen-indicator.is-stop::before {
-  --cue-frame-radius: var(--zen-cue-corner-radius);
-  --cue-frame-top-offset: 0px;
-  --cue-frame-border-top: var(--cue-frame-border);
-}
-
-body.ios-cue-fullscreen .zen-indicator.is-recording::after,
-body.ios-cue-fullscreen .zen-indicator.is-stop::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  top: 0;
-  bottom: auto;
-  height: var(--zen-cue-top-offset);
-  pointer-events: none;
-  z-index: 1001;
-  box-sizing: border-box;
-  background: var(--cue-frame-color);
-}
-
-.zen-indicator.is-recording::before,
-.zen-indicator.is-stop::before {
-  content: '';
-  position: fixed;
-  inset: var(--cue-frame-top-offset, 0px) var(--cue-frame-inset, 0px) var(--cue-frame-inset, 0px) var(--cue-frame-inset, 0px);
-  width: auto;
-  height: auto;
-  pointer-events: none;
-  box-sizing: border-box;
-  border-radius: var(--cue-frame-radius);
-  border: var(--cue-frame-border) solid var(--cue-frame-color);
-  border-top-width: var(--cue-frame-border-top, var(--cue-frame-border));
-  background: transparent;
-  transition: none;
-  animation: none;
-}
-
-.zen-indicator.is-recording {
-  --cue-frame-color: #d92d20;
-  --cue-chip-border-color: #d92d20;
-}
-
-.zen-indicator.is-stop {
-  --cue-frame-color: #0066cc;
-  --cue-chip-border-color: #0066cc;
-}
-
 .zen-indicator .zen-record-dot,
-.zen-indicator .zen-stop-square {
+.zen-indicator .zen-play-icon {
   display: none;
   position: fixed;
   top: max(12px, var(--zen-safe-area-top));
@@ -330,8 +269,8 @@ body.ios-cue-fullscreen .zen-indicator.is-stop::after {
   width: var(--cue-chip-size);
   height: var(--cue-chip-size);
   border-radius: 0;
-  border: 2px solid #ffffff;
-  background: var(--cue-chip-border-color);
+  border: none;
+  background: transparent;
   box-shadow: none;
   user-select: none;
   -webkit-user-select: none;
@@ -347,60 +286,37 @@ body.ios-cue-fullscreen .zen-indicator.is-stop::after {
   background: #d92d20;
 }
 
-.zen-indicator.is-stop .zen-stop-square {
+.zen-indicator.is-working .zen-play-icon {
   display: inline-flex;
-}
-
-@media (display-mode: standalone), (display-mode: fullscreen) {
-  .zen-indicator.is-recording,
-  .zen-indicator.is-stop {
-    left: 0;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    width: 100%;
-    height: 100%;
-    max-width: none;
-    max-height: none;
-  }
-  .zen-indicator.is-recording::before,
-  .zen-indicator.is-stop::before {
-    width: auto;
-    height: auto;
-    max-width: none;
-    max-height: none;
-    border-radius: var(--cue-frame-radius);
-  }
+  background: transparent;
+  border: none;
+  width: 0;
+  height: 0;
+  border-left: calc(var(--cue-chip-size) * 1.0) solid #22a846;
+  border-top: calc(var(--cue-chip-size) * 0.6) solid transparent;
+  border-bottom: calc(var(--cue-chip-size) * 0.6) solid transparent;
 }
 
 @media (max-width: 767px) {
-  .zen-indicator.is-recording::before,
-  .zen-indicator.is-stop::before {
-    --cue-frame-border: 6px;
-  }
-
   .zen-indicator .zen-record-dot,
-  .zen-indicator .zen-stop-square {
-    width: 24px;
-    height: 24px;
+  .zen-indicator .zen-play-icon {
+    --cue-chip-size: 24px;
     top: max(10px, var(--zen-safe-area-top));
     right: max(10px, var(--zen-safe-area-right));
   }
 }
 
 @media (monochrome) {
-  .zen-indicator.is-recording::before,
-  .zen-indicator.is-stop::before {
-    border-color: #111111;
-    box-shadow: inset 0 0 0 2px rgba(17, 17, 17, 0.28);
-    background: transparent;
-  }
   .zen-indicator .zen-record-dot,
-  .zen-indicator .zen-stop-square {
-    background: #ffffff;
-    color: #111111;
+  .zen-indicator .zen-play-icon {
+    background: #111111;
     border-color: #111111;
-    box-shadow: none;
+  }
+  .zen-indicator.is-working .zen-play-icon {
+    background: transparent;
+    border-left-color: #111111;
+    border-top-color: transparent;
+    border-bottom-color: transparent;
   }
 }
 

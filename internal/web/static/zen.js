@@ -127,8 +127,8 @@ export function showIndicatorMode(mode, x, y) {
   if (!el) return;
   const nextMode = mode === 'recording' ? 'recording' : 'stop';
   const body = document.body;
-  el.classList.remove('is-recording', 'is-stop');
-  el.classList.add(nextMode === 'recording' ? 'is-recording' : 'is-stop');
+  el.classList.remove('is-recording', 'is-working');
+  el.classList.add(nextMode === 'recording' ? 'is-recording' : 'is-working');
   el.style.display = '';
   // Always reset geometry so stale inline styles can't shrink/offset the cue.
   el.style.position = 'fixed';
@@ -154,7 +154,7 @@ export function showIndicatorMode(mode, x, y) {
 export function hideIndicator() {
   const el = indicatorEl();
   if (!el) return;
-  el.classList.remove('is-recording', 'is-stop');
+  el.classList.remove('is-recording', 'is-working');
   el.style.display = 'none';
   const body = document.body;
   if (body) {

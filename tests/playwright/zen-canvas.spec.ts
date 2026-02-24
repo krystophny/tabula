@@ -139,7 +139,7 @@ test.describe('zen canvas - tabula rasa', () => {
     const indicator = page.locator('#zen-indicator');
     await expect(indicator).toBeVisible();
     await expect(page.locator('.zen-record-dot')).toBeVisible();
-    await expect(page.locator('.zen-stop-square')).toBeHidden();
+    await expect(page.locator('.zen-play-icon')).toBeHidden();
 
     // Wait for recorder to start
     await waitForLogEntry(page, 'recorder', 'start');
@@ -148,7 +148,7 @@ test.describe('zen canvas - tabula rasa', () => {
     await page.mouse.click(400, 400);
     await waitForLogEntry(page, 'stt', 'stop');
     await expect(indicator).toBeVisible();
-    await expect(page.locator('.zen-stop-square')).toBeVisible();
+    await expect(page.locator('.zen-play-icon')).toBeVisible();
     await expect(page.locator('.zen-record-dot')).toBeHidden();
   });
 
@@ -360,7 +360,7 @@ test.describe('zen canvas - TTS voice output', () => {
     // Stop indicator visible, overlay hidden
     const indicator = page.locator('#zen-indicator');
     await expect(indicator).toBeVisible();
-    await expect(page.locator('.zen-stop-square')).toBeVisible();
+    await expect(page.locator('.zen-play-icon')).toBeVisible();
 
     const overlay = page.locator('#zen-overlay');
     await expect(overlay).toBeHidden();
@@ -384,7 +384,7 @@ test.describe('zen canvas - TTS voice output', () => {
     // Indicator stays visible while work is active
     const indicator = page.locator('#zen-indicator');
     await expect(indicator).toBeVisible();
-    await expect(page.locator('.zen-stop-square')).toBeVisible();
+    await expect(page.locator('.zen-play-icon')).toBeVisible();
   });
 
   test('voice response triggers TTS, no overlay', async ({ page }) => {

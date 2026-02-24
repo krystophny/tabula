@@ -317,13 +317,13 @@ test('recording indicator shows symbol', async ({ page }) => {
   const indicator = page.locator('#zen-indicator');
   await expect(indicator).toBeVisible();
   await expect(page.locator('.zen-record-dot')).toBeVisible();
-  await expect(page.locator('.zen-stop-square')).toBeHidden();
+  await expect(page.locator('.zen-play-icon')).toBeHidden();
 
-  // Stop recording and transition to stop square
+  // Stop recording and transition to working/play indicator
   await page.mouse.click(400, 400);
   await waitForSTTAction(page, 'stop');
   await page.waitForTimeout(200);
   await expect(indicator).toBeVisible();
-  await expect(page.locator('.zen-stop-square')).toBeVisible();
+  await expect(page.locator('.zen-play-icon')).toBeVisible();
   await expect(page.locator('.zen-record-dot')).toBeHidden();
 });

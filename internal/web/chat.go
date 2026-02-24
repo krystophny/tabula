@@ -19,6 +19,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/krystophny/tabura/internal/appserver"
+	"github.com/krystophny/tabura/internal/modelprofile"
 	"github.com/krystophny/tabura/internal/store"
 )
 
@@ -768,9 +769,9 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string) {
 	canvasCtx := a.resolveCanvasContext(session.ProjectKey)
 	var prompt string
 	if resumed {
-		prompt = buildTurnPromptForMode(messages, canvasCtx, outputMode)
+		prompt = buildTurnPromptForMode(messages, canvasCtx, outputMode, profile.Alias)
 	} else {
-		prompt = buildPromptFromHistoryForMode(session.Mode, messages, canvasCtx, outputMode)
+		prompt = buildPromptFromHistoryForMode(session.Mode, messages, canvasCtx, outputMode, profile.Alias)
 		_ = a.store.UpdateChatSessionThread(sessionID, appSess.ThreadID())
 	}
 	if strings.TrimSpace(prompt) == "" {
@@ -966,7 +967,7 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string) {
 // fails to connect. Each call creates a new WS + thread.
 func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession, messages []store.ChatMessage, outputMode string, profile appServerModelProfile) {
 	canvasCtx := a.resolveCanvasContext(session.ProjectKey)
-	prompt := buildPromptFromHistoryForMode(session.Mode, messages, canvasCtx, outputMode)
+	prompt := buildPromptFromHistoryForMode(session.Mode, messages, canvasCtx, outputMode, profile.Alias)
 	if strings.TrimSpace(prompt) == "" {
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
 		return
@@ -1429,10 +1430,10 @@ type canvasContext struct {
 }
 
 func buildPromptFromHistory(mode string, messages []store.ChatMessage, canvas *canvasContext) string {
-	return buildPromptFromHistoryForMode(mode, messages, canvas, turnOutputModeVoice)
+	return buildPromptFromHistoryForMode(mode, messages, canvas, turnOutputModeVoice, "")
 }
 
-func buildPromptFromHistoryForMode(mode string, messages []store.ChatMessage, canvas *canvasContext, outputMode string) string {
+func buildPromptFromHistoryForMode(mode string, messages []store.ChatMessage, canvas *canvasContext, outputMode string, modelAlias string) string {
 	isVoiceMode := isVoiceOutputMode(outputMode)
 	const maxHistory = 80
 	if len(messages) > maxHistory {
@@ -1452,6 +1453,10 @@ func buildPromptFromHistoryForMode(mode string, messages []store.ChatMessage, ca
 	}
 
 	appendDelegationSection(&b)
+	if hints := modelprofile.ModelSystemHints(modelAlias); hints != "" {
+		b.WriteString(hints)
+		b.WriteString("\n")
+	}
 
 	if isVoiceMode && canvas != nil && canvas.HasArtifact {
 		b.WriteString("## Current Artifact\n")
@@ -1492,10 +1497,10 @@ func buildPromptFromHistoryForMode(mode string, messages []store.ChatMessage, ca
 // buildTurnPrompt constructs a prompt for a resumed thread: only the latest
 // user message plus optional canvas context update.
 func buildTurnPrompt(messages []store.ChatMessage, canvas *canvasContext) string {
-	return buildTurnPromptForMode(messages, canvas, turnOutputModeVoice)
+	return buildTurnPromptForMode(messages, canvas, turnOutputModeVoice, "")
 }
 
-func buildTurnPromptForMode(messages []store.ChatMessage, canvas *canvasContext, outputMode string) string {
+func buildTurnPromptForMode(messages []store.ChatMessage, canvas *canvasContext, outputMode string, modelAlias string) string {
 	isVoiceMode := isVoiceOutputMode(outputMode)
 	var lastUserMsg string
 	for i := len(messages) - 1; i >= 0; i-- {
@@ -1518,6 +1523,10 @@ func buildTurnPromptForMode(messages []store.ChatMessage, canvas *canvasContext,
 		}
 	} else {
 		appendDelegationSection(&b)
+	}
+	if hints := modelprofile.ModelSystemHints(modelAlias); hints != "" {
+		b.WriteString(hints)
+		b.WriteString("\n")
 	}
 	b.WriteString(applyDelegationHints(lastUserMsg))
 	return b.String()

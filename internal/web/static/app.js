@@ -2711,9 +2711,9 @@ function bindUi() {
 
   if (zenIndicator) {
     let lastIndicatorTouchAt = 0;
-    const isIndicatorArmed = () => zenIndicator.classList.contains('is-stop') || zenIndicator.classList.contains('is-recording');
+    const isIndicatorArmed = () => zenIndicator.classList.contains('is-working') || zenIndicator.classList.contains('is-recording');
     const pointHitsIndicatorChip = (x, y) => {
-      const chips = zenIndicator.querySelectorAll('.zen-record-dot, .zen-stop-square');
+      const chips = zenIndicator.querySelectorAll('.zen-record-dot, .zen-play-icon');
       for (const chip of chips) {
         if (!(chip instanceof HTMLElement)) continue;
         const style = window.getComputedStyle(chip);
