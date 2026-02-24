@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/krystophny/tabura/internal/store"
 )
 
 func TestParseFileBlocks_NoMarkers(t *testing.T) {
@@ -187,6 +189,31 @@ func TestBuildPromptFromHistory_PlanMode(t *testing.T) {
 	}
 }
 
+func TestBuildPromptFromHistoryForMode_SilentUsesCanvasOnlyShape(t *testing.T) {
+	prompt := buildPromptFromHistoryForMode("chat", nil, nil, turnOutputModeSilent)
+	if !strings.Contains(prompt, "Use one response shape only:") {
+		t.Error("silent prompt should enforce one response shape")
+	}
+	if !strings.Contains(prompt, "Canvas-only full response") {
+		t.Error("silent prompt should require canvas-only full response")
+	}
+	if !strings.Contains(prompt, "Do not include spoken companion text") {
+		t.Error("silent prompt should suppress spoken companion text")
+	}
+	if !strings.Contains(prompt, ":::file{") {
+		t.Error("silent prompt should mention :::file blocks")
+	}
+	if strings.Contains(prompt, "spoken via TTS") {
+		t.Error("silent prompt should not include voice TTS instructions")
+	}
+	if strings.Contains(prompt, "Spoken chat must be one paragraph max.") {
+		t.Error("silent prompt should not include spoken chat paragraph limits")
+	}
+	if strings.Contains(prompt, "Use [lang:de]") {
+		t.Error("silent prompt should not include voice language tag guidance")
+	}
+}
+
 func TestBuildPromptFromHistory_WithCanvasContext(t *testing.T) {
 	ctx := &canvasContext{HasArtifact: true, ArtifactTitle: "Report.md", ArtifactKind: "text_artifact"}
 	prompt := buildPromptFromHistory("chat", nil, ctx)
@@ -281,6 +308,28 @@ File body line 2.
 	}
 	if format != "text" {
 		t.Fatalf("format = %q, want text", format)
+	}
+}
+
+func TestBuildTurnPromptForMode_SilentUsesCanvasOnlyShape(t *testing.T) {
+	prompt := buildTurnPromptForMode([]store.ChatMessage{{
+		Role:         "user",
+		ContentPlain: "Please summarize this module.",
+	}}, nil, turnOutputModeSilent)
+	if !strings.Contains(prompt, "Use one response shape only:") {
+		t.Error("silent turn prompt should enforce one response shape")
+	}
+	if !strings.Contains(prompt, "Canvas-only full response") {
+		t.Error("silent turn prompt should require canvas-only full response")
+	}
+	if !strings.Contains(prompt, "Do not output chat prose outside :::file blocks.") {
+		t.Error("silent turn prompt should suppress chat prose")
+	}
+	if strings.Contains(prompt, "Spoken chat must be one paragraph max.") {
+		t.Error("silent turn prompt should not include spoken paragraph limits")
+	}
+	if !strings.Contains(prompt, "Please summarize this module.") {
+		t.Error("silent turn prompt should include user message")
 	}
 }
 
