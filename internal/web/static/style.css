@@ -239,10 +239,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   --cue-chip-border-color: #000000;
   --cue-chip-size: 22px;
   --cue-frame-border: 5px;
-  --cue-safe-top: env(safe-area-inset-top, 0px);
-  --cue-safe-right: env(safe-area-inset-right, 0px);
-  --cue-safe-bottom: env(safe-area-inset-bottom, 0px);
-  --cue-safe-left: env(safe-area-inset-left, 0px);
+  --cue-frame-radius: 0px;
   display: block;
   position: fixed;
   inset: 0;
@@ -274,7 +271,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   height: 100%;
   pointer-events: none;
   box-sizing: border-box;
-  border-radius: 0;
+  border-radius: var(--cue-frame-radius);
   border: var(--cue-frame-border) solid var(--cue-frame-color);
   box-shadow: none;
   background: transparent;
@@ -325,19 +322,27 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 @media (display-mode: standalone), (display-mode: fullscreen) {
   .zen-indicator.is-recording,
   .zen-indicator.is-stop {
-    left: calc(-1 * var(--cue-safe-left));
-    right: calc(-1 * var(--cue-safe-right));
-    top: calc(-1 * var(--cue-safe-top));
-    bottom: calc(-1 * var(--cue-safe-bottom));
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    --cue-frame-radius: clamp(16px, env(safe-area-inset-top, 18px), 44px);
   }
   .zen-indicator.is-recording::before,
   .zen-indicator.is-stop::before {
-    left: calc(-1 * var(--cue-safe-left));
-    right: calc(-1 * var(--cue-safe-right));
-    top: calc(-1 * var(--cue-safe-top));
-    bottom: calc(-1 * var(--cue-safe-bottom));
-    width: calc(100% + var(--cue-safe-left) + var(--cue-safe-right));
-    height: calc(100% + var(--cue-safe-top) + var(--cue-safe-bottom));
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    border-radius: var(--cue-frame-radius);
   }
 }
 
