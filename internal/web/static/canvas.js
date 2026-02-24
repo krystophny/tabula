@@ -180,6 +180,7 @@ let activeArtifactTitle = '';
 let activePdfEvent = null;
 let previousArtifactText = '';
 let previousBlockTexts = [];
+let previousArtifactTitle = '';
 
 const MATH_SEGMENT_TOKEN_PREFIX = '@@TABURA_MATH_SEGMENT_';
 
@@ -456,9 +457,11 @@ export function renderCanvas(event) {
     e.text.classList.add('is-active');
     clearTextInteractionHandlers();
     activeTextEventId = event.event_id;
-    activeArtifactTitle = event.title || '';
+    const nextArtifactTitle = String(event.title || '');
+    const shouldHighlightChanges = previousArtifactTitle === nextArtifactTitle && previousBlockTexts.length > 0;
+    activeArtifactTitle = nextArtifactTitle;
     activePdfEvent = null;
-    const oldBlockTexts = previousBlockTexts.slice();
+    const oldBlockTexts = shouldHighlightChanges ? previousBlockTexts.slice() : [];
     const textBody = String(event.text || '');
     const sourceLang = languageFromArtifactTitle(activeArtifactTitle);
     if (sourceLang) {
@@ -471,6 +474,7 @@ export function renderCanvas(event) {
     }
     previousArtifactText = event.text || '';
     previousBlockTexts = captureBlockTexts(e.text);
+    previousArtifactTitle = nextArtifactTitle;
     applyDiffHighlight(e.text, oldBlockTexts);
   } else if (event.kind === 'image_artifact') {
     clearTextInteractionHandlers();
@@ -507,10 +511,11 @@ export function clearCanvas() {
   activePdfEvent = null;
   previousArtifactText = '';
   previousBlockTexts = [];
+  previousArtifactTitle = '';
 }
 
 function getBlockSelector() {
-  return 'p, h1, h2, h3, h4, h5, h6, pre, ul, ol, table, blockquote, hr, div:not(.review-line-highlight):not(.diff-highlight)';
+  return 'p, h1, h2, h3, h4, h5, h6, pre, ul, ol, table, blockquote, hr';
 }
 
 function captureBlockTexts(root) {
@@ -542,25 +547,9 @@ function applyDiffHighlight(root, oldBlockTexts) {
     changedBlocks.push(blocks[i]);
   }
   if (changedBlocks.length === 0) return;
-  setTimeout(() => {
-    if (changedBlocks[0] && changedBlocks[0].isConnected) {
-      changedBlocks[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }, 50);
-  setTimeout(() => {
-    for (const block of changedBlocks) {
-      if (block.isConnected) {
-        block.classList.add('diff-highlight-fade');
-      }
-    }
-    setTimeout(() => {
-      for (const block of changedBlocks) {
-        if (block.isConnected) {
-          block.classList.remove('diff-highlight', 'diff-highlight-fade');
-        }
-      }
-    }, 2100);
-  }, 2000);
+  if (changedBlocks[0] && changedBlocks[0].isConnected) {
+    changedBlocks[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 }
 
 export function getPreviousArtifactText() {

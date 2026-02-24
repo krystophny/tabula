@@ -340,10 +340,6 @@ body.pr-review-mode #pr-file-pane {
   background: #fef3c7;
 }
 
-.diff-highlight-fade {
-  background: transparent;
-}
-
 /* Zen: Full-screen recording state indicator */
 .zen-indicator {
   display: none;
