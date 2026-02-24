@@ -44,7 +44,7 @@ func BootstrapProject(projectDir string) (Result, error) {
 		_ = os.WriteFile(paths.AgentsPath, []byte(defaultAgents()), 0o644)
 	}
 	_ = os.WriteFile(filepath.Join(taburaDir, "AGENTS.tabura.md"), []byte(defaultAgents()), 0o644)
-	_ = os.WriteFile(filepath.Join(taburaDir, "prompt-injection.txt"), []byte("Apply these extra instructions in all Tabura Codex prompts for this project.\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(taburaDir, "prompt-injection.txt"), []byte(surface.DefaultPromptInjectionText()), 0o644)
 	_ = os.WriteFile(paths.MCPConfigPath, []byte(fmt.Sprintf("[mcp_servers.tabura]\ncommand = \"tabura\"\nargs = [\"mcp-server\", \"--project-dir\", \"%s\"]\n", strings.ReplaceAll(abs, "\\", "\\\\"))), 0o644)
 	_ = ensureGitignore(abs)
 	gitInit := false

@@ -28,7 +28,44 @@ const (
 	turnOutputModeVoice    = "voice"
 	turnOutputModeSilent   = "silent"
 	promptContractStateKey = "chat_prompt_contract_sha256"
+	voicePromptTemplate    = "system-prompt-voice.md"
+	silentPromptTemplate   = "system-prompt-silent.md"
 )
+
+const defaultVoiceHistoryPrompt = `You are Tabura, an AI assistant.
+Chat text is always spoken via TTS. Canvas content is never spoken and must be file-backed.
+
+Use exactly one response shape:
+1) Chat-only: write only spoken chat text (no blocks).
+2) Chat + file-canvas: write a brief spoken chat line, then one or more :::file blocks.
+
+## Response Format
+
+Write naturally. Your text is read aloud, so avoid raw paths, URLs, or code in prose.
+Use [lang:de] at the start of your answer when responding in German. Default is English.
+
+Canvas/file rules:
+- Spoken chat must be one paragraph max.
+- If your response needs more than one paragraph, write that long content to a temp file and respond with :::file block content (no chat prose).
+- Canvas content must appear only inside :::file blocks; do not duplicate it in chat prose.
+- Use :::file{path="relative/or/absolute/path"}...::: for all canvas content.
+- For temporary canvas files, create/remove paths via temp_file_create and temp_file_remove tools.
+- When user asks to show/open an existing file, do NOT paste that file body into chat markdown or :::file blocks.
+- For existing files, use canvas_artifact_show (title=path, markdown_or_text=file content) and keep chat text brief.
+- Do not use :::canvas blocks.
+- Line references: when the user mentions [Line N of "file"], apply at that location.
+`
+
+const defaultVoiceTurnPrompt = `Use one response shape only:
+- Chat-only (spoken text only), or
+- Chat + file-canvas: short spoken chat text plus :::file blocks for canvas content.
+Spoken chat must be one paragraph max.
+If output needs more than one paragraph, put it in a temp file with temp_file_create and respond with :::file block(s) only (no chat prose).
+Canvas content must be in :::file blocks only. Use temp_file_create/temp_file_remove for temporary files. Do not use :::canvas blocks.
+
+When user asks to show/open an existing file, do NOT paste file body into chat markdown or :::file blocks; use canvas_artifact_show and keep chat text brief.
+
+`
 
 type chatMessageRequest struct {
 	Text       string `json:"text"`
@@ -1403,25 +1440,15 @@ func buildPromptFromHistoryForMode(mode string, messages []store.ChatMessage, ca
 	}
 	var b strings.Builder
 
+	promptTemplate := loadModePromptTemplate(outputMode, defaultVoiceHistoryPrompt, "")
 	if isVoiceMode {
-		b.WriteString("You are Tabura, an AI assistant.\n")
-		b.WriteString("Chat text is always spoken via TTS. Canvas content is never spoken and must be file-backed.\n\n")
-		b.WriteString("Use exactly one response shape:\n")
-		b.WriteString("1) Chat-only: write only spoken chat text (no blocks).\n")
-		b.WriteString("2) Chat + file-canvas: write a brief spoken chat line, then one or more :::file blocks.\n\n")
-		b.WriteString("## Response Format\n\n")
-		b.WriteString("Write naturally. Your text is read aloud, so avoid raw paths, URLs, or code in prose.\n")
-		b.WriteString("Use [lang:de] at the start of your answer when responding in German. Default is English.\n\n")
-		b.WriteString("Canvas/file rules:\n")
-		b.WriteString("- Spoken chat must be one paragraph max.\n")
-		b.WriteString("- If your response needs more than one paragraph, write that long content to a temp file and respond with :::file block content (no chat prose).\n")
-		b.WriteString("- Canvas content must appear only inside :::file blocks; do not duplicate it in chat prose.\n")
-		b.WriteString("- Use :::file{path=\"relative/or/absolute/path\"}...::: for all canvas content.\n")
-		b.WriteString("- For temporary canvas files, create/remove paths via temp_file_create and temp_file_remove tools.\n")
-		b.WriteString("- When user asks to show/open an existing file, do NOT paste that file body into chat markdown or :::file blocks.\n")
-		b.WriteString("- For existing files, use canvas_artifact_show (title=path, markdown_or_text=file content) and keep chat text brief.\n")
-		b.WriteString("- Do not use :::canvas blocks.\n")
-		b.WriteString("- Line references: when the user mentions [Line N of \"file\"], apply at that location.\n\n")
+		b.WriteString(promptTemplate)
+	}
+	if !isVoiceMode {
+		silentPrompt := loadModePromptTemplate(outputMode, "", "")
+		if silentPrompt != "" {
+			b.WriteString(silentPrompt)
+		}
 	}
 
 	appendDelegationSection(&b)
@@ -1485,13 +1512,7 @@ func buildTurnPromptForMode(messages []store.ChatMessage, canvas *canvasContext,
 	}
 	var b strings.Builder
 	if isVoiceMode {
-		b.WriteString("Use one response shape only:\n")
-		b.WriteString("- Chat-only (spoken text only), or\n")
-		b.WriteString("- Chat + file-canvas: short spoken chat text plus :::file blocks for canvas content.\n")
-		b.WriteString("Spoken chat must be one paragraph max.\n")
-		b.WriteString("If output needs more than one paragraph, put it in a temp file with temp_file_create and respond with :::file block(s) only (no chat prose).\n")
-		b.WriteString("Canvas content must be in :::file blocks only. Use temp_file_create/temp_file_remove for temporary files. Do not use :::canvas blocks.\n\n")
-		b.WriteString("When user asks to show/open an existing file, do NOT paste file body into chat markdown or :::file blocks; use canvas_artifact_show and keep chat text brief.\n\n")
+		b.WriteString(loadModePromptTemplate(outputMode, defaultVoiceTurnPrompt, ""))
 		if canvas != nil && canvas.HasArtifact {
 			fmt.Fprintf(&b, "[Active artifact tab: %q (kind: %s)]\n\n", canvas.ArtifactTitle, canvas.ArtifactKind)
 		}
@@ -1516,6 +1537,48 @@ func appendDelegationSection(b *strings.Builder) {
 	b.WriteString("- Summarize progress updates for the user periodically while polling status.\n")
 	b.WriteString("- Use `delegate_to_model_cancel` if the user asks to stop.\n")
 	b.WriteString("- Final status includes `files_changed` and final `message`; relay that summary to the user.\n\n")
+}
+
+func loadModePromptTemplate(outputMode, defaultPrompt, fallback string) string {
+	fallback = strings.TrimSpace(fallback)
+	templatePath := ""
+	switch strings.TrimSpace(outputMode) {
+	case turnOutputModeVoice:
+		templatePath = filepath.Join(".tabura", voicePromptTemplate)
+	case turnOutputModeSilent:
+		templatePath = filepath.Join(".tabura", silentPromptTemplate)
+	default:
+		return normalizePromptTemplate(fallback)
+	}
+
+	content := readPromptTemplateFromFile(templatePath)
+	if content == "" {
+		content = defaultPrompt
+	}
+	if content == "" {
+		content = fallback
+	}
+	return normalizePromptTemplate(content)
+}
+
+func readPromptTemplateFromFile(path string) string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	content := strings.TrimSpace(string(raw))
+	if content == "" {
+		return ""
+	}
+	return content
+}
+
+func normalizePromptTemplate(prompt string) string {
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return ""
+	}
+	return prompt + "\n\n"
 }
 
 func currentPromptContractDigest() string {
