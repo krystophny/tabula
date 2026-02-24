@@ -75,6 +75,7 @@ const VOICE_VAD_AUTO_SEND_STORAGE_KEY = 'tabura.voiceVadAutoSend';
 const VOICE_VAD_AUTO_SEND_QUERY_PARAM = 'voice_vad_auto_send';
 const VOICE_VAD_MIN_UTTERANCE_MS = 300;
 const VOICE_VAD_CANDIDATE_SILENCE_MS = 900;
+const VOICE_VAD_CANDIDATE_RECHECK_MS = 450;
 const VOICE_VAD_HARD_SILENCE_MS = 2500;
 const VOICE_VAD_NO_SPEECH_MS = 4000;
 const VOICE_VAD_MAX_RECORDING_MS = 20000;
@@ -824,6 +825,7 @@ function startVADMonitor(capture) {
     speechMs: 0,
     silenceMs: 0,
     hasSpeech: false,
+    pendingCommitAtMs: 0,
     speechFrames: 0,
     noiseSamples: [],
     noiseFloorDb: null,
@@ -933,10 +935,27 @@ function startVADMonitor(capture) {
       const hitCandidate = options.silenceMs >= VOICE_VAD_CANDIDATE_SILENCE_MS;
       const hitHardSilence = options.silenceMs >= VOICE_VAD_HARD_SILENCE_MS;
       const hitMaxDuration = elapsed >= VOICE_VAD_MAX_RECORDING_MS;
-      if (hitCandidate || hitHardSilence || hitMaxDuration) {
+
+      if (hitHardSilence || hitMaxDuration) {
         stopVADMonitor(capture);
         void stopZenVoiceCaptureAndSend();
         return;
+      }
+
+      if (hitCandidate) {
+        if (!options.pendingCommitAtMs) {
+          options.pendingCommitAtMs = now + VOICE_VAD_CANDIDATE_RECHECK_MS;
+          return;
+        }
+        if (now >= options.pendingCommitAtMs) {
+          stopVADMonitor(capture);
+          void stopZenVoiceCaptureAndSend();
+        }
+        return;
+      }
+
+      if (options.pendingCommitAtMs) {
+        options.pendingCommitAtMs = 0;
       }
     };
 
