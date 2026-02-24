@@ -68,30 +68,28 @@ const CHAT_CTRL_LONG_PRESS_MS = 180;
 const CHAT_SEND_HOLD_MS = 300;
 // Frontend end-of-utterance policy:
 // - start/end speech from local mic energy
-// - VAD only proposes endpoint candidates; semantic EOU confirms commit
+// - pure VAD commit (no semantic EOU sidecar)
 // - no-speech timeout + hard max to avoid hanging capture
-const VOICE_EOU_AUTO_SEND_DEFAULT = true;
-const VOICE_EOU_AUTO_SEND_STORAGE_KEY = 'tabura.voiceEouAutoSend';
-const VOICE_EOU_AUTO_SEND_QUERY_PARAM = 'voice_eou_auto_send';
-const VOICE_EOU_MIN_UTTERANCE_MS = 300;
-const VOICE_EOU_CANDIDATE_SILENCE_MS = 900;
-const VOICE_EOU_RECHECK_SILENCE_MS = 700;
-const VOICE_EOU_HARD_SILENCE_MS = 2500;
-const VOICE_EOU_CHECK_MIN_INTERVAL_MS = 600;
-const VOICE_EOU_NO_SPEECH_MS = 4000;
-const VOICE_EOU_MAX_RECORDING_MS = 20000;
-const VOICE_EOU_FRAME_MS = 40;
-const VOICE_EOU_RECORDER_CHUNK_MS = 250;
-const VOICE_EOU_NOISE_FLOOR_SAMPLES = 8;
-const VOICE_EOU_NOISE_FLOOR_PERCENTILE = 0.35;
-const VOICE_EOU_NOISE_FLOOR_ADAPT_ALPHA = 0.12;
-const VOICE_EOU_SPEECH_START_OFFSET_DB = 3;
-const VOICE_EOU_SPEECH_END_OFFSET_DB = 1.5;
-const VOICE_EOU_SPEECH_START_THRESHOLD_MIN_DB = -42;
-const VOICE_EOU_SPEECH_END_THRESHOLD_MIN_DB = -45;
-const VOICE_EOU_SPEECH_START_FRAMES = 4;
-const VOICE_EOU_NOISE_FLOOR_MIN_DB = -60;
-const VOICE_EOU_NOISE_FLOOR_MAX_DB = -18;
+const VOICE_VAD_AUTO_SEND_DEFAULT = true;
+const VOICE_VAD_AUTO_SEND_STORAGE_KEY = 'tabura.voiceVadAutoSend';
+const VOICE_VAD_AUTO_SEND_QUERY_PARAM = 'voice_vad_auto_send';
+const VOICE_VAD_MIN_UTTERANCE_MS = 300;
+const VOICE_VAD_CANDIDATE_SILENCE_MS = 900;
+const VOICE_VAD_HARD_SILENCE_MS = 2500;
+const VOICE_VAD_NO_SPEECH_MS = 4000;
+const VOICE_VAD_MAX_RECORDING_MS = 20000;
+const VOICE_VAD_FRAME_MS = 40;
+const VOICE_VAD_RECORDER_CHUNK_MS = 250;
+const VOICE_VAD_NOISE_FLOOR_SAMPLES = 8;
+const VOICE_VAD_NOISE_FLOOR_PERCENTILE = 0.35;
+const VOICE_VAD_NOISE_FLOOR_ADAPT_ALPHA = 0.12;
+const VOICE_VAD_SPEECH_START_OFFSET_DB = 3;
+const VOICE_VAD_SPEECH_END_OFFSET_DB = 1.5;
+const VOICE_VAD_SPEECH_START_THRESHOLD_MIN_DB = -42;
+const VOICE_VAD_SPEECH_END_THRESHOLD_MIN_DB = -45;
+const VOICE_VAD_SPEECH_START_FRAMES = 4;
+const VOICE_VAD_NOISE_FLOOR_MIN_DB = -60;
+const VOICE_VAD_NOISE_FLOOR_MAX_DB = -18;
 let devReloadBootID = '';
 let devReloadTimer = null;
 let devReloadInFlight = false;
@@ -653,18 +651,18 @@ function parseOptionalBoolean(value) {
   return null;
 }
 
-function isVoiceEOUAutoSendEnabled() {
+function isVoiceVADAutoSendEnabled() {
   try {
-    const queryValue = new URL(window.location.href).searchParams.get(VOICE_EOU_AUTO_SEND_QUERY_PARAM);
+    const queryValue = new URL(window.location.href).searchParams.get(VOICE_VAD_AUTO_SEND_QUERY_PARAM);
     const queryFlag = parseOptionalBoolean(queryValue);
     if (queryFlag !== null) return queryFlag;
   } catch (_) {}
   try {
-    const storedValue = window.localStorage.getItem(VOICE_EOU_AUTO_SEND_STORAGE_KEY);
+    const storedValue = window.localStorage.getItem(VOICE_VAD_AUTO_SEND_STORAGE_KEY);
     const storedFlag = parseOptionalBoolean(storedValue);
     if (storedFlag !== null) return storedFlag;
   } catch (_) {}
-  return VOICE_EOU_AUTO_SEND_DEFAULT;
+  return VOICE_VAD_AUTO_SEND_DEFAULT;
 }
 
 let _sttResolve = null;
@@ -763,100 +761,6 @@ function stopChatVoiceMedia(capture) {
   releaseMicStream();
 }
 
-function buildCaptureBlob(capture) {
-  if (!capture || !Array.isArray(capture.chunks) || capture.chunks.length === 0) return null;
-  const mimeType = capture.mimeType || 'audio/webm';
-  return new Blob(capture.chunks, { type: mimeType });
-}
-
-async function requestEOUDecision(capture, silenceMs, elapsedMs) {
-  const blob = buildCaptureBlob(capture);
-  if (!blob || blob.size <= 0) {
-    return { transcript: '', p_end: 0, should_commit: false, reason: 'empty_audio_continue' };
-  }
-  const mimeType = capture.mimeType || 'audio/webm';
-  const form = new FormData();
-  form.append('audio', blob, 'capture.webm');
-  form.append('mime_type', mimeType);
-  form.append('silence_ms', String(Math.max(0, Math.round(Number(silenceMs) || 0))));
-  form.append('elapsed_ms', String(Math.max(0, Math.round(Number(elapsedMs) || 0))));
-
-  const resp = await fetch('/api/stt/eou-check', {
-    method: 'POST',
-    body: form,
-  });
-  if (!resp.ok) {
-    const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
-    throw new Error(`EOU check failed: ${detail}`);
-  }
-  const payload = await resp.json();
-  return payload || {};
-}
-
-async function commitVoiceCaptureWithTranscript(capture, transcript) {
-  if (!capture || capture.stopping || state.chatVoiceCapture !== capture) return;
-  const text = String(transcript || '').trim();
-  if (!text) return;
-  capture.stopRequested = true;
-  capture.stopping = true;
-  setRecording(false);
-  state.voiceAwaitingTurn = true;
-  state.indicatorSuppressedByCanvasUpdate = false;
-  updateAssistantActivityIndicator();
-  showStatus('sending...');
-  stopVADMonitor(capture);
-  try {
-    await stopChatVoiceMediaAndFlush(capture);
-    if (state.chatVoiceCapture === capture) {
-      state.chatVoiceCapture = null;
-    }
-    void zenSubmitMessage(text);
-  } catch (err) {
-    state.voiceAwaitingTurn = false;
-    const message = String(err?.message || err || 'voice capture failed');
-    showStatus(`voice capture failed: ${message}`);
-    stopChatVoiceMedia(capture);
-    if (state.chatVoiceCapture === capture) {
-      state.chatVoiceCapture = null;
-    }
-  } finally {
-    updateAssistantActivityIndicator();
-  }
-}
-
-async function evaluateEOUCandidate(capture, silenceMs, elapsedMs) {
-  if (!capture || capture.stopping || state.chatVoiceCapture !== capture) return;
-  if (capture.eouCheckInFlight) return;
-  const nowMs = performance.now();
-  if (capture.nextEOUCheckAtMs && nowMs < capture.nextEOUCheckAtMs && elapsedMs < VOICE_EOU_MAX_RECORDING_MS && silenceMs < VOICE_EOU_HARD_SILENCE_MS) {
-    return;
-  }
-  if (capture.lastEOUCheckAtMs && (nowMs - capture.lastEOUCheckAtMs) < VOICE_EOU_CHECK_MIN_INTERVAL_MS && elapsedMs < VOICE_EOU_MAX_RECORDING_MS && silenceMs < VOICE_EOU_HARD_SILENCE_MS) {
-    return;
-  }
-  capture.eouCheckInFlight = true;
-  capture.lastEOUCheckAtMs = nowMs;
-  try {
-    const decision = await requestEOUDecision(capture, silenceMs, elapsedMs);
-    if (!capture || capture.stopping || state.chatVoiceCapture !== capture) return;
-    const transcript = String(decision?.transcript || '').trim();
-    const shouldCommit = Boolean(decision?.should_commit);
-    capture.lastEOUTranscript = transcript;
-    capture.lastEOUP = Number(decision?.p_end) || 0;
-    if (shouldCommit && transcript) {
-      await commitVoiceCaptureWithTranscript(capture, transcript);
-      return;
-    }
-    capture.nextEOUCheckAtMs = performance.now() + VOICE_EOU_RECHECK_SILENCE_MS;
-  } catch (_) {
-    // Fallback: keep legacy behavior if semantic endpoint is unavailable.
-    stopVADMonitor(capture);
-    void stopZenVoiceCaptureAndSend();
-  } finally {
-    capture.eouCheckInFlight = false;
-  }
-}
-
 function computeDecibelFromTimeDomain(data) {
   let sumSquares = 0;
   for (let i = 0; i < data.length; i++) {
@@ -888,7 +792,7 @@ function percentileValue(values, percentile) {
 }
 
 function startVADMonitor(capture) {
-  if (!isVoiceEOUAutoSendEnabled()) return;
+  if (!isVoiceVADAutoSendEnabled()) return;
   if (!capture || capture.vadState) return;
   if (!capture.mediaStream) return;
   if (!ttsAudioCtx || typeof ttsAudioCtx.createAnalyser !== 'function' || typeof ttsAudioCtx.createMediaStreamSource !== 'function') return;
@@ -947,22 +851,22 @@ function startVADMonitor(capture) {
       const now = performance.now();
       const elapsed = now - options.startAtMs;
 
-      if (options.noiseFloorDb == null && options.noiseSamples.length < VOICE_EOU_NOISE_FLOOR_SAMPLES) {
+      if (options.noiseFloorDb == null && options.noiseSamples.length < VOICE_VAD_NOISE_FLOOR_SAMPLES) {
         options.noiseSamples.push(db);
-        if (options.noiseSamples.length >= VOICE_EOU_NOISE_FLOOR_SAMPLES) {
-          const seededFloor = percentileValue(options.noiseSamples, VOICE_EOU_NOISE_FLOOR_PERCENTILE);
+        if (options.noiseSamples.length >= VOICE_VAD_NOISE_FLOOR_SAMPLES) {
+          const seededFloor = percentileValue(options.noiseSamples, VOICE_VAD_NOISE_FLOOR_PERCENTILE);
           if (seededFloor != null) {
             options.noiseFloorDb = clampNumber(
               seededFloor,
-              VOICE_EOU_NOISE_FLOOR_MIN_DB,
-              VOICE_EOU_NOISE_FLOOR_MAX_DB,
+              VOICE_VAD_NOISE_FLOOR_MIN_DB,
+              VOICE_VAD_NOISE_FLOOR_MAX_DB,
             );
           }
         }
       }
 
       if (options.noiseFloorDb == null) {
-        if (elapsed >= VOICE_EOU_NO_SPEECH_MS) {
+        if (elapsed >= VOICE_VAD_NO_SPEECH_MS) {
           handleNoSpeechTimeout();
           return;
         }
@@ -970,30 +874,30 @@ function startVADMonitor(capture) {
       }
 
       const startThresholdBefore = Math.max(
-        VOICE_EOU_SPEECH_START_THRESHOLD_MIN_DB,
-        options.noiseFloorDb + VOICE_EOU_SPEECH_START_OFFSET_DB,
+        VOICE_VAD_SPEECH_START_THRESHOLD_MIN_DB,
+        options.noiseFloorDb + VOICE_VAD_SPEECH_START_OFFSET_DB,
       );
       const endThresholdBefore = Math.max(
-        VOICE_EOU_SPEECH_END_THRESHOLD_MIN_DB,
-        options.noiseFloorDb + VOICE_EOU_SPEECH_END_OFFSET_DB,
+        VOICE_VAD_SPEECH_END_THRESHOLD_MIN_DB,
+        options.noiseFloorDb + VOICE_VAD_SPEECH_END_OFFSET_DB,
       );
       const floorUpdateCeilDb = options.hasSpeech ? endThresholdBefore + 2 : startThresholdBefore;
       // Keep tracking ambient floor but avoid pulling it up while speech is active.
       if (db <= floorUpdateCeilDb) {
         options.noiseFloorDb = clampNumber(
-          ((1 - VOICE_EOU_NOISE_FLOOR_ADAPT_ALPHA) * options.noiseFloorDb) + (VOICE_EOU_NOISE_FLOOR_ADAPT_ALPHA * db),
-          VOICE_EOU_NOISE_FLOOR_MIN_DB,
-          VOICE_EOU_NOISE_FLOOR_MAX_DB,
+          ((1 - VOICE_VAD_NOISE_FLOOR_ADAPT_ALPHA) * options.noiseFloorDb) + (VOICE_VAD_NOISE_FLOOR_ADAPT_ALPHA * db),
+          VOICE_VAD_NOISE_FLOOR_MIN_DB,
+          VOICE_VAD_NOISE_FLOOR_MAX_DB,
         );
       }
 
       const startThresholdDb = Math.max(
-        VOICE_EOU_SPEECH_START_THRESHOLD_MIN_DB,
-        options.noiseFloorDb + VOICE_EOU_SPEECH_START_OFFSET_DB,
+        VOICE_VAD_SPEECH_START_THRESHOLD_MIN_DB,
+        options.noiseFloorDb + VOICE_VAD_SPEECH_START_OFFSET_DB,
       );
       const endThresholdDb = Math.max(
-        VOICE_EOU_SPEECH_END_THRESHOLD_MIN_DB,
-        options.noiseFloorDb + VOICE_EOU_SPEECH_END_OFFSET_DB,
+        VOICE_VAD_SPEECH_END_THRESHOLD_MIN_DB,
+        options.noiseFloorDb + VOICE_VAD_SPEECH_END_OFFSET_DB,
       );
 
       if (!options.hasSpeech) {
@@ -1002,7 +906,7 @@ function startVADMonitor(capture) {
         } else {
           options.speechFrames = 0;
         }
-        if (options.speechFrames >= VOICE_EOU_SPEECH_START_FRAMES) {
+        if (options.speechFrames >= VOICE_VAD_SPEECH_START_FRAMES) {
           options.hasSpeech = true;
           options.speechStartAt = now;
           options.silenceMs = 0;
@@ -1011,7 +915,7 @@ function startVADMonitor(capture) {
       }
 
       if (!options.hasSpeech) {
-        if (elapsed >= VOICE_EOU_NO_SPEECH_MS) {
+        if (elapsed >= VOICE_VAD_NO_SPEECH_MS) {
           handleNoSpeechTimeout();
           return;
         }
@@ -1021,20 +925,22 @@ function startVADMonitor(capture) {
       if (db >= endThresholdDb) {
         options.silenceMs = 0;
       } else {
-        options.silenceMs += VOICE_EOU_FRAME_MS;
+        options.silenceMs += VOICE_VAD_FRAME_MS;
       }
 
       options.speechMs = Math.max(0, now - options.speechStartAt);
-      if (options.speechMs < VOICE_EOU_MIN_UTTERANCE_MS) return;
-      const hitCandidate = options.silenceMs >= VOICE_EOU_CANDIDATE_SILENCE_MS;
-      const hitHardSilence = options.silenceMs >= VOICE_EOU_HARD_SILENCE_MS;
-      const hitMaxDuration = elapsed >= VOICE_EOU_MAX_RECORDING_MS;
+      if (options.speechMs < VOICE_VAD_MIN_UTTERANCE_MS) return;
+      const hitCandidate = options.silenceMs >= VOICE_VAD_CANDIDATE_SILENCE_MS;
+      const hitHardSilence = options.silenceMs >= VOICE_VAD_HARD_SILENCE_MS;
+      const hitMaxDuration = elapsed >= VOICE_VAD_MAX_RECORDING_MS;
       if (hitCandidate || hitHardSilence || hitMaxDuration) {
-        void evaluateEOUCandidate(capture, options.silenceMs, elapsed);
+        stopVADMonitor(capture);
+        void stopZenVoiceCaptureAndSend();
+        return;
       }
     };
 
-    const timer = window.setInterval(update, VOICE_EOU_FRAME_MS);
+    const timer = window.setInterval(update, VOICE_VAD_FRAME_MS);
     capture.vadState = { source, analyser, timer, options, bins, isRunning: true };
   } catch (_) {
     if (source) {
@@ -1108,11 +1014,6 @@ async function beginZenVoiceCapture(x, y, anchor, options = null) {
     mediaStream: null,
     mediaRecorder: null,
     chunks: [],
-    eouCheckInFlight: false,
-    lastEOUCheckAtMs: 0,
-    nextEOUCheckAtMs: 0,
-    lastEOUTranscript: '',
-    lastEOUP: 0,
   };
   state.chatVoiceCapture = capture;
   state.lastInputOrigin = 'voice';
@@ -1136,7 +1037,7 @@ async function beginZenVoiceCapture(x, y, anchor, options = null) {
       if (!ev?.data || ev.data.size <= 0) return;
       capture.chunks.push(ev.data);
     });
-    recorder.start(VOICE_EOU_RECORDER_CHUNK_MS);
+    recorder.start(VOICE_VAD_RECORDER_CHUNK_MS);
     if (!capture.stopRequested && !capture.manualStopOnly) {
       startVADMonitor(capture);
     }

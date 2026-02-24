@@ -43,7 +43,6 @@ Tabura runs as one Go runtime plus three local sidecars:
 1. `tabura-web.service` (`tabura server`)
 2. `tabura-codex-app-server.service` (`codex app-server`)
 3. `tabura-piper-tts.service` (Piper `/v1/audio/speech`)
-4. `tabura-eou.service` (semantic end-of-utterance detector)
 
 Why Piper remains an HTTP sidecar:
 - Piper `libpiper` linking is GPL-governed; direct linking would change distribution obligations.
@@ -56,7 +55,6 @@ Why Piper remains an HTTP sidecar:
 - Canvas websocket relay source: `ws://127.0.0.1:9420/ws/canvas`
 - Codex app-server websocket: `ws://127.0.0.1:8787`
 - Piper TTS endpoint: `http://127.0.0.1:8424/v1/audio/speech`
-- EOU detector endpoint: `http://127.0.0.1:8425/v1/eou/predict`
 - Local canvas session id: `local`
 - Spark thinking budget for Spark model (fast path): `TABURA_APP_SERVER_SPARK_REASONING_EFFORT=low` (low|medium|high)
 
@@ -67,7 +65,7 @@ Security model:
 Zen canvas behavior:
 - Browser opens to tabula rasa (blank white screen) or last artifact.
 - Tap anywhere to start/stop voice recording. Right-click to type. Keyboard auto-activates.
-- VAD detects candidate endpoints; semantic EOU confirms whether to commit or keep listening.
+- Pure VAD auto-stop detects utterance end and commits speech.
 - Assistant output follows one path only:
   - chat-only (spoken), or
   - file-backed canvas (`:::file`) with canvas content rendered only on canvas.

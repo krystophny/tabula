@@ -22,7 +22,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/krystophny/tabura/internal/appserver"
-	"github.com/krystophny/tabura/internal/eou"
 	"github.com/krystophny/tabura/internal/modelprofile"
 	"github.com/krystophny/tabura/internal/serve"
 	"github.com/krystophny/tabura/internal/store"
@@ -52,19 +51,11 @@ type App struct {
 	appServerModel                string
 	appServerSparkReasoningEffort string
 	ttsURL                        string
-	eouEnabled                    bool
-	eouURL                        string
-	eouTimeout                    time.Duration
-	eouCommitThreshold            float64
-	eouCandidateSilenceMS         int
-	eouHardSilenceMS              int
-	eouMaxRecordingMS             int
 	devRuntime                    bool
 
 	store *store.Store
 
 	appServerClient *appserver.Client
-	eouClient       *eou.Client
 
 	upgrader websocket.Upgrader
 
@@ -119,20 +110,6 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 	if resolvedTTSURL == "" {
 		resolvedTTSURL = strings.TrimSpace(os.Getenv("TABURA_TTS_URL"))
 	}
-	resolvedEOUEnabled := envBoolDefault("TABURA_EOU_ENABLED", true)
-	resolvedEOUURL := strings.TrimSpace(os.Getenv("TABURA_EOU_URL"))
-	if resolvedEOUURL == "" {
-		resolvedEOUURL = eou.DefaultURL
-	}
-	resolvedEOUTimeout := envDurationMSDefault("TABURA_EOU_TIMEOUT_MS", eou.DefaultTimeout)
-	resolvedEOUCommitThreshold := envFloatDefault("TABURA_EOU_COMMIT_THRESHOLD", eou.DefaultCommitScore)
-	resolvedEOUCandidateSilence := envIntDefault("TABURA_EOU_CANDIDATE_SILENCE_MS", eou.DefaultCandidateSilenceMs)
-	resolvedEOUHardSilence := envIntDefault("TABURA_EOU_HARD_SILENCE_MS", eou.DefaultHardSilenceMs)
-	resolvedEOUMaxRecording := envIntDefault("TABURA_EOU_MAX_RECORDING_MS", eou.DefaultMaxRecordingMs)
-	var eouClient *eou.Client
-	if resolvedEOUEnabled {
-		eouClient = eou.NewClient(resolvedEOUURL, resolvedEOUTimeout)
-	}
 	app := &App{
 		dataDir:                       dataDir,
 		localProjectDir:               localProjectDir,
@@ -141,17 +118,9 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		appServerModel:                resolvedModel,
 		appServerSparkReasoningEffort: resolvedSparkReasoningEffort,
 		ttsURL:                        resolvedTTSURL,
-		eouEnabled:                    resolvedEOUEnabled,
-		eouURL:                        resolvedEOUURL,
-		eouTimeout:                    resolvedEOUTimeout,
-		eouCommitThreshold:            resolvedEOUCommitThreshold,
-		eouCandidateSilenceMS:         resolvedEOUCandidateSilence,
-		eouHardSilenceMS:              resolvedEOUHardSilence,
-		eouMaxRecordingMS:             resolvedEOUMaxRecording,
 		devRuntime:                    devRuntime,
 		store:                         s,
 		appServerClient:               appServerClient,
-		eouClient:                     eouClient,
 		upgrader:                      websocket.Upgrader{CheckOrigin: checkWSOrigin},
 		canvasWS:                      map[string]map[*websocket.Conn]struct{}{},
 		chatWS:                        map[string]map[*chatWSConn]struct{}{},
@@ -240,7 +209,6 @@ func (a *App) Router() http.Handler {
 	r.Post("/api/chat/sessions/{session_id}/commands", a.handleChatSessionCommand)
 	r.Post("/api/chat/sessions/{session_id}/cancel", a.handleChatSessionCancel)
 	r.Post("/api/chat/sessions/{session_id}/cancel-delegates", a.handleChatSessionCancelDelegates)
-	r.Post("/api/stt/eou-check", a.handleSTTEOUCheck)
 
 	// canvas/file proxy
 	r.Get("/api/canvas/{session_id}/snapshot", a.handleCanvasSnapshot)
@@ -388,8 +356,6 @@ func (a *App) handleRuntime(w http.ResponseWriter, r *http.Request) {
 		"app_server_reasoning_effort": sparkReasoningEffort,
 		"available_models":            modelprofile.SupportedModels(),
 		"tts_enabled":                 a.ttsURL != "",
-		"eou_enabled":                 a.eouEnabled,
-		"eou_url":                     a.eouURL,
 	})
 }
 

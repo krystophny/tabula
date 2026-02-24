@@ -130,7 +130,7 @@ test('silence auto-stop sends transcript without manual stop click', async ({ pa
 
   await page.mouse.click(400, 400);
   await waitForLogEntry(page, 'recorder', 'start');
-  await waitForLogEntry(page, 'eou_check', 'checked');
+  await waitForSTTAction(page, 'stop');
   await page.waitForTimeout(250);
 
   const log = await getLog(page);
@@ -154,7 +154,7 @@ test('silence auto-stop works with low-level speech near ambient floor', async (
 
   await page.mouse.click(400, 400);
   await waitForLogEntry(page, 'recorder', 'start');
-  await waitForLogEntry(page, 'eou_check', 'checked');
+  await waitForSTTAction(page, 'stop');
   await page.waitForTimeout(250);
 
   const log = await getLog(page);
@@ -178,7 +178,7 @@ test('silence auto-stop works when speech is only slightly above noisy ambient b
 
   await page.mouse.click(400, 400);
   await waitForLogEntry(page, 'recorder', 'start');
-  await waitForLogEntry(page, 'eou_check', 'checked');
+  await waitForSTTAction(page, 'stop');
   await page.waitForTimeout(250);
 
   const log = await getLog(page);
@@ -205,41 +205,6 @@ test('no-speech timeout cancels capture in sustained ambient noise', async ({ pa
   expect(log.some(e => e.type === 'stt' && e.action === 'cancel')).toBe(true);
   expect(log.some(e => e.type === 'stt' && e.action === 'stop')).toBe(false);
   expect(log.some(e => e.type === 'message_sent')).toBe(false);
-});
-
-test('semantic EOU low confidence continues and later high confidence commits', async ({ page }) => {
-  await clearLog(page);
-  await page.evaluate(() => {
-    (window as any).__setEOUResponses([
-      { transcript: 'hello world', p_end: 0.2, should_commit: false, reason: 'low_confidence_continue', latency_ms: 8 },
-      { transcript: 'hello world', p_end: 0.92, should_commit: true, reason: 'high_confidence_end', latency_ms: 9 },
-    ]);
-    (window as any).__setVadDbFrames([
-      ...Array.from({ length: 8 }, () => -80),
-      ...Array.from({ length: 10 }, () => -12),
-      // Enough trailing silence for two EOU checks:
-      // first candidate around 900ms, second after recheck delay.
-      ...Array.from({ length: 46 }, () => -80),
-    ]);
-  });
-
-  await page.mouse.click(400, 400);
-  await waitForLogEntry(page, 'recorder', 'start');
-  await expect.poll(async () => {
-    const log = await getLog(page);
-    return log.filter(e => e.type === 'eou_check').length;
-  }, { timeout: 8_000 }).toBeGreaterThan(1);
-
-  await expect.poll(async () => {
-    const log = await getLog(page);
-    return log.some(e => e.type === 'message_sent');
-  }, { timeout: 8_000 }).toBe(true);
-
-  const log = await getLog(page);
-  const eouChecks = log.filter(e => e.type === 'eou_check');
-  expect(eouChecks.length).toBeGreaterThanOrEqual(2);
-  expect(Boolean(eouChecks[0]?.should_commit)).toBe(false);
-  expect(log.some(e => e.type === 'message_sent')).toBe(true);
 });
 
 test('Control long-press starts voice recording (desktop PTT)', async ({ page }) => {
