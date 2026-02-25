@@ -928,6 +928,109 @@ export function getActiveTextEventId() {
   return activeTextEventId;
 }
 
+function parsePositiveInt(raw) {
+  const n = Number.parseInt(String(raw || '').trim(), 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+function getPdfPageNodeFromNode(node) {
+  const start = node instanceof Element ? node : node?.parentElement;
+  if (!(start instanceof Element)) return null;
+  const page = start.closest('.canvas-pdf-page');
+  return page instanceof HTMLElement ? page : null;
+}
+
+function getPdfPageNodeFromPoint(pdfRoot, clientX, clientY) {
+  if (!(pdfRoot instanceof HTMLElement)) return null;
+  const hit = document.elementFromPoint(clientX, clientY);
+  if (hit instanceof Element && pdfRoot.contains(hit)) {
+    const page = hit.closest('.canvas-pdf-page');
+    if (page instanceof HTMLElement) return page;
+  }
+  const pages = pdfRoot.querySelectorAll('.canvas-pdf-page');
+  for (const page of pages) {
+    if (!(page instanceof HTMLElement)) continue;
+    const rect = page.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) continue;
+    return page;
+  }
+  return null;
+}
+
+function estimatePdfLineAtPoint(pageNode, clientX, clientY) {
+  if (!(pageNode instanceof HTMLElement)) return null;
+  const textLayer = pageNode.querySelector('.textLayer');
+  if (!(textLayer instanceof HTMLElement)) return null;
+  const spans = textLayer.querySelectorAll('span');
+  if (spans.length === 0) return null;
+
+  const lineTops = [];
+  let nearestTop = null;
+  let nearestDistance = Infinity;
+  const topEpsilonPx = 1.5;
+
+  for (const span of spans) {
+    if (!(span instanceof HTMLElement)) continue;
+    if (!(span.textContent || '').trim()) continue;
+    const rect = span.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) continue;
+
+    const clampedX = Math.max(rect.left, Math.min(clientX, rect.right));
+    const clampedY = Math.max(rect.top, Math.min(clientY, rect.bottom));
+    const distance = ((clampedX - clientX) ** 2) + ((clampedY - clientY) ** 2);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestTop = rect.top;
+    }
+
+    if (!lineTops.some((top) => Math.abs(top - rect.top) <= topEpsilonPx)) {
+      lineTops.push(rect.top);
+    }
+  }
+
+  if (!Number.isFinite(nearestTop) || lineTops.length === 0) return null;
+  lineTops.sort((a, b) => a - b);
+  const index = lineTops.findIndex((top) => Math.abs(top - nearestTop) <= topEpsilonPx);
+  if (index < 0) return null;
+  return index + 1;
+}
+
+function getPdfAnchorFromPoint(clientX, clientY) {
+  const e = getEls();
+  if (!e.pdf || !activePdfEvent || !e.pdf.classList.contains('is-active')) return null;
+
+  const pageNode = getPdfPageNodeFromPoint(e.pdf, clientX, clientY);
+  if (!(pageNode instanceof HTMLElement)) return null;
+  const page = parsePositiveInt(pageNode.dataset.page);
+  if (!page) return null;
+
+  const title = getActiveArtifactTitle();
+  const line = estimatePdfLineAtPoint(pageNode, clientX, clientY);
+  if (line) {
+    return { page, line, title };
+  }
+  return { page, title };
+}
+
+function getPdfAnchorFromRange(range) {
+  if (!(range instanceof Range)) return null;
+  const pageNode = getPdfPageNodeFromNode(range.startContainer);
+  const page = parsePositiveInt(pageNode?.dataset?.page || '');
+  if (!page) return null;
+  const title = getActiveArtifactTitle();
+  const rangeRect = range.getBoundingClientRect();
+  if (rangeRect.width > 0 || rangeRect.height > 0) {
+    const x = rangeRect.left + Math.max(1, rangeRect.width / 2);
+    const y = rangeRect.top + Math.max(1, rangeRect.height / 2);
+    const line = estimatePdfLineAtPoint(pageNode, x, y);
+    if (line) {
+      return { page, line, title };
+    }
+  }
+  return { page, title };
+}
+
 function getDiffAnchorContext(node) {
   const start = node instanceof Element ? node : node?.parentElement;
   if (!(start instanceof Element)) return null;
@@ -964,34 +1067,29 @@ function getMarkdownSourceAnchorContext(node) {
 
 export function getLocationFromPoint(clientX, clientY) {
   const e = getEls();
-  if (!e.text || !activeTextEventId) return null;
   const range = textRangeFromClientPoint(clientX, clientY);
-  if (!range || !e.text.contains(range.startContainer)) return null;
-  const diffAnchor = getDiffAnchorContext(range.startContainer);
-  if (diffAnchor) return diffAnchor;
-  const markdownAnchor = getMarkdownSourceAnchorContext(range.startContainer);
-  if (markdownAnchor) return markdownAnchor;
-  try {
-    const startProbe = range.cloneRange();
-    startProbe.selectNodeContents(e.text);
-    startProbe.setEnd(range.startContainer, range.startOffset);
-    const offset = startProbe.toString().length;
-    const lines = (e.text.textContent || '').split('\n');
-    const line = lineFromOffset(lines, offset);
-    const title = getActiveArtifactTitle();
-    return { line, title };
-  } catch (_) {
-    return null;
+  if (e.text && activeTextEventId && range && e.text.contains(range.startContainer)) {
+    const diffAnchor = getDiffAnchorContext(range.startContainer);
+    if (diffAnchor) return diffAnchor;
+    const markdownAnchor = getMarkdownSourceAnchorContext(range.startContainer);
+    if (markdownAnchor) return markdownAnchor;
+    try {
+      const startProbe = range.cloneRange();
+      startProbe.selectNodeContents(e.text);
+      startProbe.setEnd(range.startContainer, range.startOffset);
+      const offset = startProbe.toString().length;
+      const lines = (e.text.textContent || '').split('\n');
+      const line = lineFromOffset(lines, offset);
+      const title = getActiveArtifactTitle();
+      return { line, title };
+    } catch (_) {
+      return null;
+    }
   }
+  return getPdfAnchorFromPoint(clientX, clientY);
 }
 
-export function getLocationFromSelection() {
-  const e = getEls();
-  if (!e.text || !activeTextEventId) return null;
-  const selection = window.getSelection();
-  if (!selection || selection.isCollapsed || !isSelectionInside(e.text, selection)) return null;
-  const selectedText = selection.toString().trim();
-  if (!selectedText) return null;
+function getTextSelectionLocation(e, selection, selectedText) {
   const range = selection.getRangeAt(0);
   const diffAnchor = getDiffAnchorContext(range.startContainer);
   if (diffAnchor) {
@@ -1006,6 +1104,25 @@ export function getLocationFromSelection() {
   const line = lineFromOffset(lines, startOffset);
   const title = getActiveArtifactTitle();
   return { line, selectedText, title };
+}
+
+export function getLocationFromSelection() {
+  const e = getEls();
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed) return null;
+  const selectedText = selection.toString().trim();
+  if (!selectedText) return null;
+  if (e.text && activeTextEventId && isSelectionInside(e.text, selection)) {
+    return getTextSelectionLocation(e, selection, selectedText);
+  }
+  if (e.pdf && activePdfEvent && isSelectionInside(e.pdf, selection)) {
+    const range = selection.getRangeAt(0);
+    const pdfAnchor = getPdfAnchorFromRange(range);
+    if (pdfAnchor) {
+      return { ...pdfAnchor, selectedText };
+    }
+  }
+  return null;
 }
 
 export function showLineHighlight(clientX, clientY) {

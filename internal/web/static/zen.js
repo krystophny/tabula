@@ -4,7 +4,6 @@ import {
   getLocationFromSelection,
   escapeHtml,
   sanitizeHtml,
-  getActiveTextEventId,
 } from './canvas.js';
 
 const MATH_SEGMENT_TOKEN_PREFIX = '@@TABURA_ZEN_MATH_SEGMENT_';
@@ -267,25 +266,37 @@ export function setInputAnchor(anchor) {
 }
 
 export function getAnchorFromPoint(clientX, clientY) {
-  if (!getActiveTextEventId()) return null;
   const loc = getLocationFromPoint(clientX, clientY);
   if (!loc) return null;
-  return { line: loc.line, title: loc.title, x: clientX, y: clientY };
+  return { ...loc, x: clientX, y: clientY };
 }
 
 export function getAnchorFromSelection() {
-  if (!getActiveTextEventId()) return null;
   const loc = getLocationFromSelection();
   if (!loc) return null;
-  return { line: loc.line, title: loc.title, selectedText: loc.selectedText };
+  return { ...loc, selectedText: loc.selectedText };
 }
 
 export function buildContextPrefix(anchor) {
   if (!anchor) return '';
-  if (anchor.selectedText) {
-    return `[Line ${anchor.line} of "${anchor.title}": "${anchor.selectedText}"]`;
+  const page = Number.parseInt(String(anchor.page || ''), 10);
+  const line = Number.parseInt(String(anchor.line || ''), 10);
+  const hasPage = Number.isFinite(page) && page > 0;
+  const hasLine = Number.isFinite(line) && line > 0;
+  const title = String(anchor.title || '').trim();
+  const quotedTitle = title || 'artifact';
+  const selectionSuffix = anchor.selectedText ? `: "${anchor.selectedText}"` : '';
+
+  if (hasPage && hasLine) {
+    return `[Page ${page}, line ${line} of "${quotedTitle}"${selectionSuffix}]`;
   }
-  return `[Line ${anchor.line} of "${anchor.title}"]`;
+  if (hasPage) {
+    return `[Page ${page} of "${quotedTitle}"${selectionSuffix}]`;
+  }
+  if (hasLine) {
+    return `[Line ${line} of "${quotedTitle}"${selectionSuffix}]`;
+  }
+  return '';
 }
 
 export function getLastInputPosition() {

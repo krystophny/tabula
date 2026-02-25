@@ -120,6 +120,72 @@ async function renderTestArtifact(page: Page, text = 'Line one\nLine two\nLine t
   });
 }
 
+async function renderPdfArtifactMock(page: Page) {
+  await page.evaluate(() => {
+    const mod = (window as any).__canvasModule;
+    mod.renderCanvas({
+      event_id: 'art-ctrl-pdf',
+      kind: 'pdf_artifact',
+      title: 'test.pdf',
+      path: '',
+    });
+
+    const pane = document.getElementById('canvas-pdf');
+    if (!(pane instanceof HTMLElement)) return;
+    pane.style.display = '';
+    pane.classList.add('is-active');
+    pane.innerHTML = '';
+
+    const surface = document.createElement('div');
+    surface.className = 'canvas-pdf-surface';
+    const pagesHost = document.createElement('div');
+    pagesHost.className = 'canvas-pdf-pages';
+
+    const pageNode = document.createElement('section');
+    pageNode.className = 'canvas-pdf-page';
+    pageNode.dataset.page = '2';
+
+    const pageInner = document.createElement('div');
+    pageInner.className = 'canvas-pdf-page-inner';
+    pageInner.style.width = '640px';
+    pageInner.style.height = '860px';
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'canvas-pdf-canvas';
+    canvas.width = 640;
+    canvas.height = 860;
+    canvas.style.width = '640px';
+    canvas.style.height = '860px';
+    pageInner.appendChild(canvas);
+
+    const textLayer = document.createElement('div');
+    textLayer.className = 'textLayer canvas-pdf-text-layer';
+    textLayer.style.setProperty('--scale-factor', '1');
+
+    const addLine = (text: string, topPx: number) => {
+      const span = document.createElement('span');
+      span.textContent = text;
+      span.style.position = 'absolute';
+      span.style.left = '56px';
+      span.style.top = `${topPx}px`;
+      span.style.fontSize = '16px';
+      span.style.lineHeight = '1';
+      textLayer.appendChild(span);
+    };
+    addLine('First PDF line', 100);
+    addLine('Second PDF line', 136);
+    pageInner.appendChild(textLayer);
+
+    pageNode.appendChild(pageInner);
+    pagesHost.appendChild(pageNode);
+    surface.appendChild(pagesHost);
+    pane.appendChild(surface);
+
+    const app = (window as any)._taburaApp;
+    if (app?.getState) app.getState().hasArtifact = true;
+  });
+}
+
 async function waitForLogEntry(page: Page, type: string, action: string) {
   await expect.poll(async () => {
     const log = await getLog(page);
@@ -425,6 +491,59 @@ test('Control long-press starts at mouse location and sends artifact line contex
     const sent = log.find((entry) => entry.type === 'message_sent');
     return String(sent?.text || '');
   }).toMatch(/\[Line \d+ of "test\.txt"\] hello world/);
+});
+
+test('Control long-press on PDF sends page context from cursor position', async ({ page }) => {
+  await clearLog(page);
+  await injectCanvasModuleRef(page);
+  await renderPdfArtifactMock(page);
+
+  const pdfLine = page.locator('#canvas-pdf .textLayer span').first();
+  const box = await pdfLine.boundingBox();
+  if (!box) throw new Error('mock PDF text line not visible');
+  const x = Math.floor(box.x + 8);
+  const y = Math.floor(box.y + 8);
+
+  const anchor = await page.evaluate(async (point) => {
+    const zen = await import('../../internal/web/static/zen.js');
+    return zen.getAnchorFromPoint(point.x, point.y);
+  }, { x, y });
+  expect(anchor).toBeTruthy();
+  expect(anchor.page).toBe(2);
+  expect(anchor.title).toBe('test.pdf');
+  await expect.poll(async () => page.evaluate(() => (window as any)._taburaApp?.getState?.().hasArtifact)).toBe(true);
+
+  await page.mouse.move(x, y);
+  await page.keyboard.down('Control');
+  await page.waitForTimeout(300);
+  await waitForLogEntry(page, 'recorder', 'start');
+  await expect.poll(async () => page.evaluate(() => (window as any)._taburaApp?.getState?.().hasArtifact)).toBe(true);
+  const captureAnchor = await page.evaluate(async () => {
+    const zen = await import('../../internal/web/static/zen.js');
+    return zen.getInputAnchor();
+  });
+  expect(captureAnchor).toBeTruthy();
+  expect(captureAnchor.page).toBe(2);
+
+  const dotPos = await page.evaluate(() => {
+    const dot = document.querySelector('#zen-indicator .zen-record-dot');
+    if (!(dot instanceof HTMLElement)) return null;
+    return {
+      x: Number.parseFloat(dot.style.left || '0'),
+      y: Number.parseFloat(dot.style.top || '0'),
+    };
+  });
+  expect(dotPos).toBeTruthy();
+  expect(Math.abs(dotPos!.x - x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(dotPos!.y - y)).toBeLessThanOrEqual(1);
+
+  await page.keyboard.up('Control');
+  await waitForSTTAction(page, 'stop');
+  await expect.poll(async () => {
+    const log = await getLog(page);
+    const sent = log.find((entry) => entry.type === 'message_sent');
+    return String(sent?.text || '');
+  }).toMatch(/\[Page 2(?:, line \d+)? of "test\.pdf"\] hello world/);
 });
 
 test('Enter stops active recording', async ({ page }) => {
