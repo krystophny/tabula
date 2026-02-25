@@ -125,12 +125,11 @@ function overlayContentEl() {
 export function showIndicatorMode(mode, x, y) {
   const el = indicatorEl();
   if (!el) return;
-  const nextMode = mode === 'recording' ? 'recording' : 'stop';
+  const nextMode = mode === 'recording' ? 'recording' : 'play';
   const body = document.body;
-  el.classList.remove('is-recording', 'is-stop');
-  el.classList.add(nextMode === 'recording' ? 'is-recording' : 'is-stop');
+  el.classList.remove('is-recording', 'is-working');
+  el.classList.add(nextMode === 'recording' ? 'is-recording' : 'is-working');
   el.style.display = '';
-  // Always reset geometry so stale inline styles can't shrink/offset the cue.
   el.style.position = 'fixed';
   el.style.inset = '';
   el.style.width = '';
@@ -143,8 +142,23 @@ export function showIndicatorMode(mode, x, y) {
   el.style.maxHeight = '';
   el.style.transform = '';
   el.style.translate = '';
+  // Recording dot appears at tap point; play icon stays in top-right (CSS default).
+  const dot = el.querySelector('.zen-record-dot');
+  if (dot) {
+    if (nextMode === 'recording' && Number.isFinite(x) && Number.isFinite(y)) {
+      dot.style.top = `${Math.round(y)}px`;
+      dot.style.right = '';
+      dot.style.left = `${Math.round(x)}px`;
+      dot.style.transform = 'translate(-50%, -50%)';
+    } else {
+      dot.style.top = '';
+      dot.style.right = '';
+      dot.style.left = '';
+      dot.style.transform = '';
+    }
+  }
   if (body) {
-    const isCueVisible = nextMode === 'recording' || nextMode === 'stop';
+    const isCueVisible = nextMode === 'recording' || nextMode === 'play';
     body.classList.toggle('zen-recording', isCueVisible);
   }
   zenState.indicatorVisible = true;
@@ -154,7 +168,7 @@ export function showIndicatorMode(mode, x, y) {
 export function hideIndicator() {
   const el = indicatorEl();
   if (!el) return;
-  el.classList.remove('is-recording', 'is-stop');
+  el.classList.remove('is-recording', 'is-working');
   el.style.display = 'none';
   const body = document.body;
   if (body) {
@@ -180,6 +194,9 @@ export function showTextInput(x, y, anchor) {
 export function hideTextInput() {
   const el = inputEl();
   if (!el) return;
+  if (document.activeElement === el) {
+    try { el.blur(); } catch (_) {}
+  }
   el.style.display = 'none';
   zenState.inputVisible = false;
   zenState.inputAnchor = null;

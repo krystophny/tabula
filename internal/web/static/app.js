@@ -52,7 +52,17 @@ const state = {
   contextMax: 0,
   // Zen-specific: track if a canvas action happened during this turn
   zenCanvasActionThisTurn: false,
+  turnFirstResponseShown: false,
   lastInputOrigin: 'text',
+  pendingSubmitController: null,
+  pendingSubmitKind: '',
+  prReviewMode: false,
+  prReviewFiles: [],
+  prReviewActiveIndex: 0,
+  prReviewTitle: '',
+  prReviewPRNumber: '',
+  prReviewDrawerOpen: false,
+  prReviewAwaitingArtifact: false,
 };
 
 export function getState() {
@@ -74,7 +84,7 @@ const CHAT_SEND_HOLD_MS = 300;
 // Frontend end-of-utterance policy:
 // - start/end speech from local mic energy
 // - pure VAD commit (no semantic EOU sidecar)
-// - no-speech timeout + hard max to avoid hanging capture
+// - no-speech timeout + relaxed max duration to avoid hanging capture
 const VOICE_VAD_AUTO_SEND_DEFAULT = true;
 const VOICE_VAD_AUTO_SEND_STORAGE_KEY = 'tabura.voiceVadAutoSend';
 const VOICE_VAD_AUTO_SEND_QUERY_PARAM = 'voice_vad_auto_send';
@@ -83,7 +93,8 @@ const VOICE_VAD_CANDIDATE_SILENCE_MS = 900;
 const VOICE_VAD_CANDIDATE_RECHECK_MS = 450;
 const VOICE_VAD_HARD_SILENCE_MS = 2500;
 const VOICE_VAD_NO_SPEECH_MS = 4000;
-const VOICE_VAD_MAX_RECORDING_MS = 20000;
+const VOICE_VAD_MAX_RECORDING_SOFT_MS = 120000;
+const VOICE_VAD_MAX_RECORDING_HARD_MS = 240000;
 const VOICE_VAD_FRAME_MS = 40;
 const VOICE_VAD_RECORDER_CHUNK_MS = 250;
 const VOICE_VAD_NOISE_FLOOR_SAMPLES = 8;
@@ -332,171 +343,80 @@ function isMobileSilent() {
   return state.ttsSilent && window.matchMedia('(max-width: 767px)').matches;
 }
 
-function isDisplayMode(mode) {
+// iPhone corner-radius profiles for bottom-edge frame rounding.
+const IPHONE_CORNER_RADIUS_PROFILES = [
+  { shortSide: 375, longSide: 812, dpr: 3, radius: 44 },
+  { shortSide: 390, longSide: 844, dpr: 3, radius: 47 },
+  { shortSide: 393, longSide: 852, dpr: 3, radius: 55 },
+  { shortSide: 402, longSide: 874, dpr: 3, radius: 62 },
+  { shortSide: 414, longSide: 896, dpr: 2, radius: 41 },
+  { shortSide: 428, longSide: 926, dpr: 3, radius: 53 },
+  { shortSide: 430, longSide: 932, dpr: 3, radius: 55 },
+  { shortSide: 440, longSide: 956, dpr: 3, radius: 62 },
+];
+
+function isIPhoneStandalone() {
+  const ua = String(navigator.userAgent || '').toLowerCase();
+  const plat = String(navigator.platform || '').toLowerCase();
+  const isIPhone = /iphone/.test(ua) || plat === 'iphone' || (plat === 'macintel' && navigator.maxTouchPoints > 1);
+  if (!isIPhone) return false;
   try {
-    return window.matchMedia(`(display-mode: ${mode})`).matches;
+    return navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
   } catch (_) {
     return false;
   }
 }
 
-function isHomeScreenStandaloneLike() {
-  const standalone = typeof navigator !== 'undefined'
-    && 'standalone' in navigator
-    && navigator.standalone === true;
-  return standalone || isDisplayMode('standalone') || isDisplayMode('fullscreen');
-}
-
-function isIPhone() {
-  const userAgent = String(navigator.userAgent || '').toLowerCase();
-  const platform = String(navigator.platform || '').toLowerCase();
-  return /iphone/.test(userAgent) || platform === 'iphone' || (platform === 'macintel' && navigator.maxTouchPoints > 1);
-}
-
-function getIPhoneDisplayCandidatesPx() {
-  const candidates = [];
-  if (Number.isFinite(window.screen?.width) && Number.isFinite(window.screen?.height)) {
-    candidates.push({
-      shortSide: Math.round(Math.min(window.screen.width, window.screen.height)),
-      longSide: Math.round(Math.max(window.screen.width, window.screen.height)),
-      source: 'screen',
-    });
-  }
-  if (Number.isFinite(window.innerWidth) && Number.isFinite(window.innerHeight)) {
-    candidates.push({
-      shortSide: Math.round(Math.min(window.innerWidth, window.innerHeight)),
-      longSide: Math.round(Math.max(window.innerWidth, window.innerHeight)),
-      source: 'viewport',
-    });
-  }
-  return candidates;
-}
-
-const IPHONE_CORNER_RADIUS_PROFILES = [
-  { shortSide: 375, longSide: 812, dpr: 2, radius: 41.5 },
-  { shortSide: 375, longSide: 812, dpr: 3, radius: 44 },
-  { shortSide: 390, longSide: 844, dpr: 3, radius: 47 },
-  { shortSide: 393, longSide: 852, dpr: 3, radius: 55 },
-  // iPhone 16 Pro: 1206x2622 physical at 3x => 402x874 CSS pixels.
-  { shortSide: 402, longSide: 874, dpr: 3, radius: 62, safeAreaTopPortrait: 59 },
-  { shortSide: 414, longSide: 896, dpr: 2, radius: 41 },
-  { shortSide: 428, longSide: 926, dpr: 3, radius: 53 },
-  { shortSide: 430, longSide: 932, dpr: 3, radius: 55, safeAreaTopPortrait: 62 },
-  { shortSide: 440, longSide: 956, dpr: 3, radius: 62 },
-];
-
-function readNumericCssVar(name) {
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function iPhoneRoundedCornerRadiusPx() {
-  if (!isIPhone()) return null;
-
-  const shortSide = Math.min(
-    Math.round(window.innerWidth),
-    Math.round(window.innerHeight),
-  );
-  const longSide = Math.max(
-    Math.round(window.innerWidth),
-    Math.round(window.innerHeight),
-  );
-  if (!Number.isFinite(shortSide) || !Number.isFinite(longSide) || shortSide <= 0 || longSide <= 0) {
-    return null;
-  }
-
-  const dpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
-  const exactMatch = getIPhoneDisplayCandidatesPx()
-    .find((candidate) => IPHONE_CORNER_RADIUS_PROFILES.some(
-      (entry) => entry.shortSide === candidate.shortSide && entry.longSide === candidate.longSide && entry.dpr === dpr,
-    ));
-  if (exactMatch) {
-    const profile = IPHONE_CORNER_RADIUS_PROFILES.find((entry) => (
-      entry.shortSide === exactMatch.shortSide
-      && entry.longSide === exactMatch.longSide
-      && entry.dpr === dpr
-    ));
-    if (profile?.radius) return profile.radius;
-  }
-
-  // Fallback by family/scale; keep values conservative so UI stays inside the visible radius.
-  if (dpr >= 3) {
-    if (shortSide >= 440) return 62;
-    if (shortSide >= 430) return 55;
-    if (shortSide === 402 && longSide === 874) return 62;
-    if (shortSide >= 410) return 55;
-    if (shortSide >= 393) return 55;
-    if (shortSide >= 390) return 47;
-    return 44;
-  }
-
-  if (dpr === 2) {
-    if (shortSide >= 414) return 41;
-    if (shortSide >= 375) return 39;
-  }
-
-  return 44;
-}
-
-function iPhoneProfileForCurrentDisplay() {
-  if (!isIPhone()) return null;
-
-  const shortSide = Math.min(
-    Math.round(window.innerWidth),
-    Math.round(window.innerHeight),
-  );
-  const longSide = Math.max(
-    Math.round(window.innerWidth),
-    Math.round(window.innerHeight),
-  );
-  if (!Number.isFinite(shortSide) || !Number.isFinite(longSide) || shortSide <= 0 || longSide <= 0) {
-    return null;
-  }
-
-  const dpr = Math.max(1, Math.round(window.devicePixelRatio || 1));
-  return IPHONE_CORNER_RADIUS_PROFILES.find((entry) => (
-    entry.shortSide === shortSide
-    && entry.longSide === longSide
-    && entry.dpr === dpr
-  )) || null;
-}
-
-function iPhoneStatusBarInsetPx() {
-  if (!isIPhone()) return 0;
-  if (window.innerWidth > window.innerHeight) return 0;
-
-  const envInset = readNumericCssVar('--zen-safe-area-top');
-  if (envInset > 0) return envInset;
-
-  const profile = iPhoneProfileForCurrentDisplay();
-  return Number.isFinite(profile?.safeAreaTopPortrait) && profile.safeAreaTopPortrait > 0
-    ? profile.safeAreaTopPortrait
-    : 0;
-}
-
-function applyIPhoneStandaloneCueHints() {
-  const body = document.body;
+function applyIPhoneFrameCorners() {
   const root = document.documentElement;
-  if (!body || !root) return;
-  const isIPhoneDevice = isIPhone();
-  const isStandaloneLike = isHomeScreenStandaloneLike() && isIPhoneDevice;
-  const roundedRadius = iPhoneRoundedCornerRadiusPx();
-  const radius = Number.isFinite(roundedRadius) && roundedRadius > 0 ? roundedRadius : null;
-  const modeRadius = Number.isFinite(radius) ? Math.max(0, Math.round(radius)) : 0;
-  const cueTopInset = isStandaloneLike ? iPhoneStatusBarInsetPx() : 0;
-  body.classList.toggle('ios-cue-fullscreen', isStandaloneLike);
-  root.style.setProperty('--zen-cue-top-offset', `${Math.max(0, cueTopInset)}px`);
-  if (isStandaloneLike && modeRadius > 0) {
-    const cornerRadius = `0 0 ${modeRadius}px ${modeRadius}px`;
-    root.style.setProperty('--zen-cue-corner-radius', cornerRadius);
+  if (!isIPhoneStandalone()) {
+    root.style.removeProperty('--zen-cue-corner-radius');
     return;
   }
-  root.style.removeProperty('--zen-cue-corner-radius');
+  const short = Math.min(Math.round(screen.width), Math.round(screen.height));
+  const long = Math.max(Math.round(screen.width), Math.round(screen.height));
+  const dpr = Math.max(1, Math.round(devicePixelRatio || 1));
+  const match = IPHONE_CORNER_RADIUS_PROFILES.find(
+    (p) => p.shortSide === short && p.longSide === long && p.dpr === dpr,
+  );
+  const r = match ? match.radius : (dpr >= 3 ? 55 : 44);
+  root.style.setProperty('--zen-cue-corner-radius', `0 0 ${r}px ${r}px`);
 }
 
-window.addEventListener('resize', applyIPhoneStandaloneCueHints);
-window.addEventListener('orientationchange', applyIPhoneStandaloneCueHints);
+let syncKeyboardStateNow = null;
+
+function isFocusedTextInput() {
+  const el = document.activeElement;
+  if (!el) return false;
+  if (el instanceof HTMLTextAreaElement) return true;
+  if (el instanceof HTMLInputElement) {
+    const type = String(el.type || 'text').toLowerCase();
+    return ![
+      'button', 'checkbox', 'color', 'file', 'hidden',
+      'image', 'radio', 'range', 'reset', 'submit',
+    ].includes(type);
+  }
+  return el instanceof HTMLElement && el.isContentEditable;
+}
+
+function clearKeyboardOpenState() {
+  const inputRow = document.querySelector('.chat-pane-input-row');
+  if (inputRow) inputRow.classList.remove('keyboard-open');
+  document.body.classList.remove('keyboard-open');
+  if (isIPhoneStandalone()) applyIPhoneFrameCorners();
+}
+
+function settleKeyboardAfterSubmit() {
+  clearKeyboardOpenState();
+  const sync = syncKeyboardStateNow;
+  if (typeof sync !== 'function') return;
+  [0, 100, 220, 380, 600, 900, 1300].forEach((delay) => {
+    window.setTimeout(() => {
+      if (syncKeyboardStateNow !== sync) return;
+      sync();
+    }, delay);
+  });
+}
 
 function setTTSSilentMode(silent, { persist = true } = {}) {
   const next = Boolean(silent);
@@ -862,6 +782,12 @@ function canUseMicrophoneCapture() {
     && typeof navigator.mediaDevices.getUserMedia === 'function';
 }
 
+const MIC_CAPTURE_CONSTRAINTS = {
+  echoCancellation: true,
+  autoGainControl: true,
+  noiseSuppression: true,
+};
+
 let _cachedMicStream = null;
 let _micStreamPromise = null;
 
@@ -875,7 +801,7 @@ function acquireMicStream() {
   }
   if (_micStreamPromise) return _micStreamPromise;
   _micStreamPromise = navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, autoGainControl: true, noiseSuppression: true },
+    audio: { ...MIC_CAPTURE_CONSTRAINTS },
   }).then((stream) => {
     _cachedMicStream = stream;
     _micStreamPromise = null;
@@ -887,8 +813,12 @@ function acquireMicStream() {
   return _micStreamPromise;
 }
 
-function releaseMicStream() {
+function releaseMicStream({ force = false } = {}) {
   if (!_cachedMicStream) return;
+  const activeCapture = state.chatVoiceCapture;
+  if (!force && activeCapture && activeCapture.mediaStream === _cachedMicStream && !activeCapture.stopping) {
+    return;
+  }
   _cachedMicStream.getTracks().forEach((t) => t.stop());
   _cachedMicStream = null;
 }
@@ -1186,9 +1116,10 @@ function startVADMonitor(capture) {
       if (options.speechMs < VOICE_VAD_MIN_UTTERANCE_MS) return;
       const hitCandidate = options.silenceMs >= VOICE_VAD_CANDIDATE_SILENCE_MS;
       const hitHardSilence = options.silenceMs >= VOICE_VAD_HARD_SILENCE_MS;
-      const hitMaxDuration = elapsed >= VOICE_VAD_MAX_RECORDING_MS;
+      const hitSoftMaxDuration = elapsed >= VOICE_VAD_MAX_RECORDING_SOFT_MS;
+      const hitHardMaxDuration = elapsed >= VOICE_VAD_MAX_RECORDING_HARD_MS;
 
-      if (hitHardSilence || hitMaxDuration) {
+      if (hitHardSilence || hitHardMaxDuration || hitSoftMaxDuration) {
         stopVADMonitor(capture);
         void stopZenVoiceCaptureAndSend();
         return;
@@ -1365,7 +1296,7 @@ async function stopZenVoiceCaptureAndSend() {
       throw new Error('speech recognizer returned empty text');
     }
     showStatus('sending...');
-    void zenSubmitMessage(transcript);
+    void zenSubmitMessage(transcript, { kind: 'voice_transcript' });
   } catch (err) {
     state.voiceAwaitingTurn = false;
     updateAssistantActivityIndicator();
@@ -1388,6 +1319,7 @@ function cancelChatVoiceCapture() {
   if (!capture) return;
   setRecording(false);
   state.voiceAwaitingTurn = false;
+  abortPendingSubmit('voice_transcript');
   sttCancel();
   stopChatVoiceMedia(capture);
   state.chatVoiceCapture = null;
@@ -1397,6 +1329,9 @@ function cancelChatVoiceCapture() {
 function showCanvasColumn(paneId) {
   const col = document.getElementById('canvas-column');
   if (!col) return;
+  if (paneId !== 'canvas-text') {
+    exitPrReviewMode();
+  }
   const viewport = col.querySelector('#canvas-viewport');
   if (viewport) {
     viewport.querySelectorAll('.canvas-pane').forEach((p) => {
@@ -1419,6 +1354,7 @@ function showCanvasColumn(paneId) {
 }
 
 function hideCanvasColumn() {
+  exitPrReviewMode();
   state.hasArtifact = false;
   setZenMode('rasa');
   clearLineHighlight();
@@ -1486,8 +1422,9 @@ function isTTSSpeaking() {
 
 function currentIndicatorMode() {
   if (isRecording()) return 'recording';
-  if (state.voiceAwaitingTurn) return 'stop';
-  if (isAssistantWorking() || isTTSSpeaking()) return 'stop';
+  if (state.voiceAwaitingTurn) return 'play';
+  if (state.indicatorSuppressedByCanvasUpdate) return '';
+  if (isAssistantWorking() || isTTSSpeaking()) return 'play';
   return '';
 }
 
@@ -1517,6 +1454,286 @@ function paneIdForCanvasKind(kind) {
   if (normalized === 'pdf_artifact' || normalized === 'pdf') return 'canvas-pdf';
   if (normalized === 'text_artifact' || normalized === 'text') return 'canvas-text';
   return '';
+}
+
+function isTemporaryCanvasArtifactTitle(title) {
+  const normalized = String(title || '')
+    .trim()
+    .replaceAll('\\', '/')
+    .replace(/^\.\//, '')
+    .toLowerCase();
+  return normalized.startsWith('.tabura/artifacts/tmp/')
+    || normalized.startsWith('tabura/artifacts/tmp/');
+}
+
+function isRealCanvasArtifactEvent(payload) {
+  const kind = String(payload?.kind || '').trim().toLowerCase();
+  if (!kind || kind === 'clear_canvas') return false;
+  if (kind === 'image_artifact' || kind === 'image' || kind === 'pdf_artifact' || kind === 'pdf') {
+    return true;
+  }
+  if (kind !== 'text_artifact' && kind !== 'text') return false;
+
+  const meta = payload?.meta;
+  if (meta && typeof meta === 'object' && typeof meta.real_artifact === 'boolean') {
+    return meta.real_artifact;
+  }
+
+  const title = String(payload?.title || '').trim();
+  if (!title) return false;
+  return !isTemporaryCanvasArtifactTitle(title);
+}
+
+function isMobileViewport() {
+  return window.matchMedia('(max-width: 767px)').matches;
+}
+
+function statusBadgeForDiffFile(statusRaw) {
+  const normalized = String(statusRaw || '').trim().toLowerCase();
+  if (normalized === 'added') return 'A';
+  if (normalized === 'deleted') return 'D';
+  if (normalized === 'renamed') return 'R';
+  return 'M';
+}
+
+function parseUnifiedDiffFiles(diffText) {
+  const text = String(diffText || '').replaceAll('\r\n', '\n');
+  if (!text.trim()) return [];
+  const lines = text.split('\n');
+  const files = [];
+  let current = null;
+
+  const pushCurrent = () => {
+    if (!current) return;
+    const diff = current.lines.join('\n').trimEnd();
+    if (!diff) return;
+    files.push({
+      path: String(current.path || '(patch)'),
+      status: String(current.status || 'modified'),
+      diff,
+    });
+  };
+
+  const parsePathFromHeader = (line) => {
+    const match = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
+    if (!match) return '';
+    const right = String(match[2] || '').trim();
+    const left = String(match[1] || '').trim();
+    if (right && right !== '/dev/null') return right;
+    return left;
+  };
+
+  const parsePathFromMarker = (line, marker) => {
+    if (!line.startsWith(marker)) return '';
+    const raw = String(line.slice(marker.length)).trim();
+    if (!raw || raw === '/dev/null') return '';
+    return raw.startsWith('a/') || raw.startsWith('b/') ? raw.slice(2) : raw;
+  };
+
+  for (const line of lines) {
+    if (line.startsWith('diff --git ')) {
+      pushCurrent();
+      current = {
+        path: parsePathFromHeader(line) || '(patch)',
+        status: 'modified',
+        lines: [line],
+      };
+      continue;
+    }
+
+    if (!current) {
+      continue;
+    }
+
+    current.lines.push(line);
+    if (line.startsWith('new file mode ')) {
+      current.status = 'added';
+      continue;
+    }
+    if (line.startsWith('deleted file mode ')) {
+      current.status = 'deleted';
+      continue;
+    }
+    if (line.startsWith('rename from ')) {
+      current.status = 'renamed';
+      continue;
+    }
+    if (line.startsWith('rename to ')) {
+      const renamedTo = String(line.slice('rename to '.length)).trim();
+      if (renamedTo) current.path = renamedTo;
+      current.status = 'renamed';
+      continue;
+    }
+    const plusPath = parsePathFromMarker(line, '+++ ');
+    if (plusPath && current.path === '(patch)') {
+      current.path = plusPath;
+      continue;
+    }
+    const minusPath = parsePathFromMarker(line, '--- ');
+    if (minusPath && current.path === '(patch)') {
+      current.path = minusPath;
+    }
+  }
+  pushCurrent();
+
+  if (files.length > 0) return files;
+  return [{
+    path: '(patch)',
+    status: 'modified',
+    diff: text.trimEnd(),
+  }];
+}
+
+function setPrReviewDrawerOpen(open) {
+  const shouldOpen = Boolean(open);
+  state.prReviewDrawerOpen = shouldOpen;
+  const pane = document.getElementById('pr-file-pane');
+  const backdrop = document.getElementById('pr-file-drawer-backdrop');
+  if (pane) pane.classList.toggle('is-open', shouldOpen);
+  if (backdrop) backdrop.classList.toggle('is-open', shouldOpen);
+}
+
+function resetPrReviewUi() {
+  document.body.classList.remove('pr-review-mode');
+  setPrReviewDrawerOpen(false);
+  const title = document.getElementById('pr-file-pane-title');
+  if (title) title.textContent = 'Files';
+  const list = document.getElementById('pr-file-list');
+  if (list) list.innerHTML = '';
+}
+
+function renderPrReviewFileList() {
+  const list = document.getElementById('pr-file-list');
+  if (!(list instanceof HTMLElement)) return;
+  const title = document.getElementById('pr-file-pane-title');
+  const files = Array.isArray(state.prReviewFiles) ? state.prReviewFiles : [];
+  if (title) {
+    if (files.length > 0) {
+      const prefix = state.prReviewPRNumber ? `PR #${state.prReviewPRNumber}` : 'PR Review';
+      title.textContent = `${prefix} (${state.prReviewActiveIndex + 1}/${files.length})`;
+    } else {
+      title.textContent = 'Files';
+    }
+  }
+  list.innerHTML = '';
+  files.forEach((file, index) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'pr-file-item';
+    if (index === state.prReviewActiveIndex) {
+      button.classList.add('is-active');
+    }
+    button.setAttribute('aria-label', String(file?.path || `File ${index + 1}`));
+    button.dataset.index = String(index);
+
+    const status = document.createElement('span');
+    const statusName = String(file?.status || 'modified').toLowerCase();
+    status.className = `pr-file-status status-${statusName}`;
+    status.textContent = statusBadgeForDiffFile(statusName);
+
+    const label = document.createElement('span');
+    label.className = 'pr-file-name';
+    label.textContent = String(file?.path || `(file ${index + 1})`);
+
+    button.appendChild(status);
+    button.appendChild(label);
+    button.addEventListener('click', () => {
+      setPrReviewActiveFile(index);
+      if (isMobileViewport()) {
+        setPrReviewDrawerOpen(false);
+      }
+    });
+    list.appendChild(button);
+  });
+}
+
+function renderActivePrReviewFile() {
+  const files = Array.isArray(state.prReviewFiles) ? state.prReviewFiles : [];
+  if (!state.prReviewMode || files.length === 0) return false;
+  if (state.prReviewActiveIndex < 0 || state.prReviewActiveIndex >= files.length) {
+    state.prReviewActiveIndex = 0;
+  }
+  const file = files[state.prReviewActiveIndex];
+  if (!file) return false;
+  renderCanvas({
+    kind: 'text_artifact',
+    event_id: `pr-review-${Date.now()}-${state.prReviewActiveIndex}`,
+    title: String(file.path || ''),
+    text: String(file.diff || ''),
+  });
+  showCanvasColumn('canvas-text');
+  renderPrReviewFileList();
+  return true;
+}
+
+function setPrReviewActiveFile(index) {
+  const files = Array.isArray(state.prReviewFiles) ? state.prReviewFiles : [];
+  if (!state.prReviewMode || files.length === 0) return false;
+  const total = files.length;
+  let next = Number(index);
+  if (!Number.isFinite(next)) return false;
+  next = ((Math.trunc(next) % total) + total) % total;
+  if (next === state.prReviewActiveIndex) {
+    renderPrReviewFileList();
+    return false;
+  }
+  state.prReviewActiveIndex = next;
+  return renderActivePrReviewFile();
+}
+
+function stepPrReviewFile(delta) {
+  if (!state.prReviewMode) return false;
+  const files = Array.isArray(state.prReviewFiles) ? state.prReviewFiles : [];
+  if (files.length <= 1) return false;
+  const shift = Number(delta);
+  if (!Number.isFinite(shift) || shift === 0) return false;
+  return setPrReviewActiveFile(state.prReviewActiveIndex + shift);
+}
+
+function exitPrReviewMode() {
+  if (!state.prReviewMode && (!state.prReviewFiles || state.prReviewFiles.length === 0)) {
+    return;
+  }
+  state.prReviewMode = false;
+  state.prReviewFiles = [];
+  state.prReviewActiveIndex = 0;
+  state.prReviewTitle = '';
+  state.prReviewPRNumber = '';
+  resetPrReviewUi();
+}
+
+function maybeEnterPrReviewModeFromTextArtifact(payload) {
+  const kind = String(payload?.kind || '').trim().toLowerCase();
+  if (kind !== 'text_artifact' && kind !== 'text') return false;
+  const title = String(payload?.title || '').trim();
+  const text = String(payload?.text || '');
+  if (!text.trim()) return false;
+  const titleHint = /\.diff$|\.patch$/i.test(title);
+  const hasDiffHeader = text.includes('\ndiff --git ') || text.startsWith('diff --git ');
+  if (!titleHint && !hasDiffHeader) return false;
+  const files = parseUnifiedDiffFiles(text);
+  if (files.length === 0) return false;
+  if (!titleHint && files.length < 2) return false;
+
+  state.prReviewMode = true;
+  state.prReviewFiles = files;
+  state.prReviewActiveIndex = 0;
+  state.prReviewTitle = title;
+  const numberMatch = /(?:^|[^0-9])pr[-_]?(\d+)(?:[^0-9]|$)/i.exec(title);
+  state.prReviewPRNumber = numberMatch ? String(numberMatch[1]) : '';
+  document.body.classList.add('pr-review-mode');
+  setPrReviewDrawerOpen(false);
+  renderPrReviewFileList();
+  return renderActivePrReviewFile();
+}
+
+function isLikelyPrReviewArtifact(payload) {
+  const kind = String(payload?.kind || '').trim().toLowerCase();
+  if (kind !== 'text_artifact' && kind !== 'text') return false;
+  const title = String(payload?.title || '').trim().toLowerCase();
+  if (!title) return false;
+  return /(?:^|\/)\.tabura\/artifacts\/pr\/pr-\d+\.(?:diff|patch)$/.test(title)
+    || /(?:^|\/)artifacts\/pr\/pr-\d+\.(?:diff|patch)$/.test(title);
 }
 
 function trackAssistantTurnStarted(turnID) {
@@ -1603,28 +1820,117 @@ function appendRenderedAssistant(markdownText, options = {}) {
 
   const bubble = document.createElement('div');
   bubble.className = 'chat-bubble markdown';
+  const progress = document.createElement('div');
+  progress.className = 'chat-bubble-progress';
+  const body = document.createElement('div');
+  body.className = 'chat-bubble-body';
   const { text: markdownBody, stash: mathSegments } = extractMathSegments(markdownText);
   const rendered = marked.parse(markdownBody || '');
-  bubble.innerHTML = restoreMathSegments(sanitizeHtml(rendered), mathSegments);
+  body.innerHTML = restoreMathSegments(sanitizeHtml(rendered), mathSegments);
+  bubble.appendChild(progress);
+  bubble.appendChild(body);
   row.appendChild(meta);
   row.appendChild(bubble);
   host.appendChild(row);
   syncChatScroll(host);
-  void typesetMath(bubble).finally(() => syncChatScroll(host));
+  void typesetMath(body).finally(() => syncChatScroll(host));
   return row;
+}
+
+function assistantRowBodyEl(row) {
+  if (!(row instanceof HTMLElement)) return null;
+  const body = row.querySelector('.chat-bubble-body');
+  if (body instanceof HTMLElement) return body;
+  const bubble = row.querySelector('.chat-bubble');
+  return bubble instanceof HTMLElement ? bubble : null;
+}
+
+function ensureAssistantProgressEl(row) {
+  if (!(row instanceof HTMLElement)) return null;
+  const bubble = row.querySelector('.chat-bubble');
+  if (!(bubble instanceof HTMLElement)) return null;
+  let progress = bubble.querySelector('.chat-bubble-progress');
+  if (progress instanceof HTMLElement) return progress;
+  progress = document.createElement('div');
+  progress.className = 'chat-bubble-progress';
+  const body = assistantRowBodyEl(row);
+  if (body && body !== bubble && body.parentElement === bubble) {
+    bubble.insertBefore(progress, body);
+  } else {
+    bubble.prepend(progress);
+  }
+  return progress;
+}
+
+function appendAssistantProgressLine(row, text) {
+  if (!(row instanceof HTMLElement)) return;
+  const lineText = String(text || '').trim();
+  if (!lineText) return;
+  const progress = ensureAssistantProgressEl(row);
+  if (!(progress instanceof HTMLElement)) return;
+  const line = document.createElement('div');
+  line.className = 'chat-bubble-progress-line';
+  line.textContent = lineText;
+  progress.appendChild(line);
+  const host = chatHistoryEl();
+  syncChatScroll(host);
+}
+
+function findAssistantRowForTurn(turnID) {
+  const key = String(turnID || '').trim();
+  if (key && state.pendingByTurn.has(key)) {
+    return state.pendingByTurn.get(key);
+  }
+  const host = chatHistoryEl();
+  if (!host) return null;
+  const rows = host.querySelectorAll('.chat-message.chat-assistant');
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i];
+    if (!(row instanceof HTMLElement)) continue;
+    if (key && row.dataset.turnId === key) return row;
+    if (!key && row.classList.contains('is-pending')) return row;
+  }
+  return null;
+}
+
+function humanizeItemTypeLabel(raw) {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  return value
+    .replace(/[._-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function formatItemCompletedLabel(payload) {
+  const label = humanizeItemTypeLabel(payload?.item_type);
+  const detail = String(payload?.detail || '').trim();
+  if (!label && !detail) return '';
+  if (!label) return detail;
+  if (!detail) return label;
+  return `${label}: ${detail}`;
+}
+
+function appendAssistantProgressForTurn(turnID, text) {
+  const line = String(text || '').trim();
+  if (!line) return;
+  const existing = findAssistantRowForTurn(turnID);
+  const row = existing || ensurePendingForTurn(turnID);
+  if (!(row instanceof HTMLElement)) return;
+  appendAssistantProgressLine(row, line);
 }
 
 function updateAssistantRow(row, markdownText, pending = true) {
   if (!row) return;
   const host = chatHistoryEl();
   row.classList.toggle('is-pending', pending);
-  const bubble = row.querySelector('.chat-bubble');
-  if (!(bubble instanceof HTMLElement)) return;
+  const body = assistantRowBodyEl(row);
+  if (!(body instanceof HTMLElement)) return;
   const { text: markdownBody, stash: mathSegments } = extractMathSegments(markdownText);
   const rendered = marked.parse(markdownBody || '');
-  bubble.innerHTML = restoreMathSegments(sanitizeHtml(rendered), mathSegments);
+  body.innerHTML = restoreMathSegments(sanitizeHtml(rendered), mathSegments);
   syncChatScroll(host);
-  void typesetMath(bubble).finally(() => syncChatScroll(host));
+  void typesetMath(body).finally(() => syncChatScroll(host));
 }
 
 function ensurePendingForTurn(turnID) {
@@ -2006,9 +2312,7 @@ function assistantMessageUsesCanvasBlocks(text) {
   return lower.includes(':::file{');
 }
 
-function shouldRenderAssistantHistoryInChat(renderFormat, markdown, plain) {
-  const format = String(renderFormat || '').trim().toLowerCase();
-  if (format === 'canvas') return false;
+function shouldRenderAssistantHistoryInChat(_renderFormat, markdown, plain) {
   return Boolean(String(markdown || plain || '').trim());
 }
 
@@ -2044,14 +2348,13 @@ function handleChatEvent(payload) {
     trackAssistantTurnStarted(turnID);
     state.voiceAwaitingTurn = false;
     state.indicatorSuppressedByCanvasUpdate = false;
-    if (turnIsVoice) {
-      ensurePendingForTurn(turnID);
-    } else if (isMobileSilent()) {
+    ensurePendingForTurn(turnID);
+    if (isMobileSilent()) {
       const edgeRight = document.getElementById('edge-right');
       if (edgeRight) edgeRight.classList.add('edge-pinned');
-      ensurePendingForTurn(turnID);
     }
     state.zenCanvasActionThisTurn = false;
+    state.turnFirstResponseShown = false;
     // Reset TTS state for new turn
     stopTTSPlayback();
     const pos = getLastInputPosition();
@@ -2073,20 +2376,11 @@ function handleChatEvent(payload) {
     const md = String(payload.message || '');
     const autoCanvas = Boolean(payload.auto_canvas);
     const renderOnCanvas = Boolean(payload.render_on_canvas) || autoCanvas || assistantMessageUsesCanvasBlocks(md);
-    if (isVoiceTurn()) {
-      const row = ensurePendingForTurn(turnID);
-      if (String(md || '').trim()) {
-        updateAssistantRow(row, md, true);
-      } else if (!renderOnCanvas) {
-        updateAssistantRow(row, '_Thinking..._', true);
-      }
-    } else if (isMobileSilent()) {
-      const row = ensurePendingForTurn(turnID);
-      if (String(md || '').trim()) {
-        updateAssistantRow(row, md, true);
-      } else if (!renderOnCanvas) {
-        updateAssistantRow(row, '_Thinking..._', true);
-      }
+    const row = ensurePendingForTurn(turnID);
+    if (String(md || '').trim()) {
+      updateAssistantRow(row, md, true);
+    } else if (!renderOnCanvas) {
+      updateAssistantRow(row, '_Thinking..._', true);
     }
 
     if (autoCanvas) {
@@ -2096,6 +2390,21 @@ function handleChatEvent(payload) {
         hideOverlay();
       }
       return;
+    }
+
+    // First non-empty response: show on canvas (silent) / speak (voice)
+    const trimmedMd = String(md || '').trim();
+    if (trimmedMd && !state.turnFirstResponseShown) {
+      state.turnFirstResponseShown = true;
+      if (isMobileSilent()) {
+        renderCanvas({ kind: 'text_artifact', title: '', text: md });
+      }
+      if (isVoiceTurn() && canSpeakTTS()) {
+        const { ttsText, ttsLang } = extractTTSText(md);
+        if (ttsLang) ttsSpeakLang = ttsLang;
+        const diff = computeTTSDiff(ttsText);
+        queueTTSDiff(diff);
+      }
     }
 
     if (!isVoiceTurn() && !isMobileSilent() && !state.hasArtifact) {
@@ -2118,15 +2427,13 @@ function handleChatEvent(payload) {
     const displayMd = md || (ttsLastSpeakText ? `_${ttsLastSpeakText}_` : '');
     const hasDisplayMd = Boolean(String(displayMd || '').trim());
     const mobileSilent = isMobileSilent();
-    if (isVoiceTurn() || mobileSilent) {
-      const row = takePendingRow(turnID);
-      if (row && hasDisplayMd) {
-        updateAssistantRow(row, displayMd, false);
-      } else if (row) {
-        row.classList.remove('is-pending');
-      } else if (hasDisplayMd) {
-        appendRenderedAssistant(displayMd);
-      }
+    const row = takePendingRow(turnID);
+    if (row && hasDisplayMd) {
+      updateAssistantRow(row, displayMd, false);
+    } else if (row) {
+      row.classList.remove('is-pending');
+    } else if (hasDisplayMd) {
+      appendRenderedAssistant(displayMd);
     }
     const shouldSpeakTurn = turnID ? state.voiceTurns.has(turnID) : false;
     trackAssistantTurnFinished(turnID);
@@ -2149,9 +2456,17 @@ function handleChatEvent(payload) {
       ttsSentenceChunker.flush();
     }
     if (mobileSilent) {
-      if (autoCanvas) {
+      if (state.zenCanvasActionThisTurn) {
+        // LLM touched the canvas this turn — keep showing the document.
         const edgeRight = document.getElementById('edge-right');
         if (edgeRight) edgeRight.classList.remove('edge-active', 'edge-pinned');
+      } else if (hasDisplayMd) {
+        // Mirror final answer on canvas while keeping chat in focus.
+        renderCanvas({
+          kind: 'text_artifact',
+          title: '',
+          text: displayMd,
+        });
       }
       hideOverlay();
       state.zenCanvasActionThisTurn = false;
@@ -2173,6 +2488,13 @@ function handleChatEvent(payload) {
       }
     }
     state.zenCanvasActionThisTurn = false;
+    return;
+  }
+
+  if (type === 'item_completed') {
+    const turnID = String(payload.turn_id || '').trim();
+    const line = formatItemCompletedLabel(payload);
+    appendAssistantProgressForTurn(turnID, line);
     return;
   }
 
@@ -2292,9 +2614,36 @@ async function switchProject(projectID) {
   }
 }
 
-async function zenSubmitMessage(text) {
+function setPendingSubmit(controller, kind = '') {
+  state.pendingSubmitController = controller || null;
+  state.pendingSubmitKind = String(kind || '').trim();
+}
+
+function clearPendingSubmit(controller = null) {
+  if (controller && state.pendingSubmitController !== controller) return;
+  state.pendingSubmitController = null;
+  state.pendingSubmitKind = '';
+}
+
+function abortPendingSubmit(kind = '') {
+  const controller = state.pendingSubmitController;
+  if (!controller) return false;
+  const requiredKind = String(kind || '').trim();
+  if (requiredKind && state.pendingSubmitKind !== requiredKind) return false;
+  clearPendingSubmit(controller);
+  try { controller.abort(); } catch (_) {}
+  return true;
+}
+
+async function zenSubmitMessage(text, options = {}) {
   const trimmed = String(text || '').trim();
   if (!trimmed || !state.chatSessionId) return;
+  const submitKind = String(options?.kind || '').trim();
+  let submitController = null;
+  if (submitKind) {
+    submitController = new AbortController();
+    setPendingSubmit(submitController, submitKind);
+  }
   state.indicatorSuppressedByCanvasUpdate = false;
   // Interrupt TTS playback when sending a new message
   if (ttsPlayer) { ttsPlayer.stop(); ttsPlayer = null; }
@@ -2326,6 +2675,7 @@ async function zenSubmitMessage(text) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: submitController ? submitController.signal : undefined,
     });
     if (!resp.ok) {
       state.voiceAwaitingTurn = false;
@@ -2339,10 +2689,25 @@ async function zenSubmitMessage(text) {
       return;
     }
     const payload = await resp.json();
-    if (payload?.kind === 'command' && payload?.result?.message) {
-      appendPlainMessage('system', String(payload.result.message));
+    if (payload?.kind === 'command') {
+      const commandName = String(payload?.result?.name || '').trim().toLowerCase();
+      if (commandName === 'pr') {
+        state.prReviewAwaitingArtifact = true;
+      }
+      if (payload?.result?.message) {
+        appendPlainMessage('system', String(payload.result.message));
+      }
     }
   } catch (err) {
+    if (err && (err.name === 'AbortError' || String(err?.message || '').toLowerCase().includes('aborted'))) {
+      state.voiceAwaitingTurn = false;
+      const pending = takePendingRow('');
+      pending?.remove();
+      trackAssistantTurnFinished('');
+      showStatus('stopped');
+      updateAssistantActivityIndicator();
+      return;
+    }
     state.voiceAwaitingTurn = false;
     const pending = takePendingRow('');
     pending?.remove();
@@ -2350,6 +2715,8 @@ async function zenSubmitMessage(text) {
     appendPlainMessage('system', `Send failed: ${String(err?.message || err)}`);
     updateOverlay(`**Send failed:** ${String(err?.message || err)}`);
     updateAssistantActivityIndicator();
+  } finally {
+    clearPendingSubmit(submitController);
   }
 }
 
@@ -2424,19 +2791,68 @@ async function handleZenStopAction() {
     stopTTSPlayback();
   }
 
-  const canceled = await cancelActiveAssistantTurnWithRetry(3);
-  if (canceled) return;
-
-  if (state.voiceAwaitingTurn) {
+  const hadVoiceAwaitingTurn = state.voiceAwaitingTurn;
+  if (hadVoiceAwaitingTurn) {
+    abortPendingSubmit('voice_transcript');
     state.voiceAwaitingTurn = false;
     sttCancel();
     updateAssistantActivityIndicator();
-    return;
   }
+
+  const canceled = await cancelActiveAssistantTurnWithRetry(3);
+  if (canceled) return;
+
+  if (hadVoiceAwaitingTurn) return;
 
   if (capture) {
     sttCancel();
     updateAssistantActivityIndicator();
+  }
+}
+
+function applyCanvasArtifactEvent(payload) {
+  const kind = String(payload?.kind || '').trim().toLowerCase();
+  if (kind === 'clear_canvas') {
+    state.prReviewAwaitingArtifact = false;
+    exitPrReviewMode();
+    renderCanvas(payload);
+    hideCanvasColumn();
+    return;
+  }
+
+  let handledByPrReview = false;
+  const textArtifact = kind === 'text_artifact' || kind === 'text';
+  if (textArtifact && (state.prReviewAwaitingArtifact || state.prReviewMode || isLikelyPrReviewArtifact(payload))) {
+    handledByPrReview = maybeEnterPrReviewModeFromTextArtifact(payload);
+  }
+  if (state.prReviewAwaitingArtifact) {
+    state.prReviewAwaitingArtifact = false;
+  }
+  if (!handledByPrReview) {
+    exitPrReviewMode();
+  }
+
+  if (!handledByPrReview && state.prReviewMode) {
+    exitPrReviewMode();
+  }
+
+  if (!handledByPrReview) {
+    renderCanvas(payload);
+  }
+
+  if (kind) {
+    state.indicatorSuppressedByCanvasUpdate = true;
+    updateAssistantActivityIndicator();
+  }
+
+  const paneId = paneIdForCanvasKind(payload.kind);
+  if (!paneId) return;
+  const realCanvasArtifact = isRealCanvasArtifactEvent(payload);
+  showCanvasColumn(paneId);
+  state.zenCanvasActionThisTurn = state.zenCanvasActionThisTurn || realCanvasArtifact;
+  if (isMobileSilent() && realCanvasArtifact) {
+    const edgeRight = document.getElementById('edge-right');
+    if (edgeRight) edgeRight.classList.remove('edge-active', 'edge-pinned');
   }
 }
 
@@ -2458,20 +2874,7 @@ function openCanvasWs() {
     if (turnToken !== state.canvasWsToken || targetSessionID !== state.sessionId) return;
     try {
       const payload = JSON.parse(event.data);
-      renderCanvas(payload);
-      const kind = String(payload?.kind || '').trim().toLowerCase();
-      if (kind && kind !== 'clear_canvas') {
-        state.indicatorSuppressedByCanvasUpdate = true;
-        updateAssistantActivityIndicator();
-      }
-      const paneId = paneIdForCanvasKind(payload.kind);
-      if (paneId) {
-        showCanvasColumn(paneId);
-        state.zenCanvasActionThisTurn = true;
-      }
-      if (kind === 'clear_canvas') {
-        hideCanvasColumn();
-      }
+      applyCanvasArtifactEvent(payload);
     } catch (_) {}
   };
 
@@ -2488,20 +2891,27 @@ function openCanvasWs() {
 async function loadCanvasSnapshot(sessionID = state.sessionId) {
   try {
     const resp = await fetch(`/api/canvas/${encodeURIComponent(sessionID)}/snapshot`);
-    if (!resp.ok) { clearCanvas(); return; }
-    const payload = await resp.json();
-    if (payload?.event) {
-      renderCanvas(payload.event);
-      const ev = payload.event;
-      const paneId = paneIdForCanvasKind(ev.kind);
-      if (paneId) {
-        showCanvasColumn(paneId);
+    if (!resp.ok) {
+      if (!state.hasArtifact) {
+        exitPrReviewMode();
+        clearCanvas();
       }
       return;
     }
-    clearCanvas();
+    const payload = await resp.json();
+    if (payload?.event) {
+      applyCanvasArtifactEvent(payload.event);
+      return;
+    }
+    if (!state.hasArtifact) {
+      exitPrReviewMode();
+      clearCanvas();
+    }
   } catch (_) {
-    clearCanvas();
+    if (!state.hasArtifact) {
+      exitPrReviewMode();
+      clearCanvas();
+    }
   }
 }
 
@@ -2534,7 +2944,7 @@ function edgePanelsAreOpen() {
   return topOpen || rightOpen;
 }
 
-function handleLeftEdgeTap() {
+function handleRasaEdgeTap() {
   const hadOpenPanels = edgePanelsAreOpen();
   closeEdgePanels();
   if (hadOpenPanels) return;
@@ -2617,40 +3027,179 @@ function initEdgePanels() {
     });
   }
 
+  // Desktop: button clicks for left/right/bottom edge taps
   if (edgeLeftTap) {
     edgeLeftTap.addEventListener('click', (ev) => {
       ev.preventDefault();
-      handleLeftEdgeTap();
+      handleRasaEdgeTap();
     });
   }
 
-  // Mobile: swipe from edge
+  const edgeRightTap = document.getElementById('edge-right-tap');
+  if (edgeRightTap) {
+    edgeRightTap.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      if (edgeRight) edgeRight.classList.add('edge-pinned');
+    });
+    // Direct touch handler: iOS system gesture recognizer can intercept
+    // document-level touch events near screen edges. Handle on the button
+    // itself with touch-action:manipulation to bypass system gestures.
+    edgeRightTap.addEventListener('touchend', (ev) => {
+      ev.preventDefault();
+      if (edgeRight) edgeRight.classList.add('edge-pinned');
+    }, { passive: false });
+  }
+
+  const prDrawerToggle = document.getElementById('pr-file-drawer-toggle');
+  if (prDrawerToggle) {
+    prDrawerToggle.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      if (!state.prReviewMode) return;
+      setPrReviewDrawerOpen(!state.prReviewDrawerOpen);
+    });
+  }
+  const prDrawerBackdrop = document.getElementById('pr-file-drawer-backdrop');
+  if (prDrawerBackdrop) {
+    prDrawerBackdrop.addEventListener('click', () => {
+      setPrReviewDrawerOpen(false);
+    });
+  }
+  const prPaneClose = document.getElementById('pr-file-pane-close');
+  if (prPaneClose) {
+    prPaneClose.addEventListener('click', () => {
+      setPrReviewDrawerOpen(false);
+    });
+  }
+
+  // Mobile: touch tap and swipe from edges.
+  // Buttons don't reliably fire click on iOS, so handle everything here.
+  let edgeTouchHandled = false;
   document.addEventListener('touchstart', (ev) => {
     if (ev.touches.length !== 1) return;
     const t = ev.touches[0];
     const edgeTapSize = getEdgeTapSizePx();
-    if (t.clientX > window.innerWidth - edgeTapSize || t.clientY < edgeTapSize || t.clientX < edgeTapSize) {
-      edgeTouchStart = { x: t.clientX, y: t.clientY, edge: null };
-      if (t.clientX > window.innerWidth - edgeTapSize) edgeTouchStart.edge = 'right';
-      else if (t.clientY < edgeTapSize) edgeTouchStart.edge = 'top';
+    edgeTouchHandled = false;
+    if (t.clientX > window.innerWidth - edgeTapSize) {
+      edgeTouchStart = { x: t.clientX, y: t.clientY, edge: 'right' };
+    } else if (t.clientY < edgeTapSize) {
+      edgeTouchStart = { x: t.clientX, y: t.clientY, edge: 'top' };
+    } else if (t.clientY > window.innerHeight - edgeTapSize) {
+      edgeTouchStart = { x: t.clientX, y: t.clientY, edge: 'bottom' };
+    } else {
+      edgeTouchStart = null;
     }
   }, { passive: true });
 
   document.addEventListener('touchmove', (ev) => {
-    if (!edgeTouchStart || ev.touches.length !== 1) return;
+    if (!edgeTouchStart || edgeTouchHandled || ev.touches.length !== 1) return;
     const t = ev.touches[0];
     const dx = t.clientX - edgeTouchStart.x;
     const dy = t.clientY - edgeTouchStart.y;
     if (edgeTouchStart.edge === 'right' && dx < -30 && edgeRight) {
       edgeRight.classList.add('edge-active');
+      edgeTouchHandled = true;
     } else if (edgeTouchStart.edge === 'top' && dy > 30 && edgeTop) {
       edgeTop.classList.add('edge-active');
+      edgeTouchHandled = true;
     }
   }, { passive: true });
 
-  document.addEventListener('touchend', () => {
+  document.addEventListener('touchend', (ev) => {
+    if (!edgeTouchStart || edgeTouchHandled) {
+      edgeTouchStart = null;
+      return;
+    }
+    // Tap (not swipe): small movement from start point
+    const touch = ev.changedTouches && ev.changedTouches[0];
+    if (touch) {
+      const dx = Math.abs(touch.clientX - edgeTouchStart.x);
+      const dy = Math.abs(touch.clientY - edgeTouchStart.y);
+      if (dx < 20 && dy < 20) {
+        switch (edgeTouchStart.edge) {
+          case 'bottom': handleRasaEdgeTap(); break;
+          case 'right': if (edgeRight) edgeRight.classList.add('edge-pinned'); break;
+          case 'top': if (edgeTop) edgeTop.classList.add('edge-pinned'); break;
+        }
+        // Prevent iOS from synthesizing a click after edge tap — the
+        // panel pin above can cause the click to land inside the
+        // newly-visible panel (e.g. chatHistory) and start recording.
+        ev.preventDefault();
+      }
+    }
     edgeTouchStart = null;
-  }, { passive: true });
+  }, { passive: false });
+
+  // Blur chat input when app goes to background so iOS does not
+  // restore keyboard focus on resume.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      const cpInput = document.getElementById('chat-pane-input');
+      if (cpInput && document.activeElement === cpInput) {
+        cpInput.blur();
+      }
+    }
+  });
+
+  // Toggle safe-area bottom padding and keyboard state on mobile.
+  // iOS can report changing viewport metrics while the keyboard opens;
+  // keep a baseline "fully open" viewport and restore frame corners
+  // once the keyboard is dismissed.
+  if (window.visualViewport) {
+    const inputRow = document.querySelector('.chat-pane-input-row');
+    if (inputRow) {
+      const root = document.documentElement;
+
+      const setKeyboardOpen = (keyboardOpen) => {
+        inputRow.classList.toggle('keyboard-open', keyboardOpen);
+        document.body.classList.toggle('keyboard-open', keyboardOpen);
+        if (!isIPhoneStandalone()) return;
+        if (keyboardOpen) {
+          root.style.setProperty('--zen-cue-corner-radius', '0 0 0 0');
+        } else {
+          applyIPhoneFrameCorners();
+        }
+      };
+
+      let baselineHeight = Math.max(
+        window.innerHeight,
+        window.visualViewport.height + Math.max(0, window.visualViewport.offsetTop || 0),
+      );
+      const syncKeyboardState = () => {
+        const vv = window.visualViewport;
+        if (!vv) return;
+        const offsetTop = Math.max(0, Number(vv.offsetTop) || 0);
+        const viewportExtent = vv.height + offsetTop;
+        if (viewportExtent > baselineHeight) baselineHeight = viewportExtent;
+        const focused = isFocusedTextInput();
+        const shifted = offsetTop > 1;
+        const shrunkenWhileFocused = focused && viewportExtent < baselineHeight - 100;
+        const keyboardOpen = shifted || shrunkenWhileFocused;
+        setKeyboardOpen(keyboardOpen);
+        if (!keyboardOpen) {
+          baselineHeight = Math.max(window.innerHeight, viewportExtent);
+        }
+      };
+
+      window.visualViewport.addEventListener('resize', syncKeyboardState);
+      window.visualViewport.addEventListener('scroll', syncKeyboardState);
+      window.addEventListener('orientationchange', () => {
+        baselineHeight = Math.max(
+          window.innerHeight,
+          window.visualViewport
+            ? (window.visualViewport.height + Math.max(0, window.visualViewport.offsetTop || 0))
+            : window.innerHeight,
+        );
+        window.setTimeout(syncKeyboardState, 80);
+      });
+      document.addEventListener('focusin', syncKeyboardState, true);
+      document.addEventListener('focusout', () => {
+        window.setTimeout(syncKeyboardState, 80);
+        window.setTimeout(syncKeyboardState, 260);
+      }, true);
+      syncKeyboardStateNow = syncKeyboardState;
+      syncKeyboardState();
+    }
+  }
 }
 
 function closeEdgePanels() {
@@ -2658,6 +3207,9 @@ function closeEdgePanels() {
   const edgeRight = document.getElementById('edge-right');
   if (edgeTop) edgeTop.classList.remove('edge-active', 'edge-pinned');
   if (edgeRight) edgeRight.classList.remove('edge-active', 'edge-pinned');
+  if (state.prReviewDrawerOpen) {
+    setPrReviewDrawerOpen(false);
+  }
 }
 
 function bindUi() {
@@ -2670,9 +3222,14 @@ function bindUi() {
   let lastMouseX = Math.floor(window.innerWidth / 2);
   let lastMouseY = Math.floor(window.innerHeight / 2);
   let hasLastMousePosition = false;
-  const isVoiceInteractionTarget = (target) => (
-    target instanceof Element
-    && target.closest('button,a,input,textarea,select,[contenteditable="true"],.zen-overlay,.zen-input,.edge-panel')
+  const isInEdgeZone = (x, y) => {
+    const s = getEdgeTapSizePx();
+    return x > window.innerWidth - s || y < s || y > window.innerHeight - s;
+  };
+  const isVoiceInteractionTarget = (target, x, y) => (
+    isInEdgeZone(x, y)
+    || (target instanceof Element
+      && target.closest('button,a,input,textarea,select,[contenteditable="true"],.zen-overlay,.zen-input,.edge-panel'))
   );
   const rememberMousePosition = (x, y) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
@@ -2711,9 +3268,9 @@ function bindUi() {
 
   if (zenIndicator) {
     let lastIndicatorTouchAt = 0;
-    const isIndicatorArmed = () => zenIndicator.classList.contains('is-stop') || zenIndicator.classList.contains('is-recording');
+    const isIndicatorArmed = () => zenIndicator.classList.contains('is-working') || zenIndicator.classList.contains('is-recording');
     const pointHitsIndicatorChip = (x, y) => {
-      const chips = zenIndicator.querySelectorAll('.zen-record-dot, .zen-stop-square');
+      const chips = zenIndicator.querySelectorAll('.zen-record-dot, .zen-play-icon');
       for (const chip of chips) {
         if (!(chip instanceof HTMLElement)) continue;
         const style = window.getComputedStyle(chip);
@@ -2751,6 +3308,33 @@ function bindUi() {
   };
   if (canvasViewport instanceof HTMLElement) {
     canvasViewport.addEventListener('scroll', syncIndicatorOnViewportChange, { passive: true, capture: true });
+    let prSwipeStart = null;
+    let prSwipeHandled = false;
+    const resetPrSwipe = () => {
+      prSwipeStart = null;
+      prSwipeHandled = false;
+    };
+    canvasViewport.addEventListener('touchstart', (ev) => {
+      if (!state.prReviewMode || !isMobileViewport()) return;
+      if (state.prReviewDrawerOpen || ev.touches.length !== 1) return;
+      const touch = ev.touches[0];
+      prSwipeStart = { x: touch.clientX, y: touch.clientY };
+      prSwipeHandled = false;
+    }, { passive: true });
+    canvasViewport.addEventListener('touchmove', (ev) => {
+      if (!prSwipeStart || prSwipeHandled || !state.prReviewMode || ev.touches.length !== 1) return;
+      const touch = ev.touches[0];
+      const dx = touch.clientX - prSwipeStart.x;
+      const dy = touch.clientY - prSwipeStart.y;
+      if (Math.abs(dx) < 48) return;
+      if (Math.abs(dx) <= Math.abs(dy) * 1.25) return;
+      const moved = stepPrReviewFile(dx < 0 ? 1 : -1);
+      if (!moved) return;
+      prSwipeHandled = true;
+      ev.preventDefault();
+    }, { passive: false });
+    canvasViewport.addEventListener('touchend', resetPrSwipe, { passive: true });
+    canvasViewport.addEventListener('touchcancel', resetPrSwipe, { passive: true });
   }
   window.addEventListener('scroll', syncIndicatorOnViewportChange, { passive: true });
   window.addEventListener('resize', syncIndicatorOnViewportChange);
@@ -2778,7 +3362,7 @@ function bindUi() {
     // A short click still uses tap-to-talk via the click handler below.
     zenClickTarget.addEventListener('pointerdown', (ev) => {
       if (ev.pointerType !== 'mouse' || !ev.isPrimary || ev.button !== 0) return;
-      if (isVoiceInteractionTarget(ev.target)) return;
+      if (isVoiceInteractionTarget(ev.target, ev.clientX, ev.clientY)) return;
       if (isRecording() || shouldStopInUiClick()) return;
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed) return;
@@ -2848,7 +3432,7 @@ function bindUi() {
       }
 
       // Ignore clicks on interactive elements
-      if (isVoiceInteractionTarget(ev.target)) return;
+      if (isVoiceInteractionTarget(ev.target, ev.clientX, ev.clientY)) return;
       // Ignore if right-click
       if (ev.button !== 0) return;
       // Ignore text selection
@@ -2891,7 +3475,9 @@ function bindUi() {
         if (text) {
           state.lastInputOrigin = 'text';
           zenInput.value = '';
+          zenInput.blur();
           hideTextInput();
+          settleKeyboardAfterSubmit();
           void zenSubmitMessage(text);
         }
       }
@@ -2918,6 +3504,7 @@ function bindUi() {
           chatPaneInput.value = '';
           chatPaneInput.style.height = '';
           chatPaneInput.blur();
+          settleKeyboardAfterSubmit();
           void zenSubmitMessage(text);
         }
       }
@@ -2926,6 +3513,7 @@ function bindUi() {
         chatPaneInput.value = '';
         chatPaneInput.style.height = '';
         chatPaneInput.blur();
+        settleKeyboardAfterSubmit();
       }
     });
     chatPaneInput.addEventListener('input', () => {
@@ -2985,6 +3573,7 @@ function bindUi() {
     chatHistory.addEventListener('click', (ev) => {
       if (ev.button !== 0) return;
       if (ev.target instanceof Element && ev.target.closest('a,button,input,textarea,select,[contenteditable="true"]')) return;
+      if (isInEdgeZone(ev.clientX, ev.clientY)) return;
       const edgeR = chatHistory.closest('.edge-panel');
       if (edgeR && !edgeR.classList.contains('edge-pinned')) return;
       if (shouldStopInUiClick()) { void handleZenStopAction(); return; }
@@ -3029,6 +3618,10 @@ function bindUi() {
         hideTextInput();
         return;
       }
+      if (state.prReviewMode && state.prReviewDrawerOpen) {
+        setPrReviewDrawerOpen(false);
+        return;
+      }
       closeEdgePanels();
       if (state.hasArtifact) {
         clearCanvas();
@@ -3052,7 +3645,7 @@ function bindUi() {
       state.chatCtrlHoldTimer = window.setTimeout(() => {
         state.chatCtrlHoldTimer = null;
         const point = getCtrlVoiceCapturePoint();
-        void beginVoiceCaptureFromPoint(point.x, point.y);
+        void beginVoiceCaptureFromPoint(point.x, point.y, { manualStopOnly: true });
       }, CHAT_CTRL_LONG_PRESS_MS);
       return;
     }
@@ -3071,6 +3664,19 @@ function bindUi() {
 
     if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
     if (isEditableTarget(ev.target)) return;
+
+    if (state.prReviewMode) {
+      if (ev.key === 'ArrowRight' || ev.key === 'j' || ev.key === 'J') {
+        ev.preventDefault();
+        stepPrReviewFile(1);
+        return;
+      }
+      if (ev.key === 'ArrowLeft' || ev.key === 'k' || ev.key === 'K') {
+        ev.preventDefault();
+        stepPrReviewFile(-1);
+        return;
+      }
+    }
 
     // Auto-activate text input on printable key
     if (ev.key.length === 1 && !isTextInputVisible()) {
@@ -3125,7 +3731,9 @@ function bindUi() {
       clearTimeout(state.chatCtrlHoldTimer);
       state.chatCtrlHoldTimer = null;
     }
-    if (state.chatVoiceCapture) {
+    // Keep active capture alive on transient browser blur; hard stop is
+    // handled by visibilitychange when the page is actually hidden.
+    if (state.chatVoiceCapture && document.hidden) {
       cancelChatVoiceCapture();
       showStatus('ready');
     }
@@ -3206,11 +3814,19 @@ function showSplash() {
 
 function warmMicStream() {
   if (!canUseMicrophoneCapture()) return;
-  acquireMicStream().then(() => releaseMicStream()).catch(() => {});
+  navigator.mediaDevices.getUserMedia({ audio: { ...MIC_CAPTURE_CONSTRAINTS } })
+    .then((stream) => {
+      stream.getTracks().forEach((track) => track.stop());
+    })
+    .catch(() => {});
 }
 
 async function init() {
-  applyIPhoneStandaloneCueHints();
+  applyIPhoneFrameCorners();
+  window.addEventListener('resize', () => {
+    if (document.body.classList.contains('keyboard-open')) return;
+    applyIPhoneFrameCorners();
+  });
   bindUi();
   warmMicStream();
   updateAssistantActivityIndicator();

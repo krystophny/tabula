@@ -139,7 +139,7 @@ test.describe('zen canvas - tabula rasa', () => {
     const indicator = page.locator('#zen-indicator');
     await expect(indicator).toBeVisible();
     await expect(page.locator('.zen-record-dot')).toBeVisible();
-    await expect(page.locator('.zen-stop-square')).toBeHidden();
+    await expect(page.locator('.zen-play-icon')).toBeHidden();
 
     // Wait for recorder to start
     await waitForLogEntry(page, 'recorder', 'start');
@@ -148,7 +148,7 @@ test.describe('zen canvas - tabula rasa', () => {
     await page.mouse.click(400, 400);
     await waitForLogEntry(page, 'stt', 'stop');
     await expect(indicator).toBeVisible();
-    await expect(page.locator('.zen-stop-square')).toBeVisible();
+    await expect(page.locator('.zen-play-icon')).toBeVisible();
     await expect(page.locator('.zen-record-dot')).toBeHidden();
   });
 
@@ -209,6 +209,48 @@ test.describe('zen canvas - response overlay', () => {
     await page.mouse.click(10, 10);
     await page.waitForTimeout(100);
     await expect(overlay).toBeHidden();
+  });
+
+  test('item progress stays in the active assistant row through final output', async ({ page }) => {
+    await page.keyboard.type('run checks');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(120);
+
+    await injectChatEvent(page, { type: 'turn_started', turn_id: 'turn-progress-1' });
+    await page.waitForTimeout(80);
+
+    await injectChatEvent(page, {
+      type: 'item_completed',
+      turn_id: 'turn-progress-1',
+      item_type: 'exec_command',
+      detail: 'go test ./internal/web -run TestStop',
+    });
+    await injectChatEvent(page, {
+      type: 'item_completed',
+      turn_id: 'turn-progress-1',
+      item_type: 'reasoning',
+      detail: 'Validating stop handling and cancellation paths',
+    });
+    await page.waitForTimeout(80);
+
+    const assistantRow = page.locator('#chat-history .chat-message.chat-assistant').first();
+    await expect(assistantRow).toContainText('exec command');
+    await expect(assistantRow).toContainText('go test ./internal/web -run TestStop');
+    await expect(assistantRow).toContainText('reasoning');
+
+    await injectChatEvent(page, {
+      type: 'assistant_output',
+      role: 'assistant',
+      turn_id: 'turn-progress-1',
+      message: 'Stop flow is now stable.',
+      auto_canvas: false,
+    });
+    await page.waitForTimeout(100);
+
+    await expect(assistantRow).toContainText('Stop flow is now stable.');
+    await expect(assistantRow).toContainText('exec command');
+    await expect(page.locator('#chat-history .chat-message.chat-system')).toHaveCount(0);
+    await expect(page.locator('#chat-history .chat-message.chat-assistant.is-pending')).toHaveCount(0);
   });
 
   test('empty canvas switches from text overlay to symbol on first artifact event', async ({ page }) => {
@@ -360,7 +402,7 @@ test.describe('zen canvas - TTS voice output', () => {
     // Stop indicator visible, overlay hidden
     const indicator = page.locator('#zen-indicator');
     await expect(indicator).toBeVisible();
-    await expect(page.locator('.zen-stop-square')).toBeVisible();
+    await expect(page.locator('.zen-play-icon')).toBeVisible();
 
     const overlay = page.locator('#zen-overlay');
     await expect(overlay).toBeHidden();
@@ -384,7 +426,7 @@ test.describe('zen canvas - TTS voice output', () => {
     // Indicator stays visible while work is active
     const indicator = page.locator('#zen-indicator');
     await expect(indicator).toBeVisible();
-    await expect(page.locator('.zen-stop-square')).toBeVisible();
+    await expect(page.locator('.zen-play-icon')).toBeVisible();
   });
 
   test('voice response triggers TTS, no overlay', async ({ page }) => {
@@ -420,7 +462,7 @@ test.describe('zen canvas - TTS voice output', () => {
     await expect(overlay).toBeHidden();
   });
 
-  test('auto canvas stream events do not trigger TTS before final output', async ({ page }) => {
+  test('first voice response speaks immediately, auto_canvas does not add extra TTS', async ({ page }) => {
     await clearLog(page);
     await setVoiceOrigin(page);
 
@@ -433,7 +475,14 @@ test.describe('zen canvas - TTS voice output', () => {
       message: 'I will open readme and place it there',
       delta: 'I will open readme and place it there',
     });
-    await page.waitForTimeout(80);
+    await page.waitForTimeout(500);
+
+    // First response should be spoken immediately
+    let log = await getLog(page);
+    let spoken = log.filter((e) => e.type === 'tts').map((e) => String(e.text || '').toLowerCase());
+    expect(spoken.some((t) => t.includes('open readme') || t.includes('place it there'))).toBe(true);
+
+    await clearLog(page);
 
     await injectChatEvent(page, {
       type: 'assistant_message',
@@ -445,24 +494,13 @@ test.describe('zen canvas - TTS voice output', () => {
     await expect(page.locator('#zen-indicator')).toBeHidden();
     await page.waitForTimeout(250);
 
-    let log = await getLog(page);
-    let spoken = log.filter((e) => e.type === 'tts').map((e) => String(e.text || '').toLowerCase());
-    expect(spoken.length).toBe(0);
-
-    await injectChatEvent(page, {
-      type: 'message_persisted',
-      role: 'assistant',
-      turn_id: 'tts-canvas-keep',
-      message: 'I will open readme and place it there',
-    });
-    await page.waitForTimeout(450);
-
+    // auto_canvas empty message should not add extra TTS
     log = await getLog(page);
-    spoken = log.filter((e) => e.type === 'tts').map((e) => String(e.text || '').toLowerCase());
-    expect(spoken.some((t) => t.includes('open readme') || t.includes('place it there'))).toBe(true);
+    spoken = log.filter((e) => e.type === 'tts');
+    expect(spoken.length).toBe(0);
   });
 
-  test('voice TTS speaks only the finalized snapshot', async ({ page }) => {
+  test('voice TTS speaks first response immediately and final supersedes', async ({ page }) => {
     await clearLog(page);
     await setVoiceOrigin(page);
 
@@ -475,7 +513,12 @@ test.describe('zen canvas - TTS voice output', () => {
       message: 'I have a cleaned tree snapshot and will share it as canvas content.',
       delta: 'I have a cleaned tree snapshot and will share it as canvas content.',
     });
-    await page.waitForTimeout(250);
+    await page.waitForTimeout(500);
+
+    // First response should be spoken immediately
+    let log = await getLog(page);
+    let spoken = log.filter((e) => e.type === 'tts').map((e) => String(e.text || ''));
+    expect(spoken.some((t) => t.includes('cleaned tree snapshot'))).toBe(true);
 
     await injectChatEvent(page, {
       type: 'assistant_message',
@@ -493,11 +536,9 @@ test.describe('zen canvas - TTS voice output', () => {
     });
     await page.waitForTimeout(500);
 
-    const log = await getLog(page);
-    const spoken = log
-      .filter((e) => e.type === 'tts')
-      .map((e) => String(e.text || ''));
-    expect(spoken.some((t) => t.includes('cleaned tree snapshot'))).toBe(false);
+    log = await getLog(page);
+    spoken = log.filter((e) => e.type === 'tts').map((e) => String(e.text || ''));
+    // Final output should also be spoken
     expect(spoken.some((t) => t.includes('current repository snapshot'))).toBe(true);
   });
 
@@ -635,5 +676,55 @@ test.describe('zen canvas - edge panels', () => {
     const chatHistory = page.locator('#chat-history');
     const chatText = await chatHistory.textContent();
     expect(chatText).toContain('test msg');
+  });
+
+  test('right edge opens chat panel with input visible', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+
+    const edgeRight = page.locator('#edge-right');
+    const initialClasses = await edgeRight.getAttribute('class');
+    expect(initialClasses).not.toContain('edge-pinned');
+
+    // Pin the panel via the right-edge tap button (dispatch click directly
+    // because the hover-triggered panel overlaps the button at z-index 200)
+    await page.evaluate(() => {
+      document.getElementById('edge-right-tap')?.click();
+    });
+    await page.waitForTimeout(200);
+
+    // Panel should be pinned
+    await expect(edgeRight).toHaveClass(/edge-pinned/);
+    // Chat pane input should be visible inside the panel
+    const cpInput = page.locator('#chat-pane-input');
+    await expect(cpInput).toBeVisible();
+  });
+
+  test('touch tap on right edge opens chat panel without recording', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await clearLog(page);
+
+    const edgeRight = page.locator('#edge-right');
+    const initialClasses = await edgeRight.getAttribute('class');
+    expect(initialClasses).not.toContain('edge-pinned');
+
+    // Dispatch synthetic touch events at right edge (x=372, well inside 30px zone)
+    await page.evaluate(() => {
+      const x = window.innerWidth - 3;
+      const y = Math.floor(window.innerHeight / 2);
+      const target = document.elementFromPoint(x, y) || document.body;
+      const touchInit = { clientX: x, clientY: y, pageX: x, pageY: y, identifier: 0, target };
+      const touch = new Touch(touchInit);
+      target.dispatchEvent(new TouchEvent('touchstart', { touches: [touch], changedTouches: [touch], bubbles: true }));
+      target.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [touch], bubbles: true, cancelable: true }));
+    });
+    await page.waitForTimeout(300);
+
+    // Panel should be pinned
+    await expect(edgeRight).toHaveClass(/edge-pinned/);
+
+    // No recording should have started
+    const log = await getLog(page);
+    const sttStart = log.find(e => e.type === 'stt' && e.action === 'start');
+    expect(sttStart).toBeFalsy();
   });
 });

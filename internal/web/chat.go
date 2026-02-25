@@ -19,6 +19,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/krystophny/tabura/internal/appserver"
+	"github.com/krystophny/tabura/internal/modelprofile"
 	"github.com/krystophny/tabura/internal/store"
 )
 
@@ -29,6 +30,51 @@ const (
 	turnOutputModeSilent   = "silent"
 	promptContractStateKey = "chat_prompt_contract_sha256"
 )
+
+const defaultVoiceHistoryPrompt = `You are Tabura, an AI assistant.
+Chat text is always spoken via TTS. Canvas content is never spoken and must be file-backed.
+
+Use exactly one response shape:
+1) Chat-only: write only spoken chat text (no blocks).
+2) Chat + file-canvas: write a brief spoken chat line, then one or more :::file blocks.
+
+## Response Format
+
+Write naturally. Your text is read aloud, so avoid raw paths, URLs, or code in prose.
+Use [lang:de] at the start of your answer when responding in German. Default is English.
+
+Canvas/file rules:
+- Spoken chat must be one paragraph max.
+- If your response needs more than one paragraph, write that long content to a temp file and respond with :::file block content (no chat prose).
+- Canvas content must appear only inside :::file blocks; do not duplicate it in chat prose.
+- Use :::file{path="relative/or/absolute/path"}...::: for all canvas content.
+- For temporary canvas files, create/remove paths via temp_file_create and temp_file_remove tools.
+- When user asks to show/open an existing file, do NOT paste that file body into chat markdown or :::file blocks.
+- For existing files, use canvas_artifact_show (title=path, markdown_or_text=file content) and keep chat text brief.
+- Do not use :::canvas blocks.
+- Line references: when the user mentions [Line N of "file"], apply at that location.
+
+PR review fast path:
+- Trigger on explicit intents like "open PR view", "open PR review", "open PR canvas", "show PR view", or "reload PR review".
+- If triggered, act immediately with no clarification and no metadata-only chat reply.
+- Resolve PR number via gh pr view --json number (or use the number user gave).
+- Fetch cumulative diff via gh pr diff <number>.
+- Publish exactly one file block at path .tabura/artifacts/pr/pr-<number>.diff with the patch content.
+- Keep spoken chat to one short confirmation sentence.
+`
+
+const defaultVoiceTurnPrompt = `Use one response shape only:
+- Chat-only (spoken text only), or
+- Chat + file-canvas: short spoken chat text plus :::file blocks for canvas content.
+Spoken chat must be one paragraph max.
+If output needs more than one paragraph, put it in a temp file with temp_file_create and respond with :::file block(s) only (no chat prose).
+Canvas content must be in :::file blocks only. Use temp_file_create/temp_file_remove for temporary files. Do not use :::canvas blocks.
+
+When user asks to show/open an existing file, do NOT paste file body into chat markdown or :::file blocks; use canvas_artifact_show and keep chat text brief.
+
+PR review fast path: for explicit intents like "open PR view/review/canvas", "show PR view", or "reload PR review", immediately run gh PR view and gh PR diff <number> (cumulative diff) and return one .tabura/artifacts/pr/pr-<number>.diff :::file block plus a short confirmation line. Do not return metadata-only chat.
+
+`
 
 type chatMessageRequest struct {
 	Text       string `json:"text"`
@@ -254,8 +300,12 @@ func (a *App) handleChatSessionMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "text is required", http.StatusBadRequest)
 		return
 	}
+	commandText := ""
 	if strings.HasPrefix(text, "/") {
-		result, err := a.executeChatCommand(sessionID, text)
+		commandText = text
+	}
+	if commandText != "" {
+		result, err := a.executeChatCommand(sessionID, commandText)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -344,17 +394,74 @@ func (a *App) executeChatCommand(sessionID, raw string) (map[string]interface{},
 		}, nil
 	case "stop", "cancel":
 		activeCanceled, queuedCanceled := a.cancelChatWork(sessionID)
-		canceled := activeCanceled + queuedCanceled
+		delegateCanceled := a.cancelDelegatedJobsForProject(session.ProjectKey)
+		canceled := activeCanceled + queuedCanceled + delegateCanceled
 		message := "No assistant turn is currently running."
 		if canceled > 0 {
 			message = "Stopping assistant work and clearing queued prompts."
 		}
 		return map[string]interface{}{
-			"name":            name,
-			"canceled":        canceled,
-			"active_canceled": activeCanceled,
-			"queued_canceled": queuedCanceled,
-			"message":         message,
+			"name":              name,
+			"canceled":          canceled,
+			"active_canceled":   activeCanceled,
+			"queued_canceled":   queuedCanceled,
+			"delegate_canceled": delegateCanceled,
+			"message":           message,
+		}, nil
+	case "status":
+		message, err := a.fetchCodexStatusMessage(session.ProjectKey)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"name":    "status",
+			"message": message,
+		}, nil
+	case "pr":
+		selector := ""
+		if len(parts) > 1 {
+			selector = strings.TrimSpace(strings.Join(parts[1:], " "))
+		}
+		review, err := a.loadGitHubPRReview(session.ProjectKey, selector)
+		if err != nil {
+			return nil, err
+		}
+		canvasSessionID := strings.TrimSpace(a.resolveCanvasSessionID(session.ProjectKey))
+		if canvasSessionID == "" {
+			return nil, errors.New("canvas session is not available")
+		}
+		artifactPath := filepath.ToSlash(filepath.Join(".tabura", "artifacts", "pr", fmt.Sprintf("pr-%d.diff", review.View.Number)))
+		if !a.writeCanvasFileBlock(session.ProjectKey, canvasSessionID, fileBlock{
+			Path:    artifactPath,
+			Content: review.Diff,
+		}) {
+			return nil, errors.New("failed to publish PR diff to canvas")
+		}
+		title := strings.TrimSpace(review.View.Title)
+		if title == "" {
+			title = fmt.Sprintf("PR #%d", review.View.Number)
+		}
+		baseRef := strings.TrimSpace(review.View.BaseRefName)
+		headRef := strings.TrimSpace(review.View.HeadRefName)
+		if baseRef == "" || headRef == "" {
+			return map[string]interface{}{
+				"name":          "pr",
+				"pr_number":     review.View.Number,
+				"pr_title":      title,
+				"pr_url":        strings.TrimSpace(review.View.URL),
+				"files_changed": review.FileCount,
+				"message":       fmt.Sprintf("Loaded %s (%d files).", title, review.FileCount),
+			}, nil
+		}
+		return map[string]interface{}{
+			"name":          "pr",
+			"pr_number":     review.View.Number,
+			"pr_title":      title,
+			"pr_url":        strings.TrimSpace(review.View.URL),
+			"base_ref":      baseRef,
+			"head_ref":      headRef,
+			"files_changed": review.FileCount,
+			"message":       fmt.Sprintf("Loaded PR #%d: %s (%s -> %s, %d files).", review.View.Number, title, headRef, baseRef, review.FileCount),
 		}, nil
 	case "clear", "clearall", "reset":
 		report, err := a.clearAllAgentsAndContexts(session.ID)
@@ -390,6 +497,35 @@ func (a *App) executeChatCommand(sessionID, raw string) (map[string]interface{},
 	default:
 		return nil, fmt.Errorf("unknown command: /%s", name)
 	}
+}
+
+func (a *App) fetchCodexStatusMessage(projectKey string) (string, error) {
+	if a.appServerClient == nil {
+		return "", errors.New("app-server is not configured")
+	}
+	cwd := strings.TrimSpace(a.cwdForProjectKey(projectKey))
+	if cwd == "" {
+		cwd = "."
+	}
+	profile := a.appServerModelProfileForProjectKey(projectKey)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	resp, err := a.appServerClient.SendPrompt(ctx, appserver.PromptRequest{
+		CWD:          cwd,
+		Prompt:       "/status",
+		Model:        profile.Model,
+		ThreadParams: profile.ThreadParams,
+		TurnParams:   profile.TurnParams,
+		Timeout:      45 * time.Second,
+	})
+	if err != nil {
+		return "", fmt.Errorf("status command failed: %s", normalizeAssistantError(err))
+	}
+	message := strings.TrimSpace(resp.Message)
+	if message == "" {
+		return "", errors.New("status command returned an empty response")
+	}
+	return message, nil
 }
 
 func (a *App) registerActiveChatTurn(sessionID, runID string, cancel context.CancelFunc) {
@@ -679,17 +815,34 @@ func (a *App) getOrCreateAppSession(sessionID string, cwd string, profile appSer
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	s, err := a.appServerClient.OpenSessionWithParams(ctx, cwd, profile.Model, profile.ThreadParams)
-	if err != nil {
-		return nil, false, err
+	// Try to resume the previous thread if one was stored.
+	var existingThreadID string
+	if sess, err := a.store.GetChatSession(sessionID); err == nil {
+		existingThreadID = strings.TrimSpace(sess.AppThreadID)
+	}
+	var newSess *appserver.Session
+	var resumed bool
+	if existingThreadID != "" {
+		rs, ok, err := a.appServerClient.ResumeSessionWithParams(ctx, cwd, profile.Model, profile.ThreadParams, existingThreadID)
+		if err != nil {
+			return nil, false, err
+		}
+		newSess = rs
+		resumed = ok
+	} else {
+		rs, err := a.appServerClient.OpenSessionWithParams(ctx, cwd, profile.Model, profile.ThreadParams)
+		if err != nil {
+			return nil, false, err
+		}
+		newSess = rs
 	}
 	a.mu.Lock()
 	if old := a.chatAppSessions[sessionID]; old != nil {
 		_ = old.Close()
 	}
-	a.chatAppSessions[sessionID] = s
+	a.chatAppSessions[sessionID] = newSess
 	a.mu.Unlock()
-	return s, false, nil
+	return newSess, resumed, nil
 }
 
 func (a *App) closeAppSession(sessionID string) {
@@ -731,9 +884,9 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string) {
 	canvasCtx := a.resolveCanvasContext(session.ProjectKey)
 	var prompt string
 	if resumed {
-		prompt = buildTurnPromptForMode(messages, canvasCtx, outputMode)
+		prompt = buildTurnPromptForMode(messages, canvasCtx, outputMode, profile.Alias)
 	} else {
-		prompt = buildPromptFromHistoryForMode(session.Mode, messages, canvasCtx, outputMode)
+		prompt = buildPromptFromHistoryForMode(session.Mode, messages, canvasCtx, outputMode, profile.Alias)
 		_ = a.store.UpdateChatSessionThread(sessionID, appSess.ThreadID())
 	}
 	if strings.TrimSpace(prompt) == "" {
@@ -760,25 +913,6 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string) {
 	persistWriteFailed := false
 
 	persistAssistantSnapshot := func(text string, renderOnCanvas bool, autoCanvas bool) {
-		if autoCanvas && persistedAssistantID != 0 {
-			if persistedAssistantText == "" && persistedAssistantPlain == "" && persistedAssistantFormat == "text" {
-				return
-			}
-			if storeErr := a.store.UpdateChatMessageContent(persistedAssistantID, "", "", "text"); storeErr != nil {
-				if !persistWriteFailed {
-					persistWriteFailed = true
-					a.broadcastChatEvent(sessionID, map[string]interface{}{
-						"type":  "error",
-						"error": storeErr.Error(),
-					})
-				}
-				return
-			}
-			persistedAssistantText = ""
-			persistedAssistantPlain = ""
-			persistedAssistantFormat = "text"
-			return
-		}
 		candidateMarkdown, candidatePlain, candidateFormat := assistantSnapshotContent(text, renderOnCanvas, autoCanvas)
 		if candidateMarkdown == "" && candidatePlain == "" {
 			return
@@ -862,6 +996,11 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string) {
 			if renderPlan.AutoCanvas {
 				payload["auto_canvas"] = true
 			}
+		case "item_completed":
+			payload["item_type"] = ev.Message
+			if ev.Detail != "" {
+				payload["detail"] = ev.Detail
+			}
 		case "context_usage":
 			payload["context_used"] = ev.ContextUsed
 			payload["context_max"] = ev.ContextMax
@@ -929,7 +1068,7 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string) {
 // fails to connect. Each call creates a new WS + thread.
 func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession, messages []store.ChatMessage, outputMode string, profile appServerModelProfile) {
 	canvasCtx := a.resolveCanvasContext(session.ProjectKey)
-	prompt := buildPromptFromHistoryForMode(session.Mode, messages, canvasCtx, outputMode)
+	prompt := buildPromptFromHistoryForMode(session.Mode, messages, canvasCtx, outputMode, profile.Alias)
 	if strings.TrimSpace(prompt) == "" {
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
 		return
@@ -953,25 +1092,6 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 	persistedAssistantFormat := ""
 	persistWriteFailed := false
 	persistAssistantSnapshot := func(text string, renderOnCanvas bool, autoCanvas bool) {
-		if autoCanvas && persistedAssistantID != 0 {
-			if persistedAssistantText == "" && persistedAssistantPlain == "" && persistedAssistantFormat == "text" {
-				return
-			}
-			if storeErr := a.store.UpdateChatMessageContent(persistedAssistantID, "", "", "text"); storeErr != nil {
-				if !persistWriteFailed {
-					persistWriteFailed = true
-					a.broadcastChatEvent(sessionID, map[string]interface{}{
-						"type":  "error",
-						"error": storeErr.Error(),
-					})
-				}
-				return
-			}
-			persistedAssistantText = ""
-			persistedAssistantPlain = ""
-			persistedAssistantFormat = "text"
-			return
-		}
 		candidateMarkdown, candidatePlain, candidateFormat := assistantSnapshotContent(text, renderOnCanvas, autoCanvas)
 		if candidateMarkdown == "" && candidatePlain == "" {
 			return
@@ -1194,10 +1314,7 @@ func (a *App) finalizeAssistantResponse(
 	return chatMarkdown
 }
 
-func assistantFinalChatContent(text string, _ bool, autoCanvas bool) (string, string, string) {
-	if autoCanvas {
-		return "", "", "text"
-	}
+func assistantFinalChatContent(text string, _ bool, _ bool) (string, string, string) {
 	trimmed := strings.TrimSpace(text)
 	companion := strings.TrimSpace(stripCanvasFileMarkers(trimmed))
 	return companion, companion, "markdown"
@@ -1268,10 +1385,7 @@ func assistantRenderPlanForMode(text string, outputMode string) assistantRenderD
 	}
 }
 
-func assistantSnapshotContent(text string, renderOnCanvas bool, autoCanvas bool) (string, string, string) {
-	if autoCanvas {
-		return "", "", "text"
-	}
+func assistantSnapshotContent(text string, renderOnCanvas bool, _ bool) (string, string, string) {
 	candidate := stripLangTags(strings.TrimSpace(text))
 	if candidate == "" {
 		return "", "", "markdown"
@@ -1392,10 +1506,10 @@ type canvasContext struct {
 }
 
 func buildPromptFromHistory(mode string, messages []store.ChatMessage, canvas *canvasContext) string {
-	return buildPromptFromHistoryForMode(mode, messages, canvas, turnOutputModeVoice)
+	return buildPromptFromHistoryForMode(mode, messages, canvas, turnOutputModeVoice, "")
 }
 
-func buildPromptFromHistoryForMode(mode string, messages []store.ChatMessage, canvas *canvasContext, outputMode string) string {
+func buildPromptFromHistoryForMode(mode string, messages []store.ChatMessage, canvas *canvasContext, outputMode string, modelAlias string) string {
 	isVoiceMode := isVoiceOutputMode(outputMode)
 	const maxHistory = 80
 	if len(messages) > maxHistory {
@@ -1403,28 +1517,22 @@ func buildPromptFromHistoryForMode(mode string, messages []store.ChatMessage, ca
 	}
 	var b strings.Builder
 
+	promptTemplate := loadModePromptTemplate(outputMode, defaultVoiceHistoryPrompt, "")
 	if isVoiceMode {
-		b.WriteString("You are Tabura, an AI assistant.\n")
-		b.WriteString("Chat text is always spoken via TTS. Canvas content is never spoken and must be file-backed.\n\n")
-		b.WriteString("Use exactly one response shape:\n")
-		b.WriteString("1) Chat-only: write only spoken chat text (no blocks).\n")
-		b.WriteString("2) Chat + file-canvas: write a brief spoken chat line, then one or more :::file blocks.\n\n")
-		b.WriteString("## Response Format\n\n")
-		b.WriteString("Write naturally. Your text is read aloud, so avoid raw paths, URLs, or code in prose.\n")
-		b.WriteString("Use [lang:de] at the start of your answer when responding in German. Default is English.\n\n")
-		b.WriteString("Canvas/file rules:\n")
-		b.WriteString("- Spoken chat must be one paragraph max.\n")
-		b.WriteString("- If your response needs more than one paragraph, write that long content to a temp file and respond with :::file block content (no chat prose).\n")
-		b.WriteString("- Canvas content must appear only inside :::file blocks; do not duplicate it in chat prose.\n")
-		b.WriteString("- Use :::file{path=\"relative/or/absolute/path\"}...::: for all canvas content.\n")
-		b.WriteString("- For temporary canvas files, create/remove paths via temp_file_create and temp_file_remove tools.\n")
-		b.WriteString("- When user asks to show/open an existing file, do NOT paste that file body into chat markdown or :::file blocks.\n")
-		b.WriteString("- For existing files, use canvas_artifact_show (title=path, markdown_or_text=file content) and keep chat text brief.\n")
-		b.WriteString("- Do not use :::canvas blocks.\n")
-		b.WriteString("- Line references: when the user mentions [Line N of \"file\"], apply at that location.\n\n")
+		b.WriteString(promptTemplate)
+	}
+	if !isVoiceMode {
+		silentPrompt := loadModePromptTemplate(outputMode, "", "")
+		if silentPrompt != "" {
+			b.WriteString(silentPrompt)
+		}
 	}
 
 	appendDelegationSection(&b)
+	if hints := modelprofile.ModelSystemHints(modelAlias); hints != "" {
+		b.WriteString(hints)
+		b.WriteString("\n")
+	}
 
 	if isVoiceMode && canvas != nil && canvas.HasArtifact {
 		b.WriteString("## Current Artifact\n")
@@ -1465,10 +1573,10 @@ func buildPromptFromHistoryForMode(mode string, messages []store.ChatMessage, ca
 // buildTurnPrompt constructs a prompt for a resumed thread: only the latest
 // user message plus optional canvas context update.
 func buildTurnPrompt(messages []store.ChatMessage, canvas *canvasContext) string {
-	return buildTurnPromptForMode(messages, canvas, turnOutputModeVoice)
+	return buildTurnPromptForMode(messages, canvas, turnOutputModeVoice, "")
 }
 
-func buildTurnPromptForMode(messages []store.ChatMessage, canvas *canvasContext, outputMode string) string {
+func buildTurnPromptForMode(messages []store.ChatMessage, canvas *canvasContext, outputMode string, modelAlias string) string {
 	isVoiceMode := isVoiceOutputMode(outputMode)
 	var lastUserMsg string
 	for i := len(messages) - 1; i >= 0; i-- {
@@ -1485,18 +1593,16 @@ func buildTurnPromptForMode(messages []store.ChatMessage, canvas *canvasContext,
 	}
 	var b strings.Builder
 	if isVoiceMode {
-		b.WriteString("Use one response shape only:\n")
-		b.WriteString("- Chat-only (spoken text only), or\n")
-		b.WriteString("- Chat + file-canvas: short spoken chat text plus :::file blocks for canvas content.\n")
-		b.WriteString("Spoken chat must be one paragraph max.\n")
-		b.WriteString("If output needs more than one paragraph, put it in a temp file with temp_file_create and respond with :::file block(s) only (no chat prose).\n")
-		b.WriteString("Canvas content must be in :::file blocks only. Use temp_file_create/temp_file_remove for temporary files. Do not use :::canvas blocks.\n\n")
-		b.WriteString("When user asks to show/open an existing file, do NOT paste file body into chat markdown or :::file blocks; use canvas_artifact_show and keep chat text brief.\n\n")
+		b.WriteString(loadModePromptTemplate(outputMode, defaultVoiceTurnPrompt, ""))
 		if canvas != nil && canvas.HasArtifact {
 			fmt.Fprintf(&b, "[Active artifact tab: %q (kind: %s)]\n\n", canvas.ArtifactTitle, canvas.ArtifactKind)
 		}
 	} else {
 		appendDelegationSection(&b)
+	}
+	if hints := modelprofile.ModelSystemHints(modelAlias); hints != "" {
+		b.WriteString(hints)
+		b.WriteString("\n")
 	}
 	b.WriteString(applyDelegationHints(lastUserMsg))
 	return b.String()
@@ -1516,6 +1622,36 @@ func appendDelegationSection(b *strings.Builder) {
 	b.WriteString("- Summarize progress updates for the user periodically while polling status.\n")
 	b.WriteString("- Use `delegate_to_model_cancel` if the user asks to stop.\n")
 	b.WriteString("- Final status includes `files_changed` and final `message`; relay that summary to the user.\n\n")
+}
+
+func loadModePromptTemplate(outputMode, defaultPrompt, fallback string) string {
+	fallback = strings.TrimSpace(fallback)
+	switch strings.TrimSpace(outputMode) {
+	case turnOutputModeVoice:
+		// Voice mode always uses the built-in Go prompt template.
+		return normalizePromptTemplate(firstNonEmptyPrompt(defaultPrompt, fallback))
+	case turnOutputModeSilent:
+		// Silent mode always uses the built-in Go prompt template.
+		return normalizePromptTemplate(firstNonEmptyPrompt(defaultPrompt, fallback))
+	default:
+		return normalizePromptTemplate(fallback)
+	}
+}
+
+func firstNonEmptyPrompt(primary, fallback string) string {
+	primary = strings.TrimSpace(primary)
+	if primary != "" {
+		return primary
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func normalizePromptTemplate(prompt string) string {
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return ""
+	}
+	return prompt + "\n\n"
 }
 
 func currentPromptContractDigest() string {

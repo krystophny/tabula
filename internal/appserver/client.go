@@ -43,6 +43,7 @@ type StreamEvent struct {
 	TurnID      string
 	Message     string
 	Delta       string
+	Detail      string
 	Error       string
 	ContextUsed int64
 	ContextMax  int64
@@ -154,7 +155,7 @@ func (c *Client) SendPromptStream(ctx context.Context, req PromptRequest, onEven
 			"clientInfo": map[string]interface{}{
 				"name":    "tabura-web",
 				"title":   "Tabura Web",
-				"version": "0.1.1-dev",
+				"version": "0.1.3",
 			},
 			"capabilities": map[string]interface{}{
 				"experimentalApi": true,
@@ -333,19 +334,30 @@ func (c *Client) readTurnUntilComplete(ctx context.Context, conn *websocket.Conn
 		case "item/completed":
 			if item, _ := params["item"].(map[string]interface{}); item != nil {
 				typ, _ := item["type"].(string)
+				detail := extractItemDetail(item)
 				if typ == "agentMessage" {
 					if text, _ := item["text"].(string); strings.TrimSpace(text) != "" {
 						message = text
 					}
-				} else if typ == "fileChange" {
-					if p := extractFileChangePath(item); p != "" {
+					continue
+				}
+				if typ == "fileChange" {
+					p := extractFileChangePath(item)
+					if p != "" {
 						fileChanges = append(fileChanges, p)
 					}
-					if onEvent != nil {
-						onEvent(StreamEvent{Type: "item_completed", ThreadID: threadID, TurnID: turnID, Message: typ})
+					if detail == "" {
+						detail = p
 					}
-				} else if typ != "" && onEvent != nil {
-					onEvent(StreamEvent{Type: "item_completed", ThreadID: threadID, TurnID: turnID, Message: typ})
+				}
+				if typ != "" && onEvent != nil {
+					onEvent(StreamEvent{
+						Type:     "item_completed",
+						ThreadID: threadID,
+						TurnID:   turnID,
+						Message:  typ,
+						Detail:   detail,
+					})
 				}
 			}
 		case "turn/completed":
@@ -414,6 +426,87 @@ func extractFileChangePath(item map[string]interface{}) string {
 		}
 	}
 	return ""
+}
+
+func extractItemDetail(item map[string]interface{}) string {
+	if item == nil {
+		return ""
+	}
+	for _, key := range []string{
+		"detail", "summary", "command", "cmd", "message", "text",
+		"path", "file", "filename", "reasoning", "reason", "output",
+	} {
+		if text := stringifyItemValue(item[key]); text != "" {
+			return normalizeItemDetailText(text)
+		}
+	}
+	if toolName := stringifyItemValue(item["tool_name"]); toolName != "" {
+		if args := stringifyItemValue(item["arguments"]); args != "" {
+			return normalizeItemDetailText(toolName + " " + args)
+		}
+		return normalizeItemDetailText(toolName)
+	}
+	if tool, _ := item["tool"].(map[string]interface{}); tool != nil {
+		toolName := stringifyItemValue(tool["name"])
+		if toolName == "" {
+			toolName = stringifyItemValue(tool["tool_name"])
+		}
+		if toolName != "" {
+			if args := stringifyItemValue(tool["arguments"]); args != "" {
+				return normalizeItemDetailText(toolName + " " + args)
+			}
+			return normalizeItemDetailText(toolName)
+		}
+	}
+
+	snapshot := map[string]interface{}{}
+	for k, v := range item {
+		switch k {
+		case "type", "id", "status", "timestamp", "started_at", "completed_at":
+			continue
+		default:
+			snapshot[k] = v
+		}
+	}
+	if len(snapshot) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		return ""
+	}
+	return normalizeItemDetailText(string(raw))
+}
+
+func stringifyItemValue(value interface{}) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(v)
+	case fmt.Stringer:
+		return strings.TrimSpace(v.String())
+	case float64, float32, int, int64, int32, int16, int8, uint, uint64, uint32, uint16, uint8, bool:
+		return strings.TrimSpace(fmt.Sprint(v))
+	default:
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return strings.TrimSpace(fmt.Sprint(v))
+		}
+		return strings.TrimSpace(string(raw))
+	}
+}
+
+func normalizeItemDetailText(text string) string {
+	clean := strings.TrimSpace(strings.Join(strings.Fields(strings.TrimSpace(text)), " "))
+	if clean == "" || clean == "<nil>" {
+		return ""
+	}
+	const maxLen = 480
+	if len(clean) > maxLen {
+		return clean[:maxLen] + "..."
+	}
+	return clean
 }
 
 func computeSuffixDelta(previous, current string) string {

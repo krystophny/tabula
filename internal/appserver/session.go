@@ -38,6 +38,22 @@ func (c *Client) OpenSession(ctx context.Context, cwd, model string) (*Session, 
 // OpenSessionWithParams connects to the app server, performs the initialize handshake,
 // and starts a new thread with additional thread-level params.
 func (c *Client) OpenSessionWithParams(ctx context.Context, cwd, model string, threadParams map[string]interface{}) (*Session, error) {
+	return c.openSession(ctx, cwd, model, threadParams, "")
+}
+
+// ResumeSessionWithParams connects to the app server and resumes an existing
+// thread by ID. If the thread cannot be resumed, it falls back to starting a
+// new thread.
+func (c *Client) ResumeSessionWithParams(ctx context.Context, cwd, model string, threadParams map[string]interface{}, existingThreadID string) (*Session, bool, error) {
+	s, err := c.openSession(ctx, cwd, model, threadParams, existingThreadID)
+	if err != nil {
+		return nil, false, err
+	}
+	resumed := s.threadID == existingThreadID
+	return s, resumed, nil
+}
+
+func (c *Client) openSession(ctx context.Context, cwd, model string, threadParams map[string]interface{}, resumeThreadID string) (*Session, error) {
 	if c == nil {
 		return nil, errors.New("app-server client is nil")
 	}
@@ -68,7 +84,7 @@ func (c *Client) OpenSessionWithParams(ctx context.Context, cwd, model string, t
 		return nil, err
 	}
 
-	threadID, err := s.startThread(ctx)
+	threadID, err := s.startThread(ctx, strings.TrimSpace(resumeThreadID))
 	if err != nil {
 		conn.Close()
 		return nil, err
@@ -87,7 +103,7 @@ func (s *Session) handshake(ctx context.Context) error {
 			"clientInfo": map[string]interface{}{
 				"name":    "tabura-web",
 				"title":   "Tabura Web",
-				"version": "0.1.1-dev",
+				"version": "0.1.3",
 			},
 			"capabilities": map[string]interface{}{
 				"experimentalApi": true,
@@ -108,8 +124,8 @@ func (s *Session) handshake(ctx context.Context) error {
 	return nil
 }
 
-func (s *Session) startThread(ctx context.Context) (string, error) {
-	threadID := s.allocID()
+func (s *Session) startThread(ctx context.Context, resumeThreadID string) (string, error) {
+	reqID := s.allocID()
 	params := map[string]interface{}{
 		"cwd":                    s.cwd,
 		"approvalPolicy":         "never",
@@ -122,15 +138,18 @@ func (s *Session) startThread(ctx context.Context) (string, error) {
 	if s.model != "" {
 		params["model"] = s.model
 	}
+	if resumeThreadID != "" {
+		params["threadId"] = resumeThreadID
+	}
 	if err := s.writeJSON(ctx, map[string]interface{}{
 		"jsonrpc": "2.0",
-		"id":      threadID,
+		"id":      reqID,
 		"method":  "thread/start",
 		"params":  params,
 	}); err != nil {
 		return "", fmt.Errorf("thread/start send: %w", err)
 	}
-	resp, err := s.waitForResponse(ctx, threadID)
+	resp, err := s.waitForResponse(ctx, reqID)
 	if err != nil {
 		return "", fmt.Errorf("thread/start failed: %w", err)
 	}
@@ -262,19 +281,30 @@ func (s *Session) readTurnUntilComplete(ctx context.Context, turnRPCID int, onEv
 		case "item/completed":
 			if item, _ := params["item"].(map[string]interface{}); item != nil {
 				typ, _ := item["type"].(string)
+				detail := extractItemDetail(item)
 				if typ == "agentMessage" {
 					if text, _ := item["text"].(string); strings.TrimSpace(text) != "" {
 						message = text
 					}
-				} else if typ == "fileChange" {
-					if p := extractFileChangePath(item); p != "" {
+					continue
+				}
+				if typ == "fileChange" {
+					p := extractFileChangePath(item)
+					if p != "" {
 						fileChanges = append(fileChanges, p)
 					}
-					if onEvent != nil {
-						onEvent(StreamEvent{Type: "item_completed", ThreadID: s.threadID, TurnID: turnID, Message: typ})
+					if detail == "" {
+						detail = p
 					}
-				} else if typ != "" && onEvent != nil {
-					onEvent(StreamEvent{Type: "item_completed", ThreadID: s.threadID, TurnID: turnID, Message: typ})
+				}
+				if typ != "" && onEvent != nil {
+					onEvent(StreamEvent{
+						Type:     "item_completed",
+						ThreadID: s.threadID,
+						TurnID:   turnID,
+						Message:  typ,
+						Detail:   detail,
+					})
 				}
 			}
 		case "turn/completed":

@@ -66,7 +66,7 @@ test.describe('silent mode mobile', () => {
     expect(hasSilent).toBe(true);
   });
 
-  test('chat pane opens full-width, streams response, autoCanvas closes pane', async ({ page }) => {
+  test('chat pane stays focused for autoCanvas temp response artifacts', async ({ page }) => {
     const edgeRight = page.locator('#edge-right');
 
     // Chat pane should be pinned open
@@ -103,15 +103,17 @@ test.describe('silent mode mobile', () => {
     // Chat row should be updated with streaming text
     const chatBubble = page.locator('#chat-history .chat-message.chat-assistant .chat-bubble');
     await expect(chatBubble.first()).toContainText('Streaming response');
+    await expect(edgeRight).toHaveClass(/edge-pinned/);
 
-    // Inject canvas event (simulating autoCanvas file write)
+    // Inject canvas event from autoCanvas temp artifact write.
     await injectCanvasEvent(page, {
       event_id: 'ac-1',
       kind: 'text_artifact',
-      title: 'response.md',
+      title: '.tabura/artifacts/tmp/response.md',
       text: 'Full final response on canvas.',
     });
     await page.waitForTimeout(100);
+    await expect(edgeRight).toHaveClass(/edge-pinned/);
 
     // Inject final assistant_output with auto_canvas
     await injectChatEvent(page, {
@@ -123,11 +125,26 @@ test.describe('silent mode mobile', () => {
     });
     await page.waitForTimeout(200);
 
-    // Chat pane should be closed (unpinned) after autoCanvas
+    // Chat pane should remain open for non-real (temp) canvas response artifacts.
+    await expect(edgeRight).toHaveClass(/edge-pinned/);
+  });
+
+  test('real artifact canvas update closes the mobile silent chat pane', async ({ page }) => {
+    const edgeRight = page.locator('#edge-right');
+    await expect(edgeRight).toHaveClass(/edge-pinned/);
+
+    await injectCanvasEvent(page, {
+      event_id: 'real-1',
+      kind: 'text_artifact',
+      title: 'docs/plan.md',
+      text: 'Project plan.',
+    });
+    await page.waitForTimeout(100);
+
     await expect(edgeRight).not.toHaveClass(/edge-pinned/);
   });
 
-  test('non-autoCanvas response stays in chat pane', async ({ page }) => {
+  test('non-autoCanvas response mirrors to canvas and keeps chat panel focused', async ({ page }) => {
     const edgeRight = page.locator('#edge-right');
     await expect(edgeRight).toHaveClass(/edge-pinned/);
 
@@ -138,22 +155,23 @@ test.describe('silent mode mobile', () => {
     });
     await page.waitForTimeout(100);
 
-    // Inject final output without auto_canvas (artifact already on canvas)
+    // Inject final output without auto_canvas and no canvas changes
     await injectChatEvent(page, {
       type: 'assistant_output',
       role: 'assistant',
       turn_id: 'silent-t2',
-      message: 'Short answer stays in chat.',
+      message: 'Short answer shown on canvas.',
       auto_canvas: false,
     });
     await page.waitForTimeout(200);
 
-    // Chat pane should remain open
+    // Chat pane should remain open/focused for mirrored text responses
     await expect(edgeRight).toHaveClass(/edge-pinned/);
 
-    // Chat should contain the response
-    const chatBubble = page.locator('#chat-history .chat-message.chat-assistant .chat-bubble');
-    await expect(chatBubble.first()).toContainText('Short answer stays in chat');
+    // Canvas should show the response
+    const canvasText = page.locator('#canvas-text');
+    await expect(canvasText).toBeVisible();
+    await expect(canvasText).toContainText('Short answer shown on canvas');
   });
 });
 

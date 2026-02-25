@@ -1,6 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
 
-type HarnessLogEntry = { type: string; action: string; [key: string]: unknown };
+type HarnessLogEntry = {
+  type: string;
+  action?: string;
+  text?: string;
+  url?: string;
+  method?: string;
+  payload?: Record<string, unknown>;
+  [key: string]: unknown;
+};
 
 async function getLog(page: Page): Promise<HarnessLogEntry[]> {
   return page.evaluate(() => (window as any).__harnessLog.slice());
@@ -8,6 +16,80 @@ async function getLog(page: Page): Promise<HarnessLogEntry[]> {
 
 async function clearLog(page: Page) {
   await page.evaluate(() => { (window as any).__harnessLog.splice(0); });
+}
+
+async function injectChatEvent(page: Page, payload: Record<string, unknown>) {
+  await page.evaluate((payloadData) => {
+    const sessions = (window as any).__mockWsSessions || [];
+    const chatWs = sessions.find((ws: any) => typeof ws.url === 'string' && ws.url.includes('/ws/chat/'));
+    if (chatWs?.injectEvent) {
+      chatWs.injectEvent(payloadData);
+    }
+  }, payload);
+}
+
+async function tapElement(page: Page, selector: string) {
+  const box = await page.locator(selector).first().boundingBox();
+  if (box) {
+    const x = Math.round(box.x + box.width / 2);
+    const y = Math.round(box.y + box.height / 2);
+    try {
+      await page.touchscreen.tap(x, y);
+      return;
+    } catch (_) {
+      // Fall back to synthetic touch dispatch below.
+    }
+  }
+  await page.evaluate((sel) => {
+    const target = document.querySelector(sel);
+    if (!target) return;
+    const rect = target.getBoundingClientRect();
+    const x = Math.round(rect.left + rect.width / 2);
+    const y = Math.round(rect.top + rect.height / 2);
+    const touchInit = {
+      clientX: x,
+      clientY: y,
+      pageX: x,
+      pageY: y,
+      identifier: 0,
+      target,
+    };
+    if (typeof Touch === 'undefined') {
+      target.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: x, clientY: y }));
+      return;
+    }
+    const touch = new Touch(touchInit);
+    target.dispatchEvent(new TouchEvent('touchstart', { touches: [touch], changedTouches: [touch], bubbles: true }));
+    target.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [touch], bubbles: true, cancelable: true }));
+  }, selector);
+}
+
+async function setHarnessCancelResponses(page: Page, responses: Array<Record<string, unknown>>) {
+  await page.evaluate((entries) => {
+    const setter = (window as any).__setCancelResponses;
+    if (typeof setter === 'function') setter(entries);
+  }, responses);
+}
+
+async function setHarnessActivityResponse(page: Page, response: Record<string, unknown>) {
+  await page.evaluate((payload) => {
+    const setter = (window as any).__setActivityResponse;
+    if (typeof setter === 'function') setter(payload);
+  }, response);
+}
+
+async function setHarnessMessagePostDelay(page: Page, delayMs: number) {
+  await page.evaluate((ms) => {
+    const setter = (window as any).__setMessagePostDelay;
+    if (typeof setter === 'function') setter(ms);
+  }, delayMs);
+}
+
+async function waitForApiCancel(page: Page) {
+  await expect.poll(async () => {
+    const log = await getLog(page);
+    return log.some((entry) => entry.type === 'api_fetch' && entry.action === 'cancel');
+  }, { timeout: 5_000 }).toBe(true);
 }
 
 async function injectCanvasModuleRef(page: Page) {
@@ -62,6 +144,9 @@ test.beforeEach(async ({ page }) => {
     return s.chatWs && s.chatWs.readyState === (window as any).WebSocket.OPEN;
   }, null, { timeout: 5_000 });
   await page.waitForTimeout(200);
+  await setHarnessCancelResponses(page, []);
+  await setHarnessActivityResponse(page, { active_turns: 0, queued_turns: 0, delegate_active: 0 });
+  await setHarnessMessagePostDelay(page, 0);
 });
 
 test('click on canvas starts voice recording', async ({ page }) => {
@@ -86,6 +171,74 @@ test('click on canvas starts voice recording', async ({ page }) => {
   const sttActions = log.filter(e => e.type === 'stt').map(e => e.action);
   expect(sttActions).toContain('start');
   expect(sttActions).toContain('stop');
+});
+
+test('touch stop indicator routes through shared cancel endpoint', async ({ page }) => {
+  await clearLog(page);
+
+  await injectChatEvent(page, {
+    type: 'turn_started',
+    turn_id: 'stop-turn-test',
+    content: 'delegate work',
+  });
+  await page.waitForTimeout(100);
+  await expect(page.locator('#chat-history .chat-message.chat-assistant.is-pending')).toHaveCount(1);
+
+  const playIcon = page.locator('.zen-play-icon');
+  await expect(playIcon).toBeVisible();
+
+  await tapElement(page, '.zen-play-icon');
+  await waitForApiCancel(page);
+
+  const log = await getLog(page);
+  const cancelEntry = log.find((entry) => entry.type === 'api_fetch' && entry.action === 'cancel');
+  expect(cancelEntry).toBeTruthy();
+  expect(cancelEntry!.method).toBe('POST');
+  expect(typeof cancelEntry!.payload?.canceled).toBe('number');
+  expect(Number(cancelEntry!.payload?.canceled)).toBeGreaterThan(0);
+  expect(Number(cancelEntry!.payload?.delegate_canceled)).toBeGreaterThan(0);
+
+  await injectChatEvent(page, { type: 'turn_cancelled', turn_id: 'stop-turn-test' });
+  await page.waitForTimeout(100);
+  await expect(page.locator('#chat-history .chat-message.chat-assistant.is-pending')).toHaveCount(0);
+  await expect(page.locator('#chat-history .chat-message.chat-assistant .chat-bubble').first()).toContainText('Stopped');
+});
+
+test('touch stop retries cancel when first cancel reports zero but work remains', async ({ page }) => {
+  await clearLog(page);
+  await setHarnessActivityResponse(page, { active_turns: 1, queued_turns: 0, delegate_active: 0 });
+  await setHarnessCancelResponses(page, [
+    { ok: true, canceled: 0, active_canceled: 0, queued_canceled: 0, delegate_canceled: 0 },
+    { ok: true, canceled: 2, active_canceled: 1, queued_canceled: 1, delegate_canceled: 0 },
+  ]);
+
+  await injectChatEvent(page, { type: 'turn_started', turn_id: 'stop-retry-turn' });
+  await page.waitForTimeout(100);
+  await tapElement(page, '.zen-play-icon');
+
+  await expect.poll(async () => {
+    const log = await getLog(page);
+    return log.filter((entry) => entry.type === 'api_fetch' && entry.action === 'cancel').length;
+  }, { timeout: 5_000 }).toBeGreaterThanOrEqual(2);
+});
+
+test('touch stop while sending transcript aborts pending message submit', async ({ page }) => {
+  await clearLog(page);
+  await setHarnessMessagePostDelay(page, 1200);
+
+  await page.mouse.click(400, 400);
+  await waitForLogEntry(page, 'recorder', 'start');
+  await page.mouse.click(400, 400);
+  await waitForSTTAction(page, 'stop');
+  await expect(page.locator('#zen-status')).toContainText('sending');
+
+  await tapElement(page, '.zen-play-icon');
+  await waitForApiCancel(page);
+  await page.waitForTimeout(1400);
+
+  const log = await getLog(page);
+  expect(log.some((entry) => entry.type === 'message_sent')).toBe(false);
+  await expect(page.locator('#chat-history .chat-message.chat-assistant.is-pending')).toHaveCount(0);
 });
 
 test('mouse hold push-to-talk starts on hold and stops on release', async ({ page }) => {
@@ -253,17 +406,17 @@ test('Control long-press starts at mouse location and sends artifact line contex
   await page.waitForTimeout(300);
   await waitForLogEntry(page, 'recorder', 'start');
 
-  const indicatorPos = await page.evaluate(() => {
-    const indicator = document.getElementById('zen-indicator');
-    if (!(indicator instanceof HTMLElement)) return null;
+  const dotPos = await page.evaluate(() => {
+    const dot = document.querySelector('#zen-indicator .zen-record-dot');
+    if (!(dot instanceof HTMLElement)) return null;
     return {
-      x: Number.parseFloat(indicator.style.left || '0'),
-      y: Number.parseFloat(indicator.style.top || '0'),
+      x: Number.parseFloat(dot.style.left || '0'),
+      y: Number.parseFloat(dot.style.top || '0'),
     };
   });
-  expect(indicatorPos).toBeTruthy();
-  expect(Math.abs(indicatorPos!.x - x)).toBeLessThanOrEqual(1);
-  expect(Math.abs(indicatorPos!.y - y)).toBeLessThanOrEqual(1);
+  expect(dotPos).toBeTruthy();
+  expect(Math.abs(dotPos!.x - x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(dotPos!.y - y)).toBeLessThanOrEqual(1);
 
   await page.keyboard.up('Control');
   await waitForSTTAction(page, 'stop');
@@ -317,13 +470,13 @@ test('recording indicator shows symbol', async ({ page }) => {
   const indicator = page.locator('#zen-indicator');
   await expect(indicator).toBeVisible();
   await expect(page.locator('.zen-record-dot')).toBeVisible();
-  await expect(page.locator('.zen-stop-square')).toBeHidden();
+  await expect(page.locator('.zen-play-icon')).toBeHidden();
 
-  // Stop recording and transition to stop square
+  // Stop recording and transition to working/play indicator
   await page.mouse.click(400, 400);
   await waitForSTTAction(page, 'stop');
   await page.waitForTimeout(200);
   await expect(indicator).toBeVisible();
-  await expect(page.locator('.zen-stop-square')).toBeVisible();
+  await expect(page.locator('.zen-play-icon')).toBeVisible();
   await expect(page.locator('.zen-record-dot')).toBeHidden();
 });

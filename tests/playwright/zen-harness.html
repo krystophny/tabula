@@ -14,7 +14,16 @@
     <div id="view-main" class="view">
 
       <div id="workspace">
+        <aside id="pr-file-pane" aria-label="Pull request files">
+          <div class="pr-file-pane-head">
+            <span id="pr-file-pane-title">Files</span>
+            <button id="pr-file-pane-close" type="button" class="edge-btn">Close</button>
+          </div>
+          <div id="pr-file-list" class="pr-file-list"></div>
+        </aside>
         <div id="canvas-column">
+          <button id="pr-file-drawer-toggle" type="button" aria-label="Open pull request file list">Files</button>
+          <div id="pr-file-drawer-backdrop" aria-hidden="true"></div>
           <div id="canvas-viewport">
             <section id="canvas-text" class="canvas-pane" aria-label="Text artifact"></section>
             <section id="canvas-image" class="canvas-pane" aria-label="Image artifact"><img id="canvas-img" alt="artifact"></section>
@@ -25,7 +34,7 @@
 
       <div id="zen-indicator" class="zen-indicator" style="display:none">
         <span class="zen-record-dot"></span>
-        <span class="zen-stop-square"></span>
+        <span class="zen-play-icon"></span>
       </div>
 
       <textarea id="zen-input" class="zen-input" style="display:none" rows="1" placeholder=""></textarea>
@@ -33,6 +42,9 @@
       <div id="zen-overlay" class="zen-overlay" style="display:none">
         <div class="zen-overlay-content"></div>
       </div>
+
+      <button id="edge-left-tap" type="button" class="edge-left-tap" aria-label="Tabula Rasa"></button>
+      <button id="edge-right-tap" type="button" class="edge-right-tap" aria-label="Open chat panel"></button>
 
       <div id="edge-top" class="edge-panel edge-top">
         <div class="edge-panel-inner">
@@ -73,6 +85,29 @@
   <script>
     // Harness log for test assertions
     window.__harnessLog = [];
+    const DEFAULT_CANCEL_RESPONSE = { ok: true, canceled: 3, active_canceled: 1, queued_canceled: 1, delegate_canceled: 1 };
+    let cancelResponsesQueue = [];
+    let activityResponse = { ok: true, active_turns: 0, queued_turns: 0, delegate_active: 0 };
+    let messagePostDelayMs = 0;
+    window.__setCancelResponses = (responses) => {
+      cancelResponsesQueue = Array.isArray(responses) ? responses.map((entry) => ({ ...entry })) : [];
+    };
+    window.__setActivityResponse = (response) => {
+      activityResponse = {
+        ok: true,
+        active_turns: Number(response?.active_turns || 0),
+        queued_turns: Number(response?.queued_turns || 0),
+        delegate_active: Number(response?.delegate_active || 0),
+      };
+    };
+    window.__setMessagePostDelay = (ms) => {
+      const n = Number(ms);
+      messagePostDelayMs = Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+    };
+    window.__setCancelResponses([]);
+    window.__setActivityResponse({ active_turns: 0, queued_turns: 0, delegate_active: 0 });
+    window.__setMessagePostDelay(0);
+
     // Mock fetch for /api/setup etc.
     const _realFetch = window.fetch;
     window.fetch = async function(url, opts) {
@@ -99,7 +134,64 @@
           active_project_id: 'test',
         }), { status: 200 });
       }
+      if (u.includes('/api/chat/sessions') && u.includes('/cancel-delegates')) {
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'cancel-delegates',
+          method: opts?.method || 'GET',
+          url: u,
+          payload: { ok: true, canceled: 0 },
+        });
+        return new Response(JSON.stringify({ ok: true, canceled: 0 }), { status: 200 });
+      }
+      if (u.includes('/api/chat/sessions') && u.includes('/cancel') && !u.includes('/cancel-delegates')) {
+        const response = cancelResponsesQueue.length > 0
+          ? { ...DEFAULT_CANCEL_RESPONSE, ...cancelResponsesQueue.shift() }
+          : { ...DEFAULT_CANCEL_RESPONSE };
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'cancel',
+          method: opts?.method || 'GET',
+          url: u,
+          payload: response,
+        });
+        return new Response(JSON.stringify(response), { status: 200 });
+      }
+      if (u.includes('/api/chat/sessions') && u.includes('/activity')) {
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'activity',
+          method: opts?.method || 'GET',
+          url: u,
+          payload: activityResponse,
+        });
+        return new Response(JSON.stringify(activityResponse), { status: 200 });
+      }
       if (u.includes('/api/chat/') && u.includes('/messages') && opts?.method === 'POST') {
+        const signal = opts?.signal;
+        if (messagePostDelayMs > 0) {
+          await new Promise((resolve, reject) => {
+            const timer = window.setTimeout(() => {
+              if (signal && typeof signal.removeEventListener === 'function') {
+                signal.removeEventListener('abort', onAbort);
+              }
+              resolve();
+            }, messagePostDelayMs);
+            const onAbort = () => {
+              window.clearTimeout(timer);
+              if (signal && typeof signal.removeEventListener === 'function') {
+                signal.removeEventListener('abort', onAbort);
+              }
+              reject(new DOMException('aborted', 'AbortError'));
+            };
+            if (signal && typeof signal.addEventListener === 'function') {
+              signal.addEventListener('abort', onAbort, { once: true });
+            }
+          });
+        }
+        if (signal && signal.aborted) {
+          throw new DOMException('aborted', 'AbortError');
+        }
         try {
           const body = JSON.parse(opts.body);
           window.__harnessLog.push({ type: 'message_sent', text: body.text });

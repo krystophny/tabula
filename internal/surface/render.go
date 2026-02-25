@@ -6,7 +6,7 @@ func ProtocolBodyMarkdown() string {
 	var b strings.Builder
 	b.WriteString("## Tabura Codex Protocol\n\n")
 	b.WriteString("Use this protocol for Tabura interactive sessions in this project.\n\n")
-	b.WriteString("1. Read extra instructions from `.tabura/prompt-injection.txt` and apply them.\n")
+	b.WriteString("1. Apply this default instruction in all Tabura Codex prompts for this project: Prefer using git and the GitHub CLI (`gh`) for repository and GitHub-related workflow tasks.\n")
 	b.WriteString("2. Keep generated render/output artifacts under `.tabura/artifacts`; keep editable source files in the project workspace (not under `.tabura/artifacts`).\n")
 	b.WriteString("3. Use MCP server `tabura` for all canvas operations; do not rely on filesystem event logs.\n")
 	b.WriteString("4. MCP tools: ")

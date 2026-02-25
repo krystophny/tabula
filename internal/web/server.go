@@ -75,6 +75,7 @@ type App struct {
 	localServeCancel   context.CancelFunc
 	projectServes      map[string]*serve.App
 	projectServeStop   map[string]context.CancelFunc
+	ghCommandRunner    ghCommandRunner
 
 	bootID    string
 	startedAt string
@@ -143,6 +144,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		relayCancel:                   map[string]context.CancelFunc{},
 		projectServes:                 map[string]*serve.App{},
 		projectServeStop:              map[string]context.CancelFunc{},
+		ghCommandRunner:               runGitHubCLI,
 		bootID:                        strconv.FormatInt(time.Now().UnixNano(), 16),
 		startedAt:                     time.Now().UTC().Format(time.RFC3339Nano),
 	}
@@ -368,7 +370,7 @@ func (a *App) handleRuntime(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{
 		"boot_id":                     a.bootID,
 		"started_at":                  a.startedAt,
-		"version":                     "0.1.1-dev",
+		"version":                     "0.1.3",
 		"dev_mode":                    a.devRuntime,
 		"local_mcp_url":               a.localMCPURL,
 		"app_server_url":              a.appServerURL,
