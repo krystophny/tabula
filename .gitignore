@@ -12,3 +12,5 @@ playwright-report/
 test-results/
 tests/manual/
 tabura
+services/intent-classifier/model/
+services/intent-classifier/checkpoints/

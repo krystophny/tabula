@@ -174,13 +174,6 @@ func (a *App) hubFindProjectByName(name string) (store.Project, error) {
 }
 
 func (a *App) runHubTurn(sessionID string, session store.ChatSession, messages []store.ChatMessage, outputMode string) {
-	if a.appServerClient == nil {
-		errText := "app-server is not configured"
-		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
-		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": errText})
-		return
-	}
-
 	userText := latestUserMessage(messages)
 	if userText == "" {
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "hub message is empty"})
@@ -199,6 +192,44 @@ func (a *App) runHubTurn(sessionID string, session store.ChatSession, messages [
 		"type":    "turn_started",
 		"turn_id": runID,
 	})
+
+	persistedAssistantID := int64(0)
+	persistedAssistantText := ""
+	localAction, localConfidence, localErr := a.classifyIntentLocally(ctx, userText)
+	if localErr == nil && localAction != nil && localConfidence >= intentClassifierMinConfidence {
+		actionMessage, actionPayload, actionErr := a.executeSystemAction(sessionID, session, localAction)
+		if actionErr == nil {
+			assistantText := strings.TrimSpace(actionMessage)
+			if assistantText == "" {
+				assistantText = "Done."
+			}
+			if actionPayload != nil {
+				a.broadcastChatEvent(sessionID, map[string]interface{}{
+					"type":   "system_action",
+					"action": actionPayload,
+				})
+			}
+			a.finalizeAssistantResponse(
+				sessionID,
+				session.ProjectKey,
+				assistantText,
+				&persistedAssistantID,
+				&persistedAssistantText,
+				"",
+				runID,
+				"",
+				outputMode,
+			)
+			return
+		}
+	}
+
+	if a.appServerClient == nil {
+		errText := "app-server is not configured"
+		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
+		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": errText})
+		return
+	}
 
 	model := modelprofile.ModelForAlias(modelprofile.AliasSpark)
 	reasoning := appServerReasoningParamsForModel(model, modelprofile.ReasoningLow)
@@ -251,8 +282,6 @@ func (a *App) runHubTurn(sessionID string, session store.ChatSession, messages [
 		}
 	}
 
-	persistedAssistantID := int64(0)
-	persistedAssistantText := ""
 	a.finalizeAssistantResponse(
 		sessionID,
 		session.ProjectKey,

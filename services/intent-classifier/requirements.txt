@@ -1,0 +1,9 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+numpy>=1.26.0
+onnxruntime>=1.18.0
+transformers>=4.46.0
+torch>=2.3.0
+datasets>=2.20.0
+scikit-learn>=1.5.0
+optimum[onnxruntime]>=1.22.0

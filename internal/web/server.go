@@ -51,6 +51,7 @@ type App struct {
 	appServerURL                  string
 	appServerModel                string
 	appServerSparkReasoningEffort string
+	intentClassifierURL           string
 	ttsURL                        string
 	devRuntime                    bool
 
@@ -116,6 +117,13 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 	if resolvedTTSURL == "" {
 		resolvedTTSURL = strings.TrimSpace(os.Getenv("TABURA_TTS_URL"))
 	}
+	resolvedIntentClassifierURL := strings.TrimSpace(os.Getenv("TABURA_INTENT_CLASSIFIER_URL"))
+	if strings.EqualFold(resolvedIntentClassifierURL, "off") {
+		resolvedIntentClassifierURL = ""
+	}
+	if resolvedIntentClassifierURL == "" {
+		resolvedIntentClassifierURL = DefaultIntentClassifierURL
+	}
 	if err := s.SetAppState(appStateDefaultChatModelKey, modelprofile.AliasSpark); err != nil {
 		_ = s.Close()
 		return nil, err
@@ -127,6 +135,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		appServerURL:                  appServerURL,
 		appServerModel:                resolvedModel,
 		appServerSparkReasoningEffort: resolvedSparkReasoningEffort,
+		intentClassifierURL:           resolvedIntentClassifierURL,
 		ttsURL:                        resolvedTTSURL,
 		devRuntime:                    devRuntime,
 		store:                         s,
@@ -380,6 +389,7 @@ func (a *App) handleRuntime(w http.ResponseWriter, r *http.Request) {
 		"app_server_url":              a.appServerURL,
 		"app_server_model":            a.appServerModel,
 		"app_server_reasoning_effort": sparkReasoningEffort,
+		"intent_classifier_url":       a.intentClassifierURL,
 		"available_models":            modelprofile.SupportedModels(),
 		"available_reasoning_efforts": modelprofile.AvailableReasoningEffortsByAlias(),
 		"tts_enabled":                 a.ttsURL != "",

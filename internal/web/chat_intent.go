@@ -1,13 +1,36 @@
 package web
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/krystophny/tabura/internal/store"
 )
+
+const (
+	DefaultIntentClassifierURL     = "http://127.0.0.1:8425"
+	intentClassifierMinConfidence  = 0.8
+	intentClassifierRequestTimeout = 75 * time.Millisecond
+	intentClassifierResponseLimit  = 64 * 1024
+)
+
+type localIntentClassifierResponse struct {
+	Action     string                 `json:"action"`
+	Intent     string                 `json:"intent"`
+	Confidence float64                `json:"confidence"`
+	Entities   map[string]interface{} `json:"entities"`
+	Params     map[string]interface{} `json:"params"`
+	Name       string                 `json:"name"`
+	Alias      string                 `json:"alias"`
+	Effort     string                 `json:"effort"`
+}
 
 type SystemAction struct {
 	Action string                 `json:"action"`
@@ -39,6 +62,85 @@ func parseSystemAction(raw string) (*SystemAction, error) {
 
 func systemActionStringParam(params map[string]interface{}, key string) string {
 	return strings.TrimSpace(fmt.Sprint(params[key]))
+}
+
+func normalizeSystemActionName(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "switch_project", "switch_model", "toggle_silent", "toggle_conversation", "cancel_work", "show_status":
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return ""
+	}
+}
+
+func mergeSystemActionParams(target map[string]interface{}, source map[string]interface{}) {
+	if source == nil {
+		return
+	}
+	for key, value := range source {
+		trimmed := strings.TrimSpace(key)
+		if trimmed == "" {
+			continue
+		}
+		target[trimmed] = value
+	}
+}
+
+func (a *App) classifyIntentLocally(ctx context.Context, text string) (*SystemAction, float64, error) {
+	baseURL := strings.TrimRight(strings.TrimSpace(a.intentClassifierURL), "/")
+	if baseURL == "" {
+		return nil, 0, nil
+	}
+	trimmedText := strings.TrimSpace(text)
+	if trimmedText == "" {
+		return nil, 0, nil
+	}
+	requestBody, _ := json.Marshal(map[string]string{"text": trimmedText})
+	requestCtx, cancel := context.WithTimeout(ctx, intentClassifierRequestTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(
+		requestCtx,
+		http.MethodPost,
+		baseURL+"/classify",
+		bytes.NewReader(requestBody),
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, intentClassifierResponseLimit))
+		return nil, 0, fmt.Errorf("intent classifier HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var payload localIntentClassifierResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, intentClassifierResponseLimit)).Decode(&payload); err != nil {
+		return nil, 0, err
+	}
+	actionName := normalizeSystemActionName(payload.Action)
+	if actionName == "" {
+		actionName = normalizeSystemActionName(payload.Intent)
+	}
+	if actionName == "" {
+		return nil, payload.Confidence, nil
+	}
+	params := map[string]interface{}{}
+	mergeSystemActionParams(params, payload.Entities)
+	mergeSystemActionParams(params, payload.Params)
+	if strings.TrimSpace(payload.Name) != "" {
+		params["name"] = strings.TrimSpace(payload.Name)
+	}
+	if strings.TrimSpace(payload.Alias) != "" {
+		params["alias"] = strings.TrimSpace(payload.Alias)
+	}
+	if strings.TrimSpace(payload.Effort) != "" {
+		params["effort"] = strings.TrimSpace(payload.Effort)
+	}
+	return &SystemAction{Action: actionName, Params: params}, payload.Confidence, nil
 }
 
 func (a *App) executeSystemAction(sessionID string, session store.ChatSession, action *SystemAction) (string, map[string]interface{}, error) {

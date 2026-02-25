@@ -16,9 +16,10 @@ Tabura uses one monolithic runtime command for app operation:
 
 No separate `tabura-mcp.service` or `tabura-voxtype-mcp.service` sidecars are used.
 No Helpy integration/runtime is active in Tabura.
-Tabura keeps two local sidecars:
+Tabura keeps three local sidecars:
 - `tabura-codex-app-server.service` for Codex app-server
 - `tabura-piper-tts.service` for Piper TTS over loopback HTTP
+- `tabura-intent.service` for local intent classification (`/classify` on `127.0.0.1:8425`)
 
 ## Security Boundary
 
@@ -60,17 +61,18 @@ Primary units:
 - `tabura-web.service`
 - `tabura-codex-app-server.service`
 - `tabura-piper-tts.service`
+- `tabura-intent.service` (optional but recommended)
 
 Quick status:
 
 ```bash
-systemctl --user status tabura-web.service tabura-codex-app-server.service tabura-piper-tts.service --no-pager -n 40
+systemctl --user status tabura-web.service tabura-codex-app-server.service tabura-piper-tts.service tabura-intent.service --no-pager -n 40
 ```
 
 Restart core stack:
 
 ```bash
-systemctl --user restart tabura-codex-app-server.service tabura-piper-tts.service tabura-web.service
+systemctl --user restart tabura-codex-app-server.service tabura-piper-tts.service tabura-intent.service tabura-web.service
 ```
 
 ## Endpoints
@@ -80,6 +82,7 @@ systemctl --user restart tabura-codex-app-server.service tabura-piper-tts.servic
 - MCP canvas WS: `ws://127.0.0.1:9420/ws/canvas`
 - App-server: `ws://127.0.0.1:8787`
 - TTS (Piper): `http://127.0.0.1:8424`
+- Intent classifier: `http://127.0.0.1:8425/classify` (`TABURA_INTENT_CLASSIFIER_URL`, use `off` to disable)
 - Local canvas session: `local`
 
 ## Start Local Web UI In Temporary Directory

@@ -8,6 +8,7 @@ Runtime stack:
 - `tabura-web.service` runs the Go monolith (`tabura server`)
 - `tabura-codex-app-server.service` runs Codex app-server
 - `tabura-piper-tts.service` runs Piper TTS API on loopback
+- `tabura-intent.service` runs local intent classification on loopback (`/classify`)
 
 ## Components
 
@@ -35,6 +36,7 @@ Runtime stack:
 
 - Codex app-server remains a separate local service and is consumed over `ws://127.0.0.1:8787`.
 - Piper TTS remains a separate local HTTP service on `http://127.0.0.1:8424`.
+- Intent classifier remains a separate local HTTP service on `http://127.0.0.1:8425/classify`.
 - Piper is intentionally not linked into the Go binary (`libpiper`) to avoid GPL-linked distribution coupling.
 
 ## UI Layout (Zen Canvas)

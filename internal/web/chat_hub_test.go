@@ -2,12 +2,56 @@ package web
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/krystophny/tabura/internal/modelprofile"
 )
+
+func setupMockIntentClassifierServer(t *testing.T, status int, response map[string]interface{}) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if strings.TrimSpace(r.URL.Path) != "/classify" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		var payload map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		rawText, _ := payload["text"].(string)
+		if strings.TrimSpace(rawText) == "" {
+			http.Error(w, "missing text", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+}
+
+func latestAssistantMessage(t *testing.T, app *App, sessionID string) string {
+	t.Helper()
+	updatedMessages, err := app.store.ListChatMessages(sessionID, 100)
+	if err != nil {
+		t.Fatalf("list updated messages: %v", err)
+	}
+	for i := len(updatedMessages) - 1; i >= 0; i-- {
+		if strings.EqualFold(strings.TrimSpace(updatedMessages[i].Role), "assistant") {
+			return strings.TrimSpace(updatedMessages[i].ContentPlain)
+		}
+	}
+	return ""
+}
 
 func TestParseSystemAction(t *testing.T) {
 	plain, err := parseSystemAction("hello world")
@@ -204,19 +248,136 @@ func TestHubRunTurnKeepsPlainTextAssistantOutput(t *testing.T) {
 	}
 	app.runHubTurn(session.ID, session, messages, turnOutputModeSilent)
 
-	updatedMessages, err := app.store.ListChatMessages(session.ID, 100)
-	if err != nil {
-		t.Fatalf("list updated messages: %v", err)
-	}
-	lastAssistant := ""
-	for i := len(updatedMessages) - 1; i >= 0; i-- {
-		if strings.EqualFold(strings.TrimSpace(updatedMessages[i].Role), "assistant") {
-			lastAssistant = strings.TrimSpace(updatedMessages[i].ContentPlain)
-			break
-		}
-	}
+	lastAssistant := latestAssistantMessage(t, app, session.ID)
 	if lastAssistant != assistantReply {
 		t.Fatalf("assistant plain text = %q, want %q", lastAssistant, assistantReply)
+	}
+}
+
+func TestHubRunTurnExecutesHighConfidenceLocalIntent(t *testing.T) {
+	classifier := setupMockIntentClassifierServer(t, http.StatusOK, map[string]interface{}{
+		"intent":     "toggle_silent",
+		"confidence": 0.95,
+		"entities":   map[string]interface{}{},
+	})
+	defer classifier.Close()
+
+	app, err := New(t.TempDir(), "", "", "", "", "", "", false)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	app.intentClassifierURL = classifier.URL
+	t.Cleanup(func() {
+		_ = app.Shutdown(context.Background())
+	})
+
+	hub, err := app.ensureHubProject()
+	if err != nil {
+		t.Fatalf("ensure hub project: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(hub.ProjectKey)
+	if err != nil {
+		t.Fatalf("hub session: %v", err)
+	}
+	if _, err := app.store.AddChatMessage(session.ID, "user", "be quiet", "be quiet", "text"); err != nil {
+		t.Fatalf("add user message: %v", err)
+	}
+	messages, err := app.store.ListChatMessages(session.ID, 100)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	app.runHubTurn(session.ID, session, messages, turnOutputModeSilent)
+
+	if got := latestAssistantMessage(t, app, session.ID); got != "Toggled silent mode." {
+		t.Fatalf("assistant message = %q, want %q", got, "Toggled silent mode.")
+	}
+}
+
+func TestHubRunTurnFallsBackToSparkOnLowIntentConfidence(t *testing.T) {
+	const assistantReply = "All systems nominal."
+	wsServer := setupMockAppServerStatusServer(t, assistantReply)
+	defer wsServer.Close()
+	wsURL := "ws" + strings.TrimPrefix(wsServer.URL, "http")
+
+	classifier := setupMockIntentClassifierServer(t, http.StatusOK, map[string]interface{}{
+		"intent":     "toggle_silent",
+		"confidence": 0.25,
+		"entities":   map[string]interface{}{},
+	})
+	defer classifier.Close()
+
+	app, err := New(t.TempDir(), "", "", wsURL, "", "", "", false)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	app.intentClassifierURL = classifier.URL
+	t.Cleanup(func() {
+		_ = app.Shutdown(context.Background())
+	})
+
+	hub, err := app.ensureHubProject()
+	if err != nil {
+		t.Fatalf("ensure hub project: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(hub.ProjectKey)
+	if err != nil {
+		t.Fatalf("hub session: %v", err)
+	}
+	if _, err := app.store.AddChatMessage(session.ID, "user", "be quiet", "be quiet", "text"); err != nil {
+		t.Fatalf("add user message: %v", err)
+	}
+	messages, err := app.store.ListChatMessages(session.ID, 100)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	app.runHubTurn(session.ID, session, messages, turnOutputModeSilent)
+
+	if got := latestAssistantMessage(t, app, session.ID); got != assistantReply {
+		t.Fatalf("assistant message = %q, want %q", got, assistantReply)
+	}
+}
+
+func TestHubRunTurnFallsBackToSparkWhenLocalIntentExecutionFails(t *testing.T) {
+	const assistantReply = "All systems nominal."
+	wsServer := setupMockAppServerStatusServer(t, assistantReply)
+	defer wsServer.Close()
+	wsURL := "ws" + strings.TrimPrefix(wsServer.URL, "http")
+
+	classifier := setupMockIntentClassifierServer(t, http.StatusOK, map[string]interface{}{
+		"intent":     "switch_project",
+		"confidence": 0.97,
+		"entities":   map[string]interface{}{},
+	})
+	defer classifier.Close()
+
+	app, err := New(t.TempDir(), "", "", wsURL, "", "", "", false)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	app.intentClassifierURL = classifier.URL
+	t.Cleanup(func() {
+		_ = app.Shutdown(context.Background())
+	})
+
+	hub, err := app.ensureHubProject()
+	if err != nil {
+		t.Fatalf("ensure hub project: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(hub.ProjectKey)
+	if err != nil {
+		t.Fatalf("hub session: %v", err)
+	}
+	if _, err := app.store.AddChatMessage(session.ID, "user", "switch project", "switch project", "text"); err != nil {
+		t.Fatalf("add user message: %v", err)
+	}
+	messages, err := app.store.ListChatMessages(session.ID, 100)
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	app.runHubTurn(session.ID, session, messages, turnOutputModeSilent)
+
+	if got := latestAssistantMessage(t, app, session.ID); got != assistantReply {
+		t.Fatalf("assistant message = %q, want %q", got, assistantReply)
 	}
 }
 
