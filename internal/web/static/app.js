@@ -17,6 +17,14 @@ import {
   cancelConversationListen,
   isConversationListenActive,
 } from './conversation.js';
+import {
+  initHotword,
+  startHotwordMonitor,
+  stopHotwordMonitor,
+  isHotwordActive,
+  onHotwordDetected,
+  setHotwordThreshold,
+} from './hotword.js';
 
 const state = {
   sessionId: 'local',
@@ -49,6 +57,8 @@ const state = {
   conversationMode: false,
   conversationListenActive: false,
   conversationListenTimer: null,
+  hotwordEnabled: false,
+  hotwordActive: false,
   voiceAwaitingTurn: false,
   voiceTurns: new Set(),
   indicatorSuppressedByCanvasUpdate: false,
@@ -334,6 +344,10 @@ let ttsSentenceChunker = null;
 let ttsEnabled = false;
 let ttsLastSpeakText = '';
 let ttsSpeakLang = 'en';
+let hotwordSyncInFlight = false;
+let hotwordResyncQueued = false;
+let hotwordInitAttempted = false;
+let hotwordUnsubscribe = null;
 
 function readTTSSilentPreference() {
   try {
@@ -355,6 +369,85 @@ function canSpeakTTS() {
   return Boolean(ttsEnabled) && !Boolean(state.ttsSilent);
 }
 
+function canStartHotwordMonitor() {
+  if (!state.hotwordEnabled) return false;
+  if (!state.conversationMode) return false;
+  if (!canSpeakTTS()) return false;
+  if (isRecording()) return false;
+  if (state.chatVoiceCapture) return false;
+  if (state.voiceAwaitingTurn) return false;
+  if (isAssistantWorking()) return false;
+  if (isTTSSpeaking()) return false;
+  if (isConversationListenActive()) return false;
+  return true;
+}
+
+async function syncHotwordMonitor() {
+  if (!state.hotwordEnabled || !canStartHotwordMonitor()) {
+    if (isHotwordActive()) {
+      stopHotwordMonitor();
+    }
+    state.hotwordActive = false;
+    return;
+  }
+  if (isHotwordActive()) {
+    state.hotwordActive = true;
+    return;
+  }
+  try {
+    const stream = await acquireMicStream();
+    await startHotwordMonitor(stream);
+  } catch (_) {}
+  state.hotwordActive = isHotwordActive();
+}
+
+function requestHotwordSync() {
+  if (hotwordSyncInFlight) {
+    hotwordResyncQueued = true;
+    return;
+  }
+  hotwordSyncInFlight = true;
+  void syncHotwordMonitor().finally(() => {
+    hotwordSyncInFlight = false;
+    if (hotwordResyncQueued) {
+      hotwordResyncQueued = false;
+      requestHotwordSync();
+    }
+  });
+}
+
+function configureHotwordLifecycle() {
+  if (typeof hotwordUnsubscribe === 'function') return;
+  hotwordUnsubscribe = onHotwordDetected(() => {
+    if (!canStartHotwordMonitor()) return;
+    stopHotwordMonitor();
+    state.hotwordActive = false;
+    onTTSPlaybackComplete();
+    updateAssistantActivityIndicator();
+    requestHotwordSync();
+  });
+}
+
+async function initHotwordLifecycle() {
+  if (hotwordInitAttempted) return state.hotwordEnabled;
+  hotwordInitAttempted = true;
+  try {
+    const enabled = await initHotword();
+    state.hotwordEnabled = Boolean(enabled);
+    if (state.hotwordEnabled) {
+      setHotwordThreshold(0.5);
+      configureHotwordLifecycle();
+    } else {
+      console.warn('Hotword unavailable; continuing without wake-word activation.');
+    }
+  } catch (err) {
+    state.hotwordEnabled = false;
+    console.warn('Hotword initialization error:', err);
+  }
+  requestHotwordSync();
+  return state.hotwordEnabled;
+}
+
 function applyConversationStateSnapshot(snapshot = null) {
   const nextMode = snapshot && typeof snapshot === 'object'
     ? Boolean(snapshot.conversationMode)
@@ -368,6 +461,7 @@ function applyConversationStateSnapshot(snapshot = null) {
   state.conversationMode = nextMode;
   state.conversationListenActive = nextListenActive;
   state.conversationListenTimer = nextListenTimer;
+  requestHotwordSync();
 }
 
 function isMobileSilent() {
@@ -468,6 +562,7 @@ function setTTSSilentMode(silent, { persist = true } = {}) {
     document.body.classList.remove('silent-mode');
   }
   renderEdgeTopModelButtons();
+  requestHotwordSync();
 }
 
 function toggleTTSSilentMode() {
@@ -500,6 +595,7 @@ function stopTTSPlayback() {
     state.ttsPlaying = false;
     updateAssistantActivityIndicator();
   }
+  requestHotwordSync();
 }
 
 configureConversation({
@@ -1529,6 +1625,7 @@ function updateAssistantActivityIndicator() {
     state.assistantUnknownTurns = 0;
     state.assistantActiveTurns.clear();
   }
+  state.hotwordActive = isHotwordActive();
   const pos = getLastInputPosition();
   const px = Number.isFinite(pos?.x) && pos.x > 0 ? pos.x : Math.floor(window.innerWidth / 2);
   const py = Number.isFinite(pos?.y) && pos.y > 0 ? pos.y : Math.floor(window.innerHeight / 2);
@@ -1538,6 +1635,7 @@ function updateAssistantActivityIndicator() {
   } else {
     hideIndicator();
   }
+  requestHotwordSync();
 }
 
 function paneIdForCanvasKind(kind) {
@@ -4073,6 +4171,7 @@ async function init() {
     ttsEnabled = false;
   }
   setTTSSilentMode(readTTSSilentPreference(), { persist: false });
+  await initHotwordLifecycle();
 
   await fetchProjects();
   const initialProjectID = resolveInitialProjectID();

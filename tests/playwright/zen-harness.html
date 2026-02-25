@@ -108,6 +108,53 @@
     window.__setCancelResponses([]);
     window.__setActivityResponse({ active_turns: 0, queued_turns: 0, delegate_active: 0 });
     window.__setMessagePostDelay(0);
+    const harnessParams = new URL(window.location.href).searchParams;
+    let hotwordInitEnabled = harnessParams.get('hotword') !== 'fail';
+    let ttsPlaybackDelayMs = 10;
+    window.__setHotwordInitEnabled = (enabled) => {
+      hotwordInitEnabled = Boolean(enabled);
+    };
+    window.__setTTSPlaybackDelayMs = (ms) => {
+      const n = Number(ms);
+      ttsPlaybackDelayMs = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 10;
+    };
+    window.__setTTSPlaybackDelayMs(10);
+    window.__taburaHotwordMock = {
+      active: false,
+      onDetect: null,
+      threshold: 0.5,
+      init() {
+        window.__harnessLog.push({ type: 'hotword', action: 'init', enabled: hotwordInitEnabled });
+        return hotwordInitEnabled;
+      },
+      start(_stream, onDetect) {
+        this.active = true;
+        this.onDetect = typeof onDetect === 'function' ? onDetect : null;
+        window.__harnessLog.push({ type: 'hotword', action: 'start' });
+      },
+      stop() {
+        if (this.active) {
+          window.__harnessLog.push({ type: 'hotword', action: 'stop' });
+        }
+        this.active = false;
+        this.onDetect = null;
+      },
+      setThreshold(value) {
+        this.threshold = Number(value);
+        window.__harnessLog.push({ type: 'hotword', action: 'threshold', value: this.threshold });
+      },
+      trigger() {
+        if (!this.active || typeof this.onDetect !== 'function') return;
+        window.__harnessLog.push({ type: 'hotword', action: 'detect' });
+        this.onDetect();
+      },
+    };
+    window.__triggerHotwordDetection = () => {
+      if (window.__taburaHotwordMock) {
+        window.__taburaHotwordMock.trigger();
+      }
+    };
+    window.__isHotwordActive = () => Boolean(window.__taburaHotwordMock?.active);
 
     const harnessProjects = [
       {
@@ -406,7 +453,7 @@
           onended: null,
           connect() {},
           start() {
-            setTimeout(() => { if (node.onended) node.onended(); }, 10);
+            setTimeout(() => { if (node.onended) node.onended(); }, ttsPlaybackDelayMs);
           },
           stop() {},
         };

@@ -1,0 +1,7 @@
+target_phrase:
+  - "hey tabura"
+n_samples: 2000
+n_samples_val: 500
+augmentation_rounds: 3
+output_dir: "./models/hotword"
+model_name: "hey_tabura"
