@@ -960,8 +960,14 @@ const MIC_CAPTURE_CONSTRAINTS = {
 
 let _cachedMicStream = null;
 let _micStreamPromise = null;
+let _micReleaseTimer = null;
+const MIC_RELEASE_COOLDOWN_MS = 60000;
 
 function acquireMicStream() {
+  if (_micReleaseTimer) {
+    clearTimeout(_micReleaseTimer);
+    _micReleaseTimer = null;
+  }
   if (_cachedMicStream) {
     const tracks = _cachedMicStream.getAudioTracks();
     if (tracks.length > 0 && tracks[0].readyState === 'live') {
@@ -989,8 +995,21 @@ function releaseMicStream({ force = false } = {}) {
   if (!force && activeCapture && activeCapture.mediaStream === _cachedMicStream && !activeCapture.stopping) {
     return;
   }
-  _cachedMicStream.getTracks().forEach((t) => t.stop());
-  _cachedMicStream = null;
+  if (force) {
+    if (_micReleaseTimer) { clearTimeout(_micReleaseTimer); _micReleaseTimer = null; }
+    _cachedMicStream.getTracks().forEach((t) => t.stop());
+    _cachedMicStream = null;
+    return;
+  }
+  // Defer release so the next tap reuses the warm stream.
+  if (_micReleaseTimer) return;
+  _micReleaseTimer = setTimeout(() => {
+    _micReleaseTimer = null;
+    if (_cachedMicStream && !state.chatVoiceCapture) {
+      _cachedMicStream.getTracks().forEach((t) => t.stop());
+      _cachedMicStream = null;
+    }
+  }, MIC_RELEASE_COOLDOWN_MS);
 }
 
 function parseOptionalBoolean(value) {
