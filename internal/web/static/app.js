@@ -9,6 +9,14 @@ import {
   getInputAnchor, setInputAnchor, getAnchorFromPoint,
   buildContextPrefix, getLastInputPosition, setLastInputPosition,
 } from './zen.js';
+import {
+  configureConversation,
+  isConversationMode,
+  setConversationMode,
+  onTTSPlaybackComplete,
+  cancelConversationListen,
+  isConversationListenActive,
+} from './conversation.js';
 
 const state = {
   sessionId: 'local',
@@ -38,6 +46,9 @@ const state = {
   assistantCancelInFlight: false,
   assistantLastError: '',
   ttsPlaying: false,
+  conversationMode: false,
+  conversationListenActive: false,
+  conversationListenTimer: null,
   voiceAwaitingTurn: false,
   voiceTurns: new Set(),
   indicatorSuppressedByCanvasUpdate: false,
@@ -272,6 +283,7 @@ class TTSPlayer {
     }
   }
   async _playNext() {
+    const playbackCompleted = !this._stopped && this._queue.length === 0;
     if (this._stopped || this._queue.length === 0) {
       this._playing = false;
       this._nextStartTime = 0;
@@ -279,10 +291,14 @@ class TTSPlayer {
         state.ttsPlaying = false;
         updateAssistantActivityIndicator();
       }
+      if (playbackCompleted) {
+        onTTSPlaybackComplete();
+      }
       return;
     }
     this._playing = true;
     if (!state.ttsPlaying) {
+      cancelConversationListen();
       state.ttsPlaying = true;
       updateAssistantActivityIndicator();
     }
@@ -337,6 +353,21 @@ function persistTTSSilentPreference(silent) {
 
 function canSpeakTTS() {
   return Boolean(ttsEnabled) && !Boolean(state.ttsSilent);
+}
+
+function applyConversationStateSnapshot(snapshot = null) {
+  const nextMode = snapshot && typeof snapshot === 'object'
+    ? Boolean(snapshot.conversationMode)
+    : isConversationMode();
+  const nextListenActive = snapshot && typeof snapshot === 'object'
+    ? Boolean(snapshot.conversationListenActive)
+    : isConversationListenActive();
+  const nextListenTimer = snapshot && typeof snapshot === 'object'
+    ? (snapshot.conversationListenTimer ?? null)
+    : null;
+  state.conversationMode = nextMode;
+  state.conversationListenActive = nextListenActive;
+  state.conversationListenTimer = nextListenTimer;
 }
 
 function isMobileSilent() {
@@ -426,6 +457,7 @@ function setTTSSilentMode(silent, { persist = true } = {}) {
     persistTTSSilentPreference(next);
   }
   if (next) {
+    cancelConversationListen();
     stopTTSPlayback();
     document.body.classList.add('silent-mode');
     if (window.matchMedia('(max-width: 767px)').matches) {
@@ -469,6 +501,32 @@ function stopTTSPlayback() {
     updateAssistantActivityIndicator();
   }
 }
+
+configureConversation({
+  canStartConversationListen,
+  onConversationListenStateChange: (snapshot) => {
+    applyConversationStateSnapshot(snapshot);
+    renderEdgeTopModelButtons();
+    updateAssistantActivityIndicator();
+  },
+  onConversationListenTimeout: () => {
+    if (!state.chatVoiceCapture && !state.voiceAwaitingTurn && !isAssistantWorking() && !isTTSSpeaking()) {
+      showStatus('ready');
+    }
+  },
+  onConversationSpeechDetected: () => {
+    beginConversationVoiceCapture();
+  },
+  onConversationListenCancelled: () => {
+    if (!state.chatVoiceCapture && !state.voiceAwaitingTurn && !isAssistantWorking() && !isTTSSpeaking()) {
+      showStatus('ready');
+    }
+  },
+  getAudioContext: () => ttsAudioCtx,
+  acquireMicStream,
+  computeDecibelFromTimeDomain,
+});
+applyConversationStateSnapshot();
 
 function ensureTTSChunker() {
   if (ttsSentenceChunker) return;
@@ -1214,6 +1272,7 @@ async function beginZenVoiceCapture(x, y, anchor, options = null) {
   if (state.chatVoiceCapture) return;
   if (!canUseMicrophoneCapture()) return;
   const manualStopOnly = Boolean(options && options.manualStopOnly);
+  cancelConversationListen();
   // Interrupt TTS playback when starting recording
   stopTTSPlayback();
   const capture = {
@@ -1420,16 +1479,33 @@ function isTTSSpeaking() {
   return state.ttsPlaying;
 }
 
+function canStartConversationListen() {
+  if (!canSpeakTTS()) return false;
+  if (isRecording()) return false;
+  if (state.chatVoiceCapture) return false;
+  if (state.voiceAwaitingTurn) return false;
+  if (isAssistantWorking()) return false;
+  if (isTTSSpeaking()) return false;
+  return true;
+}
+
+function beginConversationVoiceCapture() {
+  const x = Math.floor(window.innerWidth / 2);
+  const y = Math.floor(window.innerHeight / 2);
+  void beginZenVoiceCapture(x, y, null);
+}
+
 function currentIndicatorMode() {
   if (isRecording()) return 'recording';
   if (state.voiceAwaitingTurn) return 'play';
+  if (isConversationListenActive()) return 'listening';
   if (state.indicatorSuppressedByCanvasUpdate) return '';
   if (isAssistantWorking() || isTTSSpeaking()) return 'play';
   return '';
 }
 
 function shouldStopInUiClick() {
-  return state.voiceAwaitingTurn || isAssistantWorking() || isTTSSpeaking();
+  return state.voiceAwaitingTurn || isAssistantWorking() || isTTSSpeaking() || isConversationListenActive();
 }
 
 function updateAssistantActivityIndicator() {
@@ -2081,6 +2157,25 @@ function renderEdgeTopModelButtons() {
   effortWrap.appendChild(effortSelect);
   host.appendChild(effortWrap);
 
+  const convButton = document.createElement('button');
+  convButton.type = 'button';
+  convButton.className = 'edge-project-btn edge-model-btn edge-conv-btn';
+  convButton.textContent = 'conv';
+  convButton.setAttribute('aria-pressed', state.conversationMode ? 'true' : 'false');
+  if (state.conversationMode) {
+    convButton.classList.add('is-active');
+  }
+  convButton.disabled = !ttsEnabled || state.projectSwitchInFlight || state.projectModelSwitchInFlight;
+  convButton.addEventListener('click', () => {
+    const next = !isConversationMode();
+    const enabled = setConversationMode(next);
+    applyConversationStateSnapshot();
+    renderEdgeTopModelButtons();
+    updateAssistantActivityIndicator();
+    showStatus(enabled ? 'conversation mode on' : 'conversation mode off');
+  });
+  host.appendChild(convButton);
+
   const silentButton = document.createElement('button');
   silentButton.type = 'button';
   silentButton.className = 'edge-project-btn edge-model-btn edge-silent-btn';
@@ -2221,6 +2316,7 @@ function startAssistantActivityWatcher() {
   window.addEventListener('focus', tick);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
+      cancelConversationListen();
       if (state.chatVoiceCapture) {
         cancelChatVoiceCapture();
       }
@@ -2284,6 +2380,7 @@ function openChatWs() {
 
   ws.onclose = () => {
     if (turnToken !== state.chatWsToken || targetSessionID !== state.chatSessionId) return;
+    cancelConversationListen();
     if (state.chatVoiceCapture || state.voiceAwaitingTurn) {
       cancelChatVoiceCapture();
       sttCancel();
@@ -2584,6 +2681,7 @@ async function switchProject(projectID) {
 
   state.projectSwitchInFlight = true;
   showStatus('switching project...');
+  cancelConversationListen();
   cancelChatVoiceCapture();
   closeChatWs();
   closeCanvasWs();
@@ -2638,6 +2736,7 @@ function abortPendingSubmit(kind = '') {
 async function zenSubmitMessage(text, options = {}) {
   const trimmed = String(text || '').trim();
   if (!trimmed || !state.chatSessionId) return;
+  cancelConversationListen();
   const submitKind = String(options?.kind || '').trim();
   let submitController = null;
   if (submitKind) {
@@ -2776,6 +2875,14 @@ async function cancelActiveAssistantTurnWithRetry(maxAttempts = 3) {
 }
 
 async function handleZenStopAction() {
+  if (isConversationListenActive()) {
+    cancelConversationListen();
+    if (!state.chatVoiceCapture && !state.voiceAwaitingTurn && !isAssistantWorking() && !isTTSSpeaking()) {
+      showStatus('ready');
+    }
+    return;
+  }
+
   const capture = state.chatVoiceCapture;
   if (capture && capture.stopping) {
     cancelChatVoiceCapture();
@@ -3268,7 +3375,11 @@ function bindUi() {
 
   if (zenIndicator) {
     let lastIndicatorTouchAt = 0;
-    const isIndicatorArmed = () => zenIndicator.classList.contains('is-working') || zenIndicator.classList.contains('is-recording');
+    const isIndicatorArmed = () => (
+      zenIndicator.classList.contains('is-working')
+      || zenIndicator.classList.contains('is-recording')
+      || zenIndicator.classList.contains('is-listening')
+    );
     const pointHitsIndicatorChip = (x, y) => {
       const chips = zenIndicator.querySelectorAll('.zen-record-dot, .zen-play-icon');
       for (const chip of chips) {
@@ -3363,6 +3474,9 @@ function bindUi() {
     zenClickTarget.addEventListener('pointerdown', (ev) => {
       if (ev.pointerType !== 'mouse' || !ev.isPrimary || ev.button !== 0) return;
       if (isVoiceInteractionTarget(ev.target, ev.clientX, ev.clientY)) return;
+      if (isConversationListenActive()) {
+        cancelConversationListen();
+      }
       if (isRecording() || shouldStopInUiClick()) return;
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed) return;
@@ -3425,6 +3539,16 @@ function bindUi() {
         ev.preventDefault();
         return;
       }
+      if (isConversationListenActive()) {
+        if (isVoiceInteractionTarget(ev.target, ev.clientX, ev.clientY)) return;
+        if (ev.button !== 0) return;
+        const x = ev.clientX;
+        const y = ev.clientY;
+        rememberMousePosition(x, y);
+        cancelConversationListen();
+        void beginVoiceCaptureFromPoint(x, y);
+        return;
+      }
       if (shouldStopInUiClick()) {
         ev.preventDefault();
         void handleZenStopAction();
@@ -3457,6 +3581,7 @@ function bindUi() {
     zenClickTarget.addEventListener('contextmenu', (ev) => {
       if (ev.target instanceof Element && ev.target.closest('.edge-panel')) return;
       ev.preventDefault();
+      cancelConversationListen();
       let anchor = null;
       if (state.hasArtifact && canvasText) {
         anchor = getAnchorFromPoint(ev.clientX, ev.clientY);
@@ -3468,6 +3593,9 @@ function bindUi() {
   // Zen: Text input Enter -> send
   const zenInput = document.getElementById('zen-input');
   if (zenInput instanceof HTMLTextAreaElement) {
+    zenInput.addEventListener('focus', () => {
+      cancelConversationListen();
+    });
     zenInput.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter' && !ev.shiftKey) {
         ev.preventDefault();
@@ -3495,6 +3623,9 @@ function bindUi() {
   // Chat pane input: Enter sends, Escape blurs, auto-resize
   const chatPaneInput = document.getElementById('chat-pane-input');
   if (chatPaneInput instanceof HTMLTextAreaElement) {
+    chatPaneInput.addEventListener('focus', () => {
+      cancelConversationListen();
+    });
     chatPaneInput.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter' && !ev.shiftKey) {
         ev.preventDefault();
@@ -3576,6 +3707,11 @@ function bindUi() {
       if (isInEdgeZone(ev.clientX, ev.clientY)) return;
       const edgeR = chatHistory.closest('.edge-panel');
       if (edgeR && !edgeR.classList.contains('edge-pinned')) return;
+      if (isConversationListenActive()) {
+        cancelConversationListen();
+        void beginVoiceCaptureFromPoint(ev.clientX, ev.clientY);
+        return;
+      }
       if (shouldStopInUiClick()) { void handleZenStopAction(); return; }
       if (isRecording()) { void stopZenVoiceCaptureAndSend(); return; }
       void beginVoiceCaptureFromPoint(ev.clientX, ev.clientY);
@@ -3642,6 +3778,9 @@ function bindUi() {
     // Control long-press for PTT
     if (ev.key === 'Control' && !ev.repeat) {
       if (state.chatCtrlHoldTimer || state.chatVoiceCapture) return;
+      if (isConversationListenActive()) {
+        cancelConversationListen();
+      }
       state.chatCtrlHoldTimer = window.setTimeout(() => {
         state.chatCtrlHoldTimer = null;
         const point = getCtrlVoiceCapturePoint();
@@ -3685,6 +3824,7 @@ function bindUi() {
       const cpInput = document.getElementById('chat-pane-input');
       const chatPaneOpen = edgeR && (edgeR.classList.contains('edge-active') || edgeR.classList.contains('edge-pinned'));
       if (chatPaneOpen && cpInput instanceof HTMLTextAreaElement && !window.matchMedia('(max-width: 767px)').matches) {
+        cancelConversationListen();
         cpInput.focus();
         cpInput.value = ev.key;
         const caret = ev.key.length;
@@ -3695,6 +3835,7 @@ function bindUi() {
       }
       const cx = window.innerWidth / 2 - 130;
       const cy = window.innerHeight / 2;
+      cancelConversationListen();
       showTextInput(cx, cy, null);
       // Forward the keystroke
       const input = document.getElementById('zen-input');

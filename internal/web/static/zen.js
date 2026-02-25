@@ -124,10 +124,19 @@ function overlayContentEl() {
 export function showIndicatorMode(mode, x, y) {
   const el = indicatorEl();
   if (!el) return;
-  const nextMode = mode === 'recording' ? 'recording' : 'play';
+  const normalizedMode = String(mode || '').trim().toLowerCase();
+  const nextMode = normalizedMode === 'recording'
+    ? 'recording'
+    : (normalizedMode === 'listening' ? 'listening' : 'play');
   const body = document.body;
-  el.classList.remove('is-recording', 'is-working');
-  el.classList.add(nextMode === 'recording' ? 'is-recording' : 'is-working');
+  el.classList.remove('is-recording', 'is-working', 'is-listening');
+  if (nextMode === 'recording') {
+    el.classList.add('is-recording');
+  } else if (nextMode === 'listening') {
+    el.classList.add('is-listening');
+  } else {
+    el.classList.add('is-working');
+  }
   el.style.display = '';
   el.style.position = 'fixed';
   el.style.inset = '';
@@ -157,7 +166,7 @@ export function showIndicatorMode(mode, x, y) {
     }
   }
   if (body) {
-    const isCueVisible = nextMode === 'recording' || nextMode === 'play';
+    const isCueVisible = nextMode === 'recording' || nextMode === 'play' || nextMode === 'listening';
     body.classList.toggle('zen-recording', isCueVisible);
   }
   zenState.indicatorVisible = true;
@@ -167,7 +176,7 @@ export function showIndicatorMode(mode, x, y) {
 export function hideIndicator() {
   const el = indicatorEl();
   if (!el) return;
-  el.classList.remove('is-recording', 'is-working');
+  el.classList.remove('is-recording', 'is-working', 'is-listening');
   el.style.display = 'none';
   const body = document.body;
   if (body) {

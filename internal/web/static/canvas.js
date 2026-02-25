@@ -305,7 +305,10 @@ function buildMarkdownDiffPreview(diffTextRaw, artifactTitleRaw) {
   if (!diffText.trim()) return null;
   const artifactTitle = String(artifactTitleRaw || '').trim();
   const inferredPath = inferDiffPath(diffText);
-  if (!isMarkdownPath(artifactTitle) && !isMarkdownPath(inferredPath)) {
+  const markdownPath = isMarkdownPath(artifactTitle)
+    ? artifactTitle
+    : (isMarkdownPath(inferredPath) ? inferredPath : '');
+  if (!markdownPath) {
     return null;
   }
   if (!(diffText.startsWith('diff --git ') || diffText.includes('\ndiff --git '))) {
@@ -333,6 +336,11 @@ function buildMarkdownDiffPreview(diffTextRaw, artifactTitleRaw) {
     }
     changedMap.push(Boolean(changed));
   };
+
+  // Keep the active file path visible in PR review mode while preserving
+  // markdown diff rendering for file content changes.
+  appendLine(`\`${markdownPath}\``, null, false);
+  appendLine('', null, false);
 
   const flushPendingDeletions = () => {
     if (pendingDeletionLines.length === 0) return;

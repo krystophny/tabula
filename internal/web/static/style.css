@@ -499,7 +499,8 @@ body.pr-review-mode #pr-file-pane {
 }
 
 .zen-indicator.is-recording,
-.zen-indicator.is-working {
+.zen-indicator.is-working,
+.zen-indicator.is-listening {
   --cue-chip-size: 14px;
   --cue-frame-color: #000000;
   display: block;
@@ -524,16 +525,19 @@ body.pr-review-mode #pr-file-pane {
 }
 
 body.keyboard-open .zen-indicator.is-recording,
-body.keyboard-open .zen-indicator.is-working {
+body.keyboard-open .zen-indicator.is-working,
+body.keyboard-open .zen-indicator.is-listening {
   width: 100lvw;
   height: 100lvh;
 }
 
 .zen-indicator.is-recording { --cue-frame-color: #d92d20; }
 .zen-indicator.is-working  { --cue-frame-color: #22a846; }
+.zen-indicator.is-listening { --cue-frame-color: #2563eb; }
 
 .zen-indicator.is-recording::before,
-.zen-indicator.is-working::before {
+.zen-indicator.is-working::before,
+.zen-indicator.is-listening::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -569,6 +573,18 @@ body.keyboard-open .zen-indicator.is-working {
   background: #d92d20;
 }
 
+.zen-indicator.is-listening .zen-record-dot {
+  display: inline-flex;
+  top: 50%;
+  right: auto;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: #2563eb;
+  box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.65);
+  animation: zen-listen-pulse 1s ease-out infinite;
+}
+
 .zen-indicator.is-working .zen-play-icon {
   display: inline-flex;
   background: transparent;
@@ -591,7 +607,8 @@ body.keyboard-open .zen-indicator.is-working {
 
 @media (monochrome) {
   .zen-indicator.is-recording,
-  .zen-indicator.is-working {
+  .zen-indicator.is-working,
+  .zen-indicator.is-listening {
     --cue-frame-color: #111111;
   }
   .zen-indicator .zen-record-dot,
@@ -604,6 +621,24 @@ body.keyboard-open .zen-indicator.is-working {
     border-left-color: #111111;
     border-top-color: transparent;
     border-bottom-color: transparent;
+  }
+  .zen-indicator.is-listening .zen-record-dot {
+    box-shadow: 0 0 0 0 rgba(17, 17, 17, 0.65);
+  }
+}
+
+@keyframes zen-listen-pulse {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.65);
+  }
+  70% {
+    transform: translate(-50%, -50%) scale(1.2);
+    box-shadow: 0 0 0 18px rgba(37, 99, 235, 0);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
   }
 }
 
@@ -867,6 +902,10 @@ body.keyboard-open .zen-indicator.is-working {
 }
 
 .edge-silent-btn {
+  margin-left: 0.35rem;
+}
+
+.edge-conv-btn {
   margin-left: 0.35rem;
 }
 
