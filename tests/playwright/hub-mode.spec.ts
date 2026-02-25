@@ -53,3 +53,27 @@ test('clicking hub button activates hub project', async ({ page }) => {
 
   await expect(hubButton).toHaveClass(/is-active/);
 });
+
+test('switching from hub back to project keeps normal project switching', async ({ page }) => {
+  await page.evaluate(() => {
+    document.getElementById('edge-top')?.classList.add('edge-pinned');
+  });
+  const hubButton = page.locator('#edge-top-models .edge-hub-btn');
+  await hubButton.click();
+  await page.locator('#edge-top-projects .edge-project-btn').click();
+
+  await expect.poll(async () => {
+    const log = await getLog(page);
+    const seenHub = log.some(
+      (entry) => entry.type === 'api_fetch'
+        && entry.action === 'project_activate'
+        && String(entry.payload?.project_id || '') === 'hub',
+    );
+    const seenProject = log.some(
+      (entry) => entry.type === 'api_fetch'
+        && entry.action === 'project_activate'
+        && String(entry.payload?.project_id || '') === 'test',
+    );
+    return seenHub && seenProject;
+  }, { timeout: 5_000 }).toBe(true);
+});

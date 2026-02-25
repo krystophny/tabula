@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/krystophny/tabura/internal/modelprofile"
 )
 
 func TestParseHubAction(t *testing.T) {
@@ -128,5 +130,27 @@ func TestHubSwitchProjectActionReturnsActivationPayload(t *testing.T) {
 	}
 	if got := strings.TrimSpace(payload["project_id"].(string)); got != target.ID {
 		t.Fatalf("action payload project_id = %q, want %q", got, target.ID)
+	}
+}
+
+func TestHubProjectProfileUsesSparkLow(t *testing.T) {
+	app := newAuthedTestApp(t)
+	hub, err := app.ensureHubProject()
+	if err != nil {
+		t.Fatalf("ensure hub project: %v", err)
+	}
+
+	profile := app.appServerModelProfileForProject(hub)
+	if profile.Alias != modelprofile.AliasSpark {
+		t.Fatalf("hub profile alias = %q, want %q", profile.Alias, modelprofile.AliasSpark)
+	}
+	if profile.Model != modelprofile.ModelForAlias(modelprofile.AliasSpark) {
+		t.Fatalf("hub profile model = %q, want spark model", profile.Model)
+	}
+	if got := strings.TrimSpace(profile.ThreadParams["model_reasoning_effort"].(string)); got != modelprofile.ReasoningLow {
+		t.Fatalf("hub thread reasoning = %q, want %q", got, modelprofile.ReasoningLow)
+	}
+	if got := strings.TrimSpace(profile.TurnParams["model_reasoning_effort"].(string)); got != modelprofile.ReasoningLow {
+		t.Fatalf("hub turn reasoning = %q, want %q", got, modelprofile.ReasoningLow)
 	}
 }
