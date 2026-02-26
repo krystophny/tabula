@@ -257,26 +257,6 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   position: relative;
 }
 
-#pr-file-drawer-toggle {
-  display: none;
-  position: absolute;
-  top: 0.6rem;
-  left: 0.6rem;
-  z-index: 115;
-  padding: 0.28rem 0.58rem;
-  font-size: 0.74rem;
-  border-radius: 999px;
-  background: #111827;
-  color: #f9fafb;
-  border: 1px solid #111827;
-}
-
-body.file-sidebar-enabled #pr-file-drawer-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
 #pr-file-drawer-backdrop {
   display: none;
   position: fixed;
@@ -824,10 +804,10 @@ body.keyboard-open .zen-indicator.is-listening {
 .edge-left-tap {
   position: fixed;
   left: 0;
-  right: 0;
+  top: 0;
   bottom: 0;
-  height: calc(16px + var(--zen-safe-area-bottom, 0px));
-  z-index: 150;
+  width: 30px;
+  z-index: 430;
   margin: 0;
   border: 0;
   border-radius: 0;
@@ -842,19 +822,13 @@ body.keyboard-open .zen-indicator.is-listening {
   background: transparent;
 }
 
-@media (max-width: 768px) {
-  .edge-left-tap {
-    height: calc(24px + var(--zen-safe-area-bottom, 0px));
-  }
-}
-
 .edge-right-tap {
   position: fixed;
   top: 0;
   right: 0;
   bottom: 0;
-  width: 20px;
-  z-index: 150;
+  width: 30px;
+  z-index: 430;
   margin: 0;
   border: 0;
   border-radius: 0;
@@ -867,12 +841,6 @@ body.keyboard-open .zen-indicator.is-listening {
 .edge-right-tap:hover,
 .edge-right-tap:active {
   background: transparent;
-}
-
-@media (max-width: 768px) {
-  .edge-right-tap {
-    width: 30px;
-  }
 }
 
 .edge-panel {
@@ -1168,6 +1136,13 @@ body.keyboard-open .zen-indicator.is-listening {
     max-width: min(84vw, 340px);
   }
 }
+
+@media (max-width: 430px) {
+  #pr-file-pane {
+    width: 100vw;
+    max-width: 100vw;
+  }
+}
 #canvas-text ul,
 #canvas-text ol {
   margin: 0.4rem 0 0.4rem 1.25rem;
@@ -1198,6 +1173,5 @@ body.keyboard-open .zen-indicator.is-listening {
   body.silent-mode .chat-bubble { font-size: var(--chat-content-font-size); }
 }
 
-body.silent-mode .edge-left-tap { z-index: 250; }
 body.silent-mode .edge-top { z-index: 250; }
 body.silent-mode .zen-indicator { z-index: 1000; }

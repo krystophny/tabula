@@ -3466,7 +3466,7 @@ async function loadCanvasSnapshot(sessionID = state.sessionId) {
 let edgeTopTimer = null;
 let edgeRightTimer = null;
 let edgeTouchStart = null;
-const EDGE_TAP_SIZE_PX = 20;
+const EDGE_TAP_SIZE_PX = 30;
 const EDGE_TAP_SIZE_SMALL_PX = 30;
 const EDGE_TAP_SIZE_SMALL_MEDIA_QUERY = '(max-width: 768px)';
 
@@ -3489,6 +3489,27 @@ function edgePanelsAreOpen() {
   const topOpen = Boolean(edgeTop && (edgeTop.classList.contains('edge-active') || edgeTop.classList.contains('edge-pinned')));
   const rightOpen = Boolean(edgeRight && (edgeRight.classList.contains('edge-active') || edgeRight.classList.contains('edge-pinned')));
   return topOpen || rightOpen || state.prReviewDrawerOpen;
+}
+
+function toggleFileSidebarFromEdge() {
+  if (!state.prReviewMode && !state.activeProjectId) return;
+  if (!state.prReviewMode) {
+    state.fileSidebarMode = 'workspace';
+    if (!state.workspaceBrowserLoading && state.workspaceBrowserEntries.length === 0 && !state.workspaceBrowserError) {
+      void refreshWorkspaceBrowser(false);
+    }
+  }
+  setPrReviewDrawerOpen(!state.prReviewDrawerOpen);
+  renderPrReviewFileList();
+}
+
+function toggleRightEdgeDrawer(edgeRight) {
+  if (!(edgeRight instanceof HTMLElement)) return;
+  if (edgeRight.classList.contains('edge-pinned')) {
+    edgeRight.classList.remove('edge-pinned', 'edge-active');
+    return;
+  }
+  edgeRight.classList.add('edge-active', 'edge-pinned');
 }
 
 function handleRasaEdgeTap() {
@@ -3578,40 +3599,29 @@ function initEdgePanels() {
   if (edgeLeftTap) {
     edgeLeftTap.addEventListener('click', (ev) => {
       ev.preventDefault();
-      handleRasaEdgeTap();
+      toggleFileSidebarFromEdge();
     });
+    edgeLeftTap.addEventListener('touchend', (ev) => {
+      ev.preventDefault();
+      toggleFileSidebarFromEdge();
+    }, { passive: false });
   }
 
   const edgeRightTap = document.getElementById('edge-right-tap');
   if (edgeRightTap) {
     edgeRightTap.addEventListener('click', (ev) => {
       ev.preventDefault();
-      if (edgeRight) edgeRight.classList.add('edge-pinned');
+      toggleRightEdgeDrawer(edgeRight);
     });
     // Direct touch handler: iOS system gesture recognizer can intercept
     // document-level touch events near screen edges. Handle on the button
     // itself with touch-action:manipulation to bypass system gestures.
     edgeRightTap.addEventListener('touchend', (ev) => {
       ev.preventDefault();
-      if (edgeRight) edgeRight.classList.add('edge-pinned');
+      toggleRightEdgeDrawer(edgeRight);
     }, { passive: false });
   }
 
-  const prDrawerToggle = document.getElementById('pr-file-drawer-toggle');
-  if (prDrawerToggle) {
-    prDrawerToggle.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      if (!state.prReviewMode && !state.activeProjectId) return;
-      if (!state.prReviewMode) {
-        state.fileSidebarMode = 'workspace';
-        if (!state.workspaceBrowserLoading && state.workspaceBrowserEntries.length === 0 && !state.workspaceBrowserError) {
-          void refreshWorkspaceBrowser(false);
-        }
-      }
-      setPrReviewDrawerOpen(!state.prReviewDrawerOpen);
-      renderPrReviewFileList();
-    });
-  }
   const prDrawerBackdrop = document.getElementById('pr-file-drawer-backdrop');
   if (prDrawerBackdrop) {
     prDrawerBackdrop.addEventListener('click', () => {
@@ -3630,10 +3640,16 @@ function initEdgePanels() {
   let edgeTouchHandled = false;
   document.addEventListener('touchstart', (ev) => {
     if (ev.touches.length !== 1) return;
+    if (ev.target instanceof Element && ev.target.closest('#edge-left-tap,#edge-right-tap')) {
+      edgeTouchStart = null;
+      return;
+    }
     const t = ev.touches[0];
     const edgeTapSize = getEdgeTapSizePx();
     edgeTouchHandled = false;
-    if (t.clientX > window.innerWidth - edgeTapSize) {
+    if (t.clientX < edgeTapSize) {
+      edgeTouchStart = { x: t.clientX, y: t.clientY, edge: 'left' };
+    } else if (t.clientX > window.innerWidth - edgeTapSize) {
       edgeTouchStart = { x: t.clientX, y: t.clientY, edge: 'right' };
     } else if (t.clientY < edgeTapSize) {
       edgeTouchStart = { x: t.clientX, y: t.clientY, edge: 'top' };
@@ -3670,8 +3686,9 @@ function initEdgePanels() {
       const dy = Math.abs(touch.clientY - edgeTouchStart.y);
       if (dx < 20 && dy < 20) {
         switch (edgeTouchStart.edge) {
+          case 'left': toggleFileSidebarFromEdge(); break;
           case 'bottom': handleRasaEdgeTap(); break;
-          case 'right': if (edgeRight) edgeRight.classList.add('edge-pinned'); break;
+          case 'right': toggleRightEdgeDrawer(edgeRight); break;
           case 'top': if (edgeTop) edgeTop.classList.add('edge-pinned'); break;
         }
         // Prevent iOS from synthesizing a click after edge tap — the
@@ -3778,7 +3795,7 @@ function bindUi() {
   let hasLastMousePosition = false;
   const isInEdgeZone = (x, y) => {
     const s = getEdgeTapSizePx();
-    return x > window.innerWidth - s || y < s || y > window.innerHeight - s;
+    return x < s || x > window.innerWidth - s || y < s || y > window.innerHeight - s;
   };
   const isVoiceInteractionTarget = (target, x, y) => (
     isInEdgeZone(x, y)

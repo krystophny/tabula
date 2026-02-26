@@ -60,7 +60,7 @@ test.describe('pr review canvas mode', () => {
     await expect(page.locator('#pr-file-list .pr-file-item')).toHaveCount(2);
     await expect(page.locator('#canvas-text')).toContainText('docs/one.md');
 
-    await page.locator('#pr-file-drawer-toggle').click();
+    await page.locator('#edge-left-tap').click();
     await expect(page.locator('#pr-file-pane')).toHaveClass(/is-open/);
     await page.locator('#pr-file-list .pr-file-item').nth(1).click();
     await expect(page.locator('#pr-file-list .pr-file-item.is-active .pr-file-name')).toContainText('src/two.js');
@@ -97,16 +97,15 @@ test.describe('pr review canvas mode', () => {
       text: twoFileDiff(),
     });
 
-    const toggle = page.locator('#pr-file-drawer-toggle');
-    await expect(toggle).toBeVisible();
-    await page.evaluate(() => {
-      (document.getElementById('pr-file-drawer-toggle') as HTMLButtonElement | null)?.click();
-    });
+    await page.locator('#edge-left-tap').click();
     await expect(page.locator('#pr-file-pane')).toHaveClass(/is-open/);
-
-    await page.evaluate(() => {
-      (document.getElementById('pr-file-drawer-backdrop') as HTMLDivElement | null)?.click();
+    const paneWidth = await page.locator('#pr-file-pane').evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      return Math.round(rect.width);
     });
+    expect(paneWidth).toBe(390);
+
+    await page.locator('#edge-left-tap').click();
     await expect(page.locator('#pr-file-pane')).not.toHaveClass(/is-open/);
   });
 });
