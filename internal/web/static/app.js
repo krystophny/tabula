@@ -1864,7 +1864,20 @@ function renderSidebarRow({ icon, label, active = false, meta = '', onClick }) {
     metaEl.textContent = String(meta);
     button.appendChild(metaEl);
   }
-  button.addEventListener('click', onClick);
+  let lastTouchAt = 0;
+  button.addEventListener('touchend', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    lastTouchAt = Date.now();
+    onClick(ev);
+  }, { passive: false });
+  button.addEventListener('click', (ev) => {
+    if (Date.now() - lastTouchAt < 700) {
+      ev.preventDefault();
+      return;
+    }
+    onClick(ev);
+  });
   return button;
 }
 
