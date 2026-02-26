@@ -1970,13 +1970,30 @@ async function loadWorkspaceBrowserPath(path = '') {
   }
   renderPrReviewFileList();
   try {
-    const url = `/api/projects/active/files?path=${encodeURIComponent(requestedPath)}`;
-    const resp = await fetch(url, { cache: 'no-store' });
-    if (!resp.ok) {
-      const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
-      throw new Error(detail);
+    const urls = [
+      `/api/projects/${encodeURIComponent(projectID)}/files?path=${encodeURIComponent(requestedPath)}`,
+    ];
+    if (projectID.toLowerCase() !== 'active') {
+      urls.push(`/api/projects/active/files?path=${encodeURIComponent(requestedPath)}`);
     }
-    const payload = await resp.json();
+
+    let payload = null;
+    let lastError = '';
+    for (let i = 0; i < urls.length; i += 1) {
+      const resp = await fetch(urls[i], { cache: 'no-store' });
+      if (resp.ok) {
+        payload = await resp.json();
+        break;
+      }
+      const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
+      if (resp.status !== 404) {
+        throw new Error(detail);
+      }
+      lastError = detail;
+    }
+    if (!payload) {
+      throw new Error(lastError || 'file list unavailable');
+    }
     if (projectID !== String(state.activeProjectId || '')) return false;
     state.workspaceBrowserPath = normalizeWorkspaceBrowserPath(payload?.path || requestedPath);
     const entriesRaw = Array.isArray(payload?.entries) ? payload.entries : [];
