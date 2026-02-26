@@ -363,6 +363,34 @@ body.file-sidebar-enabled #pr-file-drawer-backdrop.is-open {
   margin: 0.85em 0;
 }
 
+.hotword-training-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.hotword-training-btn {
+  border: 1px solid #000000;
+  border-radius: 4px;
+  background: #000000;
+  color: #ffffff;
+  padding: 0.38rem 0.72rem;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.hotword-training-btn.is-secondary {
+  background: #ffffff;
+  color: #000000;
+}
+
+.hotword-training-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 #canvas-pdf {
   position: relative;
   min-height: 0;

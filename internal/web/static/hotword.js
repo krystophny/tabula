@@ -2,7 +2,7 @@ const HOTWORD_VENDOR_BASE = '/static/vendor/openwakeword';
 const HOTWORD_MODEL_FILES = {
   mel: `${HOTWORD_VENDOR_BASE}/melspectrogram.onnx`,
   embedding: `${HOTWORD_VENDOR_BASE}/embedding_model.onnx`,
-  keyword: `${HOTWORD_VENDOR_BASE}/hey_tabura.onnx`,
+  keyword: `${HOTWORD_VENDOR_BASE}/tabura.onnx`,
 };
 const HOTWORD_DEFAULT_THRESHOLD = 0.5;
 const HOTWORD_DETECTION_COOLDOWN_MS = 1500;
@@ -315,8 +315,18 @@ async function initOnnxModel() {
   };
 }
 
-export async function initHotword() {
-  if (state.initialized) return state.available;
+export async function initHotword(options = {}) {
+  const force = Boolean(options && options.force);
+  if (state.initialized && !force) return state.available;
+  if (force) {
+    stopHotwordMonitor();
+    state.initialized = false;
+    state.available = false;
+    state.mode = 'none';
+    state.mock = null;
+    state.model = null;
+    state.lastDetectionAt = 0;
+  }
 
   state.initialized = true;
   state.threshold = HOTWORD_DEFAULT_THRESHOLD;

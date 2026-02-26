@@ -47,7 +47,7 @@ fi
 
 "${TRAIN_CMD[@]}" --config "$CONFIG_PATH" "${EXTRA_ARGS[@]}" "$@"
 
-MODEL_PATH="$OUTPUT_DIR/hey_tabura.onnx"
+MODEL_PATH="$OUTPUT_DIR/tabura.onnx"
 if [[ ! -f "$MODEL_PATH" ]]; then
   echo "training finished but expected model missing: $MODEL_PATH" >&2
   exit 1

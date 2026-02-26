@@ -59,6 +59,14 @@ const state = {
   conversationListenTimer: null,
   hotwordEnabled: false,
   hotwordActive: false,
+  hotwordNeedsTraining: false,
+  hotwordTrainingPromptDismissed: false,
+  hotwordTrainingInProgress: false,
+  hotwordTrainingJobId: '',
+  hotwordTrainingError: '',
+  hotwordTrainingProgressText: '',
+  hotwordTrainingMissing: [],
+  hotwordPhrase: 'tabura',
   voiceAwaitingTurn: false,
   voiceTurns: new Set(),
   indicatorSuppressedByCanvasUpdate: false,
@@ -136,6 +144,7 @@ const VOICE_VAD_SPEECH_START_FRAMES = 4;
 const VOICE_VAD_NOISE_FLOOR_MIN_DB = -60;
 const VOICE_VAD_NOISE_FLOOR_MAX_DB = -18;
 const VOICE_CAPTURE_STOP_FLUSH_TIMEOUT_MS = 1500;
+const HOTWORD_POLL_INTERVAL_MS = 1500;
 let devReloadBootID = '';
 let devReloadTimer = null;
 let devReloadInFlight = false;
@@ -362,6 +371,10 @@ let hotwordSyncInFlight = false;
 let hotwordResyncQueued = false;
 let hotwordInitAttempted = false;
 let hotwordUnsubscribe = null;
+let hotwordStatusCheckInFlight = false;
+let hotwordStatusCheckQueued = false;
+let hotwordStatusCheckQueuedPrompt = false;
+let hotwordTrainPollTimer = null;
 
 function readTTSSilentPreference() {
   try {
@@ -385,6 +398,8 @@ function canSpeakTTS() {
 
 function canStartHotwordMonitor() {
   if (!state.hotwordEnabled) return false;
+  if (state.hotwordNeedsTraining) return false;
+  if (state.hotwordTrainingInProgress) return false;
   if (!state.conversationMode) return false;
   if (!canSpeakTTS()) return false;
   if (isRecording()) return false;
@@ -443,10 +458,20 @@ function configureHotwordLifecycle() {
 }
 
 async function initHotwordLifecycle() {
-  if (hotwordInitAttempted) return state.hotwordEnabled;
+  return initHotwordLifecycleWithOptions();
+}
+
+async function initHotwordLifecycleWithOptions(options = {}) {
+  const force = Boolean(options && options.force);
+  if (hotwordInitAttempted && !force) return state.hotwordEnabled;
+  if (force) {
+    stopHotwordMonitor();
+    state.hotwordActive = false;
+    hotwordInitAttempted = false;
+  }
   hotwordInitAttempted = true;
   try {
-    const enabled = await initHotword();
+    const enabled = await initHotword({ force });
     state.hotwordEnabled = Boolean(enabled);
     if (state.hotwordEnabled) {
       setHotwordThreshold(0.5);
@@ -462,6 +487,236 @@ async function initHotwordLifecycle() {
   return state.hotwordEnabled;
 }
 
+function stopHotwordTrainPolling() {
+  if (hotwordTrainPollTimer !== null) {
+    window.clearInterval(hotwordTrainPollTimer);
+    hotwordTrainPollTimer = null;
+  }
+}
+
+function hotwordPromptVisible() {
+  const pane = document.getElementById('canvas-text');
+  if (!(pane instanceof HTMLElement)) return false;
+  return Boolean(pane.querySelector('[data-hotword-action]'));
+}
+
+function formatHotwordMissingAssets(missingList) {
+  const items = Array.isArray(missingList) ? missingList.filter((item) => String(item || '').trim()) : [];
+  if (items.length === 0) return '';
+  return items.map((item) => `\`${String(item).trim()}\``).join(', ');
+}
+
+function buildHotwordTrainingPromptMarkdown() {
+  const phrase = String(state.hotwordPhrase || 'tabura').trim() || 'tabura';
+  const missingAssets = formatHotwordMissingAssets(state.hotwordTrainingMissing);
+  const progress = String(state.hotwordTrainingProgressText || '').trim().replaceAll('```', '');
+  const lines = [
+    '## Assistant setup',
+    `Wake phrase: \`${phrase}\`.`,
+  ];
+  if (missingAssets) {
+    lines.push(`Missing runtime assets: ${missingAssets}.`);
+  }
+  if (state.hotwordTrainingError) {
+    lines.push(`Last error: ${state.hotwordTrainingError}`);
+  }
+  lines.push(state.hotwordTrainingInProgress
+    ? '_Training in progress..._'
+    : 'Train wake-word support to enable hands-free activation in conversation mode.');
+  lines.push(`<div class="hotword-training-actions">
+<button type="button" class="hotword-training-btn" data-hotword-action="train"${state.hotwordTrainingInProgress ? ' disabled' : ''}>Train hotword</button>
+<button type="button" class="hotword-training-btn is-secondary" data-hotword-action="dismiss"${state.hotwordTrainingInProgress ? ' disabled' : ''}>Not now</button>
+</div>`);
+  if (progress) {
+    lines.push(`\`\`\`\n${progress}\n\`\`\``);
+  }
+  return lines.join('\n\n');
+}
+
+function renderHotwordTrainingPrompt() {
+  const text = buildHotwordTrainingPromptMarkdown();
+  renderCanvas({ kind: 'text_artifact', title: 'assistant setup', text });
+  showCanvasColumn('canvas-text');
+}
+
+async function fetchHotwordStatus() {
+  const resp = await fetch('/api/hotword/status', {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  if (!resp.ok) {
+    throw new Error(`hotword status failed: HTTP ${resp.status}`);
+  }
+  return resp.json();
+}
+
+function applyHotwordStatus(statusPayload, { showPromptOnMissing = true } = {}) {
+  const payload = statusPayload && typeof statusPayload === 'object' ? statusPayload : {};
+  state.hotwordPhrase = String(payload.phrase || 'tabura').trim() || 'tabura';
+  state.hotwordTrainingInProgress = Boolean(payload.train_in_progress);
+  state.hotwordTrainingMissing = Array.isArray(payload.missing)
+    ? payload.missing.map((item) => String(item || '').trim()).filter((item) => item)
+    : [];
+  if (String(payload.last_error || '').trim()) {
+    state.hotwordTrainingError = String(payload.last_error).trim();
+  }
+  const ready = Boolean(payload.ready);
+  state.hotwordNeedsTraining = !ready;
+  if (ready) {
+    state.hotwordTrainingError = '';
+    state.hotwordTrainingProgressText = '';
+    state.hotwordTrainingInProgress = false;
+    state.hotwordTrainingJobId = '';
+    state.hotwordTrainingPromptDismissed = false;
+    stopHotwordTrainPolling();
+    if (hotwordPromptVisible()) {
+      hideCanvasColumn();
+    }
+  } else if (showPromptOnMissing && !state.hotwordTrainingPromptDismissed) {
+    renderHotwordTrainingPrompt();
+  }
+  requestHotwordSync();
+  updateAssistantActivityIndicator();
+  return ready;
+}
+
+async function ensureHotwordReadyForConversation(options = {}) {
+  const showPromptOnMissing = options?.showPromptOnMissing !== false;
+  if (!state.conversationMode) return true;
+  if (hotwordStatusCheckInFlight) {
+    hotwordStatusCheckQueued = true;
+    hotwordStatusCheckQueuedPrompt = hotwordStatusCheckQueuedPrompt || showPromptOnMissing;
+    return !state.hotwordNeedsTraining;
+  }
+  hotwordStatusCheckInFlight = true;
+  try {
+    const payload = await fetchHotwordStatus();
+    const ready = applyHotwordStatus(payload, { showPromptOnMissing });
+    if (ready && !state.hotwordEnabled) {
+      await initHotwordLifecycleWithOptions({ force: true });
+    }
+    return ready;
+  } catch (err) {
+    console.warn('Hotword readiness check failed:', err);
+    state.hotwordNeedsTraining = false;
+    requestHotwordSync();
+    updateAssistantActivityIndicator();
+    return true;
+  } finally {
+    hotwordStatusCheckInFlight = false;
+    if (hotwordStatusCheckQueued) {
+      const queuedPrompt = hotwordStatusCheckQueuedPrompt;
+      hotwordStatusCheckQueued = false;
+      hotwordStatusCheckQueuedPrompt = false;
+      void ensureHotwordReadyForConversation({ showPromptOnMissing: queuedPrompt });
+    }
+  }
+}
+
+async function pollHotwordTrainingJob(jobID) {
+  if (!jobID) return;
+  try {
+    const resp = await fetch(`/api/hotword/train/${encodeURIComponent(jobID)}`, { cache: 'no-store' });
+    if (!resp.ok) {
+      throw new Error(`hotword train status failed: HTTP ${resp.status}`);
+    }
+    const payload = await resp.json();
+    const status = String(payload?.status || '').trim().toLowerCase();
+    state.hotwordTrainingProgressText = String(payload?.progress_text || '').trim();
+    if (status === 'queued' || status === 'running') {
+      state.hotwordTrainingInProgress = true;
+      renderHotwordTrainingPrompt();
+      return;
+    }
+    stopHotwordTrainPolling();
+    state.hotwordTrainingInProgress = false;
+    state.hotwordTrainingJobId = '';
+    const errText = String(payload?.error || '').trim();
+    state.hotwordTrainingError = errText;
+    if (status === 'succeeded') {
+      state.hotwordTrainingError = '';
+      await initHotwordLifecycleWithOptions({ force: true });
+      const ready = await ensureHotwordReadyForConversation({ showPromptOnMissing: true });
+      if (ready) {
+        showStatus('hotword trained');
+      } else {
+        renderHotwordTrainingPrompt();
+      }
+      return;
+    }
+    state.hotwordNeedsTraining = true;
+    renderHotwordTrainingPrompt();
+    showStatus(errText ? `hotword training failed: ${errText}` : 'hotword training failed');
+  } catch (err) {
+    stopHotwordTrainPolling();
+    state.hotwordTrainingInProgress = false;
+    state.hotwordTrainingError = String(err?.message || err || 'hotword training failed');
+    state.hotwordNeedsTraining = true;
+    renderHotwordTrainingPrompt();
+    showStatus(`hotword training failed: ${state.hotwordTrainingError}`);
+  } finally {
+    updateAssistantActivityIndicator();
+    requestHotwordSync();
+  }
+}
+
+async function startHotwordTraining() {
+  if (state.hotwordTrainingInProgress) return;
+  state.hotwordTrainingPromptDismissed = false;
+  state.hotwordTrainingInProgress = true;
+  state.hotwordTrainingError = '';
+  state.hotwordTrainingProgressText = 'starting...';
+  renderHotwordTrainingPrompt();
+  showStatus('training hotword...');
+  try {
+    const resp = await fetch('/api/hotword/train', { method: 'POST' });
+    if (!resp.ok) {
+      throw new Error(`hotword train failed: HTTP ${resp.status}`);
+    }
+    const payload = await resp.json();
+    const status = String(payload?.status || '').trim().toLowerCase();
+    const jobID = String(payload?.job_id || '').trim();
+    if (!jobID) {
+      throw new Error('hotword train job id missing');
+    }
+    state.hotwordTrainingJobId = jobID;
+    state.hotwordTrainingInProgress = status === 'started' || status === 'already_running';
+    await pollHotwordTrainingJob(jobID);
+    if (state.hotwordTrainingInProgress) {
+      stopHotwordTrainPolling();
+      hotwordTrainPollTimer = window.setInterval(() => {
+        if (!state.hotwordTrainingInProgress || !state.hotwordTrainingJobId) {
+          stopHotwordTrainPolling();
+          return;
+        }
+        void pollHotwordTrainingJob(state.hotwordTrainingJobId);
+      }, HOTWORD_POLL_INTERVAL_MS);
+    }
+  } catch (err) {
+    stopHotwordTrainPolling();
+    state.hotwordTrainingInProgress = false;
+    state.hotwordTrainingJobId = '';
+    state.hotwordTrainingError = String(err?.message || err || 'hotword training failed');
+    state.hotwordNeedsTraining = true;
+    renderHotwordTrainingPrompt();
+    showStatus(`hotword training failed: ${state.hotwordTrainingError}`);
+    updateAssistantActivityIndicator();
+    requestHotwordSync();
+  }
+}
+
+function dismissHotwordTrainingPrompt() {
+  state.hotwordTrainingPromptDismissed = true;
+  state.hotwordTrainingInProgress = false;
+  stopHotwordTrainPolling();
+  if (hotwordPromptVisible()) {
+    hideCanvasColumn();
+  }
+  showStatus('wake word training skipped');
+  requestHotwordSync();
+  updateAssistantActivityIndicator();
+}
+
 function applyConversationStateSnapshot(snapshot = null) {
   const nextMode = snapshot && typeof snapshot === 'object'
     ? Boolean(snapshot.conversationMode)
@@ -475,6 +730,13 @@ function applyConversationStateSnapshot(snapshot = null) {
   state.conversationMode = nextMode;
   state.conversationListenActive = nextListenActive;
   state.conversationListenTimer = nextListenTimer;
+  if (!state.conversationMode) {
+    state.hotwordNeedsTraining = false;
+    state.hotwordTrainingPromptDismissed = false;
+    state.hotwordTrainingInProgress = false;
+    state.hotwordTrainingJobId = '';
+    stopHotwordTrainPolling();
+  }
   requestHotwordSync();
 }
 
@@ -2761,8 +3023,20 @@ function renderEdgeTopModelButtons() {
   convButton.disabled = !ttsEnabled || state.projectSwitchInFlight || state.projectModelSwitchInFlight;
   convButton.addEventListener('click', () => {
     const next = !isConversationMode();
+    if (next) {
+      state.hotwordNeedsTraining = true;
+    }
     const enabled = setConversationMode(next);
     applyConversationStateSnapshot();
+    if (enabled) {
+      state.hotwordTrainingPromptDismissed = false;
+      void ensureHotwordReadyForConversation({ showPromptOnMissing: true });
+    } else {
+      state.hotwordNeedsTraining = false;
+      state.hotwordTrainingInProgress = false;
+      state.hotwordTrainingJobId = '';
+      stopHotwordTrainPolling();
+    }
     renderEdgeTopModelButtons();
     updateAssistantActivityIndicator();
     showStatus(enabled ? 'conversation mode on' : 'conversation mode off');
@@ -3096,8 +3370,21 @@ function handleChatEvent(payload) {
     } else if (actionType === 'toggle_silent') {
       toggleTTSSilentMode();
     } else if (actionType === 'toggle_conversation') {
-      const enabled = setConversationMode(!isConversationMode());
+      const next = !isConversationMode();
+      if (next) {
+        state.hotwordNeedsTraining = true;
+      }
+      const enabled = setConversationMode(next);
       applyConversationStateSnapshot();
+      if (enabled) {
+        state.hotwordTrainingPromptDismissed = false;
+        void ensureHotwordReadyForConversation({ showPromptOnMissing: true });
+      } else {
+        state.hotwordNeedsTraining = false;
+        state.hotwordTrainingInProgress = false;
+        state.hotwordTrainingJobId = '';
+        stopHotwordTrainPolling();
+      }
       renderEdgeTopModelButtons();
       updateAssistantActivityIndicator();
       showStatus(enabled ? 'conversation mode on' : 'conversation mode off');
@@ -4819,6 +5106,18 @@ function bindUi() {
 
   // Text selection on artifact sets anchor
   if (canvasText) {
+    canvasText.addEventListener('click', (ev) => {
+      const target = ev.target instanceof Element ? ev.target.closest('[data-hotword-action]') : null;
+      if (!(target instanceof HTMLElement)) return;
+      const action = String(target.dataset.hotwordAction || '').trim().toLowerCase();
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (action === 'train') {
+        void startHotwordTraining();
+      } else if (action === 'dismiss') {
+        dismissHotwordTrainingPrompt();
+      }
+    }, true);
     canvasText.addEventListener('mouseup', () => {
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed) return;
@@ -4913,7 +5212,13 @@ async function init() {
     ttsEnabled = false;
   }
   setTTSSilentMode(readTTSSilentPreference(), { persist: false, pinPanel: false });
+  if (state.conversationMode) {
+    state.hotwordNeedsTraining = true;
+  }
   await initHotwordLifecycle();
+  if (state.conversationMode) {
+    await ensureHotwordReadyForConversation({ showPromptOnMissing: true });
+  }
 
   await fetchProjects();
   const initialProjectID = resolveInitialProjectID();

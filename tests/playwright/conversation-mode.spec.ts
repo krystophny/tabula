@@ -44,6 +44,15 @@ async function setConversationListenWindowMs(page: Page, ms: number) {
   }, ms);
 }
 
+async function setHotwordStatus(page: Page, status: Record<string, unknown>) {
+  await page.evaluate((payload) => {
+    const setter = (window as any).__setHotwordStatus;
+    if (typeof setter === 'function') {
+      setter(payload);
+    }
+  }, status);
+}
+
 async function waitForEdgeButtons(page: Page) {
   await expect.poll(async () => page.evaluate(() => {
     const conv = document.querySelector('#edge-top-models .edge-conv-btn');
@@ -280,4 +289,21 @@ test('silent mode with conversation enabled does not open conversation listen', 
     return Boolean(indicator?.classList.contains('is-listening'));
   });
   expect(isListening).toBe(false);
+});
+
+test('conversation mode on with untrained hotword shows training prompt in canvas', async ({ page }) => {
+  await setHotwordStatus(page, {
+    ready: false,
+    trained: false,
+    runtime_assets_ready: false,
+    missing: ['tabura.onnx'],
+  });
+  await setConversationMode(page, true);
+
+  await expect.poll(async () => page.evaluate(() => {
+    const pane = document.getElementById('canvas-text');
+    if (!(pane instanceof HTMLElement) || !pane.classList.contains('is-active')) return false;
+    return Boolean(pane.querySelector('[data-hotword-action="train"]'));
+  })).toBe(true);
+  await expect(page.locator('#canvas-text')).toContainText('Assistant setup');
 });
