@@ -23,6 +23,8 @@
   --zen-safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --chat-content-font-size: 1rem;
   --file-sidebar-width: min(86vw, 340px);
+  --panel-slide-duration: 0ms;
+  --panel-slide-ease: linear;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -117,7 +119,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   background: var(--bg-surface);
   min-height: 0;
   transform: translateX(-104%);
-  transition: transform 0.2s ease;
+  transition: transform var(--panel-slide-duration) var(--panel-slide-ease);
   z-index: 420;
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.24);
 }
@@ -882,6 +884,16 @@ body.file-sidebar-open .edge-right-tap {
   z-index: 200;
   background: var(--bg);
   overflow: hidden;
+}
+
+.edge-top,
+.edge-right {
+  transition: transform var(--panel-slide-duration) var(--panel-slide-ease);
+}
+
+body.panel-motion-enabled {
+  --panel-slide-duration: 200ms;
+  --panel-slide-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .edge-panel-inner {

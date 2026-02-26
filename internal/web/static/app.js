@@ -153,6 +153,12 @@ const PROJECT_CHAT_MODEL_REASONING_EFFORTS = {
 };
 const TTS_SILENT_STORAGE_KEY = 'tabura.ttsSilent';
 const SIDEBAR_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico', '.avif']);
+const PANEL_MOTION_WATCH_QUERIES = [
+  '(monochrome)',
+  '(update: slow)',
+  '(prefers-reduced-motion: reduce)',
+];
+let panelMotionWatchersAttached = false;
 
 // --- Block stripping & TTS infrastructure ---
 
@@ -474,6 +480,50 @@ function applyConversationStateSnapshot(snapshot = null) {
 
 function isMobileSilent() {
   return state.ttsSilent && window.matchMedia('(max-width: 767px)').matches;
+}
+
+function mediaQueryMatches(query) {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+  try {
+    return window.matchMedia(query).matches;
+  } catch (_) {
+    return false;
+  }
+}
+
+function shouldEnablePanelMotion() {
+  if (mediaQueryMatches('(prefers-reduced-motion: reduce)')) return false;
+  if (mediaQueryMatches('(monochrome)')) return false;
+  if (mediaQueryMatches('(update: slow)')) return false;
+  return true;
+}
+
+function syncPanelMotionMode() {
+  document.body.classList.toggle('panel-motion-enabled', shouldEnablePanelMotion());
+}
+
+function initPanelMotionMode() {
+  syncPanelMotionMode();
+  if (panelMotionWatchersAttached) return;
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+  panelMotionWatchersAttached = true;
+  PANEL_MOTION_WATCH_QUERIES.forEach((query) => {
+    let mql = null;
+    try {
+      mql = window.matchMedia(query);
+    } catch (_) {
+      mql = null;
+    }
+    if (!mql) return;
+    const onChange = () => syncPanelMotionMode();
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', onChange);
+      return;
+    }
+    if (typeof mql.addListener === 'function') {
+      mql.addListener(onChange);
+    }
+  });
 }
 
 // iPhone corner-radius profiles for bottom-edge frame rounding.
@@ -4761,6 +4811,7 @@ function showSplash() {
 }
 
 async function init() {
+  initPanelMotionMode();
   applyIPhoneFrameCorners();
   window.addEventListener('resize', () => {
     if (document.body.classList.contains('keyboard-open')) return;
