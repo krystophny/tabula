@@ -1,4 +1,9 @@
-import * as ort from 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.min.mjs';
+const ORT_CDN_URL = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.min.mjs';
+let ort = null;
+async function loadOrt() {
+  if (!ort) ort = await import(ORT_CDN_URL);
+  return ort;
+}
 
 const HOTWORD_VENDOR_BASE = '/static/vendor/openwakeword';
 const HOTWORD_MODEL_FILES = {
@@ -378,6 +383,7 @@ async function startOnnxMonitor(stream) {
 }
 
 async function initOnnxModel() {
+  await loadOrt();
   if (ort.env?.wasm) {
     ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/';
     ort.env.wasm.numThreads = 1;
