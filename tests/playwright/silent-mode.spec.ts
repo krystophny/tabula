@@ -6,8 +6,26 @@ async function getLog(page: Page): Promise<HarnessLogEntry[]> {
   return page.evaluate(() => (window as any).__harnessLog.slice());
 }
 
+async function clearLog(page: Page) {
+  await page.evaluate(() => { (window as any).__harnessLog = []; });
+}
+
+async function setHarnessActivityResponse(page: Page, response: { active_turns?: number; queued_turns?: number; delegate_active?: number }) {
+  await page.evaluate((next) => {
+    const fn = (window as any).__setActivityResponse;
+    if (typeof fn === 'function') fn(next);
+  }, response);
+}
+
+async function waitForApiCancel(page: Page) {
+  await expect.poll(async () => {
+    const log = await getLog(page);
+    return log.some((entry) => entry.type === 'api_fetch' && entry.action === 'cancel');
+  }, { timeout: 5_000 }).toBe(true);
+}
+
 async function waitReady(page: Page) {
-  await page.goto('/tests/playwright/zen-harness.html');
+  await page.goto('/tests/playwright/harness.html');
   await page.waitForFunction(() => {
     const app = (window as any)._taburaApp;
     if (typeof app?.getState !== 'function') return false;
@@ -196,8 +214,8 @@ test.describe('chat pane interactions', () => {
     await chatHistory.click({ position: { x: 50, y: 50 } });
     await page.waitForTimeout(300);
 
-    // zen-indicator should show is-recording
-    const indicator = page.locator('#zen-indicator');
+    // indicator should show is-recording
+    const indicator = page.locator('#indicator');
     await expect(indicator).toHaveClass(/is-recording/);
 
     // Click again to stop
@@ -208,6 +226,78 @@ test.describe('chat pane interactions', () => {
     const log = await getLog(page);
     const sttStop = log.find(e => e.type === 'stt' && e.action === 'stop');
     expect(sttStop).toBeTruthy();
+  });
+
+  test('stop indicator auto-hides after stop with stale activity in silent mode', async ({ page }) => {
+    await clearLog(page);
+    await setHarnessActivityResponse(page, { active_turns: 1, queued_turns: 0, delegate_active: 0 });
+
+    await injectChatEvent(page, { type: 'turn_started', turn_id: 'silent-stop-stale-1' });
+    await expect(page.locator('.stop-square')).toBeVisible();
+
+    const chatHistory = page.locator('#chat-history');
+    await chatHistory.click({ position: { x: 50, y: 50 } });
+    await waitForApiCancel(page);
+
+    await page.waitForTimeout(1500);
+    await expect(page.locator('#indicator')).toBeHidden();
+  });
+
+  test('indicator clears after natural turn completion', async ({ page }) => {
+    await clearLog(page);
+    await setHarnessActivityResponse(page, { active_turns: 1, queued_turns: 0, delegate_active: 0 });
+
+    await injectChatEvent(page, { type: 'turn_started', turn_id: 'natural-t1' });
+    await expect(page.locator('.stop-square')).toBeVisible();
+
+    // Server finishes work: send assistant_output and update activity to 0
+    await setHarnessActivityResponse(page, { active_turns: 0, queued_turns: 0, delegate_active: 0 });
+    await injectChatEvent(page, {
+      type: 'assistant_output',
+      role: 'assistant',
+      turn_id: 'natural-t1',
+      message: 'Done.',
+    });
+    await page.waitForTimeout(400);
+    await expect(page.locator('#indicator')).toBeHidden();
+  });
+
+  test('indicator clears when turnID mismatches between turn_started and assistant_output', async ({ page }) => {
+    await clearLog(page);
+    // Activity reports 1 active turn during the turn.
+    await setHarnessActivityResponse(page, { active_turns: 1, queued_turns: 0, delegate_active: 0 });
+
+    await injectChatEvent(page, { type: 'turn_started', turn_id: 'mismatch-A' });
+    await expect(page.locator('.stop-square')).toBeVisible();
+
+    // Server finishes work — assistant_output arrives with a different turnID.
+    await setHarnessActivityResponse(page, { active_turns: 0, queued_turns: 0, delegate_active: 0 });
+    await injectChatEvent(page, {
+      type: 'assistant_output',
+      role: 'assistant',
+      turn_id: 'mismatch-B',
+      message: 'Response text.',
+    });
+
+    // The guard reconciles stale local state via the activity poll.
+    await page.waitForTimeout(2000);
+    await expect(page.locator('#indicator')).toBeHidden();
+  });
+
+  test('turn_completed event triggers activity reconciliation', async ({ page }) => {
+    await clearLog(page);
+    await setHarnessActivityResponse(page, { active_turns: 1, queued_turns: 0, delegate_active: 0 });
+
+    await injectChatEvent(page, { type: 'turn_started', turn_id: 'tc-1' });
+    await expect(page.locator('.stop-square')).toBeVisible();
+
+    // Server sends turn_completed, then activity drops to 0
+    await setHarnessActivityResponse(page, { active_turns: 0, queued_turns: 0, delegate_active: 0 });
+    await injectChatEvent(page, { type: 'turn_completed', turn_id: 'tc-1', message: 'Done.' });
+
+    // turn_completed triggers refreshAssistantActivity which reconciles
+    await page.waitForTimeout(800);
+    await expect(page.locator('#indicator')).toBeHidden();
   });
 
   test('chat-pane-input sends on Enter', async ({ page }) => {
@@ -238,7 +328,7 @@ test.describe('chat pane interactions', () => {
     });
 
     // Clear harness log
-    await page.evaluate(() => { (window as any).__harnessLog = []; });
+    await clearLog(page);
 
     // Click the link
     await page.locator('#test-anchor').click();

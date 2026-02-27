@@ -1,14 +1,14 @@
 import { marked } from './vendor/marked.esm.js';
 import { renderCanvas, clearCanvas, getLocationFromSelection, clearLineHighlight, escapeHtml, sanitizeHtml } from './canvas.js';
 import {
-  getZenState, setZenMode,
+  getUiState, setUiMode,
   showIndicatorMode, hideIndicator,
   showTextInput, hideTextInput,
   showOverlay, hideOverlay, updateOverlay,
   isOverlayVisible, isTextInputVisible, isRecording, setRecording,
   getInputAnchor, setInputAnchor, getAnchorFromPoint,
   buildContextPrefix, getLastInputPosition, setLastInputPosition,
-} from './zen.js';
+} from './ui.js';
 import {
   configureConversation,
   isConversationMode,
@@ -24,6 +24,8 @@ import {
   isHotwordActive,
   onHotwordDetected,
   setHotwordThreshold,
+  getPreRollAudio,
+  getHotwordMicStream,
 } from './hotword.js';
 
 const state = {
@@ -61,6 +63,9 @@ const state = {
   hotwordActive: false,
   voiceAwaitingTurn: false,
   voiceTurns: new Set(),
+  voiceLifecycle: 'idle',
+  voiceLifecycleSeq: 0,
+  voiceLifecycleReason: '',
   indicatorSuppressedByCanvasUpdate: false,
   chatCtrlHoldTimer: null,
   chatVoiceCapture: null,
@@ -71,8 +76,8 @@ const state = {
   },
   contextUsed: 0,
   contextMax: 0,
-  // Zen-specific: track if a canvas action happened during this turn
-  zenCanvasActionThisTurn: false,
+  // Track if a canvas action happened during this turn
+  canvasActionThisTurn: false,
   turnFirstResponseShown: false,
   lastInputOrigin: 'text',
   pendingSubmitController: null,
@@ -106,6 +111,7 @@ window._taburaApp = { getState, acquireMicStream, sttStart, sttSendBlob, sttStop
 const MATH_SEGMENT_TOKEN_PREFIX = '@@TABURA_CHAT_MATH_SEGMENT_';
 const DEV_UI_RELOAD_POLL_MS = 1500;
 const ASSISTANT_ACTIVITY_POLL_MS = 1200;
+const CHAT_WS_STALE_THRESHOLD_MS = 20000;
 let localMessageSeq = 0;
 const CHAT_CTRL_LONG_PRESS_MS = 180;
 const CHAT_SEND_HOLD_MS = 300;
@@ -136,12 +142,25 @@ const VOICE_VAD_SPEECH_START_FRAMES = 4;
 const VOICE_VAD_NOISE_FLOOR_MIN_DB = -60;
 const VOICE_VAD_NOISE_FLOOR_MAX_DB = -18;
 const VOICE_CAPTURE_STOP_FLUSH_TIMEOUT_MS = 1500;
+const STT_STOP_TIMEOUT_MS = 8000;
+const STOP_REQUEST_TIMEOUT_MS = 3500;
+const VOICE_LIFECYCLE = Object.freeze({
+  IDLE: 'idle',
+  LISTENING: 'listening',
+  RECORDING: 'recording',
+  STOPPING_RECORDING: 'stopping_recording',
+  AWAITING_TURN: 'awaiting_turn',
+  ASSISTANT_WORKING: 'assistant_working',
+  TTS_PLAYING: 'tts_playing',
+});
 let devReloadBootID = '';
 let devReloadTimer = null;
 let devReloadInFlight = false;
 let devReloadRequested = false;
 let assistantActivityTimer = null;
 let assistantActivityInFlight = false;
+let assistantSilentCancelInFlight = false;
+let chatWsLastMessageAt = 0;
 
 const ACTIVE_PROJECT_STORAGE_KEY = 'tabura.activeProjectId';
 const LAST_VIEW_STORAGE_KEY = 'tabura.lastView';
@@ -218,12 +237,37 @@ function cleanForOverlay(markdown) {
   return stripBlocks(markdown).replace(_langTagRe, '').trim();
 }
 
+function inferTTSLanguage(text) {
+  const sample = String(text || '').trim();
+  if (!sample) return '';
+  if (/[äöüßÄÖÜ]/.test(sample)) return 'de';
+  const tokens = sample
+    .toLowerCase()
+    .replace(/[^a-zA-Z\u00c0-\u017f\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+  if (tokens.length === 0) return '';
+  const germanHints = new Set([
+    'und', 'ist', 'nicht', 'ich', 'du', 'wir', 'sie', 'mit', 'fuer', 'für',
+    'auf', 'das', 'der', 'die', 'den', 'dem', 'ein', 'eine', 'bitte', 'danke',
+  ]);
+  let hits = 0;
+  for (const token of tokens) {
+    if (germanHints.has(token)) hits += 1;
+  }
+  if (hits >= 2 && hits / tokens.length >= 0.08) return 'de';
+  return '';
+}
+
 // Extract speakable text for TTS (everything except blocks).
 function extractTTSText(markdown) {
   let text = stripBlocks(markdown);
   let lang = '';
   text = text.replace(_langTagRe, (_, l) => { if (!lang) lang = l.toLowerCase(); return ''; });
   text = stripMarkdownForSpeech(text);
+  if (!lang) {
+    lang = inferTTSLanguage(text);
+  }
   text = text.trim();
   return { ttsText: text, ttsLang: lang };
 }
@@ -362,7 +406,6 @@ let hotwordSyncInFlight = false;
 let hotwordResyncQueued = false;
 let hotwordInitAttempted = false;
 let hotwordUnsubscribe = null;
-
 function readTTSSilentPreference() {
   try {
     const value = window.localStorage.getItem(TTS_SILENT_STORAGE_KEY);
@@ -384,15 +427,14 @@ function canSpeakTTS() {
 }
 
 function canStartHotwordMonitor() {
+  const mode = syncVoiceLifecycle('can-start-hotword');
   if (!state.hotwordEnabled) return false;
   if (!state.conversationMode) return false;
   if (!canSpeakTTS()) return false;
-  if (isRecording()) return false;
+  if (mode === VOICE_LIFECYCLE.RECORDING || mode === VOICE_LIFECYCLE.STOPPING_RECORDING) return false;
+  if (mode === VOICE_LIFECYCLE.TTS_PLAYING) return false;
   if (state.chatVoiceCapture) return false;
-  if (state.voiceAwaitingTurn) return false;
-  if (isAssistantWorking()) return false;
-  if (isTTSSpeaking()) return false;
-  if (isConversationListenActive()) return false;
+  if (isStopCapableLifecycle(mode)) return false;
   return true;
 }
 
@@ -436,17 +478,26 @@ function configureHotwordLifecycle() {
     if (!canStartHotwordMonitor()) return;
     stopHotwordMonitor();
     state.hotwordActive = false;
-    onTTSPlaybackComplete();
+    beginConversationVoiceCapture();
     updateAssistantActivityIndicator();
-    requestHotwordSync();
   });
 }
 
 async function initHotwordLifecycle() {
-  if (hotwordInitAttempted) return state.hotwordEnabled;
+  return initHotwordLifecycleWithOptions();
+}
+
+async function initHotwordLifecycleWithOptions(options = {}) {
+  const force = Boolean(options && options.force);
+  if (hotwordInitAttempted && !force) return state.hotwordEnabled;
+  if (force) {
+    stopHotwordMonitor();
+    state.hotwordActive = false;
+    hotwordInitAttempted = false;
+  }
   hotwordInitAttempted = true;
   try {
-    const enabled = await initHotword();
+    const enabled = await initHotword({ force });
     state.hotwordEnabled = Boolean(enabled);
     if (state.hotwordEnabled) {
       setHotwordThreshold(0.5);
@@ -553,7 +604,7 @@ function isIPhoneStandalone() {
 function applyIPhoneFrameCorners() {
   const root = document.documentElement;
   if (!isIPhoneStandalone()) {
-    root.style.removeProperty('--zen-cue-corner-radius');
+    root.style.removeProperty('--cue-corner-radius');
     return;
   }
   const short = Math.min(Math.round(screen.width), Math.round(screen.height));
@@ -563,7 +614,7 @@ function applyIPhoneFrameCorners() {
     (p) => p.shortSide === short && p.longSide === long && p.dpr === dpr,
   );
   const r = match ? match.radius : (dpr >= 3 ? 55 : 44);
-  root.style.setProperty('--zen-cue-corner-radius', `0 0 ${r}px ${r}px`);
+  root.style.setProperty('--cue-corner-radius', `0 0 ${r}px ${r}px`);
 }
 
 let syncKeyboardStateNow = null;
@@ -601,7 +652,7 @@ function settleKeyboardAfterSubmit() {
   });
 }
 
-function setTTSSilentMode(silent, { persist = true } = {}) {
+function setTTSSilentMode(silent, { persist = true, pinPanel = true } = {}) {
   const next = Boolean(silent);
   if (state.ttsSilent === next) return;
   state.ttsSilent = next;
@@ -612,7 +663,7 @@ function setTTSSilentMode(silent, { persist = true } = {}) {
     cancelConversationListen();
     stopTTSPlayback();
     document.body.classList.add('silent-mode');
-    if (window.matchMedia('(max-width: 767px)').matches) {
+    if (pinPanel && window.matchMedia('(max-width: 767px)').matches) {
       const edgeRight = document.getElementById('edge-right');
       if (edgeRight) edgeRight.classList.add('edge-pinned');
     }
@@ -664,17 +715,15 @@ configureConversation({
     updateAssistantActivityIndicator();
   },
   onConversationListenTimeout: () => {
-    if (!state.chatVoiceCapture && !state.voiceAwaitingTurn && !isAssistantWorking() && !isTTSSpeaking()) {
-      showStatus('ready');
-    }
+    requestHotwordSync();
+    updateAssistantActivityIndicator();
   },
   onConversationSpeechDetected: () => {
     beginConversationVoiceCapture();
   },
   onConversationListenCancelled: () => {
-    if (!state.chatVoiceCapture && !state.voiceAwaitingTurn && !isAssistantWorking() && !isTTSSpeaking()) {
-      showStatus('ready');
-    }
+    requestHotwordSync();
+    updateAssistantActivityIndicator();
   },
   getAudioContext: () => ttsAudioCtx,
   acquireMicStream,
@@ -683,8 +732,10 @@ configureConversation({
 applyConversationStateSnapshot();
 
 function ensureTTSChunker() {
+  if (!ttsPlayer) {
+    ttsPlayer = new TTSPlayer();
+  }
   if (ttsSentenceChunker) return;
-  ttsPlayer = new TTSPlayer();
   ttsSentenceChunker = new SentenceChunker((sentence) => {
     const ws = state.chatWs;
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -788,8 +839,8 @@ function typesetMath(root, attempt = 0) {
 function showStatus(text) {
   const el = document.getElementById('status-text');
   if (el) el.textContent = text;
-  const zenEl = document.getElementById('zen-status');
-  if (zenEl) zenEl.textContent = text;
+  const statusEl = document.getElementById('status-label');
+  if (statusEl) statusEl.textContent = text;
 }
 
 function forceUiHardReload() {
@@ -1166,12 +1217,23 @@ function isVoiceVADAutoSendEnabled() {
 let _sttResolve = null;
 let _sttReject = null;
 let _sttActive = false;
+let _sttStopTimer = null;
+
+function clearSTTStopWait() {
+  if (_sttStopTimer !== null) {
+    window.clearTimeout(_sttStopTimer);
+    _sttStopTimer = null;
+  }
+}
 
 function sttStart(mimeType) {
   const ws = state.chatWs;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     return Promise.reject(new Error('chat WebSocket not connected'));
   }
+  clearSTTStopWait();
+  _sttResolve = null;
+  _sttReject = null;
   _sttActive = true;
   ws.send(JSON.stringify({ type: 'stt_start', mime_type: mimeType || 'audio/webm' }));
 }
@@ -1191,18 +1253,29 @@ function sttStop() {
   const ws = state.chatWs;
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     _sttActive = false;
+    clearSTTStopWait();
     return Promise.reject(new Error('chat WebSocket not connected'));
   }
   _sttActive = false;
+  clearSTTStopWait();
   return new Promise((resolve, reject) => {
     _sttResolve = resolve;
     _sttReject = reject;
+    _sttStopTimer = window.setTimeout(() => {
+      if (_sttReject) {
+        _sttReject(new Error('STT stop timed out'));
+      }
+      _sttResolve = null;
+      _sttReject = null;
+      _sttStopTimer = null;
+    }, STT_STOP_TIMEOUT_MS);
     ws.send(JSON.stringify({ type: 'stt_stop' }));
   });
 }
 
 function sttCancel() {
   _sttActive = false;
+  clearSTTStopWait();
   if (_sttReject) {
     _sttReject(new Error('STT cancelled'));
     _sttResolve = null;
@@ -1220,6 +1293,7 @@ function sttCancel() {
 function handleSTTWSMessage(payload) {
   const type = String(payload?.type || '');
   if (type === 'stt_result') {
+    clearSTTStopWait();
     if (_sttResolve) {
       _sttResolve({ text: payload.text || '' });
       _sttResolve = null;
@@ -1228,8 +1302,18 @@ function handleSTTWSMessage(payload) {
     return true;
   }
   if (type === 'stt_error') {
+    clearSTTStopWait();
     if (_sttReject) {
       _sttReject(new Error(payload.error || 'STT failed'));
+      _sttResolve = null;
+      _sttReject = null;
+    }
+    return true;
+  }
+  if (type === 'stt_empty') {
+    clearSTTStopWait();
+    if (_sttResolve) {
+      _sttResolve({ text: '', reason: payload.reason || 'empty' });
       _sttResolve = null;
       _sttReject = null;
     }
@@ -1307,6 +1391,7 @@ function startVADMonitor(capture) {
     state.indicatorSuppressedByCanvasUpdate = false;
     showStatus('no speech detected');
     setRecording(false);
+    setVoiceLifecycle(VOICE_LIFECYCLE.IDLE, 'voice-vad-no-speech');
     sttCancel();
     stopChatVoiceMedia(capture);
     if (state.chatVoiceCapture === capture) {
@@ -1314,7 +1399,7 @@ function startVADMonitor(capture) {
     }
     updateAssistantActivityIndicator();
     window.setTimeout(() => {
-      if (!state.chatVoiceCapture && !isAssistantWorking() && !isTTSSpeaking()) {
+      if (isUiReadyForStatus()) {
         showStatus('ready');
       }
     }, 800);
@@ -1448,7 +1533,7 @@ function startVADMonitor(capture) {
 
       if (hitHardSilence || hitHardMaxDuration || hitSoftMaxDuration) {
         stopVADMonitor(capture);
-        void stopZenVoiceCaptureAndSend();
+        void stopVoiceCaptureAndSend();
         return;
       }
 
@@ -1459,7 +1544,7 @@ function startVADMonitor(capture) {
         }
         if (now >= options.pendingCommitAtMs) {
           stopVADMonitor(capture);
-          void stopZenVoiceCaptureAndSend();
+          void stopVoiceCaptureAndSend();
         }
         return;
       }
@@ -1531,6 +1616,9 @@ function stopChatVoiceMediaAndFlush(capture) {
     recorder.addEventListener('stop', onStop, { once: true });
     recorder.addEventListener('error', onError, { once: true });
     try {
+      if (typeof recorder.requestData === 'function') {
+        try { recorder.requestData(); } catch (_) {}
+      }
       recorder.stop();
     } catch (_) {
       finish();
@@ -1540,7 +1628,7 @@ function stopChatVoiceMediaAndFlush(capture) {
   });
 }
 
-async function beginZenVoiceCapture(x, y, anchor, options = null) {
+async function beginVoiceCapture(x, y, anchor, options = null) {
   if (state.chatVoiceCapture) return;
   if (!canUseMicrophoneCapture()) return;
   const manualStopOnly = Boolean(options && options.manualStopOnly);
@@ -1561,6 +1649,8 @@ async function beginZenVoiceCapture(x, y, anchor, options = null) {
   state.lastInputOrigin = 'voice';
   state.voiceAwaitingTurn = false;
   state.indicatorSuppressedByCanvasUpdate = false;
+  startVoiceLifecycleOp('voice-capture-begin');
+  setVoiceLifecycle(VOICE_LIFECYCLE.RECORDING, 'voice-capture-begin');
   setLastInputPosition(x, y);
   setRecording(true);
   setInputAnchor(anchor || null);
@@ -1584,10 +1674,11 @@ async function beginZenVoiceCapture(x, y, anchor, options = null) {
       startVADMonitor(capture);
     }
     if (capture.stopRequested) {
-      void stopZenVoiceCaptureAndSend();
+      void stopVoiceCaptureAndSend();
     }
   } catch (err) {
     setRecording(false);
+    setVoiceLifecycle(VOICE_LIFECYCLE.IDLE, 'voice-capture-start-failed');
     updateAssistantActivityIndicator();
     const message = String(err?.message || err || 'voice capture failed');
     showStatus(`voice capture failed: ${message}`);
@@ -1599,14 +1690,17 @@ async function beginZenVoiceCapture(x, y, anchor, options = null) {
   }
 }
 
-async function stopZenVoiceCaptureAndSend() {
+async function stopVoiceCaptureAndSend() {
   const capture = state.chatVoiceCapture;
   if (!capture || capture.stopping) return;
+  const opSeq = startVoiceLifecycleOp('voice-capture-stop-send');
   capture.stopRequested = true;
   if (!capture.active) return;
   capture.stopping = true;
   setRecording(false);
+  setVoiceLifecycle(VOICE_LIFECYCLE.STOPPING_RECORDING, 'voice-capture-stop-send');
   state.voiceAwaitingTurn = true;
+  setVoiceLifecycle(VOICE_LIFECYCLE.AWAITING_TURN, 'voice-awaiting-turn');
   state.indicatorSuppressedByCanvasUpdate = false;
   updateAssistantActivityIndicator();
   showStatus('transcribing...');
@@ -1624,12 +1718,18 @@ async function stopZenVoiceCaptureAndSend() {
     remoteStopped = true;
     const transcript = String(result?.text || '').trim();
     if (!transcript) {
+      if (state.conversationMode) {
+        onTTSPlaybackComplete();
+        return;
+      }
       throw new Error('speech recognizer returned empty text');
     }
     showStatus('sending...');
-    void zenSubmitMessage(transcript, { kind: 'voice_transcript' });
+    void submitMessage(transcript, { kind: 'voice_transcript' });
   } catch (err) {
+    if (opSeq !== state.voiceLifecycleSeq) return;
     state.voiceAwaitingTurn = false;
+    setVoiceLifecycle(VOICE_LIFECYCLE.IDLE, 'voice-capture-stop-failed');
     updateAssistantActivityIndicator();
     const message = String(err?.message || err || 'voice capture failed');
     showStatus(`voice capture failed: ${message}`);
@@ -1640,6 +1740,9 @@ async function stopZenVoiceCaptureAndSend() {
     stopChatVoiceMedia(capture);
     if (state.chatVoiceCapture === capture) {
       state.chatVoiceCapture = null;
+    }
+    if (opSeq === state.voiceLifecycleSeq) {
+      syncVoiceLifecycle('voice-capture-stop-finished');
     }
     updateAssistantActivityIndicator();
   }
@@ -1654,6 +1757,7 @@ function cancelChatVoiceCapture() {
   sttCancel();
   stopChatVoiceMedia(capture);
   state.chatVoiceCapture = null;
+  setVoiceLifecycle(VOICE_LIFECYCLE.IDLE, 'voice-capture-cancelled');
   updateAssistantActivityIndicator();
 }
 
@@ -1676,7 +1780,7 @@ function showCanvasColumn(paneId) {
     }
   }
   state.hasArtifact = true;
-  setZenMode('artifact');
+  setUiMode('artifact');
   persistLastView({ mode: 'artifact' });
   if (!isVoiceTurn() && isDirectAssistantWorking()) {
     hideOverlay();
@@ -1689,10 +1793,10 @@ function hideCanvasColumn() {
   state.hasArtifact = false;
   state.workspaceOpenFilePath = '';
   state.workspaceStepInFlight = false;
-  setZenMode('rasa');
+  setUiMode('rasa');
   clearLineHighlight();
   persistLastView({ mode: 'rasa' });
-  // In zen mode, hide all panes to show blank canvas
+  // Hide all panes to show blank canvas
   const viewport = document.getElementById('canvas-viewport');
   if (viewport) {
     viewport.querySelectorAll('.canvas-pane').forEach((p) => {
@@ -1734,11 +1838,22 @@ function hasLocalAssistantWork() {
     || state.assistantUnknownTurns > 0;
 }
 
-function isDirectAssistantWorking() {
-  return hasLocalAssistantWork()
-    || state.assistantRemoteActiveCount > 0
+function hasRemoteAssistantWork() {
+  return state.assistantRemoteActiveCount > 0
     || state.assistantRemoteQueuedCount > 0
+    || state.assistantRemoteDelegateActiveCount > 0;
+}
+
+function hasLocalStopCapableWork() {
+  return state.assistantActiveTurns.size > 0
+    || state.assistantUnknownTurns > 0
     || state.assistantCancelInFlight;
+}
+
+function isDirectAssistantWorking() {
+  return hasLocalStopCapableWork()
+    || state.assistantRemoteActiveCount > 0
+    || state.assistantRemoteQueuedCount > 0;
 }
 
 function isDelegateAssistantWorking() {
@@ -1753,33 +1868,77 @@ function isTTSSpeaking() {
   return state.ttsPlaying;
 }
 
+function startVoiceLifecycleOp(reason = '') {
+  state.voiceLifecycleSeq += 1;
+  state.voiceLifecycleReason = String(reason || '');
+  return state.voiceLifecycleSeq;
+}
+
+function setVoiceLifecycle(next, reason = '') {
+  const normalized = Object.values(VOICE_LIFECYCLE).includes(next)
+    ? next
+    : VOICE_LIFECYCLE.IDLE;
+  state.voiceLifecycle = normalized;
+  if (reason) {
+    state.voiceLifecycleReason = String(reason);
+  }
+  return state.voiceLifecycle;
+}
+
+function deriveVoiceLifecycle() {
+  if (isRecording()) return VOICE_LIFECYCLE.RECORDING;
+  if (state.chatVoiceCapture?.stopping) return VOICE_LIFECYCLE.STOPPING_RECORDING;
+  if (state.voiceAwaitingTurn) return VOICE_LIFECYCLE.AWAITING_TURN;
+  if (isConversationListenActive()) return VOICE_LIFECYCLE.LISTENING;
+  if (hasLocalStopCapableWork()) return VOICE_LIFECYCLE.ASSISTANT_WORKING;
+  if (isTTSSpeaking()) return VOICE_LIFECYCLE.TTS_PLAYING;
+  return VOICE_LIFECYCLE.IDLE;
+}
+
+function syncVoiceLifecycle(reason = '') {
+  return setVoiceLifecycle(deriveVoiceLifecycle(), reason);
+}
+
+function isStopCapableLifecycle(mode = state.voiceLifecycle) {
+  return mode === VOICE_LIFECYCLE.LISTENING
+    || mode === VOICE_LIFECYCLE.STOPPING_RECORDING
+    || mode === VOICE_LIFECYCLE.AWAITING_TURN
+    || mode === VOICE_LIFECYCLE.ASSISTANT_WORKING;
+}
+
+function isUiReadyForStatus() {
+  const mode = syncVoiceLifecycle('ready-check');
+  return mode === VOICE_LIFECYCLE.IDLE;
+}
+
 function canStartConversationListen() {
   if (!canSpeakTTS()) return false;
-  if (isRecording()) return false;
+  const mode = syncVoiceLifecycle('can-start-conversation');
+  if (mode === VOICE_LIFECYCLE.RECORDING || mode === VOICE_LIFECYCLE.STOPPING_RECORDING) return false;
+  if (mode === VOICE_LIFECYCLE.TTS_PLAYING) return false;
   if (state.chatVoiceCapture) return false;
-  if (state.voiceAwaitingTurn) return false;
-  if (isAssistantWorking()) return false;
-  if (isTTSSpeaking()) return false;
+  if (mode !== VOICE_LIFECYCLE.LISTENING && isStopCapableLifecycle(mode)) return false;
   return true;
 }
 
 function beginConversationVoiceCapture() {
   const x = Math.floor(window.innerWidth / 2);
   const y = Math.floor(window.innerHeight / 2);
-  void beginZenVoiceCapture(x, y, null);
+  void beginVoiceCapture(x, y, null);
 }
 
 function currentIndicatorMode() {
-  if (isRecording()) return 'recording';
-  if (state.voiceAwaitingTurn) return 'play';
-  if (isConversationListenActive()) return 'listening';
+  const mode = state.voiceLifecycle;
+  if (mode === VOICE_LIFECYCLE.RECORDING) return 'recording';
+  if (mode === VOICE_LIFECYCLE.LISTENING) return 'listening';
+  if (isStopCapableLifecycle(mode)) return 'play';
+  if (state.conversationMode && state.hotwordActive) return 'paused';
   if (state.indicatorSuppressedByCanvasUpdate) return '';
-  if (isAssistantWorking() || isTTSSpeaking()) return 'play';
   return '';
 }
 
 function shouldStopInUiClick() {
-  return state.voiceAwaitingTurn || isAssistantWorking() || isTTSSpeaking() || isConversationListenActive();
+  return isStopCapableLifecycle(syncVoiceLifecycle('ui-stop-check'));
 }
 
 function updateAssistantActivityIndicator() {
@@ -1787,6 +1946,7 @@ function updateAssistantActivityIndicator() {
     state.assistantUnknownTurns = 0;
     state.assistantActiveTurns.clear();
   }
+  syncVoiceLifecycle('indicator-update');
   state.hotwordActive = isHotwordActive();
   const pos = getLastInputPosition();
   const px = Number.isFinite(pos?.x) && pos.x > 0 ? pos.x : Math.floor(window.innerWidth / 2);
@@ -1936,6 +2096,7 @@ function parseUnifiedDiffFiles(diffText) {
   }];
 }
 
+let sidebarEdgeTapAt = 0;
 function setPrReviewDrawerOpen(open) {
   const shouldOpen = Boolean(open) && (state.prReviewMode || Boolean(state.activeProjectId));
   state.prReviewDrawerOpen = shouldOpen;
@@ -2014,7 +2175,14 @@ function renderSidebarRow({ icon, label, active = false, meta = '', onClick }) {
     button.appendChild(metaEl);
   }
   let lastTouchAt = 0;
+  let touchStartY = 0;
+  button.addEventListener('touchstart', (ev) => {
+    const t = ev.touches && ev.touches[0];
+    if (t) touchStartY = t.clientY;
+  }, { passive: true });
   button.addEventListener('touchend', (ev) => {
+    const t = ev.changedTouches && ev.changedTouches[0];
+    if (t && Math.abs(t.clientY - touchStartY) > 10) return;
     ev.preventDefault();
     ev.stopPropagation();
     lastTouchAt = Date.now();
@@ -2025,6 +2193,7 @@ function renderSidebarRow({ icon, label, active = false, meta = '', onClick }) {
       ev.preventDefault();
       return;
     }
+    if (Date.now() - sidebarEdgeTapAt < 600) return;
     onClick(ev);
   });
   return button;
@@ -2107,6 +2276,7 @@ function renderPrReviewFileList() {
           setPrReviewActiveFile(index);
           if (isMobileViewport()) {
             setPrReviewDrawerOpen(false);
+            closeEdgePanels();
           }
         },
       }));
@@ -2195,7 +2365,7 @@ async function openWorkspaceSidebarFile(path) {
       path: filePath,
     });
     showCanvasColumn('canvas-image');
-    if (isMobileViewport()) setPrReviewDrawerOpen(false);
+    if (isMobileViewport()) { setPrReviewDrawerOpen(false); closeEdgePanels(); }
     return true;
   }
   if (kind === 'pdf_artifact') {
@@ -2208,7 +2378,7 @@ async function openWorkspaceSidebarFile(path) {
       path: filePath,
     });
     showCanvasColumn('canvas-pdf');
-    if (isMobileViewport()) setPrReviewDrawerOpen(false);
+    if (isMobileViewport()) { setPrReviewDrawerOpen(false); closeEdgePanels(); }
     return true;
   }
 
@@ -2230,7 +2400,7 @@ async function openWorkspaceSidebarFile(path) {
         path: filePath,
       });
       showCanvasColumn('canvas-image');
-      if (isMobileViewport()) setPrReviewDrawerOpen(false);
+      if (isMobileViewport()) { setPrReviewDrawerOpen(false); closeEdgePanels(); }
       return true;
     }
     if (contentType.includes('application/pdf')) {
@@ -2243,7 +2413,7 @@ async function openWorkspaceSidebarFile(path) {
         path: filePath,
       });
       showCanvasColumn('canvas-pdf');
-      if (isMobileViewport()) setPrReviewDrawerOpen(false);
+      if (isMobileViewport()) { setPrReviewDrawerOpen(false); closeEdgePanels(); }
       return true;
     }
     const text = await resp.text();
@@ -2256,7 +2426,7 @@ async function openWorkspaceSidebarFile(path) {
       text,
     });
     showCanvasColumn('canvas-text');
-    if (isMobileViewport()) setPrReviewDrawerOpen(false);
+    if (isMobileViewport()) { setPrReviewDrawerOpen(false); closeEdgePanels(); }
     return true;
   } catch (err) {
     showStatus(`open failed: ${String(err?.message || err || 'unknown error')}`);
@@ -2407,6 +2577,14 @@ function trackAssistantTurnFinished(turnID) {
     }
   } else if (state.assistantUnknownTurns > 0) {
     state.assistantUnknownTurns -= 1;
+  } else if (state.assistantActiveTurns.size > 0) {
+    // Some cancel/error events can arrive without turn_id. In that case, clear
+    // one active local turn so the stop indicator cannot get stuck indefinitely.
+    const firstActiveTurn = state.assistantActiveTurns.values().next().value;
+    if (firstActiveTurn) {
+      state.voiceTurns.delete(firstActiveTurn);
+      state.assistantActiveTurns.delete(firstActiveTurn);
+    }
   }
   updateAssistantActivityIndicator();
 }
@@ -2418,6 +2596,22 @@ function takePendingRow(turnID) {
     state.pendingByTurn.delete(key);
     updateAssistantActivityIndicator();
     return row;
+  }
+  const row = state.pendingQueue.shift() || null;
+  updateAssistantActivityIndicator();
+  return row;
+}
+
+function takeAnyPendingRow() {
+  if (state.pendingByTurn.size > 0) {
+    const first = state.pendingByTurn.entries().next().value;
+    if (Array.isArray(first) && first.length >= 2) {
+      const key = String(first[0] || '').trim();
+      const row = first[1] || null;
+      if (key) state.pendingByTurn.delete(key);
+      updateAssistantActivityIndicator();
+      return row;
+    }
   }
   const row = state.pendingQueue.shift() || null;
   updateAssistantActivityIndicator();
@@ -2673,18 +2867,22 @@ function renderEdgeTopProjects() {
   if (!(host instanceof HTMLElement)) return;
   host.innerHTML = '';
   for (const project of state.projects) {
-    if (isHubProject(project)) {
-      continue;
-    }
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'edge-project-btn';
+    if (isHubProject(project)) {
+      button.classList.add('edge-hub-btn');
+    }
     if (project.id === state.activeProjectId) {
       button.classList.add('is-active');
     }
     button.textContent = String(project.name || project.id || 'Project');
     button.title = String(project.root_path || '');
     button.addEventListener('click', () => {
+      if (isHubProject(project)) {
+        void switchToHub();
+        return;
+      }
       if (project.id === state.activeProjectId) return;
       void switchProject(project.id);
     });
@@ -2697,25 +2895,10 @@ function renderEdgeTopModelButtons() {
   if (!(host instanceof HTMLElement)) return;
   host.innerHTML = '';
   const project = activeProject();
-  const hub = hubProject();
   const hubActive = isHubActive();
   const selectedAlias = activeProjectChatModelAlias();
   const selectedEffort = activeProjectChatModelReasoningEffort();
   const effortOptions = reasoningEffortOptionsForAlias(selectedAlias);
-  if (hub && hub.id) {
-    const hubButton = document.createElement('button');
-    hubButton.type = 'button';
-    hubButton.className = 'edge-project-btn edge-model-btn edge-hub-btn';
-    hubButton.textContent = 'Hub';
-    if (hubActive) {
-      hubButton.classList.add('is-active');
-    }
-    hubButton.disabled = state.projectSwitchInFlight || state.projectModelSwitchInFlight;
-    hubButton.addEventListener('click', () => {
-      void switchToHub();
-    });
-    host.appendChild(hubButton);
-  }
   for (const alias of PROJECT_CHAT_MODEL_ALIASES) {
     const button = document.createElement('button');
     button.type = 'button';
@@ -2739,7 +2922,7 @@ function renderEdgeTopModelButtons() {
   for (const effort of effortOptions) {
     const option = document.createElement('option');
     option.value = effort;
-    option.textContent = effort.replace(/_/g, ' ');
+    option.textContent = effort === 'extra_high' ? 'xhigh' : effort.replace(/_/g, ' ');
     effortSelect.appendChild(option);
   }
   effortSelect.value = effortOptions.includes(selectedEffort) ? selectedEffort : (effortOptions[0] || '');
@@ -2880,7 +3063,15 @@ async function refreshAssistantActivity() {
   assistantActivityInFlight = true;
   try {
     const resp = await fetch(`/api/chat/sessions/${encodeURIComponent(targetSessionID)}/activity`, { cache: 'no-store' });
-    if (!resp.ok) return;
+    if (!resp.ok) {
+      if (!hasLocalAssistantWork() && !state.assistantCancelInFlight) {
+        state.assistantRemoteActiveCount = 0;
+        state.assistantRemoteQueuedCount = 0;
+        state.assistantRemoteDelegateActiveCount = 0;
+        updateAssistantActivityIndicator();
+      }
+      return;
+    }
     if (targetSessionID !== state.chatSessionId) return;
     const payload = await resp.json();
     const activeTurns = Number(payload?.active_turns || 0);
@@ -2892,8 +3083,18 @@ async function refreshAssistantActivity() {
     state.assistantRemoteActiveCount = activeTurns;
     state.assistantRemoteQueuedCount = queuedTurns;
     state.assistantRemoteDelegateActiveCount = delegateActive;
+    if (activeTurns <= 0 && queuedTurns <= 0 && delegateActive <= 0 && !state.assistantCancelInFlight) {
+      state.assistantActiveTurns.clear();
+      state.assistantUnknownTurns = 0;
+    }
     updateAssistantActivityIndicator();
   } catch (_) {
+    if (!hasLocalAssistantWork() && !state.assistantCancelInFlight) {
+      state.assistantRemoteActiveCount = 0;
+      state.assistantRemoteQueuedCount = 0;
+      state.assistantRemoteDelegateActiveCount = 0;
+      updateAssistantActivityIndicator();
+    }
   } finally {
     assistantActivityInFlight = false;
   }
@@ -2903,6 +3104,15 @@ function startAssistantActivityWatcher() {
   if (assistantActivityTimer !== null) return;
   const tick = () => {
     if (document.hidden) return;
+    if (hasLocalStopCapableWork() && state.chatWs && chatWsLastMessageAt > 0) {
+      const elapsed = Date.now() - chatWsLastMessageAt;
+      if (elapsed > CHAT_WS_STALE_THRESHOLD_MS) {
+        chatWsLastMessageAt = 0;
+        closeChatWs();
+        openChatWs();
+        return;
+      }
+    }
     void refreshAssistantActivity();
   };
   assistantActivityTimer = window.setInterval(tick, ASSISTANT_ACTIVITY_POLL_MS);
@@ -2958,6 +3168,7 @@ function startAssistantActivityWatcher() {
 
 function closeChatWs() {
   state.chatWsToken += 1;
+  chatWsLastMessageAt = 0;
   if (state.chatWs) {
     try { state.chatWs.close(); } catch (_) {}
   }
@@ -2991,9 +3202,25 @@ function openChatWs() {
 
   ws.onmessage = (event) => {
     if (turnToken !== state.chatWsToken || targetSessionID !== state.chatSessionId) return;
+    chatWsLastMessageAt = Date.now();
     if (event.data instanceof ArrayBuffer) {
       if (!canSpeakTTS()) return;
-      if (ttsPlayer) ttsPlayer.enqueue(event.data);
+      if (!ttsPlayer) ttsPlayer = new TTSPlayer();
+      ttsPlayer.enqueue(event.data);
+      return;
+    }
+    if (event.data instanceof Blob) {
+      if (!canSpeakTTS()) return;
+      event.data.arrayBuffer()
+        .then((audioBuffer) => {
+          if (turnToken !== state.chatWsToken || targetSessionID !== state.chatSessionId) return;
+          if (!canSpeakTTS()) return;
+          if (!ttsPlayer) ttsPlayer = new TTSPlayer();
+          ttsPlayer.enqueue(audioBuffer);
+        })
+        .catch((err) => {
+          console.warn('TTS blob decode error:', err);
+        });
       return;
     }
     if (typeof event.data !== 'string') return;
@@ -3038,6 +3265,10 @@ function shouldRenderAssistantHistoryInChat(_renderFormat, markdown, plain) {
   return Boolean(String(markdown || plain || '').trim());
 }
 
+function isVoiceOutputModePayload(payload) {
+  return String(payload?.output_mode || '').trim().toLowerCase() === 'voice';
+}
+
 function handleChatEvent(payload) {
   const type = String(payload?.type || '').trim();
   if (!type) return;
@@ -3053,9 +3284,9 @@ function handleChatEvent(payload) {
     const action = String(payload.action || '').trim();
     if (action === 'open_canvas') {
       showCanvasColumn('canvas-text');
-      state.zenCanvasActionThisTurn = true;
+      state.canvasActionThisTurn = true;
     } else if (action === 'open_chat') {
-      // In zen mode, this just means "no more canvas" - stay on rasa
+      // No more canvas - stay on rasa
     }
     return;
   }
@@ -3097,7 +3328,8 @@ function handleChatEvent(payload) {
     } else if (actionType === 'toggle_silent') {
       toggleTTSSilentMode();
     } else if (actionType === 'toggle_conversation') {
-      const enabled = setConversationMode(!isConversationMode());
+      const next = !isConversationMode();
+      const enabled = setConversationMode(next);
       applyConversationStateSnapshot();
       renderEdgeTopModelButtons();
       updateAssistantActivityIndicator();
@@ -3108,7 +3340,7 @@ function handleChatEvent(payload) {
 
   if (type === 'turn_started') {
     const turnID = String(payload.turn_id || '').trim();
-    const turnIsVoice = state.voiceAwaitingTurn || isVoiceTurn();
+    const turnIsVoice = isVoiceOutputModePayload(payload) || state.voiceAwaitingTurn || isVoiceTurn();
     if (turnID) {
       if (turnIsVoice) state.voiceTurns.add(turnID);
       else state.voiceTurns.delete(turnID);
@@ -3121,7 +3353,7 @@ function handleChatEvent(payload) {
       const edgeRight = document.getElementById('edge-right');
       if (edgeRight) edgeRight.classList.add('edge-pinned');
     }
-    state.zenCanvasActionThisTurn = false;
+    state.canvasActionThisTurn = false;
     state.turnFirstResponseShown = false;
     // Reset TTS state for new turn
     stopTTSPlayback();
@@ -3133,7 +3365,7 @@ function handleChatEvent(payload) {
     } else {
       showOverlay(pos.x, pos.y + 24);
       updateOverlay('_Thinking..._');
-      getZenState().overlayTurnId = payload.turn_id || null;
+      getUiState().overlayTurnId = payload.turn_id || null;
     }
     return;
   }
@@ -3157,17 +3389,17 @@ function handleChatEvent(payload) {
       if (!isVoiceTurn()) {
         hideOverlay();
       }
-      return;
     }
 
     // First non-empty response: show on canvas (silent) / speak (voice)
     const trimmedMd = String(md || '').trim();
+    const shouldSpeakStreaming = isVoiceOutputModePayload(payload) || (turnID ? state.voiceTurns.has(turnID) : false) || isVoiceTurn();
     if (trimmedMd && !state.turnFirstResponseShown) {
       state.turnFirstResponseShown = true;
       if (isMobileSilent()) {
         renderCanvas({ kind: 'text_artifact', title: '', text: md });
       }
-      if (isVoiceTurn() && canSpeakTTS()) {
+      if (shouldSpeakStreaming && canSpeakTTS()) {
         const { ttsText, ttsLang } = extractTTSText(md);
         if (ttsLang) ttsSpeakLang = ttsLang;
         const diff = computeTTSDiff(ttsText);
@@ -3203,14 +3435,14 @@ function handleChatEvent(payload) {
     } else if (hasDisplayMd) {
       appendRenderedAssistant(displayMd);
     }
-    const shouldSpeakTurn = turnID ? state.voiceTurns.has(turnID) : false;
+    const shouldSpeakTurn = isVoiceOutputModePayload(payload) || (turnID ? state.voiceTurns.has(turnID) : false) || isVoiceTurn();
     trackAssistantTurnFinished(turnID);
     state.assistantLastError = '';
     showStatus('ready');
     updateAssistantActivityIndicator();
     void refreshAssistantActivity();
 
-    if (shouldSpeakTurn && !autoCanvas && canSpeakTTS() && md.trim()) {
+    if (shouldSpeakTurn && canSpeakTTS() && md.trim()) {
       const { ttsText, ttsLang } = extractTTSText(md);
       if (ttsLang) ttsSpeakLang = ttsLang;
       const diff = computeTTSDiff(ttsText);
@@ -3224,7 +3456,7 @@ function handleChatEvent(payload) {
       ttsSentenceChunker.flush();
     }
     if (mobileSilent) {
-      if (state.zenCanvasActionThisTurn) {
+      if (state.canvasActionThisTurn) {
         // LLM touched the canvas this turn — keep showing the document.
         const edgeRight = document.getElementById('edge-right');
         if (edgeRight) edgeRight.classList.remove('edge-active', 'edge-pinned');
@@ -3237,17 +3469,17 @@ function handleChatEvent(payload) {
         });
       }
       hideOverlay();
-      state.zenCanvasActionThisTurn = false;
+      state.canvasActionThisTurn = false;
       return;
     }
     if (!isVoiceTurn()) {
       if (autoCanvas || state.hasArtifact) {
         hideOverlay();
-        state.zenCanvasActionThisTurn = false;
+        state.canvasActionThisTurn = false;
         return;
       }
       const cleaned = cleanForOverlay(md);
-      if (state.zenCanvasActionThisTurn && !cleaned) {
+      if (state.canvasActionThisTurn && !cleaned) {
         hideOverlay();
       } else if (cleaned) {
         updateOverlay(cleaned);
@@ -3255,7 +3487,7 @@ function handleChatEvent(payload) {
         hideOverlay();
       }
     }
-    state.zenCanvasActionThisTurn = false;
+    state.canvasActionThisTurn = false;
     return;
   }
 
@@ -3266,18 +3498,30 @@ function handleChatEvent(payload) {
     return;
   }
 
+  if (type === 'turn_completed') {
+    void refreshAssistantActivity();
+    return;
+  }
+
   if (type === 'turn_cancelled') {
     state.voiceAwaitingTurn = false;
     const turnID = String(payload.turn_id || '').trim();
-    const row = takePendingRow(turnID);
+    let row = takePendingRow(turnID);
+    if (!row && !turnID) {
+      row = takeAnyPendingRow();
+    }
     if (row) updateAssistantRow(row, '_Stopped._', false);
     trackAssistantTurnFinished(turnID);
+    state.indicatorSuppressedByCanvasUpdate = false;
     state.assistantLastError = '';
     showStatus('stopped');
     updateAssistantActivityIndicator();
     void refreshAssistantActivity();
-    updateOverlay('_Stopped._');
-    window.setTimeout(() => hideOverlay(), 1000);
+    hideOverlay();
+    window.setTimeout(() => {
+      hideOverlay();
+      void refreshAssistantActivity();
+    }, 180);
     return;
   }
 
@@ -3413,10 +3657,11 @@ function abortPendingSubmit(kind = '') {
   return true;
 }
 
-async function zenSubmitMessage(text, options = {}) {
+async function submitMessage(text, options = {}) {
   const trimmed = String(text || '').trim();
   if (!trimmed || !state.chatSessionId) return;
   cancelConversationListen();
+  startVoiceLifecycleOp('submit-message');
   const submitKind = String(options?.kind || '').trim();
   let submitController = null;
   if (submitKind) {
@@ -3499,51 +3744,111 @@ async function zenSubmitMessage(text, options = {}) {
   }
 }
 
+function forceVoiceLifecycleIdle(statusText = 'stopped') {
+  cancelConversationListen();
+  abortPendingSubmit('voice_transcript');
+  sttCancel();
+  stopTTSPlayback();
+  if (state.chatVoiceCapture) {
+    stopChatVoiceMedia(state.chatVoiceCapture);
+    state.chatVoiceCapture = null;
+  }
+  setRecording(false);
+  state.voiceAwaitingTurn = false;
+  state.indicatorSuppressedByCanvasUpdate = false;
+  state.assistantCancelInFlight = false;
+  state.assistantActiveTurns.clear();
+  state.assistantUnknownTurns = 0;
+  state.voiceTurns.clear();
+  for (const row of state.pendingByTurn.values()) {
+    if (row instanceof HTMLElement) updateAssistantRow(row, '_Stopped._', false);
+  }
+  for (const row of state.pendingQueue) {
+    if (row instanceof HTMLElement) updateAssistantRow(row, '_Stopped._', false);
+  }
+  state.pendingByTurn.clear();
+  state.pendingQueue = [];
+  hideOverlay();
+  showStatus(statusText);
+  setVoiceLifecycle(VOICE_LIFECYCLE.IDLE, 'force-idle');
+  updateAssistantActivityIndicator();
+}
+
 async function cancelActiveAssistantTurn(options = null) {
   const force = Boolean(options && options.force);
-  if (!state.chatSessionId || state.assistantCancelInFlight) return false;
+  const silent = Boolean(options && options.silent);
+  if (!state.chatSessionId || state.assistantCancelInFlight || (silent && assistantSilentCancelInFlight)) return false;
   if (!force) {
     await refreshAssistantActivity();
     if (!isAssistantWorking()) {
-      showStatus(state.assistantLastError ? state.assistantLastError : 'idle');
-      updateAssistantActivityIndicator();
+      if (!silent) {
+        showStatus(state.assistantLastError ? state.assistantLastError : 'idle');
+        updateAssistantActivityIndicator();
+      }
       return false;
     }
   }
-  state.assistantCancelInFlight = true;
-  updateAssistantActivityIndicator();
-  showStatus('stopping...');
+  if (!silent) {
+    state.assistantCancelInFlight = true;
+    updateAssistantActivityIndicator();
+    showStatus('stopping...');
+  } else {
+    assistantSilentCancelInFlight = true;
+  }
   let canceled = 0;
+  let timeoutId = null;
   try {
-    const resp = await fetch(`/api/chat/sessions/${encodeURIComponent(state.chatSessionId)}/cancel`, { method: 'POST' });
+    const controller = new AbortController();
+    timeoutId = window.setTimeout(() => {
+      controller.abort();
+    }, STOP_REQUEST_TIMEOUT_MS);
+    const resp = await fetch(`/api/chat/sessions/${encodeURIComponent(state.chatSessionId)}/cancel`, {
+      method: 'POST',
+      signal: controller.signal,
+    });
     if (!resp.ok) {
       const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
-      showStatus(`stop failed: ${detail}`);
+      if (!silent) showStatus(`stop failed: ${detail}`);
       return false;
     }
     const payload = await resp.json();
     canceled = Number(payload?.canceled || 0);
     if (canceled <= 0) {
       await refreshAssistantActivity();
-      if (!isAssistantWorking()) {
+      if (!silent && !isAssistantWorking()) {
         showStatus(state.assistantLastError ? state.assistantLastError : 'idle');
       }
     }
   } catch (err) {
-    showStatus(`stop failed: ${String(err?.message || err)}`);
+    if (!silent) {
+      if (String(err?.name || '') === 'AbortError') {
+        showStatus('stop request timed out');
+      } else {
+        showStatus(`stop failed: ${String(err?.message || err)}`);
+      }
+    }
     return false;
   } finally {
-    state.assistantCancelInFlight = false;
-    updateAssistantActivityIndicator();
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+    if (!silent) {
+      state.assistantCancelInFlight = false;
+      updateAssistantActivityIndicator();
+    } else {
+      assistantSilentCancelInFlight = false;
+    }
     window.setTimeout(() => { void refreshAssistantActivity(); }, 120);
   }
   return canceled > 0;
 }
 
-async function cancelActiveAssistantTurnWithRetry(maxAttempts = 3) {
+async function cancelActiveAssistantTurnWithRetry(maxAttempts = 3, options = null) {
+  const silent = Boolean(options && options.silent);
   const attempts = Number.isFinite(maxAttempts) ? Math.max(1, Math.floor(maxAttempts)) : 1;
   for (let i = 0; i < attempts; i += 1) {
-    const canceled = await cancelActiveAssistantTurn({ force: true });
+    const canceled = await cancelActiveAssistantTurn({ force: true, silent });
     if (canceled) return true;
     await refreshAssistantActivity();
     if (!isAssistantWorking()) return false;
@@ -3554,12 +3859,13 @@ async function cancelActiveAssistantTurnWithRetry(maxAttempts = 3) {
   return false;
 }
 
-async function handleZenStopAction() {
+async function handleStopAction() {
+  startVoiceLifecycleOp('stop-action');
   if (isConversationListenActive()) {
     cancelConversationListen();
-    if (!state.chatVoiceCapture && !state.voiceAwaitingTurn && !isAssistantWorking() && !isTTSSpeaking()) {
-      showStatus('ready');
-    }
+    setVoiceLifecycle(VOICE_LIFECYCLE.IDLE, 'stop-listening');
+    showStatus('ready');
+    updateAssistantActivityIndicator();
     return;
   }
 
@@ -3570,7 +3876,7 @@ async function handleZenStopAction() {
   }
   const isCaptureActive = Boolean(capture && !capture.stopping);
   if (isCaptureActive) {
-    await stopZenVoiceCaptureAndSend();
+    await stopVoiceCaptureAndSend();
     return;
   }
 
@@ -3578,23 +3884,12 @@ async function handleZenStopAction() {
     stopTTSPlayback();
   }
 
-  const hadVoiceAwaitingTurn = state.voiceAwaitingTurn;
-  if (hadVoiceAwaitingTurn) {
-    abortPendingSubmit('voice_transcript');
-    state.voiceAwaitingTurn = false;
-    sttCancel();
-    updateAssistantActivityIndicator();
-  }
-
-  const canceled = await cancelActiveAssistantTurnWithRetry(3);
-  if (canceled) return;
-
-  if (hadVoiceAwaitingTurn) return;
-
-  if (capture) {
-    sttCancel();
-    updateAssistantActivityIndicator();
-  }
+  const localStopCapable = shouldStopInUiClick() || hasLocalStopCapableWork() || state.voiceAwaitingTurn;
+  forceVoiceLifecycleIdle('stopped');
+  if (!localStopCapable && !hasRemoteAssistantWork()) return;
+  void cancelActiveAssistantTurnWithRetry(3, { silent: true }).finally(() => {
+    void refreshAssistantActivity();
+  });
 }
 
 function applyCanvasArtifactEvent(payload) {
@@ -3640,7 +3935,7 @@ function applyCanvasArtifactEvent(payload) {
   if (!paneId) return;
   const realCanvasArtifact = isRealCanvasArtifactEvent(payload);
   showCanvasColumn(paneId);
-  state.zenCanvasActionThisTurn = state.zenCanvasActionThisTurn || realCanvasArtifact;
+  state.canvasActionThisTurn = state.canvasActionThisTurn || realCanvasArtifact;
   if (isMobileSilent() && realCanvasArtifact) {
     const edgeRight = document.getElementById('edge-right');
     if (edgeRight) edgeRight.classList.remove('edge-active', 'edge-pinned');
@@ -3896,6 +4191,7 @@ function initEdgePanels() {
       }
       ev.preventDefault();
       edgeLeftLastTouchAt = Date.now();
+      sidebarEdgeTapAt = Date.now();
       toggleFileSidebarFromEdge();
     }, { passive: false });
   }
@@ -4087,7 +4383,7 @@ function initEdgePanels() {
         document.body.classList.toggle('keyboard-open', keyboardOpen);
         if (!isIPhoneStandalone()) return;
         if (keyboardOpen) {
-          root.style.setProperty('--zen-cue-corner-radius', '0 0 0 0');
+          root.style.setProperty('--cue-corner-radius', '0 0 0 0');
         } else {
           applyIPhoneFrameCorners();
         }
@@ -4148,9 +4444,9 @@ function closeEdgePanels() {
 function bindUi() {
   const canvasText = document.getElementById('canvas-text');
   const canvasViewport = document.getElementById('canvas-viewport');
-  const zenIndicator = document.getElementById('zen-indicator');
-  if (zenIndicator && zenIndicator.parentElement !== document.body) {
-    document.body.appendChild(zenIndicator);
+  const indicatorNode = document.getElementById('indicator');
+  if (indicatorNode && indicatorNode.parentElement !== document.body) {
+    document.body.appendChild(indicatorNode);
   }
   let lastMouseX = Math.floor(window.innerWidth / 2);
   let lastMouseY = Math.floor(window.innerHeight / 2);
@@ -4162,7 +4458,7 @@ function bindUi() {
   const isVoiceInteractionTarget = (target, x, y) => (
     isInEdgeZone(x, y)
     || (target instanceof Element
-      && target.closest('button,a,input,textarea,select,[contenteditable="true"],.zen-overlay,.zen-input,.edge-panel,#canvas-pdf .canvas-pdf-page,#canvas-pdf .textLayer,#canvas-pdf .annotationLayer'))
+      && target.closest('button,a,input,textarea,select,[contenteditable="true"],.overlay,.floating-input,.edge-panel,#canvas-pdf .canvas-pdf-page,#canvas-pdf .textLayer,#canvas-pdf .annotationLayer'))
   );
   const rememberMousePosition = (x, y) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
@@ -4188,7 +4484,7 @@ function bindUi() {
     if (state.hasArtifact && canvasText) {
       anchor = getAnchorFromPoint(x, y);
     }
-    return beginZenVoiceCapture(x, y, anchor, options);
+    return beginVoiceCapture(x, y, anchor, options);
   };
 
   document.addEventListener('mousemove', (ev) => {
@@ -4199,15 +4495,15 @@ function bindUi() {
     rememberMousePosition(ev.clientX, ev.clientY);
   }, true);
 
-  if (zenIndicator) {
+  if (indicatorNode) {
     let lastIndicatorTouchAt = 0;
     const isIndicatorArmed = () => (
-      zenIndicator.classList.contains('is-working')
-      || zenIndicator.classList.contains('is-recording')
-      || zenIndicator.classList.contains('is-listening')
+      indicatorNode.classList.contains('is-working')
+      || indicatorNode.classList.contains('is-recording')
+      || indicatorNode.classList.contains('is-listening')
     );
     const pointHitsIndicatorChip = (x, y) => {
-      const chips = zenIndicator.querySelectorAll('.zen-record-dot, .zen-stop-square');
+      const chips = indicatorNode.querySelectorAll('.record-dot, .stop-square');
       for (const chip of chips) {
         if (!(chip instanceof HTMLElement)) continue;
         const style = window.getComputedStyle(chip);
@@ -4219,27 +4515,34 @@ function bindUi() {
       }
       return false;
     };
-    const handleZenIndicatorTap = (ev, x, y, isTouch = false) => {
+    const isTapOnInteractiveUi = (ev) => {
+      const t = ev.target;
+      if (!(t instanceof Element)) return false;
+      return Boolean(t.closest('button, a, input, textarea, select, #edge-left-tap, #edge-right-tap, #edge-top, #edge-right, #pr-file-pane, #pr-file-drawer-backdrop'));
+    };
+    const handleIndicatorTap = (ev, x, y, isTouch = false) => {
       if (!isIndicatorArmed()) return;
-      if (!pointHitsIndicatorChip(x, y)) return;
+      const hitsChip = pointHitsIndicatorChip(x, y);
+      if (!hitsChip && isTouch && shouldStopInUiClick() && isTapOnInteractiveUi(ev)) return;
+      if (!hitsChip && !(isTouch && shouldStopInUiClick())) return;
       if (!isTouch && Date.now() - lastIndicatorTouchAt < 600) return;
       if (isTouch) lastIndicatorTouchAt = Date.now();
       ev.preventDefault();
       ev.stopPropagation();
-      void handleZenStopAction();
+      void handleStopAction();
     };
     document.addEventListener('click', (ev) => {
-      handleZenIndicatorTap(ev, ev.clientX, ev.clientY, false);
+      handleIndicatorTap(ev, ev.clientX, ev.clientY, false);
     }, true);
     document.addEventListener('touchend', (ev) => {
       const touch = ev.changedTouches && ev.changedTouches.length > 0 ? ev.changedTouches[0] : null;
       if (!touch) return;
-      handleZenIndicatorTap(ev, touch.clientX, touch.clientY, true);
+      handleIndicatorTap(ev, touch.clientX, touch.clientY, true);
     }, { passive: false, capture: true });
   }
 
-  // Zen: Left-click/tap on canvas -> toggle voice recording
-  const zenClickTarget = canvasViewport || document.getElementById('workspace');
+  // Left-click/tap on canvas -> toggle voice recording
+  const clickTarget = canvasViewport || document.getElementById('workspace');
   const syncIndicatorOnViewportChange = () => {
     updateAssistantActivityIndicator();
   };
@@ -4294,7 +4597,7 @@ function bindUi() {
   window.addEventListener('scroll', syncIndicatorOnViewportChange, { passive: true });
   window.addEventListener('resize', syncIndicatorOnViewportChange);
 
-  if (zenClickTarget) {
+  if (clickTarget) {
     let mouseHoldTimer = null;
     let mouseHoldActive = false;
     let mouseHoldSuppressClick = false;
@@ -4320,7 +4623,7 @@ function bindUi() {
 
     // Mouse hold behaves as push-to-talk: press to start, release to stop.
     // A short click still uses tap-to-talk via the click handler below.
-    zenClickTarget.addEventListener('pointerdown', (ev) => {
+    clickTarget.addEventListener('pointerdown', (ev) => {
       if (ev.pointerType !== 'mouse' || !ev.isPrimary || ev.button !== 0) return;
       if (isVoiceInteractionTarget(ev.target, ev.clientX, ev.clientY)) return;
       if (isConversationListenActive()) {
@@ -4334,8 +4637,8 @@ function bindUi() {
       mouseHoldPointerId = ev.pointerId;
       mouseHoldX = ev.clientX;
       mouseHoldY = ev.clientY;
-      if (typeof zenClickTarget.setPointerCapture === 'function') {
-        try { zenClickTarget.setPointerCapture(ev.pointerId); } catch (_) {}
+      if (typeof clickTarget.setPointerCapture === 'function') {
+        try { clickTarget.setPointerCapture(ev.pointerId); } catch (_) {}
       }
       mouseHoldTimer = window.setTimeout(() => {
         mouseHoldTimer = null;
@@ -4348,7 +4651,7 @@ function bindUi() {
       }, CHAT_SEND_HOLD_MS);
     }, true);
 
-    zenClickTarget.addEventListener('pointermove', (ev) => {
+    clickTarget.addEventListener('pointermove', (ev) => {
       if (!mouseHoldTimer || mouseHoldPointerId !== ev.pointerId) return;
       const dx = ev.clientX - mouseHoldX;
       const dy = ev.clientY - mouseHoldY;
@@ -4362,13 +4665,13 @@ function bindUi() {
       if (!mouseHoldActive) return;
       mouseHoldActive = false;
       if (isRecording()) {
-        void stopZenVoiceCaptureAndSend();
+        void stopVoiceCaptureAndSend();
       }
     };
     const handleMousePointerRelease = (ev) => {
       if (mouseHoldPointerId !== null && mouseHoldPointerId !== ev.pointerId) return;
-      if (typeof zenClickTarget.releasePointerCapture === 'function') {
-        try { zenClickTarget.releasePointerCapture(ev.pointerId); } catch (_) {}
+      if (typeof clickTarget.releasePointerCapture === 'function') {
+        try { clickTarget.releasePointerCapture(ev.pointerId); } catch (_) {}
       }
       if (mouseHoldTimer) {
         clearMouseHoldTimer();
@@ -4384,7 +4687,7 @@ function bindUi() {
 
     // Some mobile browsers do not consistently synthesize click for canvas taps.
     // Handle tap-to-talk / tap-to-stop directly on touchend.
-    zenClickTarget.addEventListener('touchstart', (ev) => {
+    clickTarget.addEventListener('touchstart', (ev) => {
       if (ev.touches.length !== 1) {
         touchTapTracking = false;
         touchTapMoved = false;
@@ -4397,7 +4700,7 @@ function bindUi() {
       touchTapMoved = false;
     }, { passive: true });
 
-    zenClickTarget.addEventListener('touchmove', (ev) => {
+    clickTarget.addEventListener('touchmove', (ev) => {
       if (!touchTapTracking || touchTapMoved || ev.touches.length !== 1) return;
       const touch = ev.touches[0];
       const dx = touch.clientX - touchTapStartX;
@@ -4407,7 +4710,7 @@ function bindUi() {
       }
     }, { passive: true });
 
-    zenClickTarget.addEventListener('touchend', (ev) => {
+    clickTarget.addEventListener('touchend', (ev) => {
       if (!touchTapTracking) return;
       touchTapTracking = false;
       if (touchTapMoved) {
@@ -4429,7 +4732,7 @@ function bindUi() {
       }
       if (shouldStopInUiClick()) {
         ev.preventDefault();
-        void handleZenStopAction();
+        void handleStopAction();
         return;
       }
 
@@ -4439,18 +4742,18 @@ function bindUi() {
 
       ev.preventDefault();
       if (isRecording()) {
-        void stopZenVoiceCaptureAndSend();
+        void stopVoiceCaptureAndSend();
         return;
       }
       void beginVoiceCaptureFromPoint(x, y);
     }, { passive: false });
 
-    zenClickTarget.addEventListener('touchcancel', () => {
+    clickTarget.addEventListener('touchcancel', () => {
       touchTapTracking = false;
       touchTapMoved = false;
     }, { passive: true });
 
-    zenClickTarget.addEventListener('click', (ev) => {
+    clickTarget.addEventListener('click', (ev) => {
       if (mouseHoldSuppressClick) {
         mouseHoldSuppressClick = false;
         ev.preventDefault();
@@ -4468,7 +4771,7 @@ function bindUi() {
       }
       if (shouldStopInUiClick()) {
         ev.preventDefault();
-        void handleZenStopAction();
+        void handleStopAction();
         return;
       }
 
@@ -4485,7 +4788,7 @@ function bindUi() {
       rememberMousePosition(x, y);
 
       if (isRecording()) {
-        void stopZenVoiceCaptureAndSend();
+        void stopVoiceCaptureAndSend();
         return;
       }
 
@@ -4493,9 +4796,9 @@ function bindUi() {
     });
   }
 
-  // Zen: Right-click -> text input
-  if (zenClickTarget) {
-    zenClickTarget.addEventListener('contextmenu', (ev) => {
+  // Right-click -> text input
+  if (clickTarget) {
+    clickTarget.addEventListener('contextmenu', (ev) => {
       if (ev.target instanceof Element && ev.target.closest('.edge-panel')) return;
       ev.preventDefault();
       cancelConversationListen();
@@ -4507,23 +4810,23 @@ function bindUi() {
     });
   }
 
-  // Zen: Text input Enter -> send
-  const zenInput = document.getElementById('zen-input');
-  if (zenInput instanceof HTMLTextAreaElement) {
-    zenInput.addEventListener('focus', () => {
+  // Text input Enter -> send
+  const floatingInput = document.getElementById('floating-input');
+  if (floatingInput instanceof HTMLTextAreaElement) {
+    floatingInput.addEventListener('focus', () => {
       cancelConversationListen();
     });
-    zenInput.addEventListener('keydown', (ev) => {
+    floatingInput.addEventListener('keydown', (ev) => {
       if (ev.key === 'Enter' && !ev.shiftKey) {
         ev.preventDefault();
-        const text = zenInput.value.trim();
+        const text = floatingInput.value.trim();
         if (text) {
           state.lastInputOrigin = 'text';
-          zenInput.value = '';
-          zenInput.blur();
+          floatingInput.value = '';
+          floatingInput.blur();
           hideTextInput();
           settleKeyboardAfterSubmit();
-          void zenSubmitMessage(text);
+          void submitMessage(text);
         }
       }
       if (ev.key === 'Escape') {
@@ -4531,9 +4834,9 @@ function bindUi() {
         hideTextInput();
       }
     });
-    zenInput.addEventListener('input', () => {
-      zenInput.style.height = 'auto';
-      zenInput.style.height = `${Math.min(zenInput.scrollHeight, 240)}px`;
+    floatingInput.addEventListener('input', () => {
+      floatingInput.style.height = 'auto';
+      floatingInput.style.height = `${Math.min(floatingInput.scrollHeight, 240)}px`;
     });
   }
 
@@ -4553,7 +4856,7 @@ function bindUi() {
           chatPaneInput.style.height = '';
           chatPaneInput.blur();
           settleKeyboardAfterSubmit();
-          void zenSubmitMessage(text);
+          void submitMessage(text);
         }
       }
       if (ev.key === 'Escape') {
@@ -4605,7 +4908,7 @@ function bindUi() {
       if (chatInputHoldTimer) { clearTimeout(chatInputHoldTimer); chatInputHoldTimer = null; return; }
       if (chatInputHoldActive) {
         chatInputHoldActive = false;
-        if (isRecording()) void stopZenVoiceCaptureAndSend();
+        if (isRecording()) void stopVoiceCaptureAndSend();
       }
     }, { passive: true });
 
@@ -4629,32 +4932,32 @@ function bindUi() {
         void beginVoiceCaptureFromPoint(ev.clientX, ev.clientY);
         return;
       }
-      if (shouldStopInUiClick()) { void handleZenStopAction(); return; }
-      if (isRecording()) { void stopZenVoiceCaptureAndSend(); return; }
+      if (shouldStopInUiClick()) { void handleStopAction(); return; }
+      if (isRecording()) { void stopVoiceCaptureAndSend(); return; }
       void beginVoiceCaptureFromPoint(ev.clientX, ev.clientY);
     });
   }
 
-  // Zen: Click outside overlay/input -> dismiss
+  // Click outside overlay/input -> dismiss
   document.addEventListener('mousedown', (ev) => {
     if (!(ev.target instanceof Element)) return;
     // Dismiss overlay on click outside
     if (isOverlayVisible()) {
-      const overlay = document.getElementById('zen-overlay');
+      const overlay = document.getElementById('overlay');
       if (overlay && !overlay.contains(ev.target)) {
         hideOverlay();
       }
     }
     // Dismiss text input on click outside
     if (isTextInputVisible()) {
-      const input = document.getElementById('zen-input');
+      const input = document.getElementById('floating-input');
       if (input && !input.contains(ev.target) && ev.button === 0) {
         hideTextInput();
       }
     }
   });
 
-  // Zen: Keyboard typing auto-activates text input (rasa mode)
+  // Keyboard typing auto-activates text input (rasa mode)
   document.addEventListener('keydown', (ev) => {
     // Escape handling
     if (ev.key === 'Escape' && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
@@ -4681,14 +4984,14 @@ function bindUi() {
         hideCanvasColumn();
         return;
       }
-      void handleZenStopAction();
+      void handleStopAction();
       return;
     }
 
     // Enter stops recording
     if (ev.key === 'Enter' && isRecording()) {
       ev.preventDefault();
-      void stopZenVoiceCaptureAndSend();
+      void stopVoiceCaptureAndSend();
       return;
     }
 
@@ -4768,7 +5071,7 @@ function bindUi() {
       cancelConversationListen();
       showTextInput(cx, cy, null);
       // Forward the keystroke
-      const input = document.getElementById('zen-input');
+      const input = document.getElementById('floating-input');
       if (input instanceof HTMLTextAreaElement) {
         input.value = ev.key;
         const caret = ev.key.length;
@@ -4793,7 +5096,7 @@ function bindUi() {
       return;
     }
     if (state.chatVoiceCapture) {
-      void stopZenVoiceCaptureAndSend();
+      void stopVoiceCaptureAndSend();
     }
   }, true);
 
@@ -4858,7 +5161,7 @@ function bindUi() {
       if (artHoldTimer) { clearTimeout(artHoldTimer); artHoldTimer = null; return; }
       if (artHoldActive || state.chatVoiceCapture) {
         artHoldActive = false;
-        void stopZenVoiceCaptureAndSend();
+        void stopVoiceCaptureAndSend();
       }
     }, { passive: true });
 
@@ -4876,7 +5179,7 @@ function showSplash() {
   const name = project?.name || '';
   if (!name) return;
   const splash = document.createElement('div');
-  splash.className = 'zen-splash';
+  splash.className = 'splash';
   splash.textContent = name;
   document.getElementById('view-main')?.appendChild(splash);
   window.setTimeout(() => splash.classList.add('fade-out'), 100);
@@ -4884,7 +5187,6 @@ function showSplash() {
 }
 
 async function init() {
-  initPanelMotionMode();
   applyIPhoneFrameCorners();
   window.addEventListener('resize', () => {
     if (document.body.classList.contains('keyboard-open')) return;
@@ -4906,14 +5208,21 @@ async function init() {
   } catch (_) {
     ttsEnabled = false;
   }
-  setTTSSilentMode(readTTSSilentPreference(), { persist: false });
+  setTTSSilentMode(readTTSSilentPreference(), { persist: false, pinPanel: false });
   await initHotwordLifecycle();
 
   await fetchProjects();
   const initialProjectID = resolveInitialProjectID();
   if (!initialProjectID) throw new Error('no projects available');
   await switchProject(initialProjectID);
+  // Pin chat panel now that all startup state is settled.
+  if (isMobileSilent()) {
+    const edgeRight = document.getElementById('edge-right');
+    if (edgeRight) edgeRight.classList.add('edge-pinned');
+  }
   showSplash();
+  // Enable panel slide transitions only after startup is fully painted.
+  requestAnimationFrame(() => requestAnimationFrame(initPanelMotionMode));
 }
 
 async function authGate() {

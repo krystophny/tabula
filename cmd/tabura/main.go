@@ -90,6 +90,9 @@ type serverConfig struct {
 	projectDir           string
 	webHost              string
 	webPort              int
+	webHTTPSPort         int
+	webCertFile          string
+	webKeyFile           string
 	mcpHost              string
 	mcpPort              int
 	unsafePublicMCP      bool
@@ -156,6 +159,9 @@ func parseServerConfig(args []string) (*serverConfig, int) {
 	fs.StringVar(&cfg.dataDir, "data-dir", cfg.dataDir, "data dir")
 	fs.StringVar(&cfg.webHost, "web-host", "127.0.0.1", "web listener host")
 	fs.IntVar(&cfg.webPort, "web-port", web.DefaultPort, "web listener port")
+	fs.IntVar(&cfg.webHTTPSPort, "web-https-port", 8443, "HTTPS web listener port (requires --web-cert-file and --web-key-file)")
+	fs.StringVar(&cfg.webCertFile, "web-cert-file", "", "TLS certificate path for HTTPS web listener")
+	fs.StringVar(&cfg.webKeyFile, "web-key-file", "", "TLS private key path for HTTPS web listener")
 	fs.StringVar(&cfg.mcpHost, "mcp-host", "127.0.0.1", "mcp listener host")
 	fs.IntVar(&cfg.mcpPort, "mcp-port", serve.DefaultPort, "mcp listener port")
 	fs.BoolVar(&cfg.unsafePublicMCP, "unsafe-public-mcp", false, "allow non-loopback MCP bind (unsafe)")
@@ -170,6 +176,12 @@ func parseServerConfig(args []string) (*serverConfig, int) {
 	cfg.projectDir = *projectDir
 	if !cfg.unsafePublicMCP && !isLoopbackOnlyHost(cfg.mcpHost) {
 		fmt.Fprintln(os.Stderr, "refusing non-loopback MCP bind; use --unsafe-public-mcp to override")
+		return nil, 2
+	}
+	hasCert := strings.TrimSpace(cfg.webCertFile) != ""
+	hasKey := strings.TrimSpace(cfg.webKeyFile) != ""
+	if hasCert != hasKey {
+		fmt.Fprintln(os.Stderr, "HTTPS requires both --web-cert-file and --web-key-file")
 		return nil, 2
 	}
 	return cfg, 0
@@ -202,9 +214,18 @@ func runServer(cfg *serverConfig) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	if err := app.Start(cfg.webHost, cfg.webPort); err != nil {
+	hasTLS := strings.TrimSpace(cfg.webCertFile) != "" && strings.TrimSpace(cfg.webKeyFile) != ""
+	if hasTLS {
+		go func() {
+			if err := app.ListenTLS(cfg.webHost, cfg.webHTTPSPort, cfg.webCertFile, cfg.webKeyFile); err != nil {
+				fmt.Fprintf(os.Stderr, "HTTPS listener failed: %v\n", err)
+			}
+		}()
+	}
+	startErr := app.Start(cfg.webHost, cfg.webPort)
+	if startErr != nil {
 		_ = mcpApp.Stop(context.Background())
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, startErr)
 		return 1
 	}
 	select {

@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -71,6 +72,10 @@ func handleSTTStop(conn *chatWSConn) {
 
 	text, err := stt.TranscribeWithVoxType(mimeType, buf)
 	if err != nil {
+		if errors.Is(err, stt.ErrLikelyNoise) {
+			_ = conn.writeJSON(sttMessage{Type: "stt_empty", Reason: "likely_noise"})
+			return
+		}
 		if stt.IsRetryableNoSpeechError(err) {
 			_ = conn.writeJSON(sttMessage{Type: "stt_empty", Reason: "no_speech_detected"})
 			return
@@ -115,6 +120,9 @@ func handleChatWSTextMessage(a *App, conn *chatWSConn, sessionID string, data []
 	case "stt_cancel":
 		handleSTTCancel(conn)
 	case "tts_speak":
-		go a.handleTTSSpeak(conn, msg.Text, msg.Lang)
+		trimmedText := strings.TrimSpace(msg.Text)
+		seq := conn.reserveTTSSeq()
+		log.Printf("tts_speak received: session=%s seq=%d chars=%d lang=%q", sessionID, seq, len([]rune(trimmedText)), strings.TrimSpace(msg.Lang))
+		go a.handleTTSSpeak(sessionID, conn, seq, msg.Text, msg.Lang)
 	}
 }

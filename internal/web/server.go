@@ -77,7 +77,7 @@ type App struct {
 	localServeCancel   context.CancelFunc
 	projectServes      map[string]*serve.App
 	projectServeStop   map[string]context.CancelFunc
-	ghCommandRunner    ghCommandRunner
+	ghCommandRunner ghCommandRunner
 
 	bootID    string
 	startedAt string
@@ -162,7 +162,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		relayCancel:                   map[string]context.CancelFunc{},
 		projectServes:                 map[string]*serve.App{},
 		projectServeStop:              map[string]context.CancelFunc{},
-		ghCommandRunner:               runGitHubCLI,
+		ghCommandRunner: runGitHubCLI,
 		bootID:                        strconv.FormatInt(time.Now().UnixNano(), 16),
 		startedAt:                     time.Now().UTC().Format(time.RFC3339Nano),
 	}
@@ -254,6 +254,7 @@ func (a *App) Router() http.Handler {
 	r.Post("/api/chat/sessions/{session_id}/commands", a.handleChatSessionCommand)
 	r.Post("/api/chat/sessions/{session_id}/cancel", a.handleChatSessionCancel)
 	r.Post("/api/chat/sessions/{session_id}/cancel-delegates", a.handleChatSessionCancelDelegates)
+	r.Get("/api/hotword/status", a.handleHotwordStatus)
 
 	// canvas/file proxy
 	r.Get("/api/canvas/{session_id}/snapshot", a.handleCanvasSnapshot)
@@ -800,12 +801,47 @@ func (a *App) startLocalServe() error {
 }
 
 func (a *App) Start(host string, port int) error {
+	return a.start(host, port, "", "")
+}
+
+func (a *App) StartTLS(host string, port int, certFile, keyFile string) error {
+	return a.start(host, port, strings.TrimSpace(certFile), strings.TrimSpace(keyFile))
+}
+
+// ListenTLS starts an additional HTTPS listener without triggering local serve
+// startup (the caller is expected to also call Start for the primary HTTP
+// listener which handles that).
+func (a *App) ListenTLS(host string, port int, certFile, keyFile string) error {
+	srv := &http.Server{
+		Addr:              fmt.Sprintf("%s:%d", host, port),
+		Handler:           a.Router(),
+		ReadHeaderTimeout: 15 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	fmt.Println("tabura server HTTPS listener listening on:")
+	for _, u := range serve.ListenURLsWithScheme(host, port, "https") {
+		fmt.Printf("  %s\n", u)
+	}
+	err := srv.ListenAndServeTLS(certFile, keyFile)
+	if err == http.ErrServerClosed {
+		return nil
+	}
+	return err
+}
+
+func (a *App) start(host string, port int, certFile, keyFile string) error {
 	if err := a.startLocalServe(); err != nil {
 		return err
 	}
 	srv := &http.Server{Addr: fmt.Sprintf("%s:%d", host, port), Handler: a.Router(), ReadHeaderTimeout: 15 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second, IdleTimeout: 60 * time.Second}
+	scheme := "http"
+	if certFile != "" && keyFile != "" {
+		scheme = "https"
+	}
 	fmt.Println("tabura server web listener listening on:")
-	for _, u := range serve.ListenURLs(host, port) {
+	for _, u := range serve.ListenURLsWithScheme(host, port, scheme) {
 		fmt.Printf("  %s\n", u)
 	}
 	if a.localProjectDir != "" {
@@ -816,7 +852,12 @@ func (a *App) Start(host string, port int) error {
 		fmt.Printf("  local project: %s\n", a.localProjectDir)
 		fmt.Printf("  local MCP:     %s\n", mcpURL)
 	}
-	err := srv.ListenAndServe()
+	var err error
+	if certFile != "" && keyFile != "" {
+		err = srv.ListenAndServeTLS(certFile, keyFile)
+	} else {
+		err = srv.ListenAndServe()
+	}
 	if err == http.ErrServerClosed {
 		return nil
 	}

@@ -18,7 +18,7 @@ async function clearLog(page: Page) {
 }
 
 async function waitReady(page: Page, query = '') {
-  await page.goto(`/tests/playwright/zen-harness.html${query}`);
+  await page.goto(`/tests/playwright/harness.html${query}`);
   await page.waitForFunction(() => {
     const app = (window as any)._taburaApp;
     if (typeof app?.getState !== 'function') return false;
@@ -98,7 +98,7 @@ async function waitForHotwordStart(page: Page) {
   }, { timeout: 4_000 }).toBe(true);
 }
 
-test('hotword detection opens conversation listening window', async ({ page }) => {
+test('hotword detection starts recording directly', async ({ page }) => {
   await waitReady(page);
   await setConversationListenWindowMs(page, 1_200);
   await setConversationMode(page, true);
@@ -107,9 +107,14 @@ test('hotword detection opens conversation listening window', async ({ page }) =
 
   await triggerHotword(page);
 
+  await expect.poll(async () => {
+    const log = await getLog(page);
+    return log.some((entry) => entry.type === 'recorder' && entry.action === 'start');
+  }, { timeout: 5_000 }).toBe(true);
+
   await expect.poll(async () => page.evaluate(() => {
-    const indicator = document.getElementById('zen-indicator');
-    return Boolean(indicator?.classList.contains('is-listening'));
+    const indicator = document.getElementById('indicator');
+    return Boolean(indicator?.classList.contains('is-recording'));
   })).toBe(true);
 });
 
@@ -193,7 +198,7 @@ test('conversation mode off keeps hotword disabled', async ({ page }) => {
   await page.waitForTimeout(250);
 
   const isListening = await page.evaluate(() => {
-    const indicator = document.getElementById('zen-indicator');
+    const indicator = document.getElementById('indicator');
     return Boolean(indicator?.classList.contains('is-listening'));
   });
   expect(isListening).toBe(false);
@@ -216,7 +221,41 @@ test('hotword init failure degrades gracefully with no crash', async ({ page }) 
 
   await triggerVoiceAssistantTTS(page, 'hotword-degrade-1');
   await expect.poll(async () => page.evaluate(() => {
-    const indicator = document.getElementById('zen-indicator');
+    const indicator = document.getElementById('indicator');
     return Boolean(indicator?.classList.contains('is-listening'));
   })).toBe(true);
+});
+
+test('conversation mode with hotword active shows pause indicator', async ({ page }) => {
+  await waitReady(page);
+  await setConversationMode(page, true);
+  await waitForHotwordStart(page);
+
+  await expect.poll(async () => page.evaluate(() => {
+    const indicator = document.getElementById('indicator');
+    return Boolean(indicator?.classList.contains('is-paused'));
+  }), { timeout: 4_000 }).toBe(true);
+});
+
+test('follow-up timeout returns to pause indicator', async ({ page }) => {
+  await waitReady(page);
+  await setConversationListenWindowMs(page, 500);
+  await setConversationMode(page, true);
+  await waitForHotwordStart(page);
+  await page.evaluate(() => {
+    (window as any).__setVadDbFrames(Array.from({ length: 120 }, () => -80));
+  });
+  await clearLog(page);
+
+  await triggerVoiceAssistantTTS(page, 'pause-return-1');
+
+  await expect.poll(async () => page.evaluate(() => {
+    const indicator = document.getElementById('indicator');
+    return Boolean(indicator?.classList.contains('is-listening'));
+  })).toBe(true);
+
+  await expect.poll(async () => page.evaluate(() => {
+    const indicator = document.getElementById('indicator');
+    return Boolean(indicator?.classList.contains('is-paused'));
+  }), { timeout: 4_000 }).toBe(true);
 });

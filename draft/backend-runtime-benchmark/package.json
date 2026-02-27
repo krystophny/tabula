@@ -1,0 +1,11 @@
+{
+  "name": "tabura-backend-runtime-benchmark",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Draft benchmark comparing Go, Python, TypeScript/Node, and Rust for backend-like CPU workload.",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "typescript": "^5.9.2"
+  }
+}
