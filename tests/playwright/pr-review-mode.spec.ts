@@ -245,4 +245,73 @@ test.describe('pr review canvas mode', () => {
     });
     await expect(page.locator('#canvas-text')).toContainText('README.md');
   });
+
+  test('mobile workspace swipe still flips when workspace file state desyncs', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await waitReady(page);
+
+    await page.locator('#edge-left-tap').click();
+    await expect(page.locator('#pr-file-pane')).toHaveClass(/is-open/);
+    await page.locator('#pr-file-list .pr-file-item', { hasText: 'README.md' }).click();
+    await page.waitForFunction(() => {
+      const app = (window as any)._taburaApp;
+      return app?.getState?.().workspaceOpenFilePath === 'README.md';
+    });
+    await expect(page.locator('#canvas-text')).toContainText('README.md');
+    await expect(page.locator('#pr-file-pane')).not.toHaveClass(/is-open/);
+
+    const debugBefore = await page.evaluate(async () => {
+      const app = (window as any)._taburaApp;
+      const mod = await import('../../internal/web/static/canvas.js');
+      if (!app || typeof app.getState !== 'function') return null;
+      const s = app.getState();
+      return {
+        drawerOpen: Boolean(s.prReviewDrawerOpen),
+        activeTitle: String(mod.getActiveArtifactTitle?.() || ''),
+        mobileQuery: window.matchMedia('(max-width: 767px)').matches,
+      };
+    });
+    expect(debugBefore?.mobileQuery).toBe(true);
+    expect(debugBefore?.drawerOpen).toBe(false);
+    expect(debugBefore?.activeTitle).toBe('README.md');
+
+    // Simulate state desync after external canvas activity: path state was
+    // cleared, but the active artifact title still points at README.md.
+    await page.evaluate(() => {
+      const app = (window as any)._taburaApp;
+      if (!app || typeof app.getState !== 'function') return;
+      app.getState().workspaceOpenFilePath = '';
+    });
+
+    const debugAfterClear = await page.evaluate(async () => {
+      const app = (window as any)._taburaApp;
+      const mod = await import('../../internal/web/static/canvas.js');
+      if (!app || typeof app.getState !== 'function') return null;
+      const s = app.getState();
+      return {
+        drawerOpen: Boolean(s.prReviewDrawerOpen),
+        workspaceOpenFilePath: String(s.workspaceOpenFilePath || ''),
+        activeTitle: String(mod.getActiveArtifactTitle?.() || ''),
+      };
+    });
+    expect(debugAfterClear?.drawerOpen).toBe(false);
+    expect(debugAfterClear?.workspaceOpenFilePath).toBe('');
+    expect(debugAfterClear?.activeTitle).toBe('README.md');
+
+    let flipped = false;
+    for (let attempt = 0; attempt < 3 && !flipped; attempt += 1) {
+      await touchHorizontalFlip(page, 300, 130);
+      try {
+        await page.waitForFunction(() => {
+          const app = (window as any)._taburaApp;
+          return app?.getState?.().workspaceOpenFilePath === 'NOTES.md';
+        }, null, { timeout: 1200 });
+        flipped = true;
+      } catch (_) {
+        // Retry synthetic swipe once or twice to reduce CI flake on touch dispatch.
+      }
+    }
+    expect(flipped).toBe(true);
+    await expect(page.locator('#canvas-text')).toContainText('NOTES.md');
+  });
 });

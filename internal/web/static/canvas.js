@@ -928,7 +928,7 @@ function textRangeFromClientPoint(clientX, clientY) {
   return null;
 }
 
-function getActiveArtifactTitle() {
+export function getActiveArtifactTitle() {
   return activeArtifactTitle;
 }
 

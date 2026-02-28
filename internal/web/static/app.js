@@ -1,5 +1,5 @@
 import { marked } from './vendor/marked.esm.js';
-import { renderCanvas, clearCanvas, getLocationFromSelection, clearLineHighlight, escapeHtml, sanitizeHtml } from './canvas.js';
+import { renderCanvas, clearCanvas, getLocationFromSelection, clearLineHighlight, escapeHtml, sanitizeHtml, getActiveArtifactTitle } from './canvas.js';
 import {
   getUiState, setUiMode,
   showIndicatorMode, hideIndicator,
@@ -2334,6 +2334,14 @@ function workspaceNavigableFilePaths() {
   return files;
 }
 
+function resolveWorkspaceSteppingCurrentFile() {
+  const fromState = normalizeWorkspaceBrowserPath(state.workspaceOpenFilePath);
+  if (fromState) return fromState;
+  const activeTitle = normalizeWorkspaceBrowserPath(getActiveArtifactTitle());
+  if (activeTitle) return activeTitle;
+  return '';
+}
+
 function sidebarFileKindForPath(path) {
   const lower = String(path || '').toLowerCase();
   if (lower.endsWith('.pdf')) return 'pdf_artifact';
@@ -2632,13 +2640,13 @@ async function refreshWorkspaceBrowser(resetPath = false) {
 }
 
 function stepWorkspaceFile(delta) {
-  if (state.prReviewMode || !state.hasArtifact) return false;
+  if (state.prReviewMode) return false;
   if (state.workspaceStepInFlight) return false;
   const shift = Number(delta);
   if (!Number.isFinite(shift) || shift === 0) return false;
   const files = workspaceNavigableFilePaths();
   if (files.length <= 1) return false;
-  const currentFile = normalizeWorkspaceBrowserPath(state.workspaceOpenFilePath);
+  const currentFile = resolveWorkspaceSteppingCurrentFile();
   if (!currentFile) return false;
   const currentIndex = files.indexOf(currentFile);
   if (currentIndex < 0) return false;
@@ -4770,7 +4778,7 @@ function bindUi() {
       canvasSwipeHandled = false;
     };
     canvasViewport.addEventListener('touchstart', (ev) => {
-      if (!isMobileViewport()) return;
+      if (!isMobileViewport() && !isLikelyIOS()) return;
       if (state.prReviewDrawerOpen || ev.touches.length !== 1) return;
       const touch = ev.touches[0];
       canvasSwipeStart = { x: touch.clientX, y: touch.clientY };
@@ -4783,7 +4791,8 @@ function bindUi() {
       const dy = touch.clientY - canvasSwipeStart.y;
       if (Math.abs(dx) < 48) return;
       if (Math.abs(dx) <= Math.abs(dy) * 1.25) return;
-      stepCanvasFile(dx < 0 ? 1 : -1);
+      const stepped = stepCanvasFile(dx < 0 ? 1 : -1);
+      if (!stepped) return;
       canvasSwipeHandled = true;
       ev.preventDefault();
     }, { passive: false });
@@ -4802,7 +4811,8 @@ function bindUi() {
       }
       horizontalWheelAccum += ev.deltaX;
       if (Math.abs(horizontalWheelAccum) < 48) return;
-      stepCanvasFile(horizontalWheelAccum > 0 ? 1 : -1);
+      const stepped = stepCanvasFile(horizontalWheelAccum > 0 ? 1 : -1);
+      if (!stepped) return;
       horizontalWheelAccum = 0;
       horizontalWheelLastAt = now;
     }, { passive: false });
