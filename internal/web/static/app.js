@@ -4495,6 +4495,7 @@ function initEdgePanels() {
           // panel pin above can cause the click to land inside the
           // newly-visible panel (e.g. chatHistory) and start recording.
           ev.preventDefault();
+          suppressSyntheticClick();
         }
       }
     }
@@ -4638,11 +4639,14 @@ function bindUi() {
     rememberMousePosition(ev.clientX, ev.clientY);
   }, true);
 
-  // Track last touchend globally to suppress ghost clicks on iOS.
-  let lastTouchAt = 0;
-  document.addEventListener('touchend', () => { lastTouchAt = Date.now(); }, { passive: true });
-  const GHOST_CLICK_SUPPRESS_MS = isLikelyIOS() ? 1400 : 700;
-  const isGhostClick = () => Date.now() - lastTouchAt < GHOST_CLICK_SUPPRESS_MS;
+  // Suppress synthetic click events only after touch interactions that we
+  // explicitly handled; unrelated touchend events must not block first tap/click.
+  let suppressClickUntil = 0;
+  const suppressSyntheticClick = () => {
+    const ms = isLikelyIOS() ? 1200 : 700;
+    suppressClickUntil = Math.max(suppressClickUntil, Date.now() + ms);
+  };
+  const isSuppressedClick = () => Date.now() < suppressClickUntil;
 
   if (indicatorNode) {
     const isIndicatorArmed = () => (
@@ -4670,12 +4674,13 @@ function bindUi() {
     };
     const handleIndicatorTap = (ev, x, y, isTouch = false) => {
       if (!isIndicatorArmed()) return;
-      if (!isTouch && isGhostClick()) return;
+      if (!isTouch && isSuppressedClick()) return;
       const hitsChip = pointHitsIndicatorChip(x, y);
       if (!hitsChip && isTouch && shouldStopInUiClick() && isTapOnInteractiveUi(ev)) return;
       if (!hitsChip && !(isTouch && shouldStopInUiClick())) return;
       ev.preventDefault();
       ev.stopPropagation();
+      if (isTouch) suppressSyntheticClick();
       void handleStopAction();
     };
     document.addEventListener('click', (ev) => {
@@ -4801,6 +4806,7 @@ function bindUi() {
       const touch = ev.changedTouches && ev.changedTouches.length > 0 ? ev.changedTouches[0] : null;
       if (!touch) return;
       ev.preventDefault();
+      suppressSyntheticClick();
       handleWorkspaceTap(ev.target, touch.clientX, touch.clientY);
     }, { passive: false });
 
@@ -4810,7 +4816,7 @@ function bindUi() {
     }, { passive: true });
 
     clickTarget.addEventListener('click', (ev) => {
-      if (isGhostClick()) return;
+      if (isSuppressedClick()) return;
       if (ev.button !== 0) return;
       handleWorkspaceTap(ev.target, ev.clientX, ev.clientY);
     });

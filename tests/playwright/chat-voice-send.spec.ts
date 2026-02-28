@@ -243,6 +243,19 @@ test('click on canvas starts voice recording', async ({ page }) => {
   expect(sttActions).toContain('stop');
 });
 
+test('unrelated touchend does not suppress first click-to-record', async ({ page }) => {
+  await clearLog(page);
+
+  // Simulate a touchend outside workspace tap flow (e.g. UI panel touch).
+  await page.evaluate(() => {
+    document.dispatchEvent(new Event('touchend', { bubbles: true }));
+  });
+
+  // Click fallback must still work.
+  await page.mouse.click(400, 400);
+  await waitForLogEntry(page, 'recorder', 'start');
+});
+
 test('touch stop indicator routes through shared cancel endpoint', async ({ page }) => {
   await clearLog(page);
 
