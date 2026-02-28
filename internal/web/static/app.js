@@ -169,7 +169,6 @@ const VOICE_VAD_SPEECH_START_FRAMES = 4;
 const VOICE_VAD_NOISE_FLOOR_MIN_DB = -60;
 const VOICE_VAD_NOISE_FLOOR_MAX_DB = -18;
 const VOICE_CAPTURE_STOP_FLUSH_TIMEOUT_MS = 1500;
-const STT_STOP_TIMEOUT_MS = 8000;
 const STOP_REQUEST_TIMEOUT_MS = 3500;
 const VOICE_LIFECYCLE = Object.freeze({
   IDLE: 'idle',
@@ -1127,22 +1126,6 @@ function isLikelyIOS() {
     || (ua.includes('macintosh') && navigator.maxTouchPoints > 1);
 }
 
-function isWhisperFriendlyMime(mimeType) {
-  const mt = String(mimeType || '').toLowerCase();
-  if (!mt) return false;
-  return mt.includes('webm')
-    || mt.includes('ogg')
-    || mt.includes('wav')
-    || mt.includes('mpeg')
-    || mt.includes('mp3');
-}
-
-function shouldTranscodeVoiceBlobToWav(mimeType) {
-  const mt = String(mimeType || '').toLowerCase();
-  if (!mt) return isLikelyIOS();
-  return !isWhisperFriendlyMime(mt);
-}
-
 function firstNonEmptyChunkMimeType(chunks) {
   if (!Array.isArray(chunks)) return '';
   for (const chunk of chunks) {
@@ -1150,72 +1133,6 @@ function firstNonEmptyChunkMimeType(chunks) {
     if (mt) return mt;
   }
   return '';
-}
-
-function encodeAudioBufferAsWav(audioBuffer) {
-  const channels = Math.max(1, Number(audioBuffer?.numberOfChannels) || 1);
-  const sampleRate = Math.max(8000, Number(audioBuffer?.sampleRate) || 44100);
-  const frameCount = Math.max(0, Number(audioBuffer?.length) || 0);
-  const bytesPerSample = 2;
-  const dataBytes = frameCount * bytesPerSample;
-  const wav = new ArrayBuffer(44 + dataBytes);
-  const view = new DataView(wav);
-  const writeString = (offset, value) => {
-    for (let i = 0; i < value.length; i += 1) {
-      view.setUint8(offset + i, value.charCodeAt(i));
-    }
-  };
-
-  writeString(0, 'RIFF');
-  view.setUint32(4, 36 + dataBytes, true);
-  writeString(8, 'WAVE');
-  writeString(12, 'fmt ');
-  view.setUint32(16, 16, true); // PCM chunk size
-  view.setUint16(20, 1, true); // PCM format
-  view.setUint16(22, 1, true); // mono output
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * bytesPerSample, true); // byte rate
-  view.setUint16(32, bytesPerSample, true); // block align
-  view.setUint16(34, 16, true); // bits per sample
-  writeString(36, 'data');
-  view.setUint32(40, dataBytes, true);
-
-  const channelData = [];
-  for (let ch = 0; ch < channels; ch += 1) {
-    if (typeof audioBuffer.getChannelData !== 'function') break;
-    channelData.push(audioBuffer.getChannelData(ch));
-  }
-  let offset = 44;
-  for (let i = 0; i < frameCount; i += 1) {
-    let sample = 0;
-    if (channelData.length > 0) {
-      for (let ch = 0; ch < channelData.length; ch += 1) {
-        sample += channelData[ch][i] || 0;
-      }
-      sample /= channelData.length;
-    }
-    sample = Math.max(-1, Math.min(1, sample));
-    const int16 = sample < 0 ? Math.round(sample * 0x8000) : Math.round(sample * 0x7FFF);
-    view.setInt16(offset, int16, true);
-    offset += 2;
-  }
-  return wav;
-}
-
-async function transcodeVoiceBlobToWav(blob) {
-  if (!(blob instanceof Blob) || blob.size <= 0) {
-    throw new Error('voice blob is empty');
-  }
-  if (!ttsAudioCtx || typeof ttsAudioCtx.decodeAudioData !== 'function') {
-    throw new Error('AudioContext decode is unavailable');
-  }
-  const input = await blob.arrayBuffer();
-  const decoded = await ttsAudioCtx.decodeAudioData(input.slice(0));
-  if (!decoded || typeof decoded.getChannelData !== 'function') {
-    throw new Error('decoded audio buffer is invalid');
-  }
-  const wav = encodeAudioBufferAsWav(decoded);
-  return new Blob([wav], { type: 'audio/wav' });
 }
 
 
@@ -1377,112 +1294,110 @@ function isVoiceVADAutoSendEnabled() {
   return VOICE_VAD_AUTO_SEND_DEFAULT;
 }
 
-let _sttResolve = null;
-let _sttReject = null;
+let _sttMimeType = '';
+let _sttParts = [];
 let _sttActive = false;
-let _sttStopTimer = null;
+let _sttAbortController = null;
 
-function clearSTTStopWait() {
-  if (_sttStopTimer !== null) {
-    window.clearTimeout(_sttStopTimer);
-    _sttStopTimer = null;
-  }
+function recordHarnessSTTAction(action, payload = {}) {
+  if (!Array.isArray(window.__harnessLog)) return;
+  window.__harnessLog.push({ type: 'stt', action, ...payload });
 }
 
 function sttStart(mimeType) {
-  const ws = state.chatWs;
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    return Promise.reject(new Error('chat WebSocket not connected'));
+  if (_sttAbortController) {
+    try { _sttAbortController.abort(); } catch (_) {}
+    _sttAbortController = null;
   }
-  clearSTTStopWait();
-  _sttResolve = null;
-  _sttReject = null;
+  _sttMimeType = String(mimeType || '').trim();
+  _sttParts = [];
   _sttActive = true;
-  ws.send(JSON.stringify({ type: 'stt_start', mime_type: mimeType || 'audio/webm' }));
+  recordHarnessSTTAction('start', { mime_type: _sttMimeType || 'application/octet-stream' });
+  return Promise.resolve();
 }
 
 function sttSendBlob(blob) {
   if (!_sttActive) return Promise.resolve();
-  const ws = state.chatWs;
-  if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.resolve();
   if (!blob || blob.size <= 0) return Promise.resolve();
-  return blob.arrayBuffer().then((buf) => {
-    if (!state.chatWs || state.chatWs.readyState !== WebSocket.OPEN) return;
-    state.chatWs.send(buf);
-  });
+  _sttParts.push(blob);
+  recordHarnessSTTAction('append', { bytes: Number(blob.size) || 0 });
+  return Promise.resolve();
 }
 
 function sttStop() {
-  const ws = state.chatWs;
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    _sttActive = false;
-    clearSTTStopWait();
-    return Promise.reject(new Error('chat WebSocket not connected'));
-  }
+  if (!_sttActive) return Promise.reject(new Error('no active STT session'));
   _sttActive = false;
-  clearSTTStopWait();
-  return new Promise((resolve, reject) => {
-    _sttResolve = resolve;
-    _sttReject = reject;
-    _sttStopTimer = window.setTimeout(() => {
-      if (_sttReject) {
-        _sttReject(new Error('STT stop timed out'));
+  recordHarnessSTTAction('stop');
+  const mimeType = String(_sttMimeType || '').trim() || 'application/octet-stream';
+  _sttMimeType = '';
+  const parts = Array.isArray(_sttParts) ? _sttParts.slice() : [];
+  _sttParts = [];
+  if (parts.length === 0) {
+    return Promise.resolve({ text: '', reason: 'recording_too_short' });
+  }
+  const audioBlob = new Blob(parts, { type: mimeType });
+  if (!(audioBlob instanceof Blob) || audioBlob.size <= 0) {
+    return Promise.resolve({ text: '', reason: 'recording_too_short' });
+  }
+  const form = new FormData();
+  form.append('file', audioBlob, 'recording.audio');
+  form.append('mime_type', mimeType);
+  const controller = new AbortController();
+  _sttAbortController = controller;
+  return fetch('/api/stt/transcribe', {
+    method: 'POST',
+    body: form,
+    signal: controller.signal,
+  }).then(async (resp) => {
+    const raw = await resp.text();
+    let payload = null;
+    if (raw) {
+      try {
+        payload = JSON.parse(raw);
+      } catch (_) {}
+    }
+    if (!resp.ok) {
+      let detail = '';
+      if (payload && typeof payload === 'object') {
+        if (typeof payload.error === 'string') detail = payload.error;
+        if (!detail && typeof payload.message === 'string') detail = payload.message;
       }
-      _sttResolve = null;
-      _sttReject = null;
-      _sttStopTimer = null;
-    }, STT_STOP_TIMEOUT_MS);
-    ws.send(JSON.stringify({ type: 'stt_stop' }));
+      if (!detail) detail = raw || `HTTP ${resp.status}`;
+      throw new Error(detail);
+    }
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('invalid STT response');
+    }
+    return {
+      text: String(payload.text || ''),
+      reason: String(payload.reason || ''),
+    };
+  }).catch((err) => {
+    if (String(err?.name || '') === 'AbortError') {
+      throw new Error('STT cancelled');
+    }
+    throw err;
+  }).finally(() => {
+    if (_sttAbortController === controller) {
+      _sttAbortController = null;
+    }
   });
 }
 
 function sttCancel() {
   _sttActive = false;
-  clearSTTStopWait();
-  if (_sttReject) {
-    _sttReject(new Error('STT cancelled'));
-    _sttResolve = null;
-    _sttReject = null;
+  _sttMimeType = '';
+  _sttParts = [];
+  if (_sttAbortController) {
+    try { _sttAbortController.abort(); } catch (_) {}
+    _sttAbortController = null;
   }
-  if (_sttResolve) {
-    _sttResolve = null;
-  }
-  const ws = state.chatWs;
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'stt_cancel' }));
-  }
+  recordHarnessSTTAction('cancel');
 }
 
 function handleSTTWSMessage(payload) {
   const type = String(payload?.type || '');
-  if (type === 'stt_result') {
-    clearSTTStopWait();
-    if (_sttResolve) {
-      _sttResolve({ text: payload.text || '' });
-      _sttResolve = null;
-      _sttReject = null;
-    }
-    return true;
-  }
-  if (type === 'stt_error') {
-    clearSTTStopWait();
-    if (_sttReject) {
-      _sttReject(new Error(payload.error || 'STT failed'));
-      _sttResolve = null;
-      _sttReject = null;
-    }
-    return true;
-  }
-  if (type === 'stt_empty') {
-    clearSTTStopWait();
-    if (_sttResolve) {
-      _sttResolve({ text: '', reason: payload.reason || 'empty' });
-      _sttResolve = null;
-      _sttReject = null;
-    }
-    return true;
-  }
-  if (type === 'stt_started' || type === 'stt_cancelled') {
+  if (type.startsWith('stt_')) {
     return true;
   }
   if (type === 'tts_error') {
@@ -1854,6 +1769,20 @@ async function beginVoiceCapture(x, y, anchor) {
   }
 }
 
+function voiceCaptureEmptyReasonMessage(reason) {
+  const normalized = String(reason || '').trim().toLowerCase();
+  if (normalized === 'recording_too_short') {
+    return 'recording too short; hold to talk for a bit longer';
+  }
+  if (normalized === 'likely_noise' || normalized === 'no_speech_detected') {
+    return 'no clear speech detected; try again in a quieter environment';
+  }
+  if (normalized === 'empty_transcript') {
+    return 'speech recognizer returned no transcript';
+  }
+  return 'speech recognizer returned empty text';
+}
+
 async function stopVoiceCaptureAndSend() {
   const capture = state.chatVoiceCapture;
   if (!capture || capture.stopping) return;
@@ -1884,17 +1813,6 @@ async function stopVoiceCaptureAndSend() {
         mimeType = String(sttBlob?.type || '').trim();
       }
       capture.chunks = [];
-      if (shouldTranscodeVoiceBlobToWav(mimeType)) {
-        try {
-          const wavBlob = await transcodeVoiceBlobToWav(sttBlob);
-          if (wavBlob && wavBlob.size > 0) {
-            sttBlob = wavBlob;
-            mimeType = 'audio/wav';
-          }
-        } catch (transcodeErr) {
-          console.warn('voice transcode fallback failed; using original recording payload', transcodeErr);
-        }
-      }
     }
     if (!mimeType) {
       mimeType = isLikelyIOS() ? 'audio/mp4' : 'audio/webm';
@@ -1911,7 +1829,7 @@ async function stopVoiceCaptureAndSend() {
         onTTSPlaybackComplete();
         return;
       }
-      throw new Error('speech recognizer returned empty text');
+      throw new Error(voiceCaptureEmptyReasonMessage(result?.reason));
     }
     showStatus('sending...');
     void submitMessage(transcript, { kind: 'voice_transcript' });
@@ -1921,7 +1839,10 @@ async function stopVoiceCaptureAndSend() {
     setVoiceLifecycle(VOICE_LIFECYCLE.IDLE, 'voice-capture-stop-failed');
     updateAssistantActivityIndicator();
     const message = String(err?.message || err || 'voice capture failed');
-    showStatus(`voice capture failed: ${message}`);
+    const pos = getLastInputPosition();
+    const x = Number.isFinite(pos?.x) ? Number(pos.x) : null;
+    const y = Number.isFinite(pos?.y) ? Number(pos.y) : null;
+    showVoiceCaptureNotice(`voice capture failed: ${message}`, x, y);
     if (state.conversationMode) {
       onTTSPlaybackComplete();
     }

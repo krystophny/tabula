@@ -85,6 +85,13 @@ async function setHarnessMessagePostDelay(page: Page, delayMs: number) {
   }, delayMs);
 }
 
+async function setHarnessSTTTranscribeResponse(page: Page, payload: Record<string, unknown>, status = 200) {
+  await page.evaluate(([body, code]) => {
+    const setter = (window as any).__setSTTTranscribeResponse;
+    if (typeof setter === 'function') setter(body, code);
+  }, [payload, status]);
+}
+
 async function waitForApiCancel(page: Page) {
   await expect.poll(async () => {
     const log = await getLog(page);
@@ -217,6 +224,7 @@ test.beforeEach(async ({ page }) => {
   await setHarnessCancelResponses(page, []);
   await setHarnessActivityResponse(page, { active_turns: 0, queued_turns: 0, delegate_active: 0 });
   await setHarnessMessagePostDelay(page, 0);
+  await setHarnessSTTTranscribeResponse(page, { text: 'hello world' }, 200);
 });
 
 test('click on canvas starts voice recording', async ({ page }) => {
@@ -631,7 +639,7 @@ test('voice transcription result gets sent as message', async ({ page }) => {
   expect(sent!.text).toBe('hello world');
 });
 
-test('ios-style mp4 recorder payload is transcoded to wav before STT upload', async ({ page }) => {
+test('ios-style mp4 recorder payload keeps mp4 mime for STT upload', async ({ page }) => {
   await clearLog(page);
   await page.evaluate(() => {
     const setMime = (window as any).__setMediaRecorderMimeType;
@@ -649,10 +657,10 @@ test('ios-style mp4 recorder payload is transcoded to wav before STT upload', as
   const log = await getLog(page);
   const sttStart = log.find((entry) => entry.type === 'stt' && entry.action === 'start');
   expect(sttStart).toBeTruthy();
-  expect(sttStart?.mime_type).toBe('audio/wav');
+  expect(sttStart?.mime_type).toBe('audio/mp4');
 });
 
-test('empty recorder mime with mp4 chunks still transcodes to wav for STT upload', async ({ page }) => {
+test('empty recorder mime with mp4 chunks resolves mime to mp4 for STT upload', async ({ page }) => {
   await clearLog(page);
   await page.evaluate(() => {
     const setRecorderMime = (window as any).__setMediaRecorderMimeType;
@@ -672,7 +680,24 @@ test('empty recorder mime with mp4 chunks still transcodes to wav for STT upload
   const log = await getLog(page);
   const sttStart = log.find((entry) => entry.type === 'stt' && entry.action === 'start');
   expect(sttStart).toBeTruthy();
-  expect(sttStart?.mime_type).toBe('audio/wav');
+  expect(sttStart?.mime_type).toBe('audio/mp4');
+});
+
+test('stt empty reason is surfaced as visible voice capture error', async ({ page }) => {
+  await clearLog(page);
+  await setHarnessSTTTranscribeResponse(page, { text: '', reason: 'recording_too_short' }, 200);
+
+  await page.mouse.click(400, 400);
+  await page.waitForTimeout(500);
+  await waitForLogEntry(page, 'recorder', 'start');
+
+  await page.mouse.click(400, 400);
+  await waitForSTTAction(page, 'stop');
+
+  await expect(page.locator('#chat-history .chat-message.chat-system .chat-bubble').last())
+    .toContainText('recording too short');
+  const log = await getLog(page);
+  expect(log.some((entry) => entry.type === 'message_sent')).toBe(false);
 });
 
 test('stop does not call MediaRecorder.requestData before recorder.stop', async ({ page }) => {

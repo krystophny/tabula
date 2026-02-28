@@ -80,7 +80,7 @@ type App struct {
 	localServeCancel   context.CancelFunc
 	projectServes      map[string]*serve.App
 	projectServeStop   map[string]context.CancelFunc
-	ghCommandRunner ghCommandRunner
+	ghCommandRunner    ghCommandRunner
 
 	bootID    string
 	startedAt string
@@ -171,7 +171,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		relayCancel:                   map[string]context.CancelFunc{},
 		projectServes:                 map[string]*serve.App{},
 		projectServeStop:              map[string]context.CancelFunc{},
-		ghCommandRunner: runGitHubCLI,
+		ghCommandRunner:               runGitHubCLI,
 		bootID:                        strconv.FormatInt(time.Now().UnixNano(), 16),
 		startedAt:                     time.Now().UTC().Format(time.RFC3339Nano),
 	}
@@ -264,6 +264,7 @@ func (a *App) Router() http.Handler {
 	r.Post("/api/chat/sessions/{session_id}/cancel", a.handleChatSessionCancel)
 	r.Post("/api/chat/sessions/{session_id}/cancel-delegates", a.handleChatSessionCancelDelegates)
 	r.Get("/api/hotword/status", a.handleHotwordStatus)
+	r.Post("/api/stt/transcribe", a.handleSTTTranscribe)
 	r.Get("/api/stt/replacements", a.handleSTTReplacementsGet)
 	r.Put("/api/stt/replacements", a.handleSTTReplacementsPut)
 
@@ -604,26 +605,46 @@ func checkWSOrigin(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	host := u.Hostname()
-	if host == "" {
-		return true
+	if strings.TrimSpace(u.Hostname()) == "" {
+		return false
 	}
-	requestHost := r.Host
-	if i := strings.LastIndex(requestHost, ":"); i >= 0 {
-		requestHost = requestHost[:i]
+	requestScheme := "http"
+	if isHTTPS(r) {
+		requestScheme = "https"
 	}
-	if strings.EqualFold(host, requestHost) {
-		return true
+	if !strings.EqualFold(strings.TrimSpace(u.Scheme), requestScheme) {
+		return false
 	}
-	return isLoopbackHost(host)
+	originHost, originPort := hostPortForScheme(u.Host, u.Scheme)
+	requestHost, requestPort := hostPortForScheme(r.Host, requestScheme)
+	if originHost == "" || requestHost == "" {
+		return false
+	}
+	return strings.EqualFold(originHost, requestHost) && originPort == requestPort
 }
 
-func isLoopbackHost(host string) bool {
-	if strings.EqualFold(host, "localhost") {
-		return true
+func hostPortForScheme(rawHost, scheme string) (string, string) {
+	ref := strings.TrimSpace(rawHost)
+	if ref == "" {
+		return "", ""
 	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	parsed, err := url.Parse("//" + ref)
+	if err != nil {
+		return "", ""
+	}
+	host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+	if host == "" {
+		return "", ""
+	}
+	port := strings.TrimSpace(parsed.Port())
+	if port == "" {
+		if strings.EqualFold(strings.TrimSpace(scheme), "https") {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	return host, port
 }
 
 func (a *App) handleFilesProxy(w http.ResponseWriter, r *http.Request) {

@@ -76,6 +76,14 @@
   <script>
     // Harness log for test assertions
     window.__harnessLog = [];
+    let sttTranscribeStatus = 200;
+    let sttTranscribePayload = { text: 'hello world' };
+    window.__setSTTTranscribeResponse = (payload, status = 200) => {
+      sttTranscribePayload = payload && typeof payload === 'object' ? { ...payload } : {};
+      const n = Number(status);
+      sttTranscribeStatus = Number.isFinite(n) ? Math.max(100, Math.min(599, Math.floor(n))) : 200;
+    };
+    window.__setSTTTranscribeResponse({ text: 'hello world' }, 200);
 
     // Mock fetch for /api/setup etc.
     const _realFetch = window.fetch;
@@ -109,6 +117,30 @@
           window.__harnessLog.push({ type: 'message_sent', text: body.text });
         } catch (_) {}
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      if (u.includes('/api/stt/transcribe') && opts?.method === 'POST') {
+        let mimeType = '';
+        let bytes = 0;
+        const body = opts?.body;
+        if (body && typeof body.get === 'function') {
+          try {
+            mimeType = String(body.get('mime_type') || '').trim();
+          } catch (_) {}
+          try {
+            const file = body.get('file');
+            bytes = Number(file?.size || 0);
+            if (!mimeType) mimeType = String(file?.type || '').trim();
+          } catch (_) {}
+        }
+        if (!mimeType) mimeType = 'application/octet-stream';
+        window.__harnessLog.push({ type: 'api_fetch', action: 'stt_transcribe', mime_type: mimeType, bytes });
+        const payload = sttTranscribePayload && typeof sttTranscribePayload === 'object'
+          ? JSON.stringify(sttTranscribePayload)
+          : '{}';
+        return new Response(payload, {
+          status: sttTranscribeStatus,
+          headers: { 'Content-Type': 'application/json' },
+        });
       }
       if (u.includes('/api/chat/')) {
         return new Response(JSON.stringify({ messages: [], turns: [] }), { status: 200 });
