@@ -18,7 +18,7 @@ Risk notice: see [`DISCLAIMER.md`](DISCLAIMER.md)
 - **UI paradigm**: [`docs/object-scoped-intent-ui.md`](docs/object-scoped-intent-ui.md)
 - **Model download policy**: [`docs/model-download-policy.md`](docs/model-download-policy.md)
 - **Third-party licenses**: [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)
-- **Current release notes (v0.1.4)**: [`docs/release-v0.1.4.md`](docs/release-v0.1.4.md)
+- **Current release notes (v0.1.5)**: [`docs/release-v0.1.5.md`](docs/release-v0.1.5.md)
 
 ## Install
 
@@ -81,14 +81,16 @@ tabura server --project-dir . --data-dir ~/.tabura-web --web-host 0.0.0.0 --web-
 
 ## Runtime Stack (Canonical)
 
-Tabura runs as one Go runtime plus five local services:
+Tabura runs as one Go runtime plus six local services:
 
 1. `tabura-web.service` (`tabura server`)
 2. `tabura-codex-app-server.service` (`codex app-server`)
 3. `tabura-piper-tts.service` (Piper `/v1/audio/speech`)
-4. `tabura-intent.service` (local intent classifier at `127.0.0.1:8425/classify`)
-5. `tabura-llm.service` (Qwen3 0.6B fallback at `127.0.0.1:8426/v1/chat/completions`)
-6. Voice commit uses built-in VAD auto-stop (no extra voice sidecar)
+4. `tabura-stt.service` (voxtype `/v1/audio/transcriptions`)
+5. `tabura-intent.service` (local intent classifier at `127.0.0.1:8425/classify`)
+6. `tabura-llm.service` (Qwen3 0.6B fallback at `127.0.0.1:8426/v1/chat/completions`)
+
+Voice commit still uses built-in browser VAD auto-stop, then sends audio to the local STT sidecar.
 
 Why Piper remains an HTTP sidecar:
 - Piper `libpiper` linking is GPL-governed; direct linking would change distribution obligations.
@@ -102,6 +104,7 @@ Why Piper remains an HTTP sidecar:
 - Canvas websocket relay source: `ws://127.0.0.1:9420/ws/canvas`
 - Codex app-server websocket: `ws://127.0.0.1:8787`
 - Piper TTS endpoint: `http://127.0.0.1:8424/v1/audio/speech`
+- Voxtype STT endpoint: `http://127.0.0.1:8427/v1/audio/transcriptions`
 - Intent classifier endpoint: `http://127.0.0.1:8425/classify` (`TABURA_INTENT_CLASSIFIER_URL`, set `off` to disable)
 - Intent LLM fallback endpoint: `http://127.0.0.1:8426/v1/chat/completions` (`TABURA_INTENT_LLM_URL`, set `off` to disable)
 - Local canvas session id: `local`
@@ -110,6 +113,15 @@ Why Piper remains an HTTP sidecar:
 Security model:
 - MCP routes are intentionally not exposed on the web listener.
 - By default, non-loopback MCP bind is rejected unless `--unsafe-public-mcp` is explicitly set.
+
+## Temporary Voxtype Branch Pin
+
+Until upstream release catches up, Tabura docs and service integration assume:
+
+- Repo: `https://github.com/peteonrails/voxtype`
+- Branch: `feature/single-daemon-openai-stt-api`
+
+If you build voxtype from source for Tabura STT, use that branch.
 
 ## LAN HTTPS For Voice Capture
 

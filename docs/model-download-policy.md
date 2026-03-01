@@ -37,7 +37,7 @@ Examples:
 | Piper TTS runtime | PyPI (`piper-tts`) | GPL | Tier 2 |
 | Piper voice models | Hugging Face (`rhasspy/piper-voices`) | Per-model | Tier 2 |
 | ffmpeg | System package manager | GPL/LGPL | Tier 2 |
-| voxtype | AUR/Homebrew/source build | MIT | Tier 2 |
+| voxtype | AUR/Homebrew/source build (`peteonrails/voxtype` branch `feature/single-daemon-openai-stt-api` for source installs) | MIT | Tier 2 |
 
 ## Planned Model Downloads
 

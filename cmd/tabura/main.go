@@ -27,7 +27,7 @@ import (
 	"github.com/krystophny/tabura/internal/web"
 )
 
-const defaultBinaryVersion = "0.1.4"
+const defaultBinaryVersion = "0.1.5"
 
 var (
 	version   = defaultBinaryVersion
