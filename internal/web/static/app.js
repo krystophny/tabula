@@ -1604,6 +1604,10 @@ function stopChatVoiceMedia(capture) {
   }
   capture.mediaRecorder = null;
   capture.mediaStream = null;
+  if (capture._sileroDeferred) {
+    try { capture._sileroDeferred.destroy(); } catch (_) {}
+    capture._sileroDeferred = null;
+  }
 }
 
 function handleVADNoSpeechTimeout(capture) {
@@ -1706,7 +1710,8 @@ function stopVADMonitor(capture) {
   if (vs.noSpeechTimer) window.clearTimeout(vs.noSpeechTimer);
   if (vs.maxDurationTimer) window.clearTimeout(vs.maxDurationTimer);
   if (vs.sileroInstance) {
-    try { vs.sileroInstance.destroy(); } catch (_) {}
+    try { vs.sileroInstance.pause(); } catch (_) {}
+    capture._sileroDeferred = vs.sileroInstance;
   }
 }
 
