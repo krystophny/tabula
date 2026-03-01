@@ -1468,7 +1468,6 @@ function stopChatVoiceMedia(capture) {
   }
   capture.mediaRecorder = null;
   capture.mediaStream = null;
-  releaseMicStream();
 }
 
 function computeDecibelFromTimeDomain(data) {
@@ -1843,6 +1842,7 @@ async function stopVoiceCaptureAndSend() {
   const capture = state.chatVoiceCapture;
   if (!capture || capture.stopping) return;
   const opSeq = startVoiceLifecycleOp('voice-capture-stop-send');
+  const isHotwordCapture = Boolean(capture?.hotwordTriggered);
   capture.stopRequested = true;
   if (!capture.active) return;
   capture.stopping = true;
@@ -1882,7 +1882,7 @@ async function stopVoiceCaptureAndSend() {
     remoteStopped = true;
     const transcript = String(result?.text || '').trim();
     if (!transcript) {
-      if (state.conversationMode) {
+      if (state.conversationMode && isHotwordCapture) {
         state.voiceAwaitingTurn = false;
         reopenConversationListen = true;
         return;

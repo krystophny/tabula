@@ -204,6 +204,32 @@ async function waitForSTTAction(page: Page, action: string) {
   await waitForLogEntry(page, 'stt', action);
 }
 
+async function waitForEdgeButtons(page: Page) {
+  await expect.poll(async () => page.evaluate(() => {
+    const conv = document.querySelector('#edge-top-models .edge-conv-btn');
+    const silent = document.querySelector('#edge-top-models .edge-silent-btn');
+    return Boolean(conv && silent);
+  })).toBe(true);
+}
+
+async function setConversationMode(page: Page, enabled: boolean) {
+  await waitForEdgeButtons(page);
+  await page.evaluate((target) => {
+    const button = document.querySelector('#edge-top-models .edge-conv-btn');
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error('conversation button not found');
+    }
+    const current = button.getAttribute('aria-pressed') === 'true';
+    if (current !== target) {
+      button.click();
+    }
+  }, enabled);
+  await expect.poll(async () => page.evaluate(() => {
+    const button = document.querySelector('#edge-top-models .edge-conv-btn');
+    return button instanceof HTMLButtonElement ? button.getAttribute('aria-pressed') : 'false';
+  })).toBe(enabled ? 'true' : 'false');
+}
+
 function countGetUserMediaCalls(log: HarnessLogEntry[]): number {
   return log.filter((entry) => entry.type === 'media' && entry.action === 'get_user_media').length;
 }
@@ -249,6 +275,21 @@ test('click on canvas starts voice recording', async ({ page }) => {
   const sttActions = log.filter(e => e.type === 'stt').map(e => e.action);
   expect(sttActions).toContain('start');
   expect(sttActions).toContain('stop');
+});
+
+test('sequential recordings reuse cached mic stream', async ({ page }) => {
+  await clearLog(page);
+
+  await page.mouse.click(400, 400);
+  await waitForLogEntry(page, 'recorder', 'start');
+  await page.mouse.click(400, 400);
+  await waitForSTTAction(page, 'stop');
+
+  await page.mouse.click(420, 360);
+  await waitForLogEntry(page, 'recorder', 'start');
+
+  const log = await getLog(page);
+  expect(countGetUserMediaCalls(log)).toBe(1);
 });
 
 test('unrelated touchend does not suppress first click-to-record', async ({ page }) => {
@@ -696,6 +737,24 @@ test('stt empty reason is surfaced as visible voice capture error', async ({ pag
 
   await expect(page.locator('#chat-history .chat-message.chat-system .chat-bubble').last())
     .toContainText('recording too short');
+  const log = await getLog(page);
+  expect(log.some((entry) => entry.type === 'message_sent')).toBe(false);
+});
+
+test('conversation tap-to-talk empty transcript surfaces error instead of silent drop', async ({ page }) => {
+  await clearLog(page);
+  await setConversationMode(page, true);
+  await setHarnessSTTTranscribeResponse(page, { text: '', reason: 'no_speech_detected' }, 200);
+
+  await page.mouse.click(400, 400);
+  await page.waitForTimeout(500);
+  await waitForLogEntry(page, 'recorder', 'start');
+
+  await page.mouse.click(400, 400);
+  await waitForSTTAction(page, 'stop');
+
+  await expect(page.locator('#chat-history .chat-message.chat-system .chat-bubble').last())
+    .toContainText('no clear speech detected');
   const log = await getLog(page);
   expect(log.some((entry) => entry.type === 'message_sent')).toBe(false);
 });
