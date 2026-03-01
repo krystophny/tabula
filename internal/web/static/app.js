@@ -1608,6 +1608,10 @@ function stopChatVoiceMedia(capture) {
     try { capture._sileroDeferred.destroy(); } catch (_) {}
     capture._sileroDeferred = null;
   }
+  if (capture._vadStream) {
+    for (const track of capture._vadStream.getTracks()) { track.stop(); }
+    capture._vadStream = null;
+  }
 }
 
 function handleVADNoSpeechTimeout(capture) {
@@ -1664,8 +1668,13 @@ async function startSileroVADMonitor(capture) {
   }, VOICE_VAD_MAX_RECORDING_HARD_MS);
 
   try {
+    // Clone the stream so MicVAD's AudioContext/AudioWorklet cannot interfere
+    // with the MediaRecorder consuming the original stream (Safari bug).
+    const vadStream = capture.mediaStream.clone();
+    capture._vadStream = vadStream;
+
     const instance = await initVAD({
-      stream: capture.mediaStream,
+      stream: vadStream,
       positiveSpeechThreshold: 0.6,
       negativeSpeechThreshold: 0.35,
       redemptionMs,

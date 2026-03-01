@@ -398,7 +398,7 @@ test('stop indicator auto-hides after stop even when activity poll stays active'
 
 test('touch stop while sending transcript aborts pending message submit', async ({ page }) => {
   await clearLog(page);
-  await setHarnessMessagePostDelay(page, 1200);
+  await setHarnessMessagePostDelay(page, 2500);
 
   await page.mouse.click(400, 400);
   await waitForLogEntry(page, 'recorder', 'start');
@@ -408,7 +408,7 @@ test('touch stop while sending transcript aborts pending message submit', async 
 
   await tapElement(page, '.stop-square');
   await waitForApiCancel(page);
-  await page.waitForTimeout(1400);
+  await page.waitForTimeout(2800);
 
   const log = await getLog(page);
   expect(log.some((entry) => entry.type === 'message_sent')).toBe(false);
@@ -506,6 +506,40 @@ test('silence auto-stop works when speech is only slightly above noisy ambient b
   expect(sent).toBeTruthy();
   expect(sent!.text).toBe('hello world');
   expect(log.some(e => e.type === 'stt' && e.action === 'cancel')).toBe(false);
+});
+
+test('VAD auto-stop delivers non-empty audio to STT before submitting transcript', async ({ page }) => {
+  await clearLog(page);
+  await page.evaluate(() => {
+    (window as any).__setVadDbFrames([
+      ...Array.from({ length: 8 }, () => -80),
+      ...Array.from({ length: 10 }, () => -12),
+      ...Array.from({ length: 40 }, () => -80),
+    ]);
+  });
+
+  await page.mouse.click(400, 400);
+  await waitForLogEntry(page, 'recorder', 'start');
+  await waitForSTTAction(page, 'stop');
+  await page.waitForTimeout(250);
+
+  const log = await getLog(page);
+  const sttAppends = log.filter((e: HarnessLogEntry) => e.type === 'stt' && e.action === 'append');
+  expect(sttAppends.length).toBeGreaterThan(0);
+  const totalBytes = sttAppends.reduce((sum: number, e: HarnessLogEntry) => sum + Number(e.bytes || 0), 0);
+  expect(totalBytes).toBeGreaterThan(0);
+
+  const sttStop = log.find((e: HarnessLogEntry) => e.type === 'stt' && e.action === 'stop');
+  expect(sttStop).toBeTruthy();
+
+  const sent = log.find((e: HarnessLogEntry) => e.type === 'message_sent');
+  expect(sent).toBeTruthy();
+  expect(sent!.text).toBe('hello world');
+
+  const recorderStop = log.find((e: HarnessLogEntry) => e.type === 'recorder' && e.action === 'stop');
+  expect(recorderStop).toBeTruthy();
+
+  expect(log.some((e: HarnessLogEntry) => e.type === 'stt' && e.action === 'cancel')).toBe(false);
 });
 
 test('no-speech timeout cancels capture in sustained ambient noise', async ({ page }) => {

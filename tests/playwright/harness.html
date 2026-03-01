@@ -789,6 +789,10 @@
       stream.active = true;
       stream.getTracks = () => [track];
       stream.getAudioTracks = () => [track];
+      stream.clone = () => {
+        const cloned = createMockMicStream();
+        return cloned.stream;
+      };
       const endTrack = () => {
         if (track.readyState !== 'ended') {
           track.readyState = 'ended';
