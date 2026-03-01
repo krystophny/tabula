@@ -1,5 +1,6 @@
 import { marked } from './vendor/marked.esm.js';
 import { renderCanvas, clearCanvas, getLocationFromSelection, clearLineHighlight, escapeHtml, sanitizeHtml, getActiveArtifactTitle } from './canvas.js';
+import { createEmptyCanvasRipple } from './empty-canvas-ripple.js';
 import {
   getUiState, setUiMode,
   showIndicatorMode, hideIndicator,
@@ -195,6 +196,7 @@ let assistantActivityInFlight = false;
 let assistantSilentCancelInFlight = false;
 let chatWsLastMessageAt = 0;
 let suppressClickUntil = 0;
+let emptyCanvasRipple = null;
 
 const ACTIVE_PROJECT_STORAGE_KEY = 'tabura.activeProjectId';
 const LAST_VIEW_STORAGE_KEY = 'tabura.lastView';
@@ -1966,6 +1968,7 @@ function showCanvasColumn(paneId) {
     }
   }
   state.hasArtifact = true;
+  if (emptyCanvasRipple) emptyCanvasRipple.setEnabled(false);
   setUiMode('artifact');
   persistLastView({ mode: 'artifact' });
   if (!isVoiceTurn() && isDirectAssistantWorking()) {
@@ -1990,6 +1993,7 @@ function hideCanvasColumn() {
       p.classList.remove('is-active');
     });
   }
+  if (emptyCanvasRipple) emptyCanvasRipple.setEnabled(true);
   updateAssistantActivityIndicator();
 }
 
@@ -4761,7 +4765,14 @@ function bindUi() {
   const syncIndicatorOnViewportChange = () => {
     updateAssistantActivityIndicator();
   };
+  const emitEmptyCanvasRipple = (x, y, magnitude = 1) => {
+    if (state.hasArtifact || !emptyCanvasRipple) return;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    emptyCanvasRipple.addImpulse(x, y, magnitude);
+  };
   if (canvasViewport instanceof HTMLElement) {
+    emptyCanvasRipple = createEmptyCanvasRipple(canvasViewport);
+    emptyCanvasRipple.setEnabled(!state.hasArtifact);
     canvasViewport.addEventListener('scroll', syncIndicatorOnViewportChange, { passive: true, capture: true });
     let canvasSwipeStart = null;
     let canvasSwipeHandled = false;
@@ -4783,6 +4794,15 @@ function bindUi() {
       const touch = ev.touches[0];
       const dx = touch.clientX - canvasSwipeStart.x;
       const dy = touch.clientY - canvasSwipeStart.y;
+      if (!state.hasArtifact) {
+        const movement = Math.hypot(dx, dy);
+        if (movement > 1) {
+          const strength = Math.min(1.25, movement / 84);
+          emitEmptyCanvasRipple(touch.clientX, touch.clientY, strength);
+          canvasSwipeStart = { x: touch.clientX, y: touch.clientY };
+        }
+        return;
+      }
       if (Math.abs(dx) < 48) return;
       if (Math.abs(dx) <= Math.abs(dy) * 1.25) return;
       const stepped = stepCanvasFile(dx < 0 ? 1 : -1);
@@ -4793,7 +4813,12 @@ function bindUi() {
     canvasViewport.addEventListener('touchend', resetCanvasSwipe, { passive: true });
     canvasViewport.addEventListener('touchcancel', resetCanvasSwipe, { passive: true });
     canvasViewport.addEventListener('wheel', (ev) => {
-      if (!state.hasArtifact) return;
+      if (!state.hasArtifact) {
+        const intensity = Math.min(1.35, (Math.abs(ev.deltaX) + Math.abs(ev.deltaY)) / 140);
+        emitEmptyCanvasRipple(ev.clientX, ev.clientY, intensity);
+        ev.preventDefault();
+        return;
+      }
       const absX = Math.abs(ev.deltaX);
       const absY = Math.abs(ev.deltaY);
       if (absX < 0.8) return;
@@ -4822,6 +4847,7 @@ function bindUi() {
     const TOUCH_TAP_MOVE_THRESHOLD = 10;
 
     const handleWorkspaceTap = (target, x, y) => {
+      emitEmptyCanvasRipple(x, y, 0.95);
       if (isConversationListenActive()) {
         if (isVoiceInteractionTarget(target, x, y)) return;
         cancelConversationListen();
@@ -4852,6 +4878,7 @@ function bindUi() {
       const touch = ev.touches[0];
       touchTapStartX = touch.clientX;
       touchTapStartY = touch.clientY;
+      emitEmptyCanvasRipple(touch.clientX, touch.clientY, 0.5);
       touchTapTracking = true;
       touchTapMoved = false;
     }, { passive: true });
