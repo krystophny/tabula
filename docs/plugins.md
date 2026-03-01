@@ -1,6 +1,7 @@
-# Tabura Plugin Boundaries
+# Tabura Plugin Boundaries and System
 
-This document defines what belongs in the Tabura core runtime vs plugin space.
+Tabura supports server-side plugins, while keeping runtime safety guarantees in
+core.
 
 ## Core Runtime (Non-Plugin)
 
@@ -12,49 +13,96 @@ These concerns stay in this repository and are not delegated to plugins:
 - Privacy invariants for meeting notes (RAM-only audio, no audio persistence).
 - Canvas/file safety boundaries and path constraints.
 
-Reason: these are correctness, security, and reliability guarantees.
-
 ## Plugin Space
 
-Plugins should own product-specific decision logic and capability modules.
+Plugins own product-specific decision logic and capability modules.
 
-## Primary Plugin Target: `meeting-partner`
+Primary target domain: `meeting-partner` for always-listen policy, directed
+speech detection, and intelligent response strategy from transcript/event
+context.
 
-`meeting-partner` is the intended plugin domain for:
+## Loading Model
 
-- Always-listen behavior policy in meeting mode.
-- Directed speech detection and response gating.
-- Intelligent response strategy from transcript/event context.
-- Optional room memory/entity timeline behavior.
+- Plugin manifests are JSON files in `TABURA_PLUGINS_DIR`.
+- Default directory: `<data-dir>/plugins` (for example `~/.tabura-web/plugins`).
+- Set `TABURA_PLUGINS_DIR=off` to disable loading.
+- Only enabled plugins are loaded (`"enabled": true`).
 
-This aligns with meeting-notes assistant-intelligence scope and keeps transcript
-pipeline/privacy guarantees in core.
+Runtime introspection:
 
-## Issue Mapping
+- `GET /api/runtime` returns:
+  - `plugins_dir`
+  - `plugins_loaded`
+- `GET /api/plugins` returns loaded plugin inventory.
 
-Plugin-oriented scope:
+## Manifest Format
 
-- `#106` DDSD gate from transcript context
-- `#108` assistant response execution
-- `#109` interaction policies
-- `#111` room memory/entity timeline
+```json
+{
+  "id": "always-on-partner",
+  "kind": "webhook",
+  "endpoint": "http://127.0.0.1:9901/hooks/always-on",
+  "hooks": [
+    "chat.pre_user_message",
+    "chat.pre_assistant_prompt",
+    "chat.post_assistant_response"
+  ],
+  "timeout_ms": 1200,
+  "enabled": true,
+  "secret_env": "TABURA_PLUGIN_SECRET"
+}
+```
 
-Core runtime scope:
+Notes:
 
-- `#102` transcript/event schema
-- `#103` in-memory capture buffers
-- `#105` meeting-notes core pipeline
-- `#110` UI state sync for command-driven sessions
-- `#113` config API and invariants
-- `#114` transcript API/viewer
-- `#116` intent command entrypoints (protocol wiring)
-- `#117`, `#118` privacy contract and enforcement
-- `#119` launch tracker
-- `#121` local PTT daemon runtime
+- `kind` currently supports `webhook` only.
+- `timeout_ms` is capped at `30000`.
+- If `secret_env` is set and present in environment, Tabura sends:
+  - `Authorization: Bearer <value>`
+
+## Hook Contract
+
+Tabura sends a JSON POST request to plugin endpoints:
+
+```json
+{
+  "hook": "chat.pre_user_message",
+  "session_id": "chat-session-id",
+  "project_key": "project-key",
+  "output_mode": "voice",
+  "text": "raw text",
+  "metadata": {
+    "local_only": false
+  }
+}
+```
+
+Plugin response:
+
+```json
+{
+  "text": "possibly rewritten text",
+  "blocked": false,
+  "reason": ""
+}
+```
+
+Behavior:
+
+- `text`: optional rewrite (if present, Tabura uses it).
+- `blocked=true`: request/turn is rejected with `reason`.
+- Plugin HTTP failures are non-fatal: Tabura logs and continues.
+
+## Built-in Hook Points
+
+- `chat.pre_user_message`
+  - Runs before storing user text and before command detection.
+- `chat.pre_assistant_prompt`
+  - Runs before sending prompt to app-server.
+- `chat.post_assistant_response`
+  - Runs before assistant response persistence/broadcast.
 
 ## Repository Split
 
 - `tabura` keeps runtime substrate and guarantees.
 - `tabura-plugins` (private) owns premium/product plugin implementations.
-
-This split allows rapid feature evolution without weakening core guarantees.

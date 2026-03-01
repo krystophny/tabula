@@ -110,6 +110,7 @@ Why Piper remains an HTTP sidecar:
 - Intent LLM fallback endpoint: `http://127.0.0.1:8426/v1/chat/completions` (`TABURA_INTENT_LLM_URL`, set `off` to disable)
 - Local canvas session id: `local`
 - Spark thinking budget for Spark model (fast path): `TABURA_APP_SERVER_SPARK_REASONING_EFFORT=low` (`low`/`medium`/`high`/`extra_high`)
+- Plugin manifest directory: `TABURA_PLUGINS_DIR` (default `<data-dir>/plugins`; set `off` to disable)
 
 Security model:
 - MCP routes are intentionally not exposed on the web listener.
