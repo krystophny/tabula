@@ -1681,7 +1681,6 @@ async function startSileroVADMonitor(capture) {
       onSpeechEnd() {
         if (!vadState.isRunning || vadState.committed) return;
         vadState.committed = true;
-        stopVADMonitor(capture);
         void stopVoiceCaptureAndSend();
       },
     });
