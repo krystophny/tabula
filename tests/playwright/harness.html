@@ -109,8 +109,8 @@
           value: TouchPolyfill, writable: true, configurable: true,
         });
       }
-      var needsTouchEvent = false;
-      if (needsTouch && typeof TouchEvent !== 'undefined') {
+      var needsTouchEvent = typeof TouchEvent === 'undefined';
+      if (!needsTouchEvent && needsTouch) {
         try {
           var t = new Touch({ identifier: 0, target: document.body });
           new TouchEvent('touchstart', { touches: [t], changedTouches: [t], bubbles: true });
