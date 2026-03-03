@@ -330,11 +330,10 @@ test('touch stop indicator routes through shared cancel endpoint', async ({ page
     turn_id: 'stop-turn-test',
     content: 'delegate work',
   });
-  await page.waitForTimeout(100);
   await expect(page.locator('#chat-history .chat-message.chat-assistant.is-pending')).toHaveCount(1);
 
   const stopSquare = page.locator('.stop-square');
-  await expect(stopSquare).toBeVisible();
+  await expect(stopSquare).toBeVisible({ timeout: 5_000 });
 
   await tapElement(page, '.stop-square');
   await waitForApiCancel(page);
@@ -903,6 +902,40 @@ test.describe('safari-recorder=broken', () => {
       if (msg.type() === 'error') console.log(`BROWSER [error]: ${msg.text()}`);
     });
     page.on('pageerror', (err) => console.log(`PAGE ERROR: ${err.message}`));
+    // Inject getUserMedia mock before any page script runs.  The harness
+    // inline script normally overrides this, but on some WebKit CI
+    // environments the harness-level override silently fails.  The init
+    // script guarantees a working mock is always in place.
+    await page.addInitScript(() => {
+      const makeMockStream = () => {
+        const track: any = new EventTarget();
+        track.kind = 'audio'; track.enabled = true; track.muted = false;
+        track.readyState = 'live';
+        track.stop = () => { track.readyState = 'ended'; track.dispatchEvent(new Event('ended')); };
+        const stream: any = new EventTarget();
+        stream.active = true;
+        stream.getTracks = () => [track];
+        stream.getAudioTracks = () => [track];
+        stream.clone = () => makeMockStream();
+        return stream;
+      };
+      const mock = async () => makeMockStream();
+      // Will be overridden by the harness script if it runs successfully.
+      // Acts as a safety net for environments where the harness override fails.
+      Object.defineProperty(Navigator.prototype, 'mediaDevices', {
+        get() {
+          const md: any = new EventTarget();
+          md.getUserMedia = mock;
+          md.addEventListener = EventTarget.prototype.addEventListener;
+          md.removeEventListener = EventTarget.prototype.removeEventListener;
+          md.dispatchEvent = EventTarget.prototype.dispatchEvent;
+          // Cache so the same object is returned on every access.
+          Object.defineProperty(this, 'mediaDevices', { value: md, writable: true, configurable: true });
+          return md;
+        },
+        configurable: true,
+      });
+    });
     await page.goto('/tests/playwright/harness.html?safari-recorder=broken');
     await page.waitForFunction(() => {
       const app = (window as any)._taburaApp;
@@ -911,22 +944,6 @@ test.describe('safari-recorder=broken', () => {
       return s.chatWs && s.chatWs.readyState === (window as any).WebSocket.OPEN;
     }, null, { timeout: 15_000 });
     await page.waitForTimeout(200);
-    // Verify mock getUserMedia is installed — fails fast instead of timing out.
-    const mockOk = await page.evaluate(() => {
-      const md = navigator.mediaDevices;
-      if (!md || typeof md.getUserMedia !== 'function') return 'mediaDevices.getUserMedia missing';
-      return md.getUserMedia({ audio: true }).then(
-        (stream: any) => {
-          // Clean up mock stream
-          if (stream && typeof stream.getTracks === 'function') {
-            stream.getTracks().forEach((t: any) => t.stop && t.stop());
-          }
-          return 'ok';
-        },
-        (err: any) => `getUserMedia rejected: ${err?.message || err}`,
-      );
-    });
-    expect(mockOk, 'mock getUserMedia must be installed').toBe('ok');
     await setHarnessCancelResponses(page, []);
     await setHarnessActivityResponse(page, { active_turns: 0, queued_turns: 0, delegate_active: 0 });
     await setHarnessMessagePostDelay(page, 0);

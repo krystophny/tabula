@@ -890,17 +890,7 @@
       window.__harnessLog.push({ type: 'media', action: 'get_user_media', call: getUserMediaCallCount });
       return next.stream;
     };
-    // Use defineProperty to guarantee the mock overrides even on browsers
-    // where getUserMedia is non-writable (e.g. WebKit in headless CI).
-    try {
-      Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
-        value: _mockGetUserMedia,
-        writable: true,
-        configurable: true,
-      });
-    } catch (_) {
-      navigator.mediaDevices.getUserMedia = _mockGetUserMedia;
-    }
+    navigator.mediaDevices.getUserMedia = _mockGetUserMedia;
 
     // Mock MediaRecorder
     window.MediaRecorder = class MockMediaRecorder {
