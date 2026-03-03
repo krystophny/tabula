@@ -214,15 +214,24 @@ internal/
 
 Every UI interaction flow must have a Playwright test.
 
+Playwright tests run inside the official `mcr.microsoft.com/playwright` container via `scripts/playwright.sh` (podman locally, docker in CI). No local browser install needed.
+
 Run before push:
 
 ```bash
 ./scripts/sync-surface.sh --check
 go test ./...
-npx playwright test
+./scripts/playwright.sh
 ```
 
-Current core specs include:
+Single project or file:
+
+```bash
+./scripts/playwright.sh --project=chromium
+./scripts/playwright.sh tests/playwright/canvas.spec.ts
+```
+
+Current mock UI specs:
 - `tests/playwright/canvas.spec.ts`
 - `tests/playwright/chat-voice-send.spec.ts`
 - `tests/playwright/artifact-context.spec.ts`
@@ -230,5 +239,35 @@ Current core specs include:
 - `tests/playwright/canvas-refresh.spec.ts`
 - `tests/playwright/hotword.spec.ts`
 - `tests/playwright/conversation-mode.spec.ts`
-- `tests/playwright/e2e-system.spec.ts`
-- `tests/playwright/stt-tts-system.spec.ts`
+- `tests/playwright/ui-system.spec.ts`
+
+## Local E2E Tests (Real Services)
+
+Real end-to-end tests in `tests/e2e/` run against live services with no mocks or skips. Services down = test failure.
+
+Required services:
+- `tabura-web.service` on `:8420`
+- `tabura-piper-tts.service` on `:8424`
+- `tabura-stt.service` on `:8427`
+- `ffmpeg` installed
+
+Run all E2E tests:
+
+```bash
+./scripts/e2e-local.sh
+```
+
+Single spec:
+
+```bash
+./scripts/e2e-local.sh tests/e2e/voice-e2e.spec.ts
+```
+
+E2E specs:
+- `tests/e2e/app-load.spec.ts` — real app smoke test
+- `tests/e2e/stt-ws.spec.ts` — STT over WebSocket
+- `tests/e2e/tts-ws.spec.ts` — TTS over WebSocket
+- `tests/e2e/stt-http.spec.ts` — STT over HTTP
+- `tests/e2e/stt-tts-roundtrip.spec.ts` — full TTS->STT round-trip
+- `tests/e2e/stt-tts-system.spec.ts` — combined STT/TTS system tests
+- `tests/e2e/voice-e2e.spec.ts` — full browser voice flow (fake mic -> real VAD -> real STT)

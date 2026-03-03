@@ -10,6 +10,8 @@ To the maximum extent permitted by applicable law:
 - The authors and contributors are not liable for any damages, losses, or claims arising from use, misuse, inability to use, or data loss.
 - You are solely responsible for backup, retention, recovery, and verification of your own data.
 
+Nothing in this notice excludes or limits liability where exclusion is legally prohibited, including mandatory consumer protections and non-waivable statutory rights (for example, restrictions that may apply in EU member states or U.S. jurisdictions for fraud, willful misconduct, gross negligence, or personal injury/death as applicable law requires).
+
 This project must not be used as the only copy or sole system of record for important files.
 
 ## 2) Operational Safety Requirement
@@ -40,7 +42,11 @@ For non-consumer disputes directly related to this repository and to the extent 
 
 Mandatory consumer protections and non-waivable statutory rights remain unaffected.
 
-## 5) No Legal Advice
+## 5) Acceptance and Visibility
+
+The Web UI may request one-time acknowledgement of this notice version. Such acknowledgement is for notice visibility only and is not legal advice or a substitute for jurisdiction-specific legal terms.
+
+## 6) No Legal Advice
 
 Nothing in this repository is legal advice.
 For enforceable terms in your jurisdiction, consult qualified counsel.

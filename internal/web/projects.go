@@ -273,6 +273,8 @@ func (a *App) buildProjectAPIModel(project store.Project) (projectAPIModel, erro
 	if err != nil {
 		return projectAPIModel{}, err
 	}
+	alias := a.effectiveProjectChatModelAlias(project)
+	effort := strings.TrimSpace(modelprofile.NormalizeReasoningEffort(alias, project.ChatModelReasoningEffort))
 	return projectAPIModel{
 		ID:                       project.ID,
 		Name:                     project.Name,
@@ -283,8 +285,8 @@ func (a *App) buildProjectAPIModel(project store.Project) (projectAPIModel, erro
 		IsDefault:                project.IsDefault,
 		ChatSessionID:            session.ID,
 		ChatMode:                 session.Mode,
-		ChatModel:                a.effectiveProjectChatModelAlias(project),
-		ChatModelReasoningEffort: strings.TrimSpace(project.ChatModelReasoningEffort),
+		ChatModel:                alias,
+		ChatModelReasoningEffort: effort,
 		CanvasSessionID:          a.canvasSessionIDForProject(project),
 	}, nil
 }

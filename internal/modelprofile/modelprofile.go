@@ -11,11 +11,15 @@ const (
 	ModelCodex = "gpt-5.3-codex"
 	ModelGPT   = "gpt-5.2"
 
+	ReasoningNone      = "none"
+	ReasoningMinimal   = "minimal"
 	ReasoningLow       = "low"
 	ReasoningMedium    = "medium"
 	ReasoningHigh      = "high"
-	ReasoningExtraHigh = "extra_high"
+	ReasoningExtraHigh = "xhigh"
 )
+
+const legacyReasoningExtraHigh = "extra_high"
 
 var aliasToModel = map[string]string{
 	AliasSpark: ModelSpark,
@@ -128,7 +132,7 @@ func ReasoningEffortsForAlias(alias string) []string {
 }
 
 func NormalizeReasoningEffort(alias, rawEffort string) string {
-	effort := strings.TrimSpace(strings.ToLower(rawEffort))
+	effort := canonicalReasoningEffort(rawEffort)
 	for _, candidate := range ReasoningEffortsForAlias(alias) {
 		if candidate == effort {
 			return effort
@@ -147,11 +151,22 @@ func MainThreadReasoningParamsForEffort(alias, effort string) map[string]interfa
 }
 
 func ReasoningParamsForEffort(effort string) map[string]interface{} {
-	switch strings.TrimSpace(strings.ToLower(effort)) {
-	case ReasoningLow, ReasoningMedium, ReasoningHigh, ReasoningExtraHigh:
-		return map[string]interface{}{"model_reasoning_effort": strings.TrimSpace(strings.ToLower(effort))}
+	effort = canonicalReasoningEffort(effort)
+	switch effort {
+	case ReasoningNone, ReasoningMinimal, ReasoningLow, ReasoningMedium, ReasoningHigh, ReasoningExtraHigh:
+		return map[string]interface{}{"effort": effort}
 	default:
 		return nil
+	}
+}
+
+func canonicalReasoningEffort(raw string) string {
+	clean := strings.TrimSpace(strings.ToLower(raw))
+	switch clean {
+	case legacyReasoningExtraHigh:
+		return ReasoningExtraHigh
+	default:
+		return clean
 	}
 }
 
@@ -160,24 +175,11 @@ func MainThreadReasoningParams(alias string) map[string]interface{} {
 }
 
 // ModelSystemHints returns model-specific system prompt additions.
-// These are appended to the system prompt to compensate for known model
-// weaknesses or to enforce delegation policies.
+// Tabura keeps Codex/GPT/Spark prompts clean and relies on model-native behavior.
 func ModelSystemHints(alias string) string {
-	switch NormalizeAlias(alias) {
-	case AliasSpark:
-		return sparkSystemHints
-	default:
-		return ""
-	}
+	_ = alias
+	return ""
 }
-
-const sparkSystemHints = `## Model-Specific Rules (spark)
-You are running as the spark model. Spark is fast but unreliable at complex git operations.
-- ALWAYS delegate to codex for: git rebase, git merge with conflicts, git cherry-pick with conflicts, interactive git operations, and any multi-step git recovery.
-- If you detect merge conflicts (e.g. "CONFLICT" in command output, <<<<<<< markers in files), STOP immediately and delegate the resolution to codex.
-- When delegating git tasks, include the full error output and repository state in the context.
-- Do NOT attempt to resolve merge conflicts yourself. Do NOT edit files containing conflict markers.
-`
 
 func DelegateReasoningParams(model string) map[string]interface{} {
 	trimmed := strings.TrimSpace(model)

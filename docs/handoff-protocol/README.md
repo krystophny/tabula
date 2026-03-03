@@ -1,5 +1,7 @@
 # Integrated Handoff Protocol Spec
 
+> **Legal notice:** Tabura is provided "as is" and "as available" without warranties, and to the maximum extent permitted by applicable law the authors/contributors accept no liability for damages, data loss, or misuse. You are solely responsible for backups, verification, and safe operation. See [`DISCLAIMER.md`](/DISCLAIMER.md).
+
 This directory carries the handoff protocol specification and conformance assets as part of the Tabura publication set.
 
 Primary goals:

@@ -1078,6 +1078,16 @@ body.panel-motion-enabled {
   margin-left: 0.35rem;
 }
 
+.edge-yolo-btn {
+  margin-left: 0.35rem;
+}
+
+.edge-yolo-btn.is-active {
+  background: #7f1d1d;
+  border-color: #7f1d1d;
+  color: #fee2e2;
+}
+
 #edge-top-projects {
   flex: 1;
   overflow: auto;
@@ -1102,6 +1112,38 @@ body.panel-motion-enabled {
 .edge-project-btn.is-active {
   background: #111827;
   color: #f9fafb;
+}
+
+.liability-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(255, 255, 255, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.liability-modal-card {
+  width: min(640px, 100%);
+  background: #fff;
+  border: 1px solid #111827;
+  border-radius: 10px;
+  padding: 1rem 1rem 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.liability-modal-card h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.liability-modal-card p {
+  margin: 0;
+  line-height: 1.45;
 }
 
 /* Chat history (inside edge-right panel) */

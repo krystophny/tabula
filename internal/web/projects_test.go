@@ -222,8 +222,8 @@ func TestProjectChatModelUpdate(t *testing.T) {
 	if !effortPayload.OK {
 		t.Fatalf("expected effort update ok=true")
 	}
-	if effortPayload.Project.ChatModelReasoningEffort != "extra_high" {
-		t.Fatalf("expected effort extra_high, got %q", effortPayload.Project.ChatModelReasoningEffort)
+	if effortPayload.Project.ChatModelReasoningEffort != "xhigh" {
+		t.Fatalf("expected effort xhigh, got %q", effortPayload.Project.ChatModelReasoningEffort)
 	}
 
 	rrInvalid := doAuthedJSONRequest(

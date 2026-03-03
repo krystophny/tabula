@@ -191,6 +191,8 @@ var WebRouteSections = []RouteSection{
 		Title: "Runtime and chat session management",
 		Routes: []string{
 			"GET /api/runtime",
+			"POST /api/runtime/yolo",
+			"POST /api/runtime/disclaimer-ack",
 			"GET /api/projects",
 			"POST /api/projects",
 			"POST /api/projects/{project_id}/activate",

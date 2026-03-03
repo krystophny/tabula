@@ -65,6 +65,12 @@ func TestAvailableReasoningEffortsByAlias(t *testing.T) {
 	}
 }
 
+func TestNormalizeReasoningEffortLegacyExtraHigh(t *testing.T) {
+	if got := NormalizeReasoningEffort(AliasSpark, "extra_high"); got != ReasoningExtraHigh {
+		t.Fatalf("legacy effort normalize = %q, want %q", got, ReasoningExtraHigh)
+	}
+}
+
 func TestDelegateReasoningParams(t *testing.T) {
 	if got := DelegateReasoningParams(ModelSpark); got != nil {
 		t.Fatalf("spark delegate reasoning should be nil, got %#v", got)

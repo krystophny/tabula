@@ -26,6 +26,9 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string, localOnly bo
 		a.runHubTurn(sessionID, session, messages, outputMode, localOnly)
 		return
 	}
+	if a.tryRunLocalSystemActionTurn(sessionID, session, messages, outputMode, localOnly) {
+		return
+	}
 	if a.appServerClient == nil {
 		errText := "app-server is not configured"
 		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
@@ -234,6 +237,58 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string, localOnly bo
 	assistantText = a.finalizeAssistantResponse(sessionID, session.ProjectKey, assistantText,
 		&persistedAssistantID, &persistedAssistantText, appResp.TurnID, latestTurnID, appResp.ThreadID, outputMode)
 	_ = assistantText
+}
+
+func (a *App) tryRunLocalSystemActionTurn(sessionID string, session store.ChatSession, messages []store.ChatMessage, outputMode string, localOnly bool) bool {
+	userText := latestUserMessage(messages)
+	if strings.TrimSpace(userText) == "" {
+		return false
+	}
+	actionMessage, actionPayloads, handled := a.classifyAndExecuteSystemAction(context.Background(), sessionID, session, userText)
+	if !handled && !localOnly {
+		return false
+	}
+	runID := randomToken()
+	a.broadcastChatEvent(sessionID, map[string]interface{}{
+		"type":    "turn_started",
+		"turn_id": runID,
+	})
+	assistantText := strings.TrimSpace(actionMessage)
+	if handled {
+		if assistantText == "" {
+			assistantText = "Done."
+		}
+		for _, actionPayload := range actionPayloads {
+			if actionPayload == nil {
+				continue
+			}
+			eventType := "system_action"
+			actionType, _ := actionPayload["type"].(string)
+			if strings.EqualFold(strings.TrimSpace(actionType), "confirmation_required") {
+				eventType = "system_action_confirmation_required"
+			}
+			a.broadcastChatEvent(sessionID, map[string]interface{}{
+				"type":   eventType,
+				"action": actionPayload,
+			})
+		}
+	} else {
+		assistantText = "I can only handle system actions in local-only mode."
+	}
+	persistedAssistantID := int64(0)
+	persistedAssistantText := ""
+	a.finalizeAssistantResponse(
+		sessionID,
+		session.ProjectKey,
+		assistantText,
+		&persistedAssistantID,
+		&persistedAssistantText,
+		"",
+		runID,
+		"",
+		outputMode,
+	)
+	return true
 }
 
 // runAssistantTurnLegacy is the single-shot fallback when persistent session

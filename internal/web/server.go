@@ -44,6 +44,10 @@ const (
 	SparkModel                  = modelprofile.ModelSpark
 	mcpToolsCallTimeout         = 45 * time.Second
 	appStateDefaultChatModelKey = "default_chat_model"
+	appStateYoloModeKey         = "safety.yolo_mode"
+	appStateDisclaimerAckKey    = "safety.disclaimer_ack.version"
+	appStateDisclaimerAckAtKey  = "safety.disclaimer_ack.timestamp"
+	disclaimerVersionCurrent    = "2026-03-03-v1"
 )
 
 //go:embed static/* static/vendor/*
@@ -58,6 +62,9 @@ type App struct {
 	appServerSparkReasoningEffort string
 	intentClassifierURL           string
 	intentLLMURL                  string
+	intentLLMModel                string
+	intentLLMProfile              string
+	intentLLMProfileOptions       []string
 	sttURL                        string
 	sttAllowedLanguagesDefault    []string
 	sttFallbackLanguageDefault    string
@@ -66,12 +73,12 @@ type App struct {
 	sttPreVADThresholdDBDefault   float64
 	sttPreVADMinSpeechMSDefault   int
 	ttsURL                        string
-	pluginsDir    string
-	extensionsDir string
-	pluginManager *plugins.Manager
-	extensionHost *extensions.Host
-	hookProviders []plugins.HookProvider
-	devRuntime    bool
+	pluginsDir                    string
+	extensionsDir                 string
+	pluginManager                 *plugins.Manager
+	extensionHost                 *extensions.Host
+	hookProviders                 []plugins.HookProvider
+	devRuntime                    bool
 
 	store *store.Store
 
@@ -80,10 +87,12 @@ type App struct {
 	upgrader websocket.Upgrader
 
 	mu              sync.Mutex
+	confirmMu       sync.Mutex
 	hub             *wsHub
 	turns           *chatTurnTracker
 	tunnels         *tunnelRegistry
 	chatAppSessions map[string]*appserver.Session
+	pendingDanger   map[string]*pendingDangerousAction
 	ghCommandRunner ghCommandRunner
 
 	bootID    string
@@ -137,6 +146,18 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 	} else if resolvedIntentLLMURL == "" {
 		resolvedIntentLLMURL = DefaultIntentLLMURL
 	}
+	resolvedIntentLLMModel := strings.TrimSpace(os.Getenv("TABURA_INTENT_LLM_MODEL"))
+	if strings.EqualFold(resolvedIntentLLMModel, "off") {
+		resolvedIntentLLMModel = ""
+	} else if resolvedIntentLLMModel == "" {
+		resolvedIntentLLMModel = DefaultIntentLLMModel
+	}
+	resolvedIntentLLMProfile := resolveIntentLLMProfile(os.Getenv("TABURA_INTENT_LLM_PROFILE"))
+	resolvedIntentLLMProfileOptions := parseIntentLLMProfileOptions(os.Getenv("TABURA_INTENT_LLM_PROFILE_OPTIONS"))
+	if len(resolvedIntentLLMProfileOptions) == 0 {
+		resolvedIntentLLMProfileOptions = parseIntentLLMProfileOptions(DefaultIntentLLMProfileOptions)
+	}
+	resolvedIntentLLMProfileOptions = ensureIntentLLMProfileOption(resolvedIntentLLMProfileOptions, resolvedIntentLLMProfile)
 	resolvedSTTURL := strings.TrimSpace(os.Getenv("TABURA_STT_URL"))
 	if strings.EqualFold(resolvedSTTURL, "off") {
 		resolvedSTTURL = ""
@@ -208,6 +229,9 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		appServerSparkReasoningEffort: resolvedSparkReasoningEffort,
 		intentClassifierURL:           resolvedIntentClassifierURL,
 		intentLLMURL:                  resolvedIntentLLMURL,
+		intentLLMModel:                resolvedIntentLLMModel,
+		intentLLMProfile:              resolvedIntentLLMProfile,
+		intentLLMProfileOptions:       resolvedIntentLLMProfileOptions,
 		sttURL:                        resolvedSTTURL,
 		sttAllowedLanguagesDefault:    resolvedSTTAllowedLanguages,
 		sttFallbackLanguageDefault:    resolvedSTTFallbackLanguage,
@@ -218,18 +242,19 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		ttsURL:                        resolvedTTSURL,
 		pluginsDir:                    resolvedPluginsDir,
 		extensionsDir:                 resolvedExtensionsDir,
-		pluginManager: pluginManager,
-		extensionHost: extensionHost,
-		hookProviders: buildHookProviders(extensionHost, pluginManager),
+		pluginManager:                 pluginManager,
+		extensionHost:                 extensionHost,
+		hookProviders:                 buildHookProviders(extensionHost, pluginManager),
 		devRuntime:                    devRuntime,
 		store:                         s,
 		appServerClient:               appServerClient,
 		upgrader:                      websocket.Upgrader{CheckOrigin: checkWSOrigin},
-		hub:             newWSHub(),
-		turns:           newChatTurnTracker(),
-		tunnels:         newTunnelRegistry(),
-		chatAppSessions: map[string]*appserver.Session{},
-		ghCommandRunner: runGitHubCLI,
+		hub:                           newWSHub(),
+		turns:                         newChatTurnTracker(),
+		tunnels:                       newTunnelRegistry(),
+		chatAppSessions:               map[string]*appserver.Session{},
+		pendingDanger:                 map[string]*pendingDangerousAction{},
+		ghCommandRunner:               runGitHubCLI,
 		bootID:                        strconv.FormatInt(time.Now().UnixNano(), 16),
 		startedAt:                     time.Now().UTC().Format(time.RFC3339Nano),
 	}
@@ -308,6 +333,8 @@ func (a *App) Router() http.Handler {
 
 	// runtime
 	r.Get("/api/runtime", a.handleRuntime)
+	r.Post("/api/runtime/yolo", a.handleRuntimeYoloModeUpdate)
+	r.Post("/api/runtime/disclaimer-ack", a.handleRuntimeDisclaimerAck)
 	r.Get("/api/plugins", a.handlePlugins)
 	r.Post("/api/plugins/meeting-partner/decide", a.handleMeetingPartnerDecide)
 	r.Get("/api/extensions", a.handleExtensions)
@@ -491,10 +518,20 @@ func (a *App) handleRuntime(w http.ResponseWriter, r *http.Request) {
 		"app_server_reasoning_effort": sparkReasoningEffort,
 		"intent_classifier_url":       a.intentClassifierURL,
 		"intent_llm_url":              a.intentLLMURL,
+		"intent_llm_model":            a.localIntentLLMModel(),
+		"intent_llm_profile":          a.intentLLMProfile,
+		"available_intent_llm_profiles": append(
+			[]string(nil),
+			a.intentLLMProfileOptions...,
+		),
 		"available_models":            modelprofile.SupportedModels(),
 		"available_reasoning_efforts": modelprofile.AvailableReasoningEffortsByAlias(),
 		"stt_url":                     a.sttURL,
 		"tts_enabled":                 a.ttsURL != "",
+		"safety_yolo_mode":            a.yoloModeEnabled(),
+		"disclaimer_version":          disclaimerVersionCurrent,
+		"disclaimer_ack_required":     a.disclaimerAckRequired(),
+		"disclaimer_ack_version":      a.disclaimerAckVersion(),
 		"plugins_dir":                 a.pluginsDir,
 		"plugins_loaded":              a.loadedPluginCount(),
 		"extensions_dir":              a.extensionsDir,
@@ -637,13 +674,11 @@ func enforceSparkModel(rawModel string) string {
 }
 
 func resolveSparkReasoningEffort(raw string) string {
-	clean := strings.ToLower(strings.TrimSpace(raw))
-	switch clean {
-	case modelprofile.ReasoningLow, modelprofile.ReasoningMedium, modelprofile.ReasoningHigh, modelprofile.ReasoningExtraHigh:
-		return clean
-	default:
+	clean := strings.TrimSpace(raw)
+	if clean == "" {
 		return DefaultSparkReasoningEffort
 	}
+	return modelprofile.NormalizeReasoningEffort(modelprofile.AliasSpark, clean)
 }
 
 func isSparkModel(model string) bool {
@@ -658,9 +693,7 @@ func appServerReasoningParamsForModel(model, effort string) map[string]interface
 	if strings.TrimSpace(effort) == "" {
 		return nil
 	}
-	return map[string]interface{}{
-		"model_reasoning_effort": effort,
-	}
+	return map[string]interface{}{"effort": effort}
 }
 
 func intFromAny(v interface{}, d int) int {

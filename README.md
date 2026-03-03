@@ -7,7 +7,7 @@ Core paradigm:
 - Edge panels (hover/swipe to reveal) for project switching and chat panel access.
 
 License: MIT (`LICENSE`)
-Risk notice: see [`DISCLAIMER.md`](DISCLAIMER.md)
+Legal notice: Tabura is provided "as is" and "as available" without warranties, and to the maximum extent permitted by applicable law the authors/contributors accept no liability for damages, data loss, or misuse. You are solely responsible for backups, verification, and safe operation. See [`DISCLAIMER.md`](DISCLAIMER.md).
 
 ## Start Here
 
@@ -91,7 +91,7 @@ Tabura runs as one Go runtime plus six local services:
 3. `tabura-piper-tts.service` (Piper `/v1/audio/speech`)
 4. `tabura-stt.service` (voxtype `/v1/audio/transcriptions`)
 5. `tabura-intent.service` (local intent classifier at `127.0.0.1:8425/classify`)
-6. `tabura-llm.service` (Qwen3 0.6B fallback at `127.0.0.1:8426/v1/chat/completions`)
+6. `tabura-llm.service` (Qwen3.5 9B local coordinator at `127.0.0.1:8426/v1/chat/completions`)
 
 Voice commit still uses built-in browser VAD auto-stop, then sends audio to the local STT sidecar.
 
@@ -110,8 +110,11 @@ Why Piper remains an HTTP sidecar:
 - Voxtype STT endpoint: `http://127.0.0.1:8427/v1/audio/transcriptions`
 - Intent classifier endpoint: `http://127.0.0.1:8425/classify` (`TABURA_INTENT_CLASSIFIER_URL`, set `off` to disable)
 - Intent LLM fallback endpoint: `http://127.0.0.1:8426/v1/chat/completions` (`TABURA_INTENT_LLM_URL`, set `off` to disable)
+- Intent/delegator request model id: `TABURA_INTENT_LLM_MODEL` (default `local`)
+- Intent/delegator profile selection: `TABURA_INTENT_LLM_PROFILE` (default `qwen3.5-9b`)
+- Intent/delegator profile options: `TABURA_INTENT_LLM_PROFILE_OPTIONS` (default `qwen3.5-9b,qwen3.5-4b`)
 - Local canvas session id: `local`
-- Spark thinking budget for Spark model (fast path): `TABURA_APP_SERVER_SPARK_REASONING_EFFORT=low` (`low`/`medium`/`high`/`extra_high`)
+- Spark thinking budget for Spark model (fast path): `TABURA_APP_SERVER_SPARK_REASONING_EFFORT=low` (`low`/`medium`/`high`/`xhigh`)
 - Extension manifest directory: `TABURA_EXTENSIONS_DIR` (default `<data-dir>/extensions`; set `off` to disable)
 - Plugin manifest directory: `TABURA_PLUGINS_DIR` (default `<data-dir>/plugins`; set `off` to disable)
 

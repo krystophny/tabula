@@ -21,8 +21,8 @@ log "Setting up intent classifier"
 
 log "Ensuring LLM model is downloaded"
 MODEL_DIR="${HOME}/.local/share/tabura-llm/models"
-MODEL_FILE="Qwen3-0.6B-Q4_K_M.gguf"
-MODEL_URL="https://huggingface.co/lmstudio-community/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf?download=true"
+MODEL_FILE="Qwen3.5-9B-Q4_K_M.gguf"
+MODEL_URL="https://huggingface.co/lmstudio-community/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf?download=true"
 mkdir -p "$MODEL_DIR"
 if [ ! -s "${MODEL_DIR}/${MODEL_FILE}" ]; then
   curl -fL --retry 3 --retry-delay 2 -o "${MODEL_DIR}/${MODEL_FILE}.tmp" "$MODEL_URL"

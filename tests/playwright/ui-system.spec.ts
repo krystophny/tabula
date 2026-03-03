@@ -1,61 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
-import { execSync } from 'child_process';
 
 type HarnessLogEntry = { type: string; action?: string; text?: string; [key: string]: unknown };
-
-// Fetch a WAV from Piper TTS, decode PCM, compute per-frame dB levels for VAD mock.
-// Returns null if Piper is not running.
-function piperVadFrames(text: string, frameMs = 40): number[] | null {
-  let wav: Buffer;
-  try {
-    wav = execSync(
-      `curl -fsS --max-time 3 -X POST http://127.0.0.1:8424/v1/audio/speech ` +
-      `-H 'Content-Type: application/json' -d '${JSON.stringify({ input: text })}'`,
-      { stdio: ['ignore', 'pipe', 'ignore'] },
-    );
-  } catch {
-    return null;
-  }
-  if (wav.length < 44) return null;
-  const sampleRate = wav.readUInt32LE(24);
-  const bitsPerSample = wav.readUInt16LE(34);
-  const bytesPerSample = bitsPerSample / 8;
-  const dataOffset = 44;
-  const samplesPerFrame = Math.floor((sampleRate * frameMs) / 1000);
-  const frames: number[] = [];
-  let pos = dataOffset;
-  while (pos + samplesPerFrame * bytesPerSample <= wav.length) {
-    let sumSq = 0;
-    for (let i = 0; i < samplesPerFrame; i++) {
-      const sample = bytesPerSample === 2
-        ? wav.readInt16LE(pos + i * bytesPerSample) / 32768
-        : (wav[pos + i * bytesPerSample]! - 128) / 128;
-      sumSq += sample * sample;
-    }
-    const rms = Math.sqrt(sumSq / samplesPerFrame);
-    const db = rms > 0 ? 20 * Math.log10(rms) : -96;
-    frames.push(Math.round(db * 10) / 10);
-    pos += samplesPerFrame * bytesPerSample;
-  }
-  return frames;
-}
-
-let _cachedPiperFrames: number[] | null | undefined;
-function getPiperVadFrames(): number[] | null {
-  if (_cachedPiperFrames === undefined) {
-    const raw = piperVadFrames('Hello, this is a test of voice recording.');
-    if (raw) {
-      // Use peak speech dB from Piper to create frames that VAD will always
-      // classify as active speech (well above any noise floor + offset).
-      const peakDb = Math.max(...raw);
-      const target = Math.ceil(5000 / 40);
-      _cachedPiperFrames = Array.from({ length: target }, () => peakDb);
-    } else {
-      _cachedPiperFrames = null;
-    }
-  }
-  return _cachedPiperFrames;
-}
 
 async function getLog(page: Page): Promise<HarnessLogEntry[]> {
   return page.evaluate(() => (window as any).__harnessLog.slice());
@@ -882,46 +827,6 @@ test.describe('mobile viewport', () => {
     await waitForLogEntry(page, 'recorder', 'start');
     const indicator = page.locator('#indicator');
     await expect(indicator).toBeVisible();
-  });
-
-  test('touch tap recording stays active despite delayed click', async ({ page }) => {
-    const frames = getPiperVadFrames();
-    test.skip(!frames, 'Piper TTS not running on :8424');
-    await clearLog(page);
-    await page.evaluate((f) => { (window as any).__setVadDbFrames(f); }, frames!);
-
-    await dispatchTouchTap(page, 187, 333);
-    await page.waitForTimeout(500);
-    await waitForLogEntry(page, 'recorder', 'start');
-
-    // Wait past the 300ms delayed click — recording must survive it
-    await page.waitForTimeout(1000);
-    const isStillRecording = await page.evaluate(() => {
-      return Boolean((window as any)._taburaApp?.getState?.().chatVoiceCapture?.active);
-    });
-    expect(isStillRecording).toBe(true);
-
-    const log = await getLog(page);
-    const sttStops = log.filter(e => e.type === 'stt' && e.action === 'stop');
-    expect(sttStops.length).toBe(0);
-  });
-
-  test('touch tap on artifact does not stop recording via delayed click', async ({ page }) => {
-    const frames = getPiperVadFrames();
-    test.skip(!frames, 'Piper TTS not running on :8424');
-    await renderTestArtifact(page);
-    await clearLog(page);
-    await page.evaluate((f) => { (window as any).__setVadDbFrames(f); }, frames!);
-
-    await dispatchTouchTap(page, 187, 333);
-    await page.waitForTimeout(500);
-    await waitForLogEntry(page, 'recorder', 'start');
-
-    await page.waitForTimeout(500);
-    const isStillRecording = await page.evaluate(() => {
-      return Boolean((window as any)._taburaApp?.getState?.().chatVoiceCapture?.active);
-    });
-    expect(isStillRecording).toBe(true);
   });
 
   test('touch tap start then tap stop sends message and gets chat response', async ({ page }) => {

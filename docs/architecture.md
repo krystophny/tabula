@@ -1,5 +1,7 @@
 # Tabura Architecture
 
+> **Legal notice:** Tabura is provided "as is" and "as available" without warranties, and to the maximum extent permitted by applicable law the authors/contributors accept no liability for damages, data loss, or misuse. You are solely responsible for backups, verification, and safe operation. See [`DISCLAIMER.md`](/DISCLAIMER.md).
+
 Tabura is a Go monolithic web runtime with a split listener model:
 - public web/UI listener
 - local-only MCP listener
@@ -9,7 +11,7 @@ Runtime stack:
 - `tabura-codex-app-server.service` runs Codex app-server
 - `tabura-piper-tts.service` runs Piper TTS API on loopback
 - `tabura-intent.service` runs local intent classification on loopback (`/classify`)
-- `tabura-llm.service` runs Qwen3 0.6B intent fallback on loopback (`/v1/chat/completions`)
+- `tabura-llm.service` runs Qwen3.5 9B local coordinator on loopback (`/v1/chat/completions`)
 
 ## Components
 

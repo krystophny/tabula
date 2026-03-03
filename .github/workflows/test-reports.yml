@@ -26,9 +26,6 @@ jobs:
       - name: Install Node deps
         run: npm ci
 
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
-
       - name: Verify generated surface files
         run: ./scripts/sync-surface.sh --check
 

@@ -103,7 +103,15 @@ test.describe('canvas layout', () => {
 
     await page.mouse.move(640, 360);
     await page.mouse.wheel(0, 1200);
-    await page.waitForTimeout(120);
+
+    await expect.poll(async () => {
+      const m = await page.evaluate(() => {
+        const text = document.getElementById('canvas-text');
+        if (!(text instanceof HTMLElement)) return 0;
+        return text.scrollTop;
+      });
+      return m;
+    }, { timeout: 5_000 }).toBeGreaterThan(metricsBefore!.textTop);
 
     const metricsAfter = await page.evaluate(() => {
       const text = document.getElementById('canvas-text');
@@ -115,7 +123,6 @@ test.describe('canvas layout', () => {
       };
     });
     expect(metricsAfter).toBeTruthy();
-    expect(metricsAfter!.textTop).toBeGreaterThan(metricsBefore!.textTop);
     expect(metricsAfter!.viewportTop).toBe(metricsBefore!.viewportTop);
   });
 

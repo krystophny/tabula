@@ -518,8 +518,8 @@ setup_local_llm() {
         return
     fi
     cat <<NOTICE
-=== Local LLM (Qwen3 0.6B via llama.cpp, optional) ===
-A small local language model for intent classification fallback.
+=== Local LLM (Qwen3.5 9B via llama.cpp, optional) ===
+A local coordinator language model for Hub routing and replies.
 Runs as a local HTTP service on port 8426.
 Requires llama.cpp (llama-server binary).
 NOTICE
@@ -537,12 +537,12 @@ NOTICE
         run_cmd chmod +x "$LLM_SETUP_SCRIPT"
     fi
 
-    local model_file="Qwen3-0.6B-Q4_K_M.gguf"
-    local model_url="https://huggingface.co/lmstudio-community/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf?download=true"
+    local model_file="Qwen3.5-9B-Q4_K_M.gguf"
+    local model_url="https://huggingface.co/lmstudio-community/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf?download=true"
     local model_path="${LLM_MODEL_DIR}/${model_file}"
     if [ -f "$model_path" ]; then
         log "LLM model already present: ${model_file}"
-    elif confirm_default_yes "Download Qwen3 0.6B model (~400 MB)?"; then
+    elif confirm_default_yes "Download Qwen3.5 9B model (~5.3 GB)?"; then
         if [ "$DRY_RUN" = "1" ]; then
             run_cmd curl -fL -o "$model_path" "$model_url"
         else
@@ -660,12 +660,14 @@ UNIT
     if [ -x "$LLM_SETUP_SCRIPT" ]; then
         cat >"${systemd_dir}/tabura-llm.service" <<UNIT
 [Unit]
-Description=Tabura Local Intent LLM (Qwen3 0.6B)
+Description=Tabura Local Coordinator LLM (Qwen3.5 9B)
 After=network.target
 
 [Service]
 Type=simple
 Environment=TABURA_LLM_MODEL_DIR=${LLM_MODEL_DIR}
+Environment=TABURA_LLM_MODEL_FILE=Qwen3.5-9B-Q4_K_M.gguf
+Environment=TABURA_LLM_MODEL_URL=https://huggingface.co/lmstudio-community/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf?download=true
 ExecStart=${LLM_SETUP_SCRIPT}
 Restart=on-failure
 RestartSec=5
@@ -684,6 +686,11 @@ Wants=tabura-codex-app-server.service tabura-piper-tts.service
 
 [Service]
 Type=simple
+Environment=TABURA_INTENT_CLASSIFIER_URL=off
+Environment=TABURA_INTENT_LLM_URL=http://127.0.0.1:8426
+Environment=TABURA_INTENT_LLM_MODEL=local
+Environment=TABURA_INTENT_LLM_PROFILE=qwen3.5-9b
+Environment=TABURA_INTENT_LLM_PROFILE_OPTIONS=qwen3.5-9b,qwen3.5-4b
 ExecStart=${BIN_PATH} server --project-dir ${PROJECT_DIR} --data-dir ${WEB_DATA_DIR} --web-host 127.0.0.1 --web-port 8420 --mcp-host 127.0.0.1 --mcp-port 9420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424
 Restart=on-failure
 RestartSec=2
@@ -800,6 +807,13 @@ PLIST
   <key>ProgramArguments</key><array>
     <string>${BIN_PATH}</string><string>server</string><string>--project-dir</string><string>${PROJECT_DIR}</string><string>--data-dir</string><string>${WEB_DATA_DIR}</string><string>--web-host</string><string>127.0.0.1</string><string>--web-port</string><string>8420</string><string>--mcp-host</string><string>127.0.0.1</string><string>--mcp-port</string><string>9420</string><string>--app-server-url</string><string>ws://127.0.0.1:8787</string><string>--tts-url</string><string>http://127.0.0.1:8424</string>
   </array>
+  <key>EnvironmentVariables</key><dict>
+    <key>TABURA_INTENT_CLASSIFIER_URL</key><string>off</string>
+    <key>TABURA_INTENT_LLM_URL</key><string>http://127.0.0.1:8426</string>
+    <key>TABURA_INTENT_LLM_MODEL</key><string>local</string>
+    <key>TABURA_INTENT_LLM_PROFILE</key><string>qwen3.5-9b</string>
+    <key>TABURA_INTENT_LLM_PROFILE_OPTIONS</key><string>qwen3.5-9b,qwen3.5-4b</string>
+  </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>StandardOutPath</key><string>/tmp/tabura-web.log</string>

@@ -292,8 +292,8 @@ function Setup-LocalLlm {
         Write-Log "skipping local LLM due to TABURA_INSTALL_SKIP_LLM=1"
         return
     }
-    Write-Host "=== Local LLM (Qwen3 0.6B via llama.cpp, optional) ==="
-    Write-Host "A small local language model for intent classification fallback."
+    Write-Host "=== Local LLM (Qwen3.5 9B via llama.cpp, optional) ==="
+    Write-Host "A local coordinator language model for Hub routing and replies."
     Write-Host "Runs as a local HTTP service on port 8426."
     Write-Host "Requires llama.cpp (llama-server binary)."
 
@@ -316,15 +316,15 @@ function Setup-LocalLlm {
         }
     }
 
-    $modelFile = "Qwen3-0.6B-Q4_K_M.gguf"
+    $modelFile = "Qwen3.5-9B-Q4_K_M.gguf"
     $modelPath = Join-Path $LlmModelDir $modelFile
     if (Test-Path $modelPath) {
         Write-Log "LLM model already present: $modelFile"
-    } elseif (Confirm-DefaultYes "Download Qwen3 0.6B model (~400 MB)?") {
+    } elseif (Confirm-DefaultYes "Download Qwen3.5 9B model (~5.3 GB)?") {
         if ($DryRun.IsPresent) {
             Invoke-Step -Display "Download $modelFile" -Action {}
         } else {
-            $modelUrl = "https://huggingface.co/lmstudio-community/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf?download=true"
+            $modelUrl = "https://huggingface.co/lmstudio-community/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf?download=true"
             Invoke-WebRequest -Uri $modelUrl -OutFile $modelPath
         }
     }
@@ -333,7 +333,7 @@ function Setup-LocalLlm {
 function Write-TaskFiles {
     param([string]$CodexPath)
 
-    $webCmd = '"' + $BinaryPath + '" server --project-dir "' + $ProjectDir + '" --data-dir "' + $WebDataDir + '" --web-host 127.0.0.1 --web-port 8420 --mcp-host 127.0.0.1 --mcp-port 9420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424'
+    $webCmd = 'set "TABURA_INTENT_CLASSIFIER_URL=off" && set "TABURA_INTENT_LLM_URL=http://127.0.0.1:8426" && set "TABURA_INTENT_LLM_MODEL=local" && set "TABURA_INTENT_LLM_PROFILE=qwen3.5-9b" && set "TABURA_INTENT_LLM_PROFILE_OPTIONS=qwen3.5-9b,qwen3.5-4b" && "' + $BinaryPath + '" server --project-dir "' + $ProjectDir + '" --data-dir "' + $WebDataDir + '" --web-host 127.0.0.1 --web-port 8420 --mcp-host 127.0.0.1 --mcp-port 9420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424'
     $piperCmd = 'set "PIPER_MODEL_DIR=' + $ModelDir + '" && "' + (Join-Path $PiperVenv 'Scripts\python.exe') + '" -m uvicorn piper_tts_server:app --app-dir "' + $ScriptDir + '" --host 127.0.0.1 --port 8424'
     $codexCmd = '"' + $CodexPath + '" app-server --listen ws://127.0.0.1:8787'
 
@@ -343,7 +343,7 @@ function Write-TaskFiles {
     $llamaPath = (Get-Command llama-server -ErrorAction SilentlyContinue)
     $llmCmd = ""
     if ($llamaPath) {
-        $llmCmd = '"' + $llamaPath.Source + '" -m "' + (Join-Path $LlmModelDir "Qwen3-0.6B-Q4_K_M.gguf") + '" --host 127.0.0.1 --port 8426 -c 2048 --threads 4 -ngl 99'
+        $llmCmd = '"' + $llamaPath.Source + '" -m "' + (Join-Path $LlmModelDir "Qwen3.5-9B-Q4_K_M.gguf") + '" --host 127.0.0.1 --port 8426 -c 2048 --threads 4 -ngl 99'
     }
 
     if ($DryRun.IsPresent) {

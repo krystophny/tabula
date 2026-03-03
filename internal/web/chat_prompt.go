@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/krystophny/tabura/internal/modelprofile"
 	"github.com/krystophny/tabura/internal/store"
 )
 
@@ -126,11 +125,7 @@ func buildPromptFromHistoryForMode(mode string, messages []store.ChatMessage, ca
 		}
 	}
 
-	appendDelegationSection(&b)
-	if hints := modelprofile.ModelSystemHints(modelAlias); hints != "" {
-		b.WriteString(hints)
-		b.WriteString("\n")
-	}
+	_ = modelAlias
 
 	if isVoiceMode && canvas != nil && canvas.HasArtifact {
 		b.WriteString("## Current Artifact\n")
@@ -156,9 +151,6 @@ func buildPromptFromHistoryForMode(mode string, messages []store.ChatMessage, ca
 		}
 		b.WriteString(role)
 		b.WriteString(":\n")
-		if role == "USER" {
-			content = applyDelegationHints(content)
-		}
 		b.WriteString(content)
 		b.WriteString("\n\n")
 	}
@@ -176,6 +168,7 @@ func buildTurnPrompt(messages []store.ChatMessage, canvas *canvasContext) string
 
 func buildTurnPromptForMode(messages []store.ChatMessage, canvas *canvasContext, outputMode string, modelAlias string) string {
 	isVoiceMode := isVoiceOutputMode(outputMode)
+	_ = modelAlias
 	var lastUserMsg string
 	for i := len(messages) - 1; i >= 0; i-- {
 		if strings.EqualFold(strings.TrimSpace(messages[i].Role), "user") {
@@ -195,31 +188,9 @@ func buildTurnPromptForMode(messages []store.ChatMessage, canvas *canvasContext,
 		if canvas != nil && canvas.HasArtifact {
 			fmt.Fprintf(&b, "[Active artifact tab: %q (kind: %s)]\n\n", canvas.ArtifactTitle, canvas.ArtifactKind)
 		}
-	} else {
-		appendDelegationSection(&b)
 	}
-	if hints := modelprofile.ModelSystemHints(modelAlias); hints != "" {
-		b.WriteString(hints)
-		b.WriteString("\n")
-	}
-	b.WriteString(applyDelegationHints(lastUserMsg))
+	b.WriteString(lastUserMsg)
 	return b.String()
-}
-
-func appendDelegationSection(b *strings.Builder) {
-	b.WriteString("## Delegation\n")
-	b.WriteString("Use `delegate_to_model` for tasks that benefit from another model.\n")
-	b.WriteString("- 'let codex do this' / 'ask codex' -> model='codex'. 'ask gpt' / 'use the big model' -> model='gpt'.\n")
-	b.WriteString("- Auto-delegate complex multi-file coding or deep analysis to 'codex'.\n")
-	b.WriteString("- Provide 'context' and 'system_prompt' when delegating.\n")
-	b.WriteString("- Do NOT delegate simple conversational replies.\n")
-	b.WriteString("- Delegates have full filesystem access and edit files directly on disk.\n")
-	b.WriteString("- Do NOT parse or apply patches/diffs from the delegate response.\n")
-	b.WriteString("- `delegate_to_model` starts an async job and returns `job_id` immediately.\n")
-	b.WriteString("- Use `delegate_to_model_status` with `job_id` and `after_seq` to fetch incremental progress.\n")
-	b.WriteString("- Summarize progress updates for the user periodically while polling status.\n")
-	b.WriteString("- Use `delegate_to_model_cancel` if the user asks to stop.\n")
-	b.WriteString("- Final status includes `files_changed` and final `message`; relay that summary to the user.\n\n")
 }
 
 func loadModePromptTemplate(outputMode, defaultPrompt, fallback string) string {

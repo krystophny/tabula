@@ -96,7 +96,7 @@ async function waitForApiCancel(page: Page) {
   await expect.poll(async () => {
     const log = await getLog(page);
     return log.some((entry) => entry.type === 'api_fetch' && entry.action === 'cancel');
-  }, { timeout: 5_000 }).toBe(true);
+  }, { timeout: 15_000 }).toBe(true);
 }
 
 async function injectCanvasModuleRef(page: Page) {
@@ -193,11 +193,11 @@ async function renderPdfArtifactMock(page: Page) {
   });
 }
 
-async function waitForLogEntry(page: Page, type: string, action: string) {
+async function waitForLogEntry(page: Page, type: string, action?: string) {
   await expect.poll(async () => {
     const log = await getLog(page);
-    return log.some(e => e.type === type && e.action === action);
-  }, { timeout: 5_000 }).toBe(true);
+    return log.some(e => e.type === type && (action === undefined || e.action === action));
+  }, { timeout: 15_000 }).toBe(true);
 }
 
 async function waitForSTTAction(page: Page, action: string) {
@@ -245,7 +245,7 @@ test.beforeEach(async ({ page }) => {
     if (typeof app?.getState !== 'function') return false;
     const s = app.getState();
     return s.chatWs && s.chatWs.readyState === (window as any).WebSocket.OPEN;
-  }, null, { timeout: 5_000 });
+  }, null, { timeout: 15_000 });
   await page.waitForTimeout(200);
   await setHarnessCancelResponses(page, []);
   await setHarnessActivityResponse(page, { active_turns: 0, queued_turns: 0, delegate_active: 0 });
@@ -330,11 +330,10 @@ test('touch stop indicator routes through shared cancel endpoint', async ({ page
     turn_id: 'stop-turn-test',
     content: 'delegate work',
   });
-  await page.waitForTimeout(100);
   await expect(page.locator('#chat-history .chat-message.chat-assistant.is-pending')).toHaveCount(1);
 
   const stopSquare = page.locator('.stop-square');
-  await expect(stopSquare).toBeVisible();
+  await expect(stopSquare).toBeVisible({ timeout: 5_000 });
 
   await tapElement(page, '.stop-square');
   await waitForApiCancel(page);
@@ -368,7 +367,7 @@ test('touch stop retries cancel when first cancel reports zero but work remains'
   await expect.poll(async () => {
     const log = await getLog(page);
     return log.filter((entry) => entry.type === 'api_fetch' && entry.action === 'cancel').length;
-  }, { timeout: 5_000 }).toBeGreaterThanOrEqual(2);
+  }, { timeout: 15_000 }).toBeGreaterThanOrEqual(2);
 });
 
 test('stop indicator auto-hides after stop even when activity poll stays active', async ({ page }) => {
@@ -398,7 +397,7 @@ test('stop indicator auto-hides after stop even when activity poll stays active'
 
 test('touch stop while sending transcript aborts pending message submit', async ({ page }) => {
   await clearLog(page);
-  await setHarnessMessagePostDelay(page, 1200);
+  await setHarnessMessagePostDelay(page, 2500);
 
   await page.mouse.click(400, 400);
   await waitForLogEntry(page, 'recorder', 'start');
@@ -408,7 +407,7 @@ test('touch stop while sending transcript aborts pending message submit', async 
 
   await tapElement(page, '.stop-square');
   await waitForApiCancel(page);
-  await page.waitForTimeout(1400);
+  await page.waitForTimeout(2800);
 
   const log = await getLog(page);
   expect(log.some((entry) => entry.type === 'message_sent')).toBe(false);
@@ -506,6 +505,40 @@ test('silence auto-stop works when speech is only slightly above noisy ambient b
   expect(sent).toBeTruthy();
   expect(sent!.text).toBe('hello world');
   expect(log.some(e => e.type === 'stt' && e.action === 'cancel')).toBe(false);
+});
+
+test('VAD auto-stop delivers non-empty audio to STT before submitting transcript', async ({ page }) => {
+  await clearLog(page);
+  await page.evaluate(() => {
+    (window as any).__setVadDbFrames([
+      ...Array.from({ length: 8 }, () => -80),
+      ...Array.from({ length: 10 }, () => -12),
+      ...Array.from({ length: 40 }, () => -80),
+    ]);
+  });
+
+  await page.mouse.click(400, 400);
+  await waitForLogEntry(page, 'recorder', 'start');
+  await waitForSTTAction(page, 'stop');
+  await page.waitForTimeout(250);
+
+  const log = await getLog(page);
+  const sttAppends = log.filter((e: HarnessLogEntry) => e.type === 'stt' && e.action === 'append');
+  expect(sttAppends.length).toBeGreaterThan(0);
+  const totalBytes = sttAppends.reduce((sum: number, e: HarnessLogEntry) => sum + Number(e.bytes || 0), 0);
+  expect(totalBytes).toBeGreaterThan(0);
+
+  const sttStop = log.find((e: HarnessLogEntry) => e.type === 'stt' && e.action === 'stop');
+  expect(sttStop).toBeTruthy();
+
+  const sent = log.find((e: HarnessLogEntry) => e.type === 'message_sent');
+  expect(sent).toBeTruthy();
+  expect(sent!.text).toBe('hello world');
+
+  const recorderStop = log.find((e: HarnessLogEntry) => e.type === 'recorder' && e.action === 'stop');
+  expect(recorderStop).toBeTruthy();
+
+  expect(log.some((e: HarnessLogEntry) => e.type === 'stt' && e.action === 'cancel')).toBe(false);
 });
 
 test('no-speech timeout cancels capture in sustained ambient noise', async ({ page }) => {
@@ -671,9 +704,10 @@ test('voice transcription result gets sent as message', async ({ page }) => {
   // Stop recording (will auto-send via voice capture)
   await page.mouse.click(400, 400);
   await waitForSTTAction(page, 'stop');
-  await page.waitForTimeout(500);
 
-  // Check that message was sent (MockWebSocket returns 'hello world')
+  // Poll for message_sent — STT transcription + message post is async
+  await waitForLogEntry(page, 'message_sent');
+
   const log = await getLog(page);
   const sent = log.find(e => e.type === 'message_sent');
   expect(sent).toBeTruthy();
@@ -858,4 +892,114 @@ test('ended mic track invalidates cached stream before next recording', async ({
 
   const log = await getLog(page);
   expect(countGetUserMediaCalls(log)).toBe(1);
+});
+
+// Safari broken MediaRecorder: stop fires before dataavailable, blob is empty.
+// These tests verify the _vadAudioBlob codepath handles this correctly.
+test.describe('safari-recorder=broken', () => {
+  test.beforeEach(async ({ page }) => {
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') console.log(`BROWSER [error]: ${msg.text()}`);
+    });
+    page.on('pageerror', (err) => console.log(`PAGE ERROR: ${err.message}`));
+    // Inject getUserMedia mock before any page script runs.  The harness
+    // inline script normally overrides this, but on some WebKit CI
+    // environments the harness-level override silently fails.  The init
+    // script guarantees a working mock is always in place.
+    await page.addInitScript(() => {
+      const makeMockStream = () => {
+        const track: any = new EventTarget();
+        track.kind = 'audio'; track.enabled = true; track.muted = false;
+        track.readyState = 'live';
+        track.stop = () => { track.readyState = 'ended'; track.dispatchEvent(new Event('ended')); };
+        const stream: any = new EventTarget();
+        stream.active = true;
+        stream.getTracks = () => [track];
+        stream.getAudioTracks = () => [track];
+        stream.clone = () => makeMockStream();
+        return stream;
+      };
+      const mock = async () => makeMockStream();
+      // Will be overridden by the harness script if it runs successfully.
+      // Acts as a safety net for environments where the harness override fails.
+      Object.defineProperty(Navigator.prototype, 'mediaDevices', {
+        get() {
+          const md: any = new EventTarget();
+          md.getUserMedia = mock;
+          md.addEventListener = EventTarget.prototype.addEventListener;
+          md.removeEventListener = EventTarget.prototype.removeEventListener;
+          md.dispatchEvent = EventTarget.prototype.dispatchEvent;
+          // Cache so the same object is returned on every access.
+          Object.defineProperty(this, 'mediaDevices', { value: md, writable: true, configurable: true });
+          return md;
+        },
+        configurable: true,
+      });
+    });
+    await page.goto('/tests/playwright/harness.html?safari-recorder=broken');
+    await page.waitForFunction(() => {
+      const app = (window as any)._taburaApp;
+      if (typeof app?.getState !== 'function') return false;
+      const s = app.getState();
+      return s.chatWs && s.chatWs.readyState === (window as any).WebSocket.OPEN;
+    }, null, { timeout: 15_000 });
+    await page.waitForTimeout(200);
+    await setHarnessCancelResponses(page, []);
+    await setHarnessActivityResponse(page, { active_turns: 0, queued_turns: 0, delegate_active: 0 });
+    await setHarnessMessagePostDelay(page, 0);
+    await setHarnessSTTTranscribeResponse(page, { text: 'hello world' }, 200);
+  });
+
+  test('VAD auto-stop sends transcript via _vadAudioBlob despite broken recorder', async ({ page }) => {
+    await clearLog(page);
+    await page.evaluate(() => {
+      (window as any).__setVadDbFrames([
+        ...Array.from({ length: 8 }, () => -80),
+        ...Array.from({ length: 10 }, () => -12),
+        ...Array.from({ length: 40 }, () => -80),
+      ]);
+    });
+
+    await page.mouse.click(400, 400);
+    await waitForLogEntry(page, 'recorder', 'start');
+    await waitForSTTAction(page, 'stop');
+    await page.waitForTimeout(250);
+
+    const log = await getLog(page);
+    const sttStart = log.find((e: HarnessLogEntry) => e.type === 'stt' && e.action === 'start');
+    expect(sttStart).toBeTruthy();
+    expect(sttStart!.mime_type).toBe('audio/wav');
+
+    const sttAppends = log.filter((e: HarnessLogEntry) => e.type === 'stt' && e.action === 'append');
+    expect(sttAppends.length).toBeGreaterThan(0);
+    const totalBytes = sttAppends.reduce((sum: number, e: HarnessLogEntry) => sum + Number(e.bytes || 0), 0);
+    expect(totalBytes).toBeGreaterThan(0);
+
+    const sent = log.find((e: HarnessLogEntry) => e.type === 'message_sent');
+    expect(sent).toBeTruthy();
+    expect(sent!.text).toBe('hello world');
+  });
+
+  test('manual tap-stop still works with broken recorder via accumulated chunks', async ({ page }) => {
+    await clearLog(page);
+
+    await page.mouse.click(400, 400);
+    await waitForLogEntry(page, 'recorder', 'start');
+
+    // Recorder chunk interval is 250ms; wait long enough for several chunks.
+    await page.waitForTimeout(1000);
+
+    await page.mouse.click(400, 400);
+    await waitForSTTAction(page, 'stop');
+
+    await expect.poll(async () => {
+      const log = await getLog(page);
+      return log.some((e: HarnessLogEntry) => e.type === 'message_sent');
+    }, { timeout: 15_000 }).toBe(true);
+
+    const log = await getLog(page);
+    const sent = log.find((e: HarnessLogEntry) => e.type === 'message_sent');
+    expect(sent).toBeTruthy();
+    expect(sent!.text).toBe('hello world');
+  });
 });

@@ -211,9 +211,12 @@ class IntentClassifier:
             if model_match:
                 alias = model_match.group(1)
                 entities["alias"] = "spark" if alias == "big model" else alias
-            effort_match = re.search(r"\b(low|medium|high|extra[_ ]high)\b", normalized)
+            effort_match = re.search(r"\b(low|medium|high|xhigh|extra[_ ]high)\b", normalized)
             if effort_match:
-                entities["effort"] = effort_match.group(1).replace(" ", "_")
+                effort = effort_match.group(1).replace(" ", "_")
+                if effort == "extra_high":
+                    effort = "xhigh"
+                entities["effort"] = effort
 
         if intent == "switch_project":
             project_match = re.search(

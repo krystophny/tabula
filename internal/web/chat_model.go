@@ -46,7 +46,7 @@ func (a *App) appServerModelProfileForProject(project store.Project) appServerMo
 		return appServerModelProfile{
 			Alias:        modelprofile.AliasSpark,
 			Model:        model,
-			ThreadParams: reasoning,
+			ThreadParams: nil,
 			TurnParams:   reasoning,
 		}
 	}
@@ -68,7 +68,7 @@ func (a *App) appServerModelProfileForProject(project store.Project) appServerMo
 	return appServerModelProfile{
 		Alias:        alias,
 		Model:        model,
-		ThreadParams: reasoning,
+		ThreadParams: nil,
 		TurnParams:   reasoning,
 	}
 
@@ -99,7 +99,7 @@ func (a *App) appServerModelProfileForProjectKey(projectKey string) appServerMod
 	return appServerModelProfile{
 		Alias:        alias,
 		Model:        legacyModel,
-		ThreadParams: legacyReasoning,
+		ThreadParams: nil,
 		TurnParams:   legacyReasoning,
 	}
 }

@@ -2,8 +2,8 @@
 set -euo pipefail
 
 MODEL_DIR="${TABURA_LLM_MODEL_DIR:-$HOME/.local/share/tabura-llm/models}"
-MODEL_FILE="${TABURA_LLM_MODEL_FILE:-Qwen3-0.6B-Q4_K_M.gguf}"
-MODEL_URL="${TABURA_LLM_MODEL_URL:-https://huggingface.co/lmstudio-community/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf?download=true}"
+MODEL_FILE="${TABURA_LLM_MODEL_FILE:-Qwen3.5-9B-Q4_K_M.gguf}"
+MODEL_URL="${TABURA_LLM_MODEL_URL:-https://huggingface.co/lmstudio-community/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf?download=true}"
 SERVER_BIN="${LLAMA_SERVER_BIN:-llama-server}"
 HOST="${TABURA_LLM_HOST:-127.0.0.1}"
 PORT="${TABURA_LLM_PORT:-8426}"

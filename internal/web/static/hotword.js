@@ -1,7 +1,7 @@
-const ORT_CDN_URL = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.min.mjs';
+const ORT_LOCAL_URL = '/static/vad/ort.min.mjs';
 let ort = null;
 async function loadOrt() {
-  if (!ort) ort = await import(ORT_CDN_URL);
+  if (!ort) ort = await import(ORT_LOCAL_URL);
   return ort;
 }
 
@@ -398,7 +398,7 @@ async function startOnnxMonitor(stream) {
 async function initOnnxModel() {
   await loadOrt();
   if (ort.env?.wasm) {
-    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/';
+    ort.env.wasm.wasmPaths = '/static/vad/';
     ort.env.wasm.numThreads = 1;
   }
 

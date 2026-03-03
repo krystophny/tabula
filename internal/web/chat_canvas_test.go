@@ -209,21 +209,18 @@ func TestBuildPromptFromHistoryForMode_SilentUsesToolOnlyPreamble(t *testing.T) 
 	if strings.Contains(prompt, "Use [lang:de]") {
 		t.Error("silent prompt should not include voice language tag guidance")
 	}
-	if !strings.Contains(prompt, "delegate_to_model") {
-		t.Error("silent prompt should include delegation section")
+	if strings.Contains(prompt, "delegate_to_model") {
+		t.Error("silent prompt should not include explicit delegation policy")
 	}
 	if strings.Contains(prompt, "Reply as ASSISTANT.") {
 		t.Error("silent prompt should not include assistant-style reply directive")
 	}
 }
 
-func TestBuildPromptFromHistoryForMode_SparkIncludesModelHints(t *testing.T) {
+func TestBuildPromptFromHistoryForMode_SparkOmitsModelSpecificHints(t *testing.T) {
 	prompt := buildPromptFromHistoryForMode("chat", nil, nil, turnOutputModeVoice, "spark")
-	if !strings.Contains(prompt, "merge conflicts") {
-		t.Error("spark prompt should include git conflict delegation hints")
-	}
-	if !strings.Contains(prompt, "delegate to codex") {
-		t.Error("spark prompt should instruct delegation to codex for conflicts")
+	if strings.Contains(prompt, "merge conflicts") {
+		t.Error("spark prompt should not include model-specific delegation hints")
 	}
 }
 
@@ -234,13 +231,13 @@ func TestBuildPromptFromHistoryForMode_CodexOmitsSparkHints(t *testing.T) {
 	}
 }
 
-func TestBuildTurnPromptForMode_SparkIncludesModelHints(t *testing.T) {
+func TestBuildTurnPromptForMode_SparkOmitsModelSpecificHints(t *testing.T) {
 	prompt := buildTurnPromptForMode([]store.ChatMessage{{
 		Role:         "user",
 		ContentPlain: "fix the merge",
 	}}, nil, turnOutputModeSilent, "spark")
-	if !strings.Contains(prompt, "merge conflicts") {
-		t.Error("spark turn prompt should include git conflict delegation hints")
+	if strings.Contains(prompt, "merge conflicts") {
+		t.Error("spark turn prompt should not include model-specific delegation hints")
 	}
 }
 
@@ -381,8 +378,8 @@ func TestBuildTurnPromptForMode_SilentUsesToolOnlyPreamble(t *testing.T) {
 	if strings.Contains(prompt, "Reply as ASSISTANT.") {
 		t.Error("silent turn prompt should not include assistant reply style")
 	}
-	if !strings.Contains(prompt, "delegate_to_model") {
-		t.Error("silent turn prompt should include delegation section")
+	if strings.Contains(prompt, "delegate_to_model") {
+		t.Error("silent turn prompt should not include explicit delegation policy")
 	}
 	if strings.Contains(prompt, "Spoken chat must be one paragraph max.") {
 		t.Error("silent turn prompt should not include spoken paragraph limits")

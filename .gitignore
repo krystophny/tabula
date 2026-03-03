@@ -16,3 +16,4 @@ services/intent-classifier/model/
 services/intent-classifier/checkpoints/
 tools/
 .env
+internal/web/static/vad/

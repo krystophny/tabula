@@ -1,5 +1,7 @@
 # Release v0.1.4
 
+> **Legal notice:** Tabura is provided "as is" and "as available" without warranties, and to the maximum extent permitted by applicable law the authors/contributors accept no liability for damages, data loss, or misuse. You are solely responsible for backups, verification, and safe operation. See [`DISCLAIMER.md`](/DISCLAIMER.md).
+
 ## Scope
 
 `v0.1.4` consolidates post-`v0.1.3` interaction updates with a focus on voice-capture consistency, model/runtime controls, and mobile interaction reliability.

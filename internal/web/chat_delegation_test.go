@@ -55,45 +55,42 @@ func TestApplyDelegationHints(t *testing.T) {
 	})
 }
 
-func TestBuildPromptFromHistoryContainsDelegationSection(t *testing.T) {
+func TestBuildPromptFromHistoryOmitsDelegationSection(t *testing.T) {
 	messages := []store.ChatMessage{
 		{Role: "user", ContentPlain: "hello"},
 	}
 	prompt := buildPromptFromHistory("chat", messages, nil)
-	if !strings.Contains(prompt, "## Delegation") {
-		t.Error("prompt should contain Delegation section")
+	if strings.Contains(prompt, "## Delegation") {
+		t.Error("prompt should not contain Delegation section")
 	}
-	if !strings.Contains(prompt, "delegate_to_model") {
-		t.Error("prompt should mention delegate_to_model tool")
-	}
-	if !strings.Contains(prompt, "edit files directly on disk") {
-		t.Error("prompt should explain delegates edit files directly")
-	}
-	if !strings.Contains(prompt, "Do NOT parse or apply patches") {
-		t.Error("prompt should tell Spark not to apply patches")
-	}
-	if !strings.Contains(prompt, "files_changed") {
-		t.Error("prompt should mention files_changed in delegate result")
+	if strings.Contains(prompt, "delegate_to_model") {
+		t.Error("prompt should not include explicit delegation policy")
 	}
 }
 
-func TestBuildPromptFromHistoryAppliesHints(t *testing.T) {
+func TestBuildPromptFromHistoryKeepsOriginalUserTextWithoutHints(t *testing.T) {
 	messages := []store.ChatMessage{
 		{Role: "user", ContentPlain: "let codex review the code"},
 	}
 	prompt := buildPromptFromHistory("chat", messages, nil)
-	if !strings.Contains(prompt, `[Delegation hint: user wants model="codex"]`) {
-		t.Error("prompt should contain delegation hint for user message")
+	if strings.Contains(prompt, `[Delegation hint: user wants model="codex"]`) {
+		t.Error("prompt should not inject delegation hint")
+	}
+	if !strings.Contains(prompt, "let codex review the code") {
+		t.Error("prompt should include original user text")
 	}
 }
 
-func TestBuildTurnPromptAppliesHints(t *testing.T) {
+func TestBuildTurnPromptKeepsOriginalUserTextWithoutHints(t *testing.T) {
 	messages := []store.ChatMessage{
 		{Role: "user", ContentPlain: "ask gpt about this"},
 	}
 	prompt := buildTurnPrompt(messages, nil)
-	if !strings.Contains(prompt, `[Delegation hint: user wants model="gpt"]`) {
-		t.Error("turn prompt should contain delegation hint")
+	if strings.Contains(prompt, `[Delegation hint: user wants model="gpt"]`) {
+		t.Error("turn prompt should not contain delegation hint")
+	}
+	if !strings.Contains(prompt, "ask gpt about this") {
+		t.Error("turn prompt should include original user text")
 	}
 }
 

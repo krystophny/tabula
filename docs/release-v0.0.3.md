@@ -1,5 +1,7 @@
 # Release v0.0.3
 
+> **Legal notice:** Tabura is provided "as is" and "as available" without warranties, and to the maximum extent permitted by applicable law the authors/contributors accept no liability for damages, data loss, or misuse. You are solely responsible for backups, verification, and safe operation. See [`DISCLAIMER.md`](/DISCLAIMER.md).
+
 > Historical note: This file documents a past release. For the current runtime stack, use README.md and docs/architecture.md.
 
 ## Scope

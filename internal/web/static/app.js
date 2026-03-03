@@ -39,6 +39,7 @@ import {
   getPreRollAudio,
   getHotwordMicStream,
 } from './hotword.js';
+import { initVAD, ensureVADLoaded, float32ToWav } from './vad.js';
 
 const state = {
   sessionId: 'local',
@@ -58,6 +59,9 @@ const state = {
   projectSwitchInFlight: false,
   projectModelSwitchInFlight: false,
   ttsSilent: false,
+  yoloMode: false,
+  disclaimerAckRequired: false,
+  disclaimerVersion: '',
   pendingByTurn: new Map(),
   pendingQueue: [],
   assistantActiveTurns: new Set(),
@@ -84,9 +88,9 @@ const state = {
   chatCtrlHoldTimer: null,
   chatVoiceCapture: null,
   reasoningEffortsByAlias: {
-    codex: ['low', 'medium', 'high', 'extra_high'],
-    gpt: ['low', 'medium', 'high', 'extra_high'],
-    spark: ['low', 'medium', 'high', 'extra_high'],
+    codex: ['low', 'medium', 'high', 'xhigh'],
+    gpt: ['low', 'medium', 'high', 'xhigh'],
+    spark: ['low', 'medium', 'high', 'xhigh'],
   },
   contextUsed: 0,
   contextMax: 0,
@@ -122,6 +126,8 @@ function isVoiceTurn() {
 }
 
 window._taburaApp = { getState, acquireMicStream, sttStart, sttSendBlob, sttStop, sttCancel };
+
+void ensureVADLoaded();
 
 let bootstrapErrorShown = false;
 
@@ -165,31 +171,10 @@ const ARTIFACT_EDIT_LONG_TAP_MS = 420;
 const VOICE_VAD_AUTO_SEND_DEFAULT = true;
 const VOICE_VAD_AUTO_SEND_STORAGE_KEY = 'tabura.voiceVadAutoSend';
 const VOICE_VAD_AUTO_SEND_QUERY_PARAM = 'voice_vad_auto_send';
-const VOICE_VAD_MIN_UTTERANCE_MS = 300;
-const VOICE_VAD_CANDIDATE_SILENCE_MS = 900;
-const VOICE_VAD_CANDIDATE_RECHECK_MS = 450;
-const VOICE_VAD_HARD_SILENCE_MS = 2500;
 const VOICE_VAD_NO_SPEECH_MS = 4000;
-const VOICE_VAD_MAX_RECORDING_SOFT_MS = 120000;
 const VOICE_VAD_MAX_RECORDING_HARD_MS = 240000;
-const HOTWORD_VAD_MIN_UTTERANCE_MS = 420;
-const HOTWORD_VAD_CANDIDATE_SILENCE_MS = 1400;
-const HOTWORD_VAD_CANDIDATE_RECHECK_MS = 650;
-const HOTWORD_VAD_HARD_SILENCE_MS = 3200;
 const HOTWORD_VAD_NO_SPEECH_MS = 7000;
-const HOTWORD_VAD_MIN_COMMIT_MS = 2200;
-const VOICE_VAD_FRAME_MS = 40;
 const VOICE_VAD_RECORDER_CHUNK_MS = 250;
-const VOICE_VAD_NOISE_FLOOR_SAMPLES = 8;
-const VOICE_VAD_NOISE_FLOOR_PERCENTILE = 0.35;
-const VOICE_VAD_NOISE_FLOOR_ADAPT_ALPHA = 0.12;
-const VOICE_VAD_SPEECH_START_OFFSET_DB = 3;
-const VOICE_VAD_SPEECH_END_OFFSET_DB = 1.5;
-const VOICE_VAD_SPEECH_START_THRESHOLD_MIN_DB = -42;
-const VOICE_VAD_SPEECH_END_THRESHOLD_MIN_DB = -45;
-const VOICE_VAD_SPEECH_START_FRAMES = 4;
-const VOICE_VAD_NOISE_FLOOR_MIN_DB = -60;
-const VOICE_VAD_NOISE_FLOOR_MAX_DB = -18;
 const VOICE_CAPTURE_STOP_FLUSH_TIMEOUT_MS = 1500;
 const STOP_REQUEST_TIMEOUT_MS = 3500;
 const VOICE_TRANSCRIPT_SUBMIT_GUARD_MS = 220;
@@ -219,11 +204,12 @@ const ACTIVE_PROJECT_STORAGE_KEY = 'tabura.activeProjectId';
 const LAST_VIEW_STORAGE_KEY = 'tabura.lastView';
 const PROJECT_CHAT_MODEL_ALIASES = ['codex', 'gpt', 'spark'];
 const PROJECT_CHAT_MODEL_REASONING_EFFORTS = {
-  codex: ['low', 'medium', 'high', 'extra_high'],
-  gpt: ['low', 'medium', 'high', 'extra_high'],
-  spark: ['low', 'medium', 'high', 'extra_high'],
+  codex: ['low', 'medium', 'high', 'xhigh'],
+  gpt: ['low', 'medium', 'high', 'xhigh'],
+  spark: ['low', 'medium', 'high', 'xhigh'],
 };
 const TTS_SILENT_STORAGE_KEY = 'tabura.ttsSilent';
+const YOLO_MODE_STORAGE_KEY = 'tabura.yoloMode';
 const SIDEBAR_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico', '.avif']);
 const PANEL_MOTION_WATCH_QUERIES = [
   '(monochrome)',
@@ -475,6 +461,57 @@ function persistTTSSilentPreference(silent) {
   try {
     window.localStorage.setItem(TTS_SILENT_STORAGE_KEY, silent ? 'true' : 'false');
   } catch (_) {}
+}
+
+function readYoloModePreference() {
+  try {
+    const value = window.localStorage.getItem(YOLO_MODE_STORAGE_KEY);
+    const parsed = parseOptionalBoolean(value);
+    return parsed === true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function persistYoloModePreference(enabled) {
+  try {
+    window.localStorage.setItem(YOLO_MODE_STORAGE_KEY, enabled ? 'true' : 'false');
+  } catch (_) {}
+}
+
+function setYoloModeLocal(enabled, { persist = true, render = true } = {}) {
+  const next = Boolean(enabled);
+  if (state.yoloMode === next) return;
+  state.yoloMode = next;
+  if (persist) persistYoloModePreference(next);
+  if (render) renderEdgeTopModelButtons();
+}
+
+async function setYoloMode(enabled) {
+  const next = Boolean(enabled);
+  const resp = await fetch('/api/runtime/yolo', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled: next }),
+  });
+  if (!resp.ok) {
+    const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
+    throw new Error(detail);
+  }
+  setYoloModeLocal(next, { persist: true, render: true });
+}
+
+function toggleYoloMode() {
+  if (state.projectSwitchInFlight || state.projectModelSwitchInFlight) return;
+  const next = !Boolean(state.yoloMode);
+  setYoloMode(next)
+    .then(() => {
+      showStatus(next ? 'yolo mode on' : 'yolo mode off');
+    })
+    .catch((err) => {
+      showStatus(`yolo update failed: ${String(err?.message || err || 'unknown error')}`);
+      renderEdgeTopModelButtons();
+    });
 }
 
 function canSpeakTTS() {
@@ -820,7 +857,6 @@ configureConversation({
   },
   getAudioContext: () => ttsAudioCtx,
   acquireMicStream,
-  computeDecibelFromTimeDomain,
 });
 applyConversationStateSnapshot();
 
@@ -989,6 +1025,76 @@ async function fetchRuntimeMeta() {
     throw new Error(`runtime metadata failed: HTTP ${resp.status}`);
   }
   return resp.json();
+}
+
+function applyRuntimePreferences(runtime) {
+  const runtimeYolo = parseOptionalBoolean(runtime?.safety_yolo_mode);
+  if (runtimeYolo !== null) {
+    setYoloModeLocal(runtimeYolo, { persist: true, render: false });
+  } else {
+    setYoloModeLocal(readYoloModePreference(), { persist: false, render: false });
+  }
+  state.disclaimerVersion = String(runtime?.disclaimer_version || '').trim();
+  state.disclaimerAckRequired = Boolean(runtime?.disclaimer_ack_required);
+}
+
+async function acknowledgeDisclaimer(version) {
+  const payload = {};
+  if (String(version || '').trim()) {
+    payload.version = String(version || '').trim();
+  }
+  const resp = await fetch('/api/runtime/disclaimer-ack', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
+    throw new Error(detail);
+  }
+}
+
+function closeDisclaimerModal() {
+  const node = document.getElementById('liability-modal');
+  if (node && node.parentElement) node.parentElement.removeChild(node);
+}
+
+function showDisclaimerModal() {
+  if (!state.disclaimerAckRequired) return Promise.resolve();
+  closeDisclaimerModal();
+  return new Promise((resolve, reject) => {
+    const root = document.createElement('div');
+    root.id = 'liability-modal';
+    root.className = 'liability-modal';
+    root.innerHTML = `
+      <div class=\"liability-modal-card\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Liability notice\">
+        <h2>Liability Notice</h2>
+        <p>Tabura is provided as-is. You are solely responsible for backups, verification, and safe operation.</p>
+        <p>No warranties or liability are assumed to the maximum extent permitted by applicable law.</p>
+        <button id=\"liability-ack-btn\" type=\"button\" class=\"edge-project-btn\">I understand</button>
+      </div>
+    `;
+    document.body.appendChild(root);
+    const btn = document.getElementById('liability-ack-btn');
+    if (!(btn instanceof HTMLButtonElement)) {
+      reject(new Error('liability acknowledgement button unavailable'));
+      return;
+    }
+    btn.addEventListener('click', () => {
+      btn.disabled = true;
+      acknowledgeDisclaimer(state.disclaimerVersion)
+        .then(() => {
+          state.disclaimerAckRequired = false;
+          closeDisclaimerModal();
+          resolve();
+        })
+        .catch((err) => {
+          btn.disabled = false;
+          showStatus(`disclaimer acknowledgement failed: ${String(err?.message || err || 'unknown error')}`);
+          reject(err);
+        });
+    });
+  });
 }
 
 async function pollRuntimeForDevReload() {
@@ -1246,7 +1352,10 @@ function defaultReasoningEffortForAlias(alias) {
 }
 
 function normalizeProjectChatModelReasoningEffort(value, alias) {
-  const effort = String(value || '').trim().toLowerCase();
+  let effort = String(value || '').trim().toLowerCase();
+  if (effort === 'extra_high') {
+    effort = 'xhigh';
+  }
   const options = reasoningEffortOptionsForAlias(alias);
   if (options.includes(effort)) {
     return effort;
@@ -1475,6 +1584,7 @@ function releaseMicStream({ force = false } = {}) {
 }
 
 function parseOptionalBoolean(value) {
+  if (typeof value === 'boolean') return value;
   const normalized = String(value || '').trim().toLowerCase();
   if (!normalized) return null;
   if (normalized === '1' || normalized === 'true' || normalized === 'on' || normalized === 'yes') return true;
@@ -1623,255 +1733,135 @@ function stopChatVoiceMedia(capture) {
   }
   capture.mediaRecorder = null;
   capture.mediaStream = null;
-}
-
-function computeDecibelFromTimeDomain(data) {
-  let sumSquares = 0;
-  for (let i = 0; i < data.length; i++) {
-    const sample = (data[i] - 128) / 128;
-    sumSquares += sample * sample;
+  if (capture._sileroDeferred) {
+    try { capture._sileroDeferred.destroy(); } catch (_) {}
+    capture._sileroDeferred = null;
   }
-  const rms = Math.sqrt(sumSquares / Math.max(1, data.length));
-  if (rms <= 0 || Number.isNaN(rms)) return -100;
-  return 20 * Math.log10(rms);
+  if (capture._vadStream) {
+    for (const track of capture._vadStream.getTracks()) { track.stop(); }
+    capture._vadStream = null;
+  }
+  if (capture._vadAudioContext) {
+    try { capture._vadAudioContext.close(); } catch (_) {}
+    capture._vadAudioContext = null;
+  }
 }
 
-function clampNumber(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function percentileValue(values, percentile) {
-  if (!Array.isArray(values) || values.length === 0) return null;
-  const sorted = values
-    .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value))
-    .sort((a, b) => a - b);
-  if (sorted.length === 0) return null;
-  const rank = clampNumber(percentile, 0, 1) * (sorted.length - 1);
-  const lower = Math.floor(rank);
-  const upper = Math.ceil(rank);
-  if (lower === upper) return sorted[lower];
-  const weight = rank - lower;
-  return (sorted[lower] * (1 - weight)) + (sorted[upper] * weight);
+function handleVADNoSpeechTimeout(capture) {
+  stopVADMonitor(capture);
+  state.indicatorSuppressedByCanvasUpdate = false;
+  showStatus('no speech detected');
+  setRecording(false);
+  setVoiceLifecycle(VOICE_LIFECYCLE.IDLE, 'voice-vad-no-speech');
+  sttCancel();
+  stopChatVoiceMedia(capture);
+  if (state.chatVoiceCapture === capture) {
+    state.chatVoiceCapture = null;
+  }
+  updateAssistantActivityIndicator();
+  window.setTimeout(() => {
+    if (isUiReadyForStatus()) {
+      showStatus('ready');
+    }
+  }, 800);
 }
 
 function startVADMonitor(capture) {
   if (!isVoiceVADAutoSendEnabled()) return;
   if (!capture || capture.vadState) return;
   if (!capture.mediaStream) return;
-  if (!ttsAudioCtx || typeof ttsAudioCtx.createAnalyser !== 'function' || typeof ttsAudioCtx.createMediaStreamSource !== 'function') return;
+  void startSileroVADMonitor(capture);
+}
 
-  if (ttsAudioCtx.state === 'suspended') {
-    ttsAudioCtx.resume().catch(() => {});
-  }
+async function startSileroVADMonitor(capture) {
+  const isHotwordCapture = Boolean(capture?.hotwordTriggered);
+  const vadNoSpeechMs = isHotwordCapture ? HOTWORD_VAD_NO_SPEECH_MS : VOICE_VAD_NO_SPEECH_MS;
+  const redemptionMs = isHotwordCapture ? 1200 : 600;
+  const minSpeechMs = isHotwordCapture ? 400 : 250;
 
-  const handleNoSpeechTimeout = () => {
-    stopVADMonitor(capture);
-    state.indicatorSuppressedByCanvasUpdate = false;
-    showStatus('no speech detected');
-    setRecording(false);
-    setVoiceLifecycle(VOICE_LIFECYCLE.IDLE, 'voice-vad-no-speech');
-    sttCancel();
-    stopChatVoiceMedia(capture);
-    if (state.chatVoiceCapture === capture) {
-      state.chatVoiceCapture = null;
-    }
-    updateAssistantActivityIndicator();
-    window.setTimeout(() => {
-      if (isUiReadyForStatus()) {
-        showStatus('ready');
-      }
-    }, 800);
-  };
-
-  const options = {
-    startAtMs: performance.now(),
-    lastFrameAtMs: performance.now(),
-    speechMs: 0,
-    silenceMs: 0,
-    hasSpeech: false,
-    pendingCommitAtMs: 0,
-    speechFrames: 0,
-    noiseSamples: [],
-    noiseFloorDb: null,
+  const vadState = {
+    sileroInstance: null,
+    noSpeechTimer: null,
+    maxDurationTimer: null,
+    committed: false,
     isRunning: true,
   };
-  const isHotwordCapture = Boolean(capture?.hotwordTriggered);
-  const vadMinUtteranceMs = isHotwordCapture ? HOTWORD_VAD_MIN_UTTERANCE_MS : VOICE_VAD_MIN_UTTERANCE_MS;
-  const vadCandidateSilenceMs = isHotwordCapture ? HOTWORD_VAD_CANDIDATE_SILENCE_MS : VOICE_VAD_CANDIDATE_SILENCE_MS;
-  const vadCandidateRecheckMs = isHotwordCapture ? HOTWORD_VAD_CANDIDATE_RECHECK_MS : VOICE_VAD_CANDIDATE_RECHECK_MS;
-  const vadHardSilenceMs = isHotwordCapture ? HOTWORD_VAD_HARD_SILENCE_MS : VOICE_VAD_HARD_SILENCE_MS;
-  const vadNoSpeechMs = isHotwordCapture ? HOTWORD_VAD_NO_SPEECH_MS : VOICE_VAD_NO_SPEECH_MS;
-  const vadMinCommitMs = isHotwordCapture ? HOTWORD_VAD_MIN_COMMIT_MS : 0;
+  capture.vadState = vadState;
 
-  let source;
-  let analyser;
+  vadState.maxDurationTimer = window.setTimeout(() => {
+    if (!vadState.isRunning || vadState.committed) return;
+    vadState.committed = true;
+    stopVADMonitor(capture);
+    void stopVoiceCaptureAndSend();
+  }, VOICE_VAD_MAX_RECORDING_HARD_MS);
+
   try {
-    source = ttsAudioCtx.createMediaStreamSource(capture.mediaStream);
-    analyser = ttsAudioCtx.createAnalyser();
-    analyser.fftSize = 1024;
-    analyser.smoothingTimeConstant = 0.25;
-    const bins = new Uint8Array(analyser.frequencyBinCount);
-    source.connect(analyser);
-    // iOS Safari requires the graph to terminate at destination for
-    // AnalyserNode to receive live data from a MediaStreamSource.
-    let silentGain = null;
-    if (typeof ttsAudioCtx.createGain === 'function') {
-      silentGain = ttsAudioCtx.createGain();
-      silentGain.gain.value = 0;
-      analyser.connect(silentGain);
-      silentGain.connect(ttsAudioCtx.destination);
-    }
+    // Clone the stream so MicVAD's AudioContext/AudioWorklet cannot interfere
+    // with the MediaRecorder consuming the original stream (Safari bug).
+    const vadStream = capture.mediaStream.clone();
+    capture._vadStream = vadStream;
 
-    const update = () => {
-      if (!options.isRunning || !capture || capture.stopping || state.chatVoiceCapture !== capture) {
-        stopVADMonitor(capture);
-        return;
-      }
-
-      analyser.getByteTimeDomainData(bins);
-      const db = computeDecibelFromTimeDomain(bins);
-      const now = performance.now();
-      const frameElapsedMsRaw = now - options.lastFrameAtMs;
-      const frameElapsedMs = Number.isFinite(frameElapsedMsRaw) && frameElapsedMsRaw > 0
-        ? Math.min(300, frameElapsedMsRaw)
-        : VOICE_VAD_FRAME_MS;
-      options.lastFrameAtMs = now;
-      const elapsed = now - options.startAtMs;
-
-      if (options.noiseFloorDb == null && options.noiseSamples.length < VOICE_VAD_NOISE_FLOOR_SAMPLES) {
-        options.noiseSamples.push(db);
-        if (options.noiseSamples.length >= VOICE_VAD_NOISE_FLOOR_SAMPLES) {
-          const seededFloor = percentileValue(options.noiseSamples, VOICE_VAD_NOISE_FLOOR_PERCENTILE);
-          if (seededFloor != null) {
-            options.noiseFloorDb = clampNumber(
-              seededFloor,
-              VOICE_VAD_NOISE_FLOOR_MIN_DB,
-              VOICE_VAD_NOISE_FLOOR_MAX_DB,
-            );
-          }
+    const instance = await initVAD({
+      stream: vadStream,
+      audioContext: capture._vadAudioContext || undefined,
+      positiveSpeechThreshold: 0.6,
+      negativeSpeechThreshold: 0.35,
+      redemptionMs,
+      minSpeechMs,
+      preSpeechPadMs: 300,
+      onSpeechStart() {
+        if (!vadState.isRunning || vadState.committed) return;
+        if (vadState.noSpeechTimer) {
+          window.clearTimeout(vadState.noSpeechTimer);
+          vadState.noSpeechTimer = null;
         }
-      }
-
-      if (options.noiseFloorDb == null) {
-        if (elapsed >= vadNoSpeechMs) {
-          handleNoSpeechTimeout();
-          return;
+      },
+      onSpeechEnd(audio) {
+        if (!vadState.isRunning || vadState.committed) return;
+        vadState.committed = true;
+        if (audio instanceof Float32Array && audio.length > 0) {
+          capture._vadAudioBlob = float32ToWav(audio, 16000);
         }
-        return;
-      }
-
-      const startThresholdBefore = Math.max(
-        VOICE_VAD_SPEECH_START_THRESHOLD_MIN_DB,
-        options.noiseFloorDb + VOICE_VAD_SPEECH_START_OFFSET_DB,
-      );
-      const endThresholdBefore = Math.max(
-        VOICE_VAD_SPEECH_END_THRESHOLD_MIN_DB,
-        options.noiseFloorDb + VOICE_VAD_SPEECH_END_OFFSET_DB,
-      );
-      const floorUpdateCeilDb = options.hasSpeech ? endThresholdBefore + 2 : startThresholdBefore;
-      // Keep tracking ambient floor but avoid pulling it up while speech is active.
-      if (db <= floorUpdateCeilDb) {
-        options.noiseFloorDb = clampNumber(
-          ((1 - VOICE_VAD_NOISE_FLOOR_ADAPT_ALPHA) * options.noiseFloorDb) + (VOICE_VAD_NOISE_FLOOR_ADAPT_ALPHA * db),
-          VOICE_VAD_NOISE_FLOOR_MIN_DB,
-          VOICE_VAD_NOISE_FLOOR_MAX_DB,
-        );
-      }
-
-      const startThresholdDb = Math.max(
-        VOICE_VAD_SPEECH_START_THRESHOLD_MIN_DB,
-        options.noiseFloorDb + VOICE_VAD_SPEECH_START_OFFSET_DB,
-      );
-      const endThresholdDb = Math.max(
-        VOICE_VAD_SPEECH_END_THRESHOLD_MIN_DB,
-        options.noiseFloorDb + VOICE_VAD_SPEECH_END_OFFSET_DB,
-      );
-
-      if (!options.hasSpeech) {
-        if (db >= startThresholdDb) {
-          options.speechFrames += 1;
-        } else {
-          options.speechFrames = 0;
-        }
-        if (options.speechFrames >= VOICE_VAD_SPEECH_START_FRAMES) {
-          options.hasSpeech = true;
-          options.speechStartAt = now;
-          options.silenceMs = 0;
-          options.speechFrames = 0;
-        }
-      }
-
-      if (!options.hasSpeech) {
-        if (elapsed >= vadNoSpeechMs) {
-          handleNoSpeechTimeout();
-          return;
-        }
-        return;
-      }
-
-      if (db >= endThresholdDb) {
-        options.silenceMs = 0;
-      } else {
-        options.silenceMs += frameElapsedMs;
-      }
-
-      options.speechMs = Math.max(0, now - options.speechStartAt);
-      if (options.speechMs < vadMinUtteranceMs) return;
-      const hitCandidate = options.silenceMs >= vadCandidateSilenceMs;
-      const hitHardSilence = options.silenceMs >= vadHardSilenceMs;
-      const hitSoftMaxDuration = elapsed >= VOICE_VAD_MAX_RECORDING_SOFT_MS;
-      const hitHardMaxDuration = elapsed >= VOICE_VAD_MAX_RECORDING_HARD_MS;
-      const canCommit = elapsed >= vadMinCommitMs;
-
-      if ((canCommit && hitHardSilence) || hitHardMaxDuration || hitSoftMaxDuration) {
         stopVADMonitor(capture);
         void stopVoiceCaptureAndSend();
-        return;
-      }
+      },
+    });
 
-      if (canCommit && hitCandidate) {
-        if (!options.pendingCommitAtMs) {
-          options.pendingCommitAtMs = now + vadCandidateRecheckMs;
-          return;
-        }
-        if (now >= options.pendingCommitAtMs) {
-          stopVADMonitor(capture);
-          void stopVoiceCaptureAndSend();
-        }
-        return;
-      }
-
-      if (options.pendingCommitAtMs) {
-        options.pendingCommitAtMs = 0;
-      }
-    };
-
-    const timer = window.setInterval(update, VOICE_VAD_FRAME_MS);
-    capture.vadState = { source, analyser, silentGain, timer, options, bins, isRunning: true };
-  } catch (_) {
-    if (source) {
-      try { source.disconnect(); } catch (_) {}
+    if (!vadState.isRunning) {
+      if (instance) instance.destroy();
+      return;
     }
-    capture.vadState = null;
+
+    vadState.sileroInstance = instance;
+    if (instance) instance.start();
+
+    // Start the no-speech timer only after the VAD is running. On Safari,
+    // model + AudioWorklet init can exceed 4s; starting the timer before
+    // init would fire handleVADNoSpeechTimeout and tear down the capture
+    // before the VAD ever processed a frame.
+    vadState.noSpeechTimer = window.setTimeout(() => {
+      if (!vadState.isRunning || vadState.committed) return;
+      handleVADNoSpeechTimeout(capture);
+    }, vadNoSpeechMs);
+  } catch (err) {
+    console.warn('Silero VAD init failed:', err);
+    if (vadState.isRunning) {
+      handleVADNoSpeechTimeout(capture);
+    }
   }
 }
 
 function stopVADMonitor(capture) {
   if (!capture || !capture.vadState) return;
-  const state = capture.vadState;
+  const vs = capture.vadState;
   capture.vadState = null;
-  if (state.options) state.options.isRunning = false;
-  state.isRunning = false;
-  if (state.timer) window.clearInterval(state.timer);
-  if (state.source) {
-    try { state.source.disconnect(); } catch (_) {}
-  }
-  if (state.silentGain) {
-    try { state.silentGain.disconnect(); } catch (_) {}
-  }
-  if (state.analyser) {
-    try { state.analyser.disconnect(); } catch (_) {}
+  vs.isRunning = false;
+
+  if (vs.noSpeechTimer) window.clearTimeout(vs.noSpeechTimer);
+  if (vs.maxDurationTimer) window.clearTimeout(vs.maxDurationTimer);
+  if (vs.sileroInstance) {
+    try { vs.sileroInstance.pause(); } catch (_) {}
+    capture._sileroDeferred = vs.sileroInstance;
   }
 }
 
@@ -1930,6 +1920,20 @@ async function beginVoiceCapture(x, y, anchor, options = {}) {
   cancelConversationListen();
   // Interrupt TTS playback when starting recording
   stopTTSPlayback();
+
+  // Pre-create AudioContext during the user gesture (synchronous, before
+  // any await) so iOS Safari allows it to enter "running" state.  Without
+  // this, vad.MicVAD.new() creates its own AudioContext deep in an async
+  // chain where iOS Safari considers the gesture expired and suspends it,
+  // causing the AudioWorklet to never process frames.
+  let vadAudioContext = null;
+  if (isVoiceVADAutoSendEnabled() && typeof AudioContext !== 'undefined') {
+    try {
+      vadAudioContext = new AudioContext();
+      if (vadAudioContext.state === 'suspended') vadAudioContext.resume();
+    } catch (_) {}
+  }
+
   const capture = {
     active: false,
     stopping: false,
@@ -1953,12 +1957,20 @@ async function beginVoiceCapture(x, y, anchor, options = {}) {
   showStatus('recording...');
   try {
     const stream = await acquireMicStream();
-    if (state.chatVoiceCapture !== capture) return;
+    if (state.chatVoiceCapture !== capture) {
+      if (vadAudioContext) { try { vadAudioContext.close(); } catch (_) {} }
+      return;
+    }
     const recorder = newMediaRecorder(stream);
     capture.mimeType = String(recorder?.mimeType || '').trim();
-    if (state.chatVoiceCapture !== capture) return;
+    if (state.chatVoiceCapture !== capture) {
+      if (vadAudioContext) { try { vadAudioContext.close(); } catch (_) {} }
+      return;
+    }
     capture.mediaStream = stream;
     capture.mediaRecorder = recorder;
+    capture._vadAudioContext = vadAudioContext;
+    vadAudioContext = null;
     capture.active = true;
     recorder.addEventListener('dataavailable', (ev) => {
       if (!ev?.data || ev.data.size <= 0) return;
@@ -1982,6 +1994,7 @@ async function beginVoiceCapture(x, y, anchor, options = {}) {
     if (state.chatVoiceCapture === capture) {
       state.chatVoiceCapture = null;
     }
+    if (vadAudioContext) { try { vadAudioContext.close(); } catch (_) {} }
   }
 }
 
@@ -2017,23 +2030,33 @@ async function stopVoiceCaptureAndSend() {
   let remoteStopped = false;
   let reopenConversationListen = false;
   try {
-    await stopChatVoiceMediaAndFlush(capture);
-    let mimeType = String(capture.mimeType || '').trim();
-    if (!mimeType) {
-      mimeType = firstNonEmptyChunkMimeType(capture.chunks);
-    }
     let sttBlob = null;
-    if (capture.chunks.length > 0) {
-      sttBlob = mimeType
-        ? new Blob(capture.chunks, { type: mimeType })
-        : new Blob(capture.chunks);
+    let mimeType = '';
+    if (capture._vadAudioBlob) {
+      // VAD auto-stop: use speech audio directly, skip MediaRecorder flush
+      // so Safari cannot interfere via its broken stop/dataavailable ordering.
+      sttBlob = capture._vadAudioBlob;
+      mimeType = 'audio/wav';
+      capture._vadAudioBlob = null;
+    } else {
+      // Manual stop / timeout: flush MediaRecorder and use its chunks.
+      await stopChatVoiceMediaAndFlush(capture);
+      mimeType = String(capture.mimeType || '').trim();
       if (!mimeType) {
-        mimeType = String(sttBlob?.type || '').trim();
+        mimeType = firstNonEmptyChunkMimeType(capture.chunks);
       }
-      capture.chunks = [];
-    }
-    if (!mimeType) {
-      mimeType = isLikelyIOS() ? 'audio/mp4' : 'audio/webm';
+      if (capture.chunks.length > 0) {
+        sttBlob = mimeType
+          ? new Blob(capture.chunks, { type: mimeType })
+          : new Blob(capture.chunks);
+        if (!mimeType) {
+          mimeType = String(sttBlob?.type || '').trim();
+        }
+        capture.chunks = [];
+      }
+      if (!mimeType) {
+        mimeType = isLikelyIOS() ? 'audio/mp4' : 'audio/webm';
+      }
     }
     sttStart(mimeType);
     if (sttBlob) {
@@ -3310,7 +3333,7 @@ function renderEdgeTopModelButtons() {
   for (const effort of effortOptions) {
     const option = document.createElement('option');
     option.value = effort;
-    option.textContent = effort === 'extra_high' ? 'xhigh' : effort.replace(/_/g, ' ');
+    option.textContent = effort === 'xhigh' || effort === 'extra_high' ? 'xhigh' : effort.replace(/_/g, ' ');
     effortSelect.appendChild(option);
   }
   effortSelect.value = effortOptions.includes(selectedEffort) ? selectedEffort : (effortOptions[0] || '');
@@ -3340,6 +3363,20 @@ function renderEdgeTopModelButtons() {
     showStatus(enabled ? 'conversation mode on' : 'conversation mode off');
   });
   host.appendChild(convButton);
+
+  const yoloButton = document.createElement('button');
+  yoloButton.type = 'button';
+  yoloButton.className = 'edge-project-btn edge-model-btn edge-yolo-btn';
+  yoloButton.textContent = 'yolo';
+  yoloButton.setAttribute('aria-pressed', state.yoloMode ? 'true' : 'false');
+  if (state.yoloMode) {
+    yoloButton.classList.add('is-active');
+  }
+  yoloButton.disabled = state.projectSwitchInFlight || state.projectModelSwitchInFlight;
+  yoloButton.addEventListener('click', () => {
+    toggleYoloMode();
+  });
+  host.appendChild(yoloButton);
 
   const silentButton = document.createElement('button');
   silentButton.type = 'button';
@@ -3740,6 +3777,16 @@ function handleChatEvent(payload) {
       renderEdgeTopModelButtons();
       updateAssistantActivityIndicator();
       showStatus(enabled ? 'conversation mode on' : 'conversation mode off');
+    }
+    return;
+  }
+
+  if (type === 'system_action_confirmation_required') {
+    const action = payload && typeof payload.action === 'object' ? payload.action : {};
+    const summary = String(action?.summary || '').trim();
+    if (summary) {
+      showStatus('confirmation required');
+      appendPlainMessage('system', `Confirmation required: ${summary}`);
     }
     return;
   }
@@ -5561,11 +5608,14 @@ async function init() {
   // Check TTS availability from runtime
   try {
     const runtime = await fetchRuntimeMeta();
+    applyRuntimePreferences(runtime);
     ttsEnabled = Boolean(runtime?.tts_enabled);
     applyRuntimeReasoningEffortOptions(runtime?.available_reasoning_efforts);
   } catch (_) {
     ttsEnabled = false;
+    setYoloModeLocal(readYoloModePreference(), { persist: false, render: false });
   }
+  await showDisclaimerModal().catch(() => {});
   setTTSSilentMode(readTTSSilentPreference(), { persist: false, pinPanel: false });
   await initHotwordLifecycle();
 

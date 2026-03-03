@@ -2,8 +2,9 @@
   "name": "tabura-e2e",
   "private": true,
   "scripts": {
-    "test:e2e": "playwright test",
-    "test:e2e:headed": "playwright test --headed",
+    "test:e2e": "./scripts/playwright.sh",
+    "test:e2e:headed": "./scripts/playwright.sh --headed",
+    "test:e2e:local": "./scripts/e2e-local.sh",
     "test:reports": "./scripts/test-reports.sh"
   },
   "devDependencies": {

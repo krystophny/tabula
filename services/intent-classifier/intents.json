@@ -3,7 +3,7 @@
   {"text": "use the gpt model", "intent": "switch_model", "entities": {"alias": "gpt"}},
   {"text": "change model to spark", "intent": "switch_model", "entities": {"alias": "spark"}},
   {"text": "set model to codex with high effort", "intent": "switch_model", "entities": {"alias": "codex", "effort": "high"}},
-  {"text": "switch to gpt extra high", "intent": "switch_model", "entities": {"alias": "gpt", "effort": "extra_high"}},
+  {"text": "switch to gpt extra high", "intent": "switch_model", "entities": {"alias": "gpt", "effort": "xhigh"}},
   {"text": "use spark low", "intent": "switch_model", "entities": {"alias": "spark", "effort": "low"}},
   {"text": "set model codex medium", "intent": "switch_model", "entities": {"alias": "codex", "effort": "medium"}},
 

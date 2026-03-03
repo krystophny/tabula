@@ -1,5 +1,7 @@
 # Meeting Notes Privacy Contract
 
+> **Legal notice:** Tabura is provided "as is" and "as available" without warranties, and to the maximum extent permitted by applicable law the authors/contributors accept no liability for damages, data loss, or misuse. You are solely responsible for backups, verification, and safe operation. See [`DISCLAIMER.md`](/DISCLAIMER.md).
+
 This document formalizes the audio privacy guarantees for Tabura's speech-to-text pipeline.
 
 **Key invariant: audio exists only in RAM during processing and is never persisted to disk or database.**

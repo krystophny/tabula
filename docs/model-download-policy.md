@@ -1,5 +1,7 @@
 # Model Download Policy
 
+> **Legal notice:** Tabura is provided "as is" and "as available" without warranties, and to the maximum extent permitted by applicable law the authors/contributors accept no liability for damages, data loss, or misuse. You are solely responsible for backups, verification, and safe operation. See [`DISCLAIMER.md`](/DISCLAIMER.md).
+
 This policy defines what Tabura downloads, from where, under which license, and
 how user consent is handled.
 
@@ -28,7 +30,7 @@ Examples:
 - Piper voice models (per-model terms documented in model cards)
 - ffmpeg (GPL/LGPL, package dependent)
 - voxtype (MIT external STT sidecar)
-- Qwen3 0.6B GGUF (Apache-2.0 model download)
+- Qwen3.5 9B GGUF (Apache-2.0 model download)
 
 ## Current Downloaded Components
 
@@ -46,7 +48,7 @@ Examples:
 | ONNX Runtime Web | npm/web artifact source | MIT | Tier 1 |
 | openWakeWord models | project/model registry | Apache-2.0 | Tier 1 |
 | DistilBERT intent model | model registry | Apache-2.0 | Tier 1 |
-| Qwen3 0.6B GGUF | Hugging Face | Apache-2.0 | Tier 2 |
+| Qwen3.5 9B GGUF | Hugging Face | Apache-2.0 | Tier 2 |
 
 ## Operator Rules
 
