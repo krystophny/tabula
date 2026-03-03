@@ -66,22 +66,23 @@ type handoffEnvelope struct {
 }
 
 type delegateJob struct {
-	ID             string
-	Status         string
-	Model          string
-	CWD            string
-	TimeoutSeconds int
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	FinishedAt     time.Time
-	ThreadID       string
-	TurnID         string
-	Message        string
-	FilesChanged   []string
-	Error          string
-	Events         []delegateProgressEvent
-	NextSeq        int64
-	Cancel         context.CancelFunc
+	ID              string
+	Status          string
+	Model           string
+	ReasoningEffort string
+	CWD             string
+	TimeoutSeconds  int
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	FinishedAt      time.Time
+	ThreadID        string
+	TurnID          string
+	Message         string
+	FilesChanged    []string
+	Error           string
+	Events          []delegateProgressEvent
+	NextSeq         int64
+	Cancel          context.CancelFunc
 }
 
 type delegateProgressEvent struct {

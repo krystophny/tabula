@@ -98,6 +98,16 @@ var MCPTools = []Tool{
 				Description: "Model to use. Aliases: 'spark' (gpt-5.3-codex-spark), 'codex' (gpt-5.3-codex), 'gpt' (gpt-5.2). Defaults to 'codex'.",
 				Enum:        []string{"spark", "codex", "gpt"},
 			},
+			"reasoning_effort": {
+				Type:        "string",
+				Description: "Reasoning effort for the delegate model. Allowed: low, medium, high, xhigh.",
+				Enum:        []string{"low", "medium", "high", "xhigh"},
+			},
+			"effort": {
+				Type:        "string",
+				Description: "Alias for reasoning_effort. Allowed: low, medium, high, xhigh.",
+				Enum:        []string{"low", "medium", "high", "xhigh"},
+			},
 			"context": {
 				Type:        "string",
 				Description: "Summary of the conversation so far, giving the delegate model background.",

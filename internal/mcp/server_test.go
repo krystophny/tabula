@@ -165,6 +165,41 @@ func TestResolveModelAlias(t *testing.T) {
 	}
 }
 
+func TestBuildDelegateRequestAcceptsReasoningEffortAndEffortAlias(t *testing.T) {
+	adapter := canvas.NewAdapter(t.TempDir(), nil)
+	s := NewServer(adapter)
+
+	reqA, err := s.buildDelegateRequest(map[string]interface{}{
+		"prompt":           "audit code",
+		"model":            "codex",
+		"reasoning_effort": "medium",
+	})
+	if err != nil {
+		t.Fatalf("buildDelegateRequest with reasoning_effort failed: %v", err)
+	}
+	if got := reqA.ReasoningEffort; got != "medium" {
+		t.Fatalf("reasoning effort = %q, want medium", got)
+	}
+	if got, _ := reqA.Reasoning["effort"].(string); got != "medium" {
+		t.Fatalf("reasoning param effort = %q, want medium", got)
+	}
+
+	reqB, err := s.buildDelegateRequest(map[string]interface{}{
+		"prompt": "audit code",
+		"model":  "codex",
+		"effort": "low",
+	})
+	if err != nil {
+		t.Fatalf("buildDelegateRequest with effort alias failed: %v", err)
+	}
+	if got := reqB.ReasoningEffort; got != "low" {
+		t.Fatalf("alias effort normalize = %q, want low", got)
+	}
+	if got, _ := reqB.Reasoning["effort"].(string); got != "low" {
+		t.Fatalf("alias reasoning param effort = %q, want low", got)
+	}
+}
+
 func TestAssembleDelegatePrompt(t *testing.T) {
 	t.Run("all fields", func(t *testing.T) {
 		got := assembleDelegatePrompt("Be thorough.", "User asked about X.", "Analyze the code.")
@@ -277,7 +312,7 @@ func TestToolDefinitionsEmitsProperties(t *testing.T) {
 	if props == nil {
 		t.Fatal("missing properties in inputSchema")
 	}
-	for _, key := range []string{"prompt", "model", "context", "system_prompt", "cwd", "timeout_seconds"} {
+	for _, key := range []string{"prompt", "model", "reasoning_effort", "effort", "context", "system_prompt", "cwd", "timeout_seconds"} {
 		if props[key] == nil {
 			t.Errorf("missing property %q", key)
 		}

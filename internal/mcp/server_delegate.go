@@ -24,9 +24,25 @@ func resolveModelAlias(raw string) string {
 	return strings.TrimSpace(raw)
 }
 
-// delegateReasoningParams returns high reasoning effort for non-spark models
-// (gpt-5.3-codex, gpt-5.2) so delegated tasks get full reasoning budget.
-func delegateReasoningParams(model string) map[string]interface{} {
+func normalizeDelegateReasoningEffort(model string, rawEffort string) string {
+	effort := strings.TrimSpace(strings.ToLower(rawEffort))
+	if effort == "" {
+		return ""
+	}
+	alias := modelprofile.AliasForModel(strings.TrimSpace(model))
+	if alias == "" {
+		return strings.TrimSpace(modelprofile.NormalizeReasoningEffort(modelprofile.AliasCodex, effort))
+	}
+	return strings.TrimSpace(modelprofile.NormalizeReasoningEffort(alias, effort))
+}
+
+// delegateReasoningParams picks explicit effort when provided, otherwise
+// keeps the previous default behavior (high for non-spark, nil for spark).
+func delegateReasoningParams(model string, effort string) map[string]interface{} {
+	normalizedEffort := normalizeDelegateReasoningEffort(model, effort)
+	if normalizedEffort != "" {
+		return modelprofile.ReasoningParamsForEffort(normalizedEffort)
+	}
 	return modelprofile.DelegateReasoningParams(model)
 }
 
@@ -55,12 +71,13 @@ func assembleDelegatePrompt(systemPrompt, taskContext, prompt string) string {
 }
 
 type delegateRequest struct {
-	Model          string
-	FullPrompt     string
-	CWD            string
-	TimeoutSeconds int
-	Timeout        time.Duration
-	Reasoning      map[string]interface{}
+	Model           string
+	ReasoningEffort string
+	FullPrompt      string
+	CWD             string
+	TimeoutSeconds  int
+	Timeout         time.Duration
+	Reasoning       map[string]interface{}
 }
 
 func (s *Server) buildDelegateRequest(args map[string]interface{}) (delegateRequest, error) {
@@ -69,6 +86,11 @@ func (s *Server) buildDelegateRequest(args map[string]interface{}) (delegateRequ
 		return delegateRequest{}, errors.New("prompt is required")
 	}
 	model := resolveModelAlias(strArg(args, "model"))
+	rawEffort := strings.TrimSpace(strArg(args, "reasoning_effort"))
+	if rawEffort == "" {
+		rawEffort = strings.TrimSpace(strArg(args, "effort"))
+	}
+	reasoningEffort := normalizeDelegateReasoningEffort(model, rawEffort)
 	fullPrompt := assembleDelegatePrompt(
 		strArg(args, "system_prompt"),
 		strArg(args, "context"),
@@ -84,12 +106,13 @@ func (s *Server) buildDelegateRequest(args map[string]interface{}) (delegateRequ
 	}
 	timeout := time.Duration(timeoutSeconds) * time.Second
 	return delegateRequest{
-		Model:          model,
-		FullPrompt:     fullPrompt,
-		CWD:            cwd,
-		TimeoutSeconds: timeoutSeconds,
-		Timeout:        timeout,
-		Reasoning:      delegateReasoningParams(model),
+		Model:           model,
+		ReasoningEffort: reasoningEffort,
+		FullPrompt:      fullPrompt,
+		CWD:             cwd,
+		TimeoutSeconds:  timeoutSeconds,
+		Timeout:         timeout,
+		Reasoning:       delegateReasoningParams(model, reasoningEffort),
 	}, nil
 }
 
@@ -107,14 +130,15 @@ func (s *Server) startDelegateJob(args map[string]interface{}) (map[string]inter
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), req.Timeout)
 	job := &delegateJob{
-		ID:             newDelegateJobID(),
-		Status:         delegateStatusRunning,
-		Model:          req.Model,
-		CWD:            req.CWD,
-		TimeoutSeconds: req.TimeoutSeconds,
-		CreatedAt:      time.Now().UTC(),
-		UpdatedAt:      time.Now().UTC(),
-		Cancel:         cancel,
+		ID:              newDelegateJobID(),
+		Status:          delegateStatusRunning,
+		Model:           req.Model,
+		ReasoningEffort: req.ReasoningEffort,
+		CWD:             req.CWD,
+		TimeoutSeconds:  req.TimeoutSeconds,
+		CreatedAt:       time.Now().UTC(),
+		UpdatedAt:       time.Now().UTC(),
+		Cancel:          cancel,
 	}
 	s.delegateMu.Lock()
 	s.pruneDelegateJobsLocked(time.Now().UTC())
@@ -127,7 +151,14 @@ func (s *Server) startDelegateJob(args map[string]interface{}) (map[string]inter
 		Text: "delegate job started",
 	})
 	s.delegateMu.Unlock()
-	log.Printf("delegate job started id=%s model=%s cwd=%s timeout_s=%d", job.ID, job.Model, job.CWD, job.TimeoutSeconds)
+	log.Printf(
+		"delegate job started id=%s model=%s effort=%s cwd=%s timeout_s=%d",
+		job.ID,
+		job.Model,
+		job.ReasoningEffort,
+		job.CWD,
+		job.TimeoutSeconds,
+	)
 
 	go func() {
 		resp, runErr := s.appServerClient.SendPromptStream(ctx, appserver.PromptRequest{
@@ -198,13 +229,14 @@ func (s *Server) startDelegateJob(args map[string]interface{}) (map[string]inter
 	}()
 
 	return map[string]interface{}{
-		"ok":              true,
-		"job_id":          job.ID,
-		"status":          job.Status,
-		"model":           job.Model,
-		"timeout_seconds": job.TimeoutSeconds,
-		"started_at":      job.CreatedAt.Format(time.RFC3339),
-		"poll_hint":       "Call delegate_to_model_status with this job_id and after_seq cursor for incremental updates.",
+		"ok":               true,
+		"job_id":           job.ID,
+		"status":           job.Status,
+		"model":            job.Model,
+		"reasoning_effort": job.ReasoningEffort,
+		"timeout_seconds":  job.TimeoutSeconds,
+		"started_at":       job.CreatedAt.Format(time.RFC3339),
+		"poll_hint":        "Call delegate_to_model_status with this job_id and after_seq cursor for incremental updates.",
 	}, nil
 }
 
@@ -381,25 +413,26 @@ func (s *Server) delegateToModelStatus(args map[string]interface{}) (map[string]
 	latestSeq := int(job.NextSeq)
 	done := job.Status != delegateStatusRunning
 	return map[string]interface{}{
-		"ok":              true,
-		"job_id":          job.ID,
-		"status":          job.Status,
-		"done":            done,
-		"model":           job.Model,
-		"cwd":             job.CWD,
-		"thread_id":       job.ThreadID,
-		"turn_id":         job.TurnID,
-		"message":         job.Message,
-		"files_changed":   append([]string(nil), job.FilesChanged...),
-		"error":           job.Error,
-		"created_at":      job.CreatedAt.Format(time.RFC3339),
-		"updated_at":      job.UpdatedAt.Format(time.RFC3339),
-		"finished_at":     formatTimestamp(job.FinishedAt),
-		"events":          events,
-		"after_seq":       nextAfterSeq,
-		"latest_seq":      latestSeq,
-		"has_more":        latestSeq > nextAfterSeq,
-		"timeout_seconds": job.TimeoutSeconds,
+		"ok":               true,
+		"job_id":           job.ID,
+		"status":           job.Status,
+		"done":             done,
+		"model":            job.Model,
+		"reasoning_effort": job.ReasoningEffort,
+		"cwd":              job.CWD,
+		"thread_id":        job.ThreadID,
+		"turn_id":          job.TurnID,
+		"message":          job.Message,
+		"files_changed":    append([]string(nil), job.FilesChanged...),
+		"error":            job.Error,
+		"created_at":       job.CreatedAt.Format(time.RFC3339),
+		"updated_at":       job.UpdatedAt.Format(time.RFC3339),
+		"finished_at":      formatTimestamp(job.FinishedAt),
+		"events":           events,
+		"after_seq":        nextAfterSeq,
+		"latest_seq":       latestSeq,
+		"has_more":         latestSeq > nextAfterSeq,
+		"timeout_seconds":  job.TimeoutSeconds,
 	}, nil
 }
 
