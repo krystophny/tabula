@@ -14,6 +14,16 @@ async function clearLog(page: Page) {
   await page.evaluate(() => { (window as any).__harnessLog.splice(0); });
 }
 
+async function setParticipantConfig(page: Page, patch: Record<string, unknown>) {
+  await page.evaluate(async (nextPatch) => {
+    await fetch('/api/participant/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(nextPatch),
+    });
+  }, patch);
+}
+
 async function waitForLogEntry(page: Page, type: string, action: string) {
   await expect.poll(async () => {
     const log = await getLog(page);
@@ -38,6 +48,7 @@ test.beforeEach(async ({ page }) => {
 
 test('participant WS start sends participant_start and receives participant_started', async ({ page }) => {
   await clearLog(page);
+  await setParticipantConfig(page, { companion_enabled: true });
 
   await page.evaluate(() => {
     const sessions = (window as any).__mockWsSessions || [];
@@ -54,6 +65,7 @@ test('participant WS start sends participant_start and receives participant_star
 
 test('participant WS stop sends participant_stop and receives participant_stopped', async ({ page }) => {
   await clearLog(page);
+  await setParticipantConfig(page, { companion_enabled: true });
 
   await page.evaluate(() => {
     const sessions = (window as any).__mockWsSessions || [];
@@ -113,7 +125,9 @@ test('participant config API returns audio_persistence=none', async ({ page }) =
     const resp = await fetch('/api/participant/config');
     return resp.json();
   });
+  expect(config.companion_enabled).toBe(false);
   expect(config.audio_persistence).toBe('none');
+  expect(config.capture_source).toBe('microphone');
   expect(config.language).toBeTruthy();
 });
 
@@ -128,6 +142,23 @@ test('participant config PUT cannot override audio_persistence', async ({ page }
   });
   expect(config.audio_persistence).toBe('none');
   expect(config.language).toBe('de');
+  expect(config.capture_source).toBe('microphone');
+});
+
+test('participant WS start is blocked until companion mode is explicitly enabled', async ({ page }) => {
+  await clearLog(page);
+
+  await page.evaluate(() => {
+    const sessions = (window as any).__mockWsSessions || [];
+    const chatWs = sessions.find((ws: any) => typeof ws.url === 'string' && ws.url.includes('/ws/chat/'));
+    if (chatWs) {
+      chatWs.send(JSON.stringify({ type: 'participant_start' }));
+    }
+  });
+
+  await waitForLogEntry(page, 'participant', 'blocked');
+  const log = await getLog(page);
+  expect(log.some(e => e.type === 'participant' && e.action === 'start')).toBe(false);
 });
 
 test('participant capture sends 16k wav segments and clears rolling buffer after ship', async ({ page }) => {

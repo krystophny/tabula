@@ -107,6 +107,7 @@ func TestCompanionResponseTriggerExecutesAssistantTurn(t *testing.T) {
 		t.Fatalf("ensure default project: %v", err)
 	}
 	cfg := app.loadCompanionConfig(project)
+	cfg.CompanionEnabled = true
 	cfg.DirectedSpeechGateEnabled = true
 	if err := app.saveCompanionConfig(project.ID, cfg); err != nil {
 		t.Fatalf("save companion config: %v", err)
@@ -240,6 +241,7 @@ func TestCompanionResponseTriggerSkipsFalseTriggerTranscript(t *testing.T) {
 		t.Fatalf("ensure default project: %v", err)
 	}
 	cfg := app.loadCompanionConfig(project)
+	cfg.CompanionEnabled = true
 	cfg.DirectedSpeechGateEnabled = true
 	if err := app.saveCompanionConfig(project.ID, cfg); err != nil {
 		t.Fatalf("save companion config: %v", err)
@@ -305,6 +307,7 @@ func TestCompanionResponseTriggerUsesSilentModeOutputQueue(t *testing.T) {
 		t.Fatalf("ensure default project: %v", err)
 	}
 	cfg := app.loadCompanionConfig(project)
+	cfg.CompanionEnabled = true
 	cfg.DirectedSpeechGateEnabled = true
 	if err := app.saveCompanionConfig(project.ID, cfg); err != nil {
 		t.Fatalf("save companion config: %v", err)
@@ -355,6 +358,7 @@ func TestCompanionResponseTriggerDoesNotDuplicateSegment(t *testing.T) {
 		t.Fatalf("ensure default project: %v", err)
 	}
 	cfg := app.loadCompanionConfig(project)
+	cfg.CompanionEnabled = true
 	cfg.DirectedSpeechGateEnabled = true
 	if err := app.saveCompanionConfig(project.ID, cfg); err != nil {
 		t.Fatalf("save companion config: %v", err)
