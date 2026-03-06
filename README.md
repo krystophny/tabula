@@ -5,7 +5,7 @@ Core paradigm:
 - Tap to talk, right-click to type, keyboard auto-activates. No visible chrome.
 - Responses stream as ephemeral overlays; document edits update in place with diff highlighting.
 - Edge panels (hover/swipe to reveal) for project switching and chat panel access.
-- Companion Mode is the planned unified assistant surface for live meetings, 1:1 conversations, and workday assistance.
+- Companion Mode is the active unified assistant surface for live meetings, 1:1 conversations, and workday assistance.
 
 License: MIT (`LICENSE`)
 Legal notice: Tabura is provided "as is" and "as available" without warranties, and to the maximum extent permitted by applicable law the authors/contributors accept no liability for damages, data loss, or misuse. You are solely responsible for backups, verification, and safe operation. See [`DISCLAIMER.md`](DISCLAIMER.md).
@@ -149,9 +149,9 @@ Zen canvas behavior:
 - Browser opens to tabula rasa (blank white screen) or last artifact.
 - Tap anywhere to start/stop voice recording. Right-click to type. Keyboard auto-activates.
 - Built-in VAD auto-stop detects utterance end and commits speech.
-- Planned Companion Mode is botless, local-first, and Whisper-backed by default.
-- If no document is displayed, planned Companion Mode is intended to show a full-screen minimal humanoid idle surface or optional black mode.
-- Meetings and long-running jobs are intended to become temporary projects with persisted text artifacts only.
+- Companion Mode is botless, local-first, and Whisper-backed by default.
+- If no document is displayed, Companion Mode shows a full-screen minimal humanoid idle surface or optional black mode.
+- Meetings and long-running jobs default to temporary projects with persisted text artifacts only.
 - Assistant output follows one path only:
   - chat-only (spoken), or
   - file-backed canvas (`:::file`) with canvas content rendered only on canvas.

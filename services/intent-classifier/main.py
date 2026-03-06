@@ -33,7 +33,7 @@ ACTION_PATTERNS: list[tuple[re.Pattern[str], str, float]] = [
     (re.compile(r"\b(switch|change|set|use)\b.*\b(codex|gpt|spark|big model)\b", re.I), "switch_model", 0.98),
     (re.compile(r"\b(switch|change|go|open|activate|work in|move)\b.*\bproject\b", re.I), "switch_project", 0.94),
     (re.compile(r"\b(be quiet|mute|silent|disable speech|turn off voice|stop talking)\b", re.I), "toggle_silent", 0.99),
-    (re.compile(r"\b(conversation mode|continuous conversation|keep listening|toggle conversation)\b", re.I), "toggle_conversation", 0.99),
+    (re.compile(r"\b(companion mode|conversation mode|continuous conversation|keep listening|toggle (?:conversation|companion))\b", re.I), "toggle_conversation", 0.99),
     (re.compile(r"\b(cancel|abort|halt|stop now|interrupt)\b", re.I), "cancel_work", 0.96),
     (re.compile(r"\b(status|progress|current activity|how are we doing)\b", re.I), "show_status", 0.94),
 ]

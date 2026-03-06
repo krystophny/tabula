@@ -85,9 +85,9 @@ UI behavior targets minimal redraw and low-motion interaction:
 
 ## Companion Mode
 
-This section describes the planned successor to the current split between
-tap-to-record interaction and legacy conversation-mode behavior. It is a
-product-direction spec, not a claim that the runtime has already converged.
+This section describes the active continuous assistant surface. Some voice-loop
+internals still use legacy conversation naming, but that behavior belongs to
+Companion Mode rather than a separate product surface.
 
 Companion Mode is the single continuous assistant mode for:
 

@@ -455,10 +455,10 @@ test.describe('turn lifecycle events', () => {
 
 
 // =============================================================================
-// Conversation mode: multi-turn loop
+// Companion Mode: multi-turn loop
 // =============================================================================
 
-test.describe('conversation mode multi-turn', () => {
+test.describe('Companion Mode multi-turn', () => {
   async function waitForEdgeButtons(page: Page) {
     await expect.poll(async () => page.evaluate(() => {
       const conv = document.querySelector('#edge-top-models .edge-conv-btn');
@@ -471,7 +471,7 @@ test.describe('conversation mode multi-turn', () => {
     await waitForEdgeButtons(page);
     await page.evaluate(() => {
       const button = document.querySelector('#edge-top-models .edge-conv-btn');
-      if (!(button instanceof HTMLButtonElement)) throw new Error('conversation button not found');
+      if (!(button instanceof HTMLButtonElement)) throw new Error('companion mode button not found');
       if (button.getAttribute('aria-pressed') !== 'true') button.click();
     });
     await expect.poll(async () => page.evaluate(() => {
@@ -497,11 +497,12 @@ test.describe('conversation mode multi-turn', () => {
     await injectCanvasModuleRef(page);
     await page.evaluate(() => {
       window.localStorage.removeItem('tabura.conversationMode');
+      window.localStorage.removeItem('tabura.companionMode');
       (window as any).__taburaConversationListenMs = 1200;
     });
   });
 
-  test('TTS playback completion triggers listen window in conversation mode', async ({ page }) => {
+  test('TTS playback completion triggers listen window in Companion Mode', async ({ page }) => {
     await enableConversationMode(page);
     await clearLog(page);
 
@@ -538,7 +539,7 @@ test.describe('conversation mode multi-turn', () => {
     });
     await page.waitForTimeout(500);
 
-    // Even with empty message, conversation mode should not stall
+    // Even with empty message, Companion Mode should not stall
     // (onTTSPlaybackComplete should have been called as recovery)
     // Verify no unhandled rejections
     const log = await getLog(page);
@@ -616,7 +617,7 @@ test.describe('project state persistence', () => {
     expect(stored).toBe(true);
   });
 
-  test('conversation mode persists in localStorage', async ({ page }) => {
+  test('Companion Mode persists in localStorage', async ({ page }) => {
     await injectChatEvent(page, {
       type: 'system_action',
       action: { type: 'toggle_conversation' },
@@ -624,7 +625,7 @@ test.describe('project state persistence', () => {
     await page.waitForTimeout(200);
 
     const stored = await page.evaluate(() => {
-      return localStorage.getItem('tabura.conversationMode');
+      return localStorage.getItem('tabura.companionMode');
     });
     expect(stored).toBe('true');
   });

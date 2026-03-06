@@ -95,11 +95,11 @@ Chat hook flow:
 2. Tabura receives `canvas_import_handoff` with `handoff_id`.
 3. Tabura peeks/consumes producer handoff payload and renders artifact.
 
-## Current Voice Runtime and Planned Companion Convergence
+## Current Voice Runtime and Companion Mode
 
-Current runtime behavior still exposes a legacy conversation-mode path with a
-wake word. The active product direction is to converge that behavior into the
-planned Companion Mode documented in [`companion-mode-whitepaper.md`](companion-mode-whitepaper.md).
+Current runtime behavior still includes a legacy wake-word follow-up loop, but
+it now sits within the active Companion Mode surface documented in
+[`companion-mode-whitepaper.md`](companion-mode-whitepaper.md).
 
 Legacy conversation mode enables hands-free voice interaction via a wake word
 ("alexa" using openWakeWord's `alexa_v0.1.onnx` model).
@@ -123,7 +123,7 @@ State transitions:
 - **Listening** (blue border + pulse): follow-up window after TTS response (6s).
 - Follow-up timeout returns to **Paused** and restarts hotword monitoring.
 
-Planned Companion Mode differs from this legacy path in several ways:
+Companion Mode extends this legacy path in several ways:
 - it is project-scoped instead of a free-floating toggle
 - it always transcribes for context while active
 - it targets live meetings, 1:1 conversations, and workday presence with one model

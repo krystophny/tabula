@@ -236,6 +236,34 @@ func TestExecuteSystemActionShellRunsCommand(t *testing.T) {
 	}
 }
 
+func TestExecuteSystemActionToggleConversationReturnsCompanionMessage(t *testing.T) {
+	app := newAuthedTestApp(t)
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensure default project: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("chat session: %v", err)
+	}
+
+	msg, payload, err := app.executeSystemAction(session.ID, session, &SystemAction{
+		Action: "toggle_conversation",
+	})
+	if err != nil {
+		t.Fatalf("execute toggle_conversation: %v", err)
+	}
+	if strings.TrimSpace(msg) != "Toggled Companion Mode." {
+		t.Fatalf("toggle conversation message = %q, want %q", msg, "Toggled Companion Mode.")
+	}
+	if payload == nil {
+		t.Fatalf("expected toggle_conversation payload")
+	}
+	if got := strings.TrimSpace(strFromAny(payload["type"])); got != "toggle_conversation" {
+		t.Fatalf("payload type = %q, want toggle_conversation", got)
+	}
+}
+
 func TestExecuteSystemActionOpenFileCanvasShowsArtifact(t *testing.T) {
 	app := newAuthedTestApp(t)
 	project, err := app.ensureDefaultProjectRecord()

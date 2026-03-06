@@ -1308,7 +1308,7 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 	case "toggle_silent":
 		return "Toggled silent mode.", map[string]interface{}{"type": "toggle_silent"}, nil
 	case "toggle_conversation":
-		return "Toggled conversation mode.", map[string]interface{}{"type": "toggle_conversation"}, nil
+		return "Toggled Companion Mode.", map[string]interface{}{"type": "toggle_conversation"}, nil
 	case "cancel_work":
 		activeCanceled, queuedCanceled := a.cancelChatWork(sessionID)
 		total := activeCanceled + queuedCanceled

@@ -23,13 +23,13 @@
   {"text": "stop talking", "intent": "toggle_silent", "entities": {}},
   {"text": "toggle silent", "intent": "toggle_silent", "entities": {}},
 
-  {"text": "start conversation mode", "intent": "toggle_conversation", "entities": {}},
-  {"text": "enable continuous conversation", "intent": "toggle_conversation", "entities": {}},
+  {"text": "start companion mode", "intent": "toggle_conversation", "entities": {}},
+  {"text": "enable companion mode", "intent": "toggle_conversation", "entities": {}},
   {"text": "talk continuously", "intent": "toggle_conversation", "entities": {}},
-  {"text": "stop conversation mode", "intent": "toggle_conversation", "entities": {}},
-  {"text": "toggle conversation", "intent": "toggle_conversation", "entities": {}},
+  {"text": "stop companion mode", "intent": "toggle_conversation", "entities": {}},
+  {"text": "toggle companion mode", "intent": "toggle_conversation", "entities": {}},
   {"text": "keep listening after response", "intent": "toggle_conversation", "entities": {}},
-  {"text": "turn conversation mode on", "intent": "toggle_conversation", "entities": {}},
+  {"text": "turn companion mode on", "intent": "toggle_conversation", "entities": {}},
 
   {"text": "cancel current task", "intent": "cancel_work", "entities": {}},
   {"text": "stop all running work", "intent": "cancel_work", "entities": {}},

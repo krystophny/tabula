@@ -1,6 +1,7 @@
 import { initVAD } from './vad.js';
 
-const CONVERSATION_MODE_STORAGE_KEY = 'tabura.conversationMode';
+const COMPANION_MODE_STORAGE_KEY = 'tabura.companionMode';
+const LEGACY_CONVERSATION_MODE_STORAGE_KEY = 'tabura.conversationMode';
 const CONVERSATION_LISTEN_DEFAULT_MS = 6000;
 const CONVERSATION_LISTEN_MIN_MS = 500;
 
@@ -14,7 +15,10 @@ function parseOptionalBoolean(value) {
 
 function readConversationModePreference() {
   try {
-    const value = window.localStorage.getItem(CONVERSATION_MODE_STORAGE_KEY);
+    let value = window.localStorage.getItem(COMPANION_MODE_STORAGE_KEY);
+    if (value === null) {
+      value = window.localStorage.getItem(LEGACY_CONVERSATION_MODE_STORAGE_KEY);
+    }
     const parsed = parseOptionalBoolean(value);
     return parsed === true;
   } catch (_) {
@@ -24,7 +28,8 @@ function readConversationModePreference() {
 
 function persistConversationModePreference(enabled) {
   try {
-    window.localStorage.setItem(CONVERSATION_MODE_STORAGE_KEY, enabled ? 'true' : 'false');
+    window.localStorage.setItem(COMPANION_MODE_STORAGE_KEY, enabled ? 'true' : 'false');
+    window.localStorage.removeItem(LEGACY_CONVERSATION_MODE_STORAGE_KEY);
   } catch (_) {}
 }
 

@@ -27,6 +27,7 @@ async function waitReady(page: Page, query = '') {
   }, null, { timeout: 5_000 });
   await page.waitForTimeout(200);
   await page.evaluate(() => {
+    window.localStorage.removeItem('tabura.companionMode');
     window.localStorage.removeItem('tabura.conversationMode');
   });
 }
@@ -72,7 +73,7 @@ async function setConversationMode(page: Page, enabled: boolean) {
   await page.evaluate((target) => {
     const button = document.querySelector('#edge-top-models .edge-conv-btn');
     if (!(button instanceof HTMLButtonElement)) {
-      throw new Error('conversation button not found');
+      throw new Error('companion mode button not found');
     }
     const current = button.getAttribute('aria-pressed') === 'true';
     if (current !== target) {
@@ -246,7 +247,7 @@ test('hotword is paused while TTS playback is active', async ({ page }) => {
   expect(log.some((entry) => entry.type === 'hotword' && entry.action === 'stop')).toBe(true);
 });
 
-test('conversation mode off keeps hotword disabled', async ({ page }) => {
+test('Companion Mode off keeps hotword disabled', async ({ page }) => {
   await waitReady(page);
   await setConversationListenWindowMs(page, 1_200);
   await setConversationMode(page, false);
@@ -284,7 +285,7 @@ test('hotword init failure degrades gracefully with no crash', async ({ page }) 
   })).toBe(true);
 });
 
-test('conversation mode with hotword active shows pause indicator', async ({ page }) => {
+test('Companion Mode with hotword active shows pause indicator', async ({ page }) => {
   await waitReady(page);
   await setConversationMode(page, true);
   await waitForHotwordStart(page);

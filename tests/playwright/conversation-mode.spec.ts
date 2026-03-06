@@ -57,7 +57,7 @@ async function setConversationMode(page: Page, enabled: boolean) {
   await page.evaluate((target) => {
     const button = document.querySelector('#edge-top-models .edge-conv-btn');
     if (!(button instanceof HTMLButtonElement)) {
-      throw new Error('conversation button not found');
+      throw new Error('companion mode button not found');
     }
     const current = button.getAttribute('aria-pressed') === 'true';
     if (current !== target) {
@@ -103,14 +103,15 @@ async function triggerVoiceAssistantTTS(page: Page, turnID: string, text = 'Hell
 test.beforeEach(async ({ page }) => {
   await waitReady(page);
   await page.evaluate(() => {
+    window.localStorage.removeItem('tabura.companionMode');
     window.localStorage.removeItem('tabura.conversationMode');
   });
 });
 
-test('conversation mode toggle persists in localStorage', async ({ page }) => {
+test('Companion Mode toggle persists in localStorage', async ({ page }) => {
   await setConversationMode(page, true);
 
-  const persisted = await page.evaluate(() => window.localStorage.getItem('tabura.conversationMode'));
+  const persisted = await page.evaluate(() => window.localStorage.getItem('tabura.companionMode'));
   expect(persisted).toBe('true');
 
   await page.reload();
@@ -122,7 +123,28 @@ test('conversation mode toggle persists in localStorage', async ({ page }) => {
   })).toBe('true');
 });
 
-test('conversation mode shows listening indicator after TTS playback completes', async ({ page }) => {
+test('Companion Mode reads the legacy localStorage key once and rewrites to the new key', async ({ page }) => {
+  await page.evaluate(() => {
+    window.localStorage.setItem('tabura.conversationMode', 'true');
+  });
+
+  await page.reload();
+  await page.waitForTimeout(200);
+  await waitForEdgeButtons(page);
+  await expect.poll(async () => page.evaluate(() => {
+    const button = document.querySelector('#edge-top-models .edge-conv-btn');
+    return button instanceof HTMLButtonElement ? button.getAttribute('aria-pressed') : 'false';
+  })).toBe('true');
+
+  await setConversationMode(page, false);
+  const keys = await page.evaluate(() => ({
+    legacy: window.localStorage.getItem('tabura.conversationMode'),
+    current: window.localStorage.getItem('tabura.companionMode'),
+  }));
+  expect(keys).toEqual({ legacy: null, current: 'false' });
+});
+
+test('Companion Mode shows listening indicator after TTS playback completes', async ({ page }) => {
   await setConversationListenWindowMs(page, 1_200);
   await setConversationMode(page, true);
   await clearLog(page);
@@ -140,7 +162,7 @@ test('conversation mode shows listening indicator after TTS playback completes',
   })).toBe(true);
 });
 
-test('conversation mode off does not open listening indicator after TTS', async ({ page }) => {
+test('Companion Mode off does not open listening indicator after TTS', async ({ page }) => {
   await setConversationListenWindowMs(page, 1_200);
   await setConversationMode(page, false);
   await clearLog(page);

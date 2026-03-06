@@ -217,7 +217,7 @@ async function setConversationMode(page: Page, enabled: boolean) {
   await page.evaluate((target) => {
     const button = document.querySelector('#edge-top-models .edge-conv-btn');
     if (!(button instanceof HTMLButtonElement)) {
-      throw new Error('conversation button not found');
+      throw new Error('companion mode button not found');
     }
     const current = button.getAttribute('aria-pressed') === 'true';
     if (current !== target) {

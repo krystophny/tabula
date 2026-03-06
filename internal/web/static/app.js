@@ -4106,7 +4106,7 @@ function renderEdgeTopModelButtons() {
     applyConversationStateSnapshot();
     renderEdgeTopModelButtons();
     updateAssistantActivityIndicator();
-    showStatus(enabled ? 'conversation mode on' : 'conversation mode off');
+    showStatus(enabled ? 'companion mode on' : 'companion mode off');
   });
   host.appendChild(convButton);
 
@@ -4734,7 +4734,7 @@ function handleChatEvent(payload) {
       applyConversationStateSnapshot();
       renderEdgeTopModelButtons();
       updateAssistantActivityIndicator();
-      showStatus(enabled ? 'conversation mode on' : 'conversation mode off');
+      showStatus(enabled ? 'companion mode on' : 'companion mode off');
     }
     return;
   }
@@ -4902,9 +4902,9 @@ function handleChatEvent(payload) {
       }
     }
     state.canvasActionThisTurn = false;
-    // If conversation mode is active but no TTS was queued (e.g. TTS error,
+    // If Companion Mode is active but no TTS was queued (e.g. TTS error,
     // empty md, or all text already spoken during streaming), kick the listen
-    // cycle so conversation mode does not stall.
+    // cycle so Companion Mode does not stall.
     if (state.conversationMode && !ttsPlayer && shouldSpeakTurn) {
       onTTSPlaybackComplete();
     }
