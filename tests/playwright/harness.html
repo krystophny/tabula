@@ -515,6 +515,59 @@
           entries: [],
         }), { status: 200 });
       }
+      if (u.includes('/api/projects/') && u.includes('/transcript')) {
+        const format = new URL(u, window.location.href).searchParams.get('format') || 'json';
+        if (format === 'md') {
+          return new Response('# Companion Transcript\n\n- **Speaker** (10:00:00): Harness companion transcript\n', {
+            status: 200,
+            headers: { 'Content-Type': 'text/markdown; charset=utf-8' },
+          });
+        }
+        return new Response(JSON.stringify({
+          ok: true,
+          project_id: activeProjectId,
+          project_key: '/tmp/test',
+          sessions: [{ id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' }],
+          session: { id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' },
+          segments: [{ id: 1, session_id: 'psess-harness-001', start_ts: 100, end_ts: 100, speaker: 'Speaker', text: 'Harness companion transcript', model: 'whisper-1', latency_ms: 10, committed_at: 100, status: 'final' }],
+        }), { status: 200 });
+      }
+      if (u.includes('/api/projects/') && u.includes('/summary')) {
+        const format = new URL(u, window.location.href).searchParams.get('format') || 'json';
+        if (format === 'md') {
+          return new Response('# Companion Summary\n\nHarness companion summary\n', {
+            status: 200,
+            headers: { 'Content-Type': 'text/markdown; charset=utf-8' },
+          });
+        }
+        return new Response(JSON.stringify({
+          ok: true,
+          project_id: activeProjectId,
+          project_key: '/tmp/test',
+          sessions: [{ id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' }],
+          session: { id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' },
+          summary_text: 'Harness companion summary',
+          updated_at: 101,
+        }), { status: 200 });
+      }
+      if (u.includes('/api/projects/') && u.includes('/references')) {
+        const format = new URL(u, window.location.href).searchParams.get('format') || 'json';
+        if (format === 'md') {
+          return new Response('# Companion References\n\n## Entities\n\n- Acme\n\n## Topic Timeline\n\n- Budget\n', {
+            status: 200,
+            headers: { 'Content-Type': 'text/markdown; charset=utf-8' },
+          });
+        }
+        return new Response(JSON.stringify({
+          ok: true,
+          project_id: activeProjectId,
+          project_key: '/tmp/test',
+          sessions: [{ id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' }],
+          session: { id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' },
+          entities: ['Acme'],
+          topic_timeline: ['Budget'],
+        }), { status: 200 });
+      }
       if (u.includes('/api/projects')) {
         const projects = harnessProjects.map((project) => ({ ...project }));
         return new Response(JSON.stringify({

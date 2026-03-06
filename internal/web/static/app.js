@@ -171,6 +171,10 @@ const MATH_SEGMENT_TOKEN_PREFIX = '@@TABURA_CHAT_MATH_SEGMENT_';
 const DEV_UI_RELOAD_POLL_MS = 1500;
 const ASSISTANT_ACTIVITY_POLL_MS = 1200;
 const CHAT_WS_STALE_THRESHOLD_MS = 20000;
+const COMPANION_VIEW_PATH_PREFIX = '__tabura_companion__';
+const COMPANION_TRANSCRIPT_VIEW_PATH = `${COMPANION_VIEW_PATH_PREFIX}/transcript`;
+const COMPANION_SUMMARY_VIEW_PATH = `${COMPANION_VIEW_PATH_PREFIX}/summary`;
+const COMPANION_REFERENCES_VIEW_PATH = `${COMPANION_VIEW_PATH_PREFIX}/references`;
 let localMessageSeq = 0;
 const CHAT_CTRL_LONG_PRESS_MS = 180;
 const ARTIFACT_EDIT_LONG_TAP_MS = 420;
@@ -2605,6 +2609,22 @@ function sidebarFileKindForPath(path) {
   return 'text_artifact';
 }
 
+function companionViewKindForPath(path) {
+  const normalized = normalizeWorkspaceBrowserPath(path);
+  if (normalized === COMPANION_TRANSCRIPT_VIEW_PATH) return 'transcript';
+  if (normalized === COMPANION_SUMMARY_VIEW_PATH) return 'summary';
+  if (normalized === COMPANION_REFERENCES_VIEW_PATH) return 'references';
+  return '';
+}
+
+function workspaceCompanionEntries() {
+  return [
+    { name: 'Companion Transcript', path: COMPANION_TRANSCRIPT_VIEW_PATH, is_dir: false },
+    { name: 'Companion Summary', path: COMPANION_SUMMARY_VIEW_PATH, is_dir: false },
+    { name: 'Companion References', path: COMPANION_REFERENCES_VIEW_PATH, is_dir: false },
+  ];
+}
+
 function renderSidebarRow({ icon, label, active = false, meta = '', onClick }) {
   const button = document.createElement('button');
   button.type = 'button';
@@ -2682,7 +2702,8 @@ function renderWorkspaceFileList(list) {
     }));
   }
   const entries = Array.isArray(state.workspaceBrowserEntries) ? state.workspaceBrowserEntries : [];
-  entries.forEach((entry) => {
+  const rows = currentPath ? entries : workspaceCompanionEntries().concat(entries);
+  rows.forEach((entry) => {
     const isDir = Boolean(entry?.is_dir);
     const entryPath = normalizeWorkspaceBrowserPath(entry?.path || '');
     const entryName = String(entry?.name || entryPath || '(item)');
@@ -2809,6 +2830,10 @@ async function openWorkspaceSidebarFile(path) {
   if (!filePath) return false;
   state.fileSidebarMode = 'workspace';
   clearWelcomeSurface();
+  const companionViewKind = companionViewKindForPath(filePath);
+  if (companionViewKind) {
+    return openCompanionWorkspaceView(companionViewKind, filePath);
+  }
   const kind = sidebarFileKindForPath(filePath);
   if (kind === 'image_artifact') {
     state.workspaceOpenFilePath = filePath;
@@ -2885,6 +2910,42 @@ async function openWorkspaceSidebarFile(path) {
     return true;
   } catch (err) {
     showStatus(`open failed: ${String(err?.message || err || 'unknown error')}`);
+    return false;
+  }
+}
+
+async function openCompanionWorkspaceView(viewKind, filePath) {
+  const projectID = String(state.activeProjectId || '').trim();
+  if (!projectID) return false;
+  const titles = {
+    transcript: 'Companion Transcript',
+    summary: 'Companion Summary',
+    references: 'Companion References',
+  };
+  const endpoint = viewKind === 'transcript' || viewKind === 'summary' || viewKind === 'references'
+    ? viewKind
+    : '';
+  if (!endpoint) return false;
+  try {
+    const resp = await fetch(apiURL(`projects/${encodeURIComponent(projectID)}/${endpoint}?format=md`), { cache: 'no-store' });
+    if (!resp.ok) {
+      const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
+      throw new Error(detail);
+    }
+    const text = await resp.text();
+    state.workspaceOpenFilePath = filePath;
+    renderPrReviewFileList();
+    renderCanvas({
+      kind: 'text_artifact',
+      event_id: `workspace-companion-${viewKind}-${Date.now()}`,
+      title: titles[viewKind] || filePath,
+      text,
+    });
+    showCanvasColumn('canvas-text');
+    if (isMobileViewport()) { setPrReviewDrawerOpen(false); closeEdgePanels(); }
+    return true;
+  } catch (err) {
+    appendPlainMessage('system', `${titles[viewKind] || 'Companion view'} failed: ${String(err?.message || err)}`);
     return false;
   }
 }
