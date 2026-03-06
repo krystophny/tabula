@@ -570,6 +570,57 @@ func TestParticipantStartUsesChatSessionProjectKey(t *testing.T) {
 	}
 }
 
+func TestParticipantReleaseSessionEndsPersistedSession(t *testing.T) {
+	app := newAuthedTestApp(t)
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("GetOrCreateChatSession: %v", err)
+	}
+	conn, cleanup := newTestWSConn(t)
+	defer cleanup()
+
+	handleParticipantStart(app, conn, session.ID)
+
+	conn.participantMu.Lock()
+	participantSessionID := conn.participantSessionID
+	conn.participantMu.Unlock()
+	if participantSessionID == "" {
+		t.Fatal("expected participant session id")
+	}
+
+	releasedSessionID, ok := releaseParticipantSession(app, conn)
+	if !ok {
+		t.Fatal("releaseParticipantSession() = false, want true")
+	}
+	if releasedSessionID != participantSessionID {
+		t.Fatalf("released session id = %q, want %q", releasedSessionID, participantSessionID)
+	}
+
+	persisted, err := app.store.GetParticipantSession(participantSessionID)
+	if err != nil {
+		t.Fatalf("GetParticipantSession: %v", err)
+	}
+	if persisted.EndedAt == 0 {
+		t.Fatal("persisted session should be ended after release")
+	}
+
+	conn.participantMu.Lock()
+	defer conn.participantMu.Unlock()
+	if conn.participantActive {
+		t.Fatal("participantActive should be false after release")
+	}
+	if conn.participantSessionID != "" {
+		t.Fatalf("participantSessionID = %q, want empty", conn.participantSessionID)
+	}
+	if conn.participantBuf != nil {
+		t.Fatal("participantBuf should be nil after release")
+	}
+}
+
 func TestParticipantWSStartStop(t *testing.T) {
 	app := newAuthedTestApp(t)
 	conn, cleanup := newTestWSConn(t)

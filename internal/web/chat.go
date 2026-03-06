@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -568,6 +569,9 @@ func (a *App) handleChatWS(w http.ResponseWriter, r *http.Request) {
 	conn := newChatWSConn(ws)
 	a.hub.registerChat(sessionID, conn)
 	defer func() {
+		if participantSessionID, ok := releaseParticipantSession(a, conn); ok {
+			log.Printf("participant session stopped on websocket disconnect: %s", participantSessionID)
+		}
 		a.hub.unregisterChat(sessionID, conn)
 		_ = ws.Close()
 	}()

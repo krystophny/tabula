@@ -143,13 +143,11 @@ func transcribeParticipantChunk(a *App, conn *chatWSConn, sessionID string, buf 
 	})
 }
 
-// Privacy: buffer is set to nil after stop. See docs/meeting-notes-privacy.md.
-func handleParticipantStop(a *App, conn *chatWSConn) {
+func releaseParticipantSession(a *App, conn *chatWSConn) (string, bool) {
 	conn.participantMu.Lock()
 	if !conn.participantActive {
 		conn.participantMu.Unlock()
-		_ = conn.writeJSON(participantMessage{Type: "participant_error", Error: "no active participant session"})
-		return
+		return "", false
 	}
 
 	sessionID := conn.participantSessionID
@@ -164,6 +162,16 @@ func handleParticipantStop(a *App, conn *chatWSConn) {
 
 	_ = a.store.EndParticipantSession(sessionID)
 	_ = a.store.AddParticipantEvent(sessionID, 0, "session_stopped", "{}")
+	return sessionID, true
+}
+
+// Privacy: buffer is set to nil after stop. See docs/meeting-notes-privacy.md.
+func handleParticipantStop(a *App, conn *chatWSConn) {
+	sessionID, ok := releaseParticipantSession(a, conn)
+	if !ok {
+		_ = conn.writeJSON(participantMessage{Type: "participant_error", Error: "no active participant session"})
+		return
+	}
 	_ = conn.writeJSON(participantMessage{Type: "participant_stopped", SessionID: sessionID})
 	log.Printf("participant session stopped: %s", sessionID)
 }
