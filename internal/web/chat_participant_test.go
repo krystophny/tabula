@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -636,6 +638,25 @@ func TestParticipantBinaryChunkTranscribesWAVSegmentImmediately(t *testing.T) {
 	defer conn.participantMu.Unlock()
 	if conn.participantBuf != nil {
 		t.Fatal("participantBuf should be cleared after immediate chunk transcription")
+	}
+
+	artifactDir := filepath.Join(project.RootPath, ".tabura", "artifacts", "companion", sessionID)
+	transcriptPath := filepath.Join(artifactDir, "transcript.md")
+	transcriptBody, err := os.ReadFile(transcriptPath)
+	if err != nil {
+		t.Fatalf("read transcript artifact: %v", err)
+	}
+	if !strings.Contains(string(transcriptBody), "participant transcript") {
+		t.Fatalf("transcript artifact missing committed text: %q", string(transcriptBody))
+	}
+
+	referencesPath := filepath.Join(artifactDir, "references.md")
+	referencesBody, err := os.ReadFile(referencesPath)
+	if err != nil {
+		t.Fatalf("read references artifact: %v", err)
+	}
+	if !strings.Contains(string(referencesBody), "participant transcript") {
+		t.Fatalf("references artifact missing transcript detail: %q", string(referencesBody))
 	}
 }
 

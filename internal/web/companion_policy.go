@@ -274,6 +274,7 @@ func (a *App) finishCompanionPendingTurn(chatSessionID, eventType string) {
 	}
 	payload := fmt.Sprintf(`{"chat_session_id":%q}`, strings.TrimSpace(chatSessionID))
 	_ = a.store.AddParticipantEvent(pending.participantSessionID, pending.segmentID, strings.TrimSpace(eventType), payload)
+	a.syncProjectCompanionArtifactsBySessionID(pending.participantSessionID)
 	session, err := a.store.GetParticipantSession(pending.participantSessionID)
 	if err != nil {
 		return
@@ -317,6 +318,7 @@ func (a *App) interruptCompanionPendingTurn(chatSessionID, participantSessionID 
 	}
 	payload := fmt.Sprintf(`{"chat_session_id":%q,"active_canceled":%d,"queued_canceled":%d}`, strings.TrimSpace(chatSessionID), activeCanceled, queuedCanceled)
 	_ = a.store.AddParticipantEvent(participantSessionID, segmentID, "assistant_interrupted", payload)
+	a.syncProjectCompanionArtifactsBySessionID(participantSessionID)
 	session, err := a.store.GetParticipantSession(participantSessionID)
 	if err != nil {
 		return

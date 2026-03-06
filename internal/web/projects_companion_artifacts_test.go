@@ -3,6 +3,8 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -148,6 +150,34 @@ func TestProjectCompanionSummaryAndReferencesAPIAndExports(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), "Acme") || !strings.Contains(rr.Body.String(), "Status") {
 		t.Fatalf("references markdown missing captured metadata: %q", rr.Body.String())
+	}
+
+	artifactDir := filepath.Join(project.RootPath, ".tabura", "artifacts", "companion", session.ID)
+	transcriptPath := filepath.Join(artifactDir, "transcript.md")
+	transcriptBody, err := os.ReadFile(transcriptPath)
+	if err != nil {
+		t.Fatalf("read transcript artifact: %v", err)
+	}
+	if !strings.Contains(string(transcriptBody), "# Companion Transcript") {
+		t.Fatalf("transcript artifact missing header: %q", string(transcriptBody))
+	}
+
+	summaryPath := filepath.Join(artifactDir, "summary.md")
+	summaryBody, err := os.ReadFile(summaryPath)
+	if err != nil {
+		t.Fatalf("read summary artifact: %v", err)
+	}
+	if !strings.Contains(string(summaryBody), "Decision summary") {
+		t.Fatalf("summary artifact missing room memory text: %q", string(summaryBody))
+	}
+
+	referencesPath := filepath.Join(artifactDir, "references.md")
+	referencesBody, err := os.ReadFile(referencesPath)
+	if err != nil {
+		t.Fatalf("read references artifact: %v", err)
+	}
+	if !strings.Contains(string(referencesBody), "Acme") || !strings.Contains(string(referencesBody), "Status") {
+		t.Fatalf("references artifact missing metadata: %q", string(referencesBody))
 	}
 }
 

@@ -58,6 +58,7 @@ func handleParticipantStart(a *App, conn *chatWSConn, chatSessionID string) {
 	conn.participantBuf = make([]byte, 0, 4096)
 
 	_ = a.store.AddParticipantEvent(sess.ID, 0, "session_started", "{}")
+	a.syncProjectCompanionArtifactsBySessionID(sess.ID)
 	_ = conn.writeJSON(participantMessage{Type: "participant_started", SessionID: sess.ID})
 	a.broadcastCompanionRuntimeState(projectKey, companionRuntimeSnapshot{
 		State:                companionRuntimeStateListening,
@@ -199,6 +200,7 @@ func transcribeParticipantChunk(a *App, conn *chatWSConn, sessionID string, buf 
 	}
 
 	_ = a.store.AddParticipantEvent(sessionID, seg.ID, "segment_committed", fmt.Sprintf(`{"text":%q}`, text))
+	a.syncProjectCompanionArtifactsBySessionID(sessionID)
 	if projectKey != "" {
 		a.broadcastCompanionTranscriptEvent(projectKey, map[string]interface{}{
 			"type":                   companionEventTranscriptPartial,
@@ -334,6 +336,7 @@ func (a *App) maybeTriggerCompanionResponse(participantSessionID string, seg sto
 		"assistant_triggered",
 		fmt.Sprintf(`{"chat_session_id":%q,"chat_message_id":%d,"queued_turns":%d,"policy_decision":%q}`, chatSession.ID, storedUser.ID, queuedTurns, policy.Decision),
 	)
+	a.syncProjectCompanionArtifactsBySessionID(participantSessionID)
 	a.broadcastChatEvent(chatSession.ID, map[string]interface{}{
 		"type":                   "message_accepted",
 		"role":                   "user",
@@ -380,6 +383,7 @@ func releaseParticipantSession(a *App, conn *chatWSConn) (string, bool) {
 	}
 	_ = a.store.EndParticipantSession(sessionID)
 	_ = a.store.AddParticipantEvent(sessionID, 0, "session_stopped", "{}")
+	a.syncProjectCompanionArtifactsBySessionID(sessionID)
 	if projectKey != "" {
 		cfg := defaultCompanionConfig()
 		if project, err := a.store.GetProjectByProjectKey(projectKey); err == nil {
