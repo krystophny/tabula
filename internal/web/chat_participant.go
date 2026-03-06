@@ -131,6 +131,7 @@ func transcribeParticipantChunk(a *App, conn *chatWSConn, sessionID string, buf 
 	}
 
 	_ = a.store.AddParticipantEvent(sessionID, seg.ID, "segment_committed", fmt.Sprintf(`{"text":%q}`, text))
+	a.maybeTriggerCompanionResponse(sessionID, seg)
 
 	_ = conn.writeJSON(participantMessage{
 		Type:      "participant_segment_text",
@@ -141,6 +142,89 @@ func transcribeParticipantChunk(a *App, conn *chatWSConn, sessionID string, buf 
 		EndTS:     seg.EndTS,
 		LatencyMS: latencyMS,
 	})
+}
+
+func (a *App) maybeTriggerCompanionResponse(participantSessionID string, seg store.ParticipantSegment) {
+	if a == nil || a.store == nil || seg.ID == 0 {
+		return
+	}
+	session, err := a.store.GetParticipantSession(participantSessionID)
+	if err != nil {
+		log.Printf("participant trigger session lookup error: %v", err)
+		return
+	}
+	project, err := a.store.GetProjectByProjectKey(session.ProjectKey)
+	if err != nil {
+		log.Printf("participant trigger project lookup error: %v", err)
+		return
+	}
+	cfg := a.loadCompanionConfig(project)
+	if !cfg.CompanionEnabled || !cfg.DirectedSpeechGateEnabled {
+		return
+	}
+	segments, err := a.store.ListParticipantSegments(participantSessionID, 0, 0)
+	if err != nil {
+		log.Printf("participant trigger segment lookup error: %v", err)
+		return
+	}
+	events, err := a.store.ListParticipantEvents(participantSessionID)
+	if err != nil {
+		log.Printf("participant trigger event lookup error: %v", err)
+		return
+	}
+	if participantSegmentAlreadyTriggered(events, seg.ID) {
+		return
+	}
+	gate := evaluateCompanionDirectedSpeechGate(cfg, &session, segments, events)
+	if gate.Decision != companionGateDecisionDirect || gate.SegmentID != seg.ID {
+		return
+	}
+	text := strings.TrimSpace(seg.Text)
+	if text == "" {
+		return
+	}
+	chatSession, err := a.store.GetOrCreateChatSession(session.ProjectKey)
+	if err != nil {
+		log.Printf("participant trigger chat session error: %v", err)
+		return
+	}
+	storedUser, err := a.store.AddChatMessage(chatSession.ID, "user", text, text, "text")
+	if err != nil {
+		log.Printf("participant trigger chat message error: %v", err)
+		return
+	}
+	outputMode := turnOutputModeVoice
+	if a.silentModeEnabled() {
+		outputMode = turnOutputModeSilent
+	}
+	queuedTurns := a.enqueueAssistantTurn(chatSession.ID, outputMode)
+	_ = a.store.AddParticipantEvent(
+		participantSessionID,
+		seg.ID,
+		"assistant_triggered",
+		fmt.Sprintf(`{"chat_session_id":%q,"chat_message_id":%d,"queued_turns":%d}`, chatSession.ID, storedUser.ID, queuedTurns),
+	)
+	a.broadcastChatEvent(chatSession.ID, map[string]interface{}{
+		"type":                   "message_accepted",
+		"role":                   "user",
+		"content":                text,
+		"id":                     storedUser.ID,
+		"source":                 "participant_transcript",
+		"participant_session_id": participantSessionID,
+		"participant_segment_id": seg.ID,
+	})
+}
+
+func participantSegmentAlreadyTriggered(events []store.ParticipantEvent, segmentID int64) bool {
+	for _, event := range events {
+		if event.SegmentID != segmentID {
+			continue
+		}
+		if event.EventType == "assistant_triggered" {
+			return true
+		}
+	}
+	return false
 }
 
 func releaseParticipantSession(a *App, conn *chatWSConn) (string, bool) {
