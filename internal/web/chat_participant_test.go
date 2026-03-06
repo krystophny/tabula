@@ -14,6 +14,19 @@ import (
 	"github.com/krystophny/tabura/internal/store"
 )
 
+func enableCompanionForTestProject(t *testing.T, app *App, projectKey string) {
+	t.Helper()
+	project, err := app.store.GetProjectByProjectKey(strings.TrimSpace(projectKey))
+	if err != nil {
+		t.Fatalf("GetProjectByProjectKey(%q): %v", projectKey, err)
+	}
+	cfg := app.loadCompanionConfig(project)
+	cfg.CompanionEnabled = true
+	if err := app.saveCompanionConfig(project.ID, cfg); err != nil {
+		t.Fatalf("save companion config: %v", err)
+	}
+}
+
 func TestParticipantConfigGetRequiresAuth(t *testing.T) {
 	app := newAuthedTestApp(t)
 
@@ -53,8 +66,8 @@ func TestParticipantConfigDefaultValues(t *testing.T) {
 	if cfg.MaxSegmentDurationMS <= 0 {
 		t.Fatalf("max_segment_duration_ms = %d", cfg.MaxSegmentDurationMS)
 	}
-	if !cfg.CompanionEnabled {
-		t.Fatal("companion_enabled = false, want true")
+	if cfg.CompanionEnabled {
+		t.Fatal("companion_enabled = true, want false")
 	}
 }
 
@@ -481,11 +494,20 @@ func TestParticipantBinaryChunkTranscribesWAVSegmentImmediately(t *testing.T) {
 	}))
 	defer sttSrv.Close()
 	app.sttURL = sttSrv.URL
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+	}
+	enableCompanionForTestProject(t, app, project.ProjectKey)
+	chatSession, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("GetOrCreateChatSession: %v", err)
+	}
 
 	conn, cleanup := newTestWSConn(t)
 	defer cleanup()
 
-	handleParticipantStart(app, conn, "project-chat")
+	handleParticipantStart(app, conn, chatSession.ID)
 
 	conn.participantMu.Lock()
 	sessionID := conn.participantSessionID
@@ -550,6 +572,7 @@ func TestParticipantStartUsesChatSessionProjectKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
+	enableCompanionForTestProject(t, app, project.ProjectKey)
 	conn, cleanup := newTestWSConn(t)
 	defer cleanup()
 
@@ -580,6 +603,7 @@ func TestParticipantReleaseSessionEndsPersistedSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
+	enableCompanionForTestProject(t, app, project.ProjectKey)
 	conn, cleanup := newTestWSConn(t)
 	defer cleanup()
 
@@ -623,10 +647,19 @@ func TestParticipantReleaseSessionEndsPersistedSession(t *testing.T) {
 
 func TestParticipantWSStartStop(t *testing.T) {
 	app := newAuthedTestApp(t)
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+	}
+	enableCompanionForTestProject(t, app, project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("GetOrCreateChatSession: %v", err)
+	}
 	conn, cleanup := newTestWSConn(t)
 	defer cleanup()
 
-	handleParticipantStart(app, conn, "test-session")
+	handleParticipantStart(app, conn, session.ID)
 
 	conn.participantMu.Lock()
 	active := conn.participantActive
@@ -657,11 +690,20 @@ func TestParticipantWSStartStop(t *testing.T) {
 
 func TestParticipantDoubleStartReturnsError(t *testing.T) {
 	app := newAuthedTestApp(t)
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+	}
+	enableCompanionForTestProject(t, app, project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("GetOrCreateChatSession: %v", err)
+	}
 	conn, cleanup := newTestWSConn(t)
 	defer cleanup()
 
-	handleParticipantStart(app, conn, "test-session")
-	handleParticipantStart(app, conn, "test-session")
+	handleParticipantStart(app, conn, session.ID)
+	handleParticipantStart(app, conn, session.ID)
 
 	conn.participantMu.Lock()
 	defer conn.participantMu.Unlock()
@@ -681,6 +723,88 @@ func TestParticipantStopWithoutStartReturnsError(t *testing.T) {
 	defer conn.participantMu.Unlock()
 	if conn.participantActive {
 		t.Fatal("should not be active after stop-without-start")
+	}
+}
+
+func TestParticipantStartRequiresCompanionEnabled(t *testing.T) {
+	app := newAuthedTestApp(t)
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+	}
+	conn, cleanup := newTestWSConn(t)
+	defer cleanup()
+
+	handleParticipantStart(app, conn, "test-session")
+
+	conn.participantMu.Lock()
+	active := conn.participantActive
+	sessionID := conn.participantSessionID
+	conn.participantMu.Unlock()
+	if active {
+		t.Fatal("participantActive = true, want false when companion is disabled")
+	}
+	if sessionID != "" {
+		t.Fatalf("participantSessionID = %q, want empty", sessionID)
+	}
+	sessions, err := app.store.ListParticipantSessions(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("ListParticipantSessions: %v", err)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("participant sessions = %d, want 0", len(sessions))
+	}
+}
+
+func TestParticipantConfigPutDisableStopsActiveSession(t *testing.T) {
+	app := newAuthedTestApp(t)
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+	}
+	enableCompanionForTestProject(t, app, project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("GetOrCreateChatSession: %v", err)
+	}
+	conn, cleanup := newTestWSConn(t)
+	defer cleanup()
+	app.hub.registerChat(session.ID, conn)
+	defer app.hub.unregisterChat(session.ID, conn)
+
+	handleParticipantStart(app, conn, session.ID)
+
+	conn.participantMu.Lock()
+	participantSessionID := conn.participantSessionID
+	conn.participantMu.Unlock()
+	if participantSessionID == "" {
+		t.Fatal("expected participant session id")
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPut, "/api/participant/config", map[string]any{
+		"companion_enabled": false,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d, want 200", rr.Code)
+	}
+
+	conn.participantMu.Lock()
+	active := conn.participantActive
+	currentSessionID := conn.participantSessionID
+	conn.participantMu.Unlock()
+	if active {
+		t.Fatal("participantActive = true, want false after disabling companion")
+	}
+	if currentSessionID != "" {
+		t.Fatalf("participantSessionID = %q, want empty after disabling companion", currentSessionID)
+	}
+
+	persisted, err := app.store.GetParticipantSession(participantSessionID)
+	if err != nil {
+		t.Fatalf("GetParticipantSession: %v", err)
+	}
+	if persisted.EndedAt == 0 {
+		t.Fatal("participant session should be ended after disabling companion")
 	}
 }
 

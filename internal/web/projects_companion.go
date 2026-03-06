@@ -62,7 +62,7 @@ type companionStateResponse struct {
 
 func defaultCompanionConfig() companionConfig {
 	return companionConfig{
-		CompanionEnabled:          true,
+		CompanionEnabled:          false,
 		DirectedSpeechGateEnabled: false,
 		Language:                  "en",
 		MaxSegmentDurationMS:      30000,
@@ -222,10 +222,14 @@ func (a *App) handleParticipantConfigPut(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	cfg := applyCompanionConfigPatch(a.loadCompanionConfig(project), patch)
+	current := a.loadCompanionConfig(project)
+	cfg := applyCompanionConfigPatch(current, patch)
 	if err := a.saveCompanionConfig(project.ID, cfg); err != nil {
 		http.Error(w, "failed to save config", http.StatusInternalServerError)
 		return
+	}
+	if current.CompanionEnabled && !cfg.CompanionEnabled {
+		a.disableCompanionCapture(project.ProjectKey)
 	}
 	writeJSON(w, cfg)
 }
@@ -264,10 +268,14 @@ func (a *App) handleProjectCompanionConfigPut(w http.ResponseWriter, r *http.Req
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	cfg := applyCompanionConfigPatch(a.loadCompanionConfig(project), patch)
+	current := a.loadCompanionConfig(project)
+	cfg := applyCompanionConfigPatch(current, patch)
 	if err := a.saveCompanionConfig(project.ID, cfg); err != nil {
 		http.Error(w, "failed to save config", http.StatusInternalServerError)
 		return
+	}
+	if current.CompanionEnabled && !cfg.CompanionEnabled {
+		a.disableCompanionCapture(project.ProjectKey)
 	}
 	writeJSON(w, cfg)
 }
@@ -312,7 +320,7 @@ func (a *App) handleProjectCompanionState(w http.ResponseWriter, r *http.Request
 		gateSession = latestSession
 	}
 	state := companionRuntimeStateIdle
-	if activeSessions > 0 {
+	if cfg.CompanionEnabled && activeSessions > 0 {
 		state = companionRuntimeStateListening
 	}
 	gate := a.loadCompanionDirectedSpeechGate(cfg, gateSession)
@@ -331,4 +339,42 @@ func (a *App) handleProjectCompanionState(w http.ResponseWriter, r *http.Request
 		DirectedSpeechGate: gate,
 		Config:             cfg,
 	})
+}
+
+func (a *App) disableCompanionCapture(projectKey string) {
+	cleanProjectKey := strings.TrimSpace(projectKey)
+	if cleanProjectKey == "" {
+		return
+	}
+	a.hub.forEachChatConn(func(conn *chatWSConn) {
+		conn.participantMu.Lock()
+		sessionID := strings.TrimSpace(conn.participantSessionID)
+		active := conn.participantActive
+		conn.participantMu.Unlock()
+		if !active || sessionID == "" {
+			return
+		}
+		session, err := a.store.GetParticipantSession(sessionID)
+		if err != nil || session.ProjectKey != cleanProjectKey {
+			return
+		}
+		stoppedSessionID, ok := releaseParticipantSession(a, conn)
+		if !ok {
+			return
+		}
+		_ = conn.writeJSON(participantMessage{Type: "participant_stopped", SessionID: stoppedSessionID})
+		_ = conn.writeJSON(participantMessage{Type: "participant_error", Error: "companion mode is disabled"})
+	})
+
+	sessions, err := a.store.ListParticipantSessions(cleanProjectKey)
+	if err != nil {
+		return
+	}
+	for _, session := range sessions {
+		if session.EndedAt != 0 {
+			continue
+		}
+		_ = a.store.EndParticipantSession(session.ID)
+		_ = a.store.AddParticipantEvent(session.ID, 0, "session_stopped", `{"reason":"companion_disabled"}`)
+	}
 }

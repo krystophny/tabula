@@ -6,6 +6,12 @@ This document formalizes the audio privacy guarantees for Tabura's speech-to-tex
 
 **Key invariant: audio exists only in RAM during processing and is never persisted to disk or database.**
 
+## Companion Consent Boundary
+
+- Companion Mode is explicit opt-in. Capture must not start until `companion_enabled=true`.
+- Disabling Companion Mode is an exit action: any active participant capture session must stop immediately.
+- Companion capture defaults to microphone-only input. Alternate capture sources are not accepted through the config surface.
+
 ## Audio Lifecycle
 
 1. **Capture**: browser MediaRecorder captures audio chunks.

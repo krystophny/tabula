@@ -382,6 +382,16 @@
       test: { active_turns: 0, queued_turns: 0, is_working: false, status: 'idle' },
       hub: { active_turns: 0, queued_turns: 0, is_working: false, status: 'idle' },
     };
+    window.__participantConfig = {
+      companion_enabled: false,
+      language: 'en',
+      max_segment_duration_ms: 30000,
+      session_ram_cap_mb: 64,
+      stt_model: 'whisper-1',
+      idle_surface: 'robot',
+      audio_persistence: 'none',
+      capture_source: 'microphone',
+    };
     window.__setProjectRunStates = (states) => {
       const next = states && typeof states === 'object' ? states : {};
       harnessProjectRunStates = {
@@ -626,23 +636,23 @@
       if (u.includes('/api/participant/config') && opts?.method === 'PUT') {
         let body = {};
         try { body = JSON.parse(String(opts?.body || '{}')); } catch (_) { body = {}; }
-        const cfg = {
-          language: String(body.language || 'en'),
-          max_segment_duration_ms: Number(body.max_segment_duration_ms || 30000),
-          session_ram_cap_mb: Number(body.session_ram_cap_mb || 64),
-          stt_model: String(body.stt_model || 'whisper-1'),
+        window.__participantConfig = {
+          ...window.__participantConfig,
+          companion_enabled: Object.prototype.hasOwnProperty.call(body, 'companion_enabled')
+            ? Boolean(body.companion_enabled)
+            : Boolean(window.__participantConfig.companion_enabled),
+          language: String(body.language || window.__participantConfig.language || 'en'),
+          max_segment_duration_ms: Number(body.max_segment_duration_ms || window.__participantConfig.max_segment_duration_ms || 30000),
+          session_ram_cap_mb: Number(body.session_ram_cap_mb || window.__participantConfig.session_ram_cap_mb || 64),
+          stt_model: String(body.stt_model || window.__participantConfig.stt_model || 'whisper-1'),
+          idle_surface: String(body.idle_surface || window.__participantConfig.idle_surface || 'robot'),
           audio_persistence: 'none',
+          capture_source: 'microphone',
         };
-        return new Response(JSON.stringify(cfg), { status: 200 });
+        return new Response(JSON.stringify(window.__participantConfig), { status: 200 });
       }
       if (u.includes('/api/participant/config')) {
-        return new Response(JSON.stringify({
-          language: 'en',
-          max_segment_duration_ms: 30000,
-          session_ram_cap_mb: 64,
-          stt_model: 'whisper-1',
-          audio_persistence: 'none',
-        }), { status: 200 });
+        return new Response(JSON.stringify(window.__participantConfig), { status: 200 });
       }
       if (u.includes('/api/participant/status')) {
         return new Response(JSON.stringify({ ok: true, active_sessions: 0 }), { status: 200 });
@@ -801,8 +811,17 @@
           } else if (msg.type === 'stt_cancel') {
             window.__harnessLog.push({ type: 'stt', action: 'cancel' });
           } else if (msg.type === 'participant_start') {
-            window.__harnessLog.push({ type: 'participant', action: 'start' });
             const ws = this;
+            if (!window.__participantConfig?.companion_enabled) {
+              window.__harnessLog.push({ type: 'participant', action: 'blocked' });
+              setTimeout(() => {
+                if (ws.onmessage) {
+                  ws.onmessage({ data: JSON.stringify({ type: 'participant_error', error: 'companion mode is disabled' }) });
+                }
+              }, 5);
+              return;
+            }
+            window.__harnessLog.push({ type: 'participant', action: 'start' });
             setTimeout(() => {
               if (ws.onmessage) {
                 ws.onmessage({ data: JSON.stringify({ type: 'participant_started', session_id: 'psess-harness-001' }) });

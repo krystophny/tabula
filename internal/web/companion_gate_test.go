@@ -8,6 +8,7 @@ import (
 
 func TestEvaluateCompanionDirectedSpeechGate(t *testing.T) {
 	cfg := defaultCompanionConfig()
+	cfg.CompanionEnabled = true
 	cfg.DirectedSpeechGateEnabled = true
 	session := &store.ParticipantSession{ID: "psess-test", StartedAt: 100}
 	events := []store.ParticipantEvent{{EventType: "segment_committed", CreatedAt: 130}}

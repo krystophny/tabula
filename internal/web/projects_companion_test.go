@@ -80,13 +80,16 @@ func TestProjectCompanionConfigPutAndState(t *testing.T) {
 	conn, cleanup := newTestWSConn(t)
 	defer cleanup()
 	handleParticipantStart(app, conn, session.ID)
-	defer handleParticipantStop(app, conn)
 
 	conn.participantMu.Lock()
 	activeSessionID := conn.participantSessionID
+	active := conn.participantActive
 	conn.participantMu.Unlock()
-	if activeSessionID == "" {
-		t.Fatal("expected active participant session id")
+	if active {
+		t.Fatal("participantActive = true, want false when companion is disabled")
+	}
+	if activeSessionID != "" {
+		t.Fatalf("active participant session id = %q, want empty", activeSessionID)
 	}
 
 	rrState := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects/"+project.ID+"/companion/state", nil)
@@ -103,20 +106,14 @@ func TestProjectCompanionConfigPutAndState(t *testing.T) {
 	if state.ProjectKey != project.ProjectKey {
 		t.Fatalf("project_key = %q, want %q", state.ProjectKey, project.ProjectKey)
 	}
-	if state.State != companionRuntimeStateListening {
-		t.Fatalf("state = %q, want %q", state.State, companionRuntimeStateListening)
+	if state.State != companionRuntimeStateIdle {
+		t.Fatalf("state = %q, want %q", state.State, companionRuntimeStateIdle)
 	}
-	if state.ActiveSessions != 1 {
-		t.Fatalf("active_sessions = %d, want 1", state.ActiveSessions)
+	if state.ActiveSessions != 0 {
+		t.Fatalf("active_sessions = %d, want 0", state.ActiveSessions)
 	}
-	if state.ActiveSessionID != activeSessionID {
-		t.Fatalf("active_session_id = %q, want %q", state.ActiveSessionID, activeSessionID)
-	}
-	if state.LatestSession == nil {
-		t.Fatal("expected latest_session")
-	}
-	if state.LatestSession.ProjectKey != project.ProjectKey {
-		t.Fatalf("latest_session.project_key = %q, want %q", state.LatestSession.ProjectKey, project.ProjectKey)
+	if state.ActiveSessionID != "" {
+		t.Fatalf("active_session_id = %q, want empty", state.ActiveSessionID)
 	}
 	if state.Config.IdleSurface != "black" {
 		t.Fatalf("state config idle_surface = %q, want black", state.Config.IdleSurface)
@@ -135,6 +132,56 @@ func TestProjectCompanionConfigPutAndState(t *testing.T) {
 	}
 }
 
+func TestProjectCompanionStateReportsListeningWhenEnabled(t *testing.T) {
+	app := newAuthedTestApp(t)
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+	}
+	cfg := app.loadCompanionConfig(project)
+	cfg.CompanionEnabled = true
+	if err := app.saveCompanionConfig(project.ID, cfg); err != nil {
+		t.Fatalf("save companion config: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("GetOrCreateChatSession: %v", err)
+	}
+	conn, cleanup := newTestWSConn(t)
+	defer cleanup()
+
+	handleParticipantStart(app, conn, session.ID)
+	defer handleParticipantStop(app, conn)
+
+	conn.participantMu.Lock()
+	activeSessionID := conn.participantSessionID
+	conn.participantMu.Unlock()
+	if activeSessionID == "" {
+		t.Fatal("expected active participant session id")
+	}
+
+	rrState := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects/"+project.ID+"/companion/state", nil)
+	if rrState.Code != http.StatusOK {
+		t.Fatalf("GET state status = %d, want 200", rrState.Code)
+	}
+	var state companionStateResponse
+	if err := json.Unmarshal(rrState.Body.Bytes(), &state); err != nil {
+		t.Fatalf("decode companion state: %v", err)
+	}
+	if state.State != companionRuntimeStateListening {
+		t.Fatalf("state = %q, want %q", state.State, companionRuntimeStateListening)
+	}
+	if state.ActiveSessions != 1 {
+		t.Fatalf("active_sessions = %d, want 1", state.ActiveSessions)
+	}
+	if state.ActiveSessionID != activeSessionID {
+		t.Fatalf("active_session_id = %q, want %q", state.ActiveSessionID, activeSessionID)
+	}
+	if state.LatestSession == nil {
+		t.Fatal("expected latest_session")
+	}
+}
+
 func TestProjectCompanionStateExposesDirectedSpeechGateMetadata(t *testing.T) {
 	app := newAuthedTestApp(t)
 	project, err := app.ensureDefaultProjectRecord()
@@ -142,6 +189,7 @@ func TestProjectCompanionStateExposesDirectedSpeechGateMetadata(t *testing.T) {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
 	cfg := app.loadCompanionConfig(project)
+	cfg.CompanionEnabled = true
 	cfg.DirectedSpeechGateEnabled = true
 	if err := app.saveCompanionConfig(project.ID, cfg); err != nil {
 		t.Fatalf("save companion config: %v", err)
