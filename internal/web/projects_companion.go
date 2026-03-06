@@ -45,19 +45,20 @@ type companionConfigPatch struct {
 }
 
 type companionStateResponse struct {
-	OK                 bool                        `json:"ok"`
-	ProjectID          string                      `json:"project_id"`
-	ProjectKey         string                      `json:"project_key"`
-	State              string                      `json:"state"`
-	CompanionEnabled   bool                        `json:"companion_enabled"`
-	IdleSurface        string                      `json:"idle_surface"`
-	AudioPersistence   string                      `json:"audio_persistence"`
-	CaptureSource      string                      `json:"capture_source"`
-	ActiveSessions     int                         `json:"active_sessions"`
-	ActiveSessionID    string                      `json:"active_session_id,omitempty"`
-	LatestSession      *store.ParticipantSession   `json:"latest_session,omitempty"`
-	DirectedSpeechGate companionDirectedSpeechGate `json:"directed_speech_gate"`
-	Config             companionConfig             `json:"config"`
+	OK                 bool                            `json:"ok"`
+	ProjectID          string                          `json:"project_id"`
+	ProjectKey         string                          `json:"project_key"`
+	State              string                          `json:"state"`
+	CompanionEnabled   bool                            `json:"companion_enabled"`
+	IdleSurface        string                          `json:"idle_surface"`
+	AudioPersistence   string                          `json:"audio_persistence"`
+	CaptureSource      string                          `json:"capture_source"`
+	ActiveSessions     int                             `json:"active_sessions"`
+	ActiveSessionID    string                          `json:"active_session_id,omitempty"`
+	LatestSession      *store.ParticipantSession       `json:"latest_session,omitempty"`
+	DirectedSpeechGate companionDirectedSpeechGate     `json:"directed_speech_gate"`
+	InteractionPolicy  companionInteractionPolicyState `json:"interaction_policy"`
+	Config             companionConfig                 `json:"config"`
 }
 
 func defaultCompanionConfig() companionConfig {
@@ -324,6 +325,7 @@ func (a *App) handleProjectCompanionState(w http.ResponseWriter, r *http.Request
 		state = companionRuntimeStateListening
 	}
 	gate := a.loadCompanionDirectedSpeechGate(cfg, gateSession)
+	policy := a.loadCompanionInteractionPolicy(cfg, gateSession)
 	writeJSON(w, companionStateResponse{
 		OK:                 true,
 		ProjectID:          project.ID,
@@ -337,6 +339,7 @@ func (a *App) handleProjectCompanionState(w http.ResponseWriter, r *http.Request
 		ActiveSessionID:    activeSessionID,
 		LatestSession:      latestSession,
 		DirectedSpeechGate: gate,
+		InteractionPolicy:  policy,
 		Config:             cfg,
 	})
 }

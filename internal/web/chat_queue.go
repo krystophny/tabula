@@ -352,7 +352,7 @@ func (a *App) enqueueAssistantTurn(sessionID, outputMode string, opts ...bool) i
 	localOnlyFlag := len(opts) > 0 && opts[0]
 	queued, startWorker := a.turns.enqueue(sessionID, outputMode, localOnlyFlag)
 	if startWorker {
-		go a.runAssistantTurnQueue(sessionID)
+		a.startAssistantTurnWorker(sessionID)
 	}
 	return queued
 }
@@ -365,14 +365,40 @@ func (a *App) markAssistantWorkerIdleIfQueueEmpty(sessionID string) bool {
 	return a.turns.markIdleIfEmpty(sessionID)
 }
 
+func (a *App) startAssistantTurnWorker(sessionID string) {
+	a.workerWG.Add(1)
+	go func() {
+		defer a.workerWG.Done()
+		a.runAssistantTurnQueue(sessionID)
+	}()
+}
+
+func (a *App) shutdownRequested() bool {
+	if a == nil || a.shutdownCtx == nil {
+		return false
+	}
+	select {
+	case <-a.shutdownCtx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
 func (a *App) runAssistantTurnQueue(sessionID string) {
 	for {
+		if a.shutdownRequested() {
+			return
+		}
 		turn, ok := a.dequeueAssistantTurn(sessionID)
 		if !ok {
 			if a.markAssistantWorkerIdleIfQueueEmpty(sessionID) {
 				return
 			}
 			continue
+		}
+		if a.shutdownRequested() {
+			return
 		}
 		a.runAssistantTurn(sessionID, turn.outputMode, turn.localOnly)
 	}
@@ -423,5 +449,34 @@ func (a *App) closeAppSession(sessionID string) {
 	a.mu.Unlock()
 	if s != nil {
 		_ = s.Close()
+	}
+}
+
+func (a *App) closeAllAppSessions() {
+	a.mu.Lock()
+	appSessions := a.chatAppSessions
+	a.chatAppSessions = map[string]*appserver.Session{}
+	a.mu.Unlock()
+	for _, s := range appSessions {
+		if s != nil {
+			_ = s.Close()
+		}
+	}
+}
+
+func (a *App) waitForAssistantWorkers(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	done := make(chan struct{})
+	go func() {
+		a.workerWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }

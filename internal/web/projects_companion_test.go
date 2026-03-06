@@ -130,6 +130,9 @@ func TestProjectCompanionConfigPutAndState(t *testing.T) {
 	if state.DirectedSpeechGate.Reason != "companion_disabled" {
 		t.Fatalf("state directed_speech_gate.reason = %q, want companion_disabled", state.DirectedSpeechGate.Reason)
 	}
+	if state.InteractionPolicy.Decision != companionInteractionDecisionDisabled {
+		t.Fatalf("state interaction_policy.decision = %q, want %q", state.InteractionPolicy.Decision, companionInteractionDecisionDisabled)
+	}
 }
 
 func TestProjectCompanionStateReportsListeningWhenEnabled(t *testing.T) {
@@ -242,5 +245,11 @@ func TestProjectCompanionStateExposesDirectedSpeechGateMetadata(t *testing.T) {
 	}
 	if state.DirectedSpeechGate.EvaluatedText != "Tabura, open the companion transcript." {
 		t.Fatalf("directed_speech_gate.evaluated_text = %q", state.DirectedSpeechGate.EvaluatedText)
+	}
+	if state.InteractionPolicy.Decision != companionInteractionDecisionRespond {
+		t.Fatalf("interaction_policy.decision = %q, want %q", state.InteractionPolicy.Decision, companionInteractionDecisionRespond)
+	}
+	if state.InteractionPolicy.Reason != "direct_address_ready" {
+		t.Fatalf("interaction_policy.reason = %q, want direct_address_ready", state.InteractionPolicy.Reason)
 	}
 }

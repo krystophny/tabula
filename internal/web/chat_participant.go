@@ -204,6 +204,17 @@ func (a *App) maybeTriggerCompanionResponse(participantSessionID string, seg sto
 	if gate.Decision != companionGateDecisionDirect || gate.SegmentID != seg.ID {
 		return
 	}
+	policy := evaluateCompanionInteractionPolicy(cfg, &session, segments, events)
+	if policy.SegmentID != seg.ID {
+		return
+	}
+	switch policy.Decision {
+	case companionInteractionDecisionSuppressed, companionInteractionDecisionCooldown, companionInteractionDecisionAlreadyTriggered:
+		return
+	case companionInteractionDecisionRespond, companionInteractionDecisionInterrupt:
+	default:
+		return
+	}
 	text := strings.TrimSpace(seg.Text)
 	if text == "" {
 		return
@@ -212,6 +223,10 @@ func (a *App) maybeTriggerCompanionResponse(participantSessionID string, seg sto
 	if err != nil {
 		log.Printf("participant trigger chat session error: %v", err)
 		return
+	}
+	if policy.Decision == companionInteractionDecisionInterrupt {
+		activeCanceled, queuedCanceled := a.cancelChatWork(chatSession.ID)
+		a.interruptCompanionPendingTurn(chatSession.ID, participantSessionID, policy.PendingSegmentID, activeCanceled, queuedCanceled)
 	}
 	storedUser, err := a.store.AddChatMessage(chatSession.ID, "user", text, text, "text")
 	if err != nil {
@@ -223,11 +238,12 @@ func (a *App) maybeTriggerCompanionResponse(participantSessionID string, seg sto
 		outputMode = turnOutputModeSilent
 	}
 	queuedTurns := a.enqueueAssistantTurn(chatSession.ID, outputMode)
+	a.noteCompanionPendingTurn(chatSession.ID, participantSessionID, seg.ID)
 	_ = a.store.AddParticipantEvent(
 		participantSessionID,
 		seg.ID,
 		"assistant_triggered",
-		fmt.Sprintf(`{"chat_session_id":%q,"chat_message_id":%d,"queued_turns":%d}`, chatSession.ID, storedUser.ID, queuedTurns),
+		fmt.Sprintf(`{"chat_session_id":%q,"chat_message_id":%d,"queued_turns":%d,"policy_decision":%q}`, chatSession.ID, storedUser.ID, queuedTurns, policy.Decision),
 	)
 	a.broadcastChatEvent(chatSession.ID, map[string]interface{}{
 		"type":                   "message_accepted",

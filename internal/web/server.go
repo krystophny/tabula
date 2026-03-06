@@ -93,15 +93,19 @@ type App struct {
 
 	mu              sync.Mutex
 	confirmMu       sync.Mutex
+	workerWG        sync.WaitGroup
 	hub             *wsHub
 	turns           *chatTurnTracker
+	companionTurns  *companionPendingTurnTracker
 	tunnels         *tunnelRegistry
 	chatAppSessions map[string]*appserver.Session
 	pendingDanger   map[string]*pendingDangerousAction
 	ghCommandRunner ghCommandRunner
 
-	bootID    string
-	startedAt string
+	shutdownCtx    context.Context
+	shutdownCancel context.CancelFunc
+	bootID         string
+	startedAt      string
 }
 
 const DefaultModel = modelprofile.ModelSpark
@@ -111,6 +115,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 	if err != nil {
 		return nil, err
 	}
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	appServerURL = strings.TrimSpace(appServerURL)
 	var appServerClient *appserver.Client
 	if appServerURL != "" {
@@ -256,10 +261,13 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		upgrader:                      websocket.Upgrader{CheckOrigin: checkWSOrigin},
 		hub:                           newWSHub(),
 		turns:                         newChatTurnTracker(),
+		companionTurns:                newCompanionPendingTurnTracker(),
 		tunnels:                       newTunnelRegistry(),
 		chatAppSessions:               map[string]*appserver.Session{},
 		pendingDanger:                 map[string]*pendingDangerousAction{},
 		ghCommandRunner:               runGitHubCLI,
+		shutdownCtx:                   shutdownCtx,
+		shutdownCancel:                shutdownCancel,
 		bootID:                        strconv.FormatInt(time.Now().UnixNano(), 16),
 		startedAt:                     time.Now().UTC().Format(time.RFC3339Nano),
 	}
@@ -826,8 +834,17 @@ func (a *App) start(host string, port int, certFile, keyFile string) error {
 }
 
 func (a *App) Shutdown(ctx context.Context) error {
+	if a.shutdownCancel != nil {
+		a.shutdownCancel()
+	}
 	a.turns.cancelAll()
 	a.hub.closeAllChat()
+	waitErr := a.waitForAssistantWorkers(ctx)
+	a.closeAllAppSessions()
 	a.tunnels.shutdown(ctx)
-	return a.store.Close()
+	storeErr := a.store.Close()
+	if waitErr != nil {
+		return waitErr
+	}
+	return storeErr
 }

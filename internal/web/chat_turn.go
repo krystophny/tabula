@@ -14,11 +14,13 @@ import (
 func (a *App) runAssistantTurn(sessionID string, outputMode string, localOnly bool) {
 	session, err := a.store.GetChatSession(sessionID)
 	if err != nil {
+		a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": err.Error()})
 		return
 	}
 	messages, err := a.store.ListChatMessages(sessionID, 200)
 	if err != nil {
+		a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": err.Error()})
 		return
 	}
@@ -33,6 +35,7 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string, localOnly bo
 	if a.appServerClient == nil {
 		errText := "app-server is not configured"
 		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
+		a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": errText})
 		return
 	}
@@ -202,6 +205,7 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string, localOnly bo
 	if err != nil {
 		a.closeAppSession(sessionID)
 		if errors.Is(err, context.Canceled) {
+			a.finishCompanionPendingTurn(sessionID, "assistant_turn_cancelled")
 			a.broadcastChatEvent(sessionID, map[string]interface{}{
 				"type":    "turn_cancelled",
 				"turn_id": latestTurnID,
@@ -209,6 +213,7 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string, localOnly bo
 			return
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
+			a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
 			errText := "assistant request timed out"
 			_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
 			payload := map[string]interface{}{
@@ -221,6 +226,7 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string, localOnly bo
 			a.broadcastChatEvent(sessionID, payload)
 			return
 		}
+		a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
 		errText := normalizeAssistantError(err)
 		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
 		payload := map[string]interface{}{
@@ -444,12 +450,14 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 	})
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
+			a.finishCompanionPendingTurn(sessionID, "assistant_turn_cancelled")
 			a.broadcastChatEvent(sessionID, map[string]interface{}{
 				"type":    "turn_cancelled",
 				"turn_id": latestTurnID,
 			})
 			return
 		}
+		a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
 		errText := normalizeAssistantError(err)
 		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
 		payload := map[string]interface{}{
@@ -502,6 +510,7 @@ func (a *App) finalizeAssistantResponse(
 			errText = "assistant response blocked by plugin"
 		}
 		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
+		a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
 		a.broadcastChatEvent(sessionID, map[string]interface{}{
 			"type":  "error",
 			"error": errText,
@@ -544,6 +553,7 @@ func (a *App) finalizeAssistantResponse(
 	if *persistedID == 0 {
 		stored, err := a.store.AddChatMessage(sessionID, "assistant", chatMarkdown, chatPlain, renderFormat)
 		if err != nil {
+			a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
 			a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": err.Error()})
 			return chatMarkdown
 		}
@@ -551,6 +561,7 @@ func (a *App) finalizeAssistantResponse(
 		*persistedText = chatMarkdown
 	} else {
 		if err := a.store.UpdateChatMessageContent(*persistedID, chatMarkdown, chatPlain, renderFormat); err != nil {
+			a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
 			a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": err.Error()})
 			return chatMarkdown
 		}
@@ -573,6 +584,7 @@ func (a *App) finalizeAssistantResponse(
 	if autoCanvas {
 		payload["auto_canvas"] = true
 	}
+	a.finishCompanionPendingTurn(sessionID, "assistant_turn_completed")
 	a.broadcastChatEvent(sessionID, payload)
 	return chatMarkdown
 }

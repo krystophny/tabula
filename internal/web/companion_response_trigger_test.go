@@ -403,3 +403,112 @@ func TestCompanionResponseTriggerDoesNotDuplicateSegment(t *testing.T) {
 		t.Fatalf("chat message count = %d, want 2", len(messages))
 	}
 }
+
+func TestCompanionResponseTriggerInterruptsPendingTurn(t *testing.T) {
+	t.Setenv("TABURA_INTENT_CLASSIFIER_URL", "off")
+	t.Setenv("TABURA_INTENT_LLM_URL", "off")
+	app := newAuthedTestApp(t)
+
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensure default project: %v", err)
+	}
+	cfg := app.loadCompanionConfig(project)
+	cfg.CompanionEnabled = true
+	cfg.DirectedSpeechGateEnabled = true
+	if err := app.saveCompanionConfig(project.ID, cfg); err != nil {
+		t.Fatalf("save companion config: %v", err)
+	}
+
+	participantSession, err := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	if err != nil {
+		t.Fatalf("add participant session: %v", err)
+	}
+	if err := app.store.AddParticipantEvent(participantSession.ID, 0, "session_started", "{}"); err != nil {
+		t.Fatalf("add participant event: %v", err)
+	}
+	firstSeg, err := app.store.AddParticipantSegment(store.ParticipantSegment{
+		SessionID:   participantSession.ID,
+		StartTS:     100,
+		EndTS:       101,
+		Text:        "Tabura, summarize that.",
+		CommittedAt: 102,
+		Status:      "final",
+	})
+	if err != nil {
+		t.Fatalf("add first participant segment: %v", err)
+	}
+	if err := app.store.AddParticipantEvent(participantSession.ID, firstSeg.ID, "segment_committed", `{"text":"Tabura, summarize that."}`); err != nil {
+		t.Fatalf("add first participant committed event: %v", err)
+	}
+
+	chatSession, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("get chat session: %v", err)
+	}
+	if err := app.store.AddParticipantEvent(participantSession.ID, firstSeg.ID, "assistant_triggered", `{"chat_session_id":"`+chatSession.ID+`"}`); err != nil {
+		t.Fatalf("add assistant_triggered event: %v", err)
+	}
+	app.noteCompanionPendingTurn(chatSession.ID, participantSession.ID, firstSeg.ID)
+	cancelCalled := false
+	app.registerActiveChatTurn(chatSession.ID, "run-1", func() {
+		cancelCalled = true
+	})
+	defer app.unregisterActiveChatTurn(chatSession.ID, "run-1")
+
+	secondSeg, err := app.store.AddParticipantSegment(store.ParticipantSegment{
+		SessionID:   participantSession.ID,
+		StartTS:     103,
+		EndTS:       104,
+		Text:        "Tabura, open the transcript.",
+		CommittedAt: 105,
+		Status:      "final",
+	})
+	if err != nil {
+		t.Fatalf("add second participant segment: %v", err)
+	}
+	if err := app.store.AddParticipantEvent(participantSession.ID, secondSeg.ID, "segment_committed", `{"text":"Tabura, open the transcript."}`); err != nil {
+		t.Fatalf("add second participant committed event: %v", err)
+	}
+
+	app.maybeTriggerCompanionResponse(participantSession.ID, secondSeg)
+
+	if !cancelCalled {
+		t.Fatal("expected pending turn cancel callback to be invoked")
+	}
+	messages, err := app.store.ListChatMessages(chatSession.ID, 10)
+	if err != nil {
+		t.Fatalf("list chat messages: %v", err)
+	}
+	foundReplacement := false
+	for _, message := range messages {
+		if strings.TrimSpace(message.Role) == "user" && strings.TrimSpace(message.ContentPlain) == "Tabura, open the transcript." {
+			foundReplacement = true
+			break
+		}
+	}
+	if !foundReplacement {
+		t.Fatal("expected replacement participant transcript to be queued as a user message")
+	}
+
+	events, err := app.store.ListParticipantEvents(participantSession.ID)
+	if err != nil {
+		t.Fatalf("list participant events: %v", err)
+	}
+	foundInterrupted := false
+	foundReplacementTrigger := false
+	for _, event := range events {
+		if event.SegmentID == firstSeg.ID && event.EventType == "assistant_interrupted" {
+			foundInterrupted = true
+		}
+		if event.SegmentID == secondSeg.ID && event.EventType == "assistant_triggered" {
+			foundReplacementTrigger = true
+		}
+	}
+	if !foundInterrupted {
+		t.Fatal("expected assistant_interrupted event for the pending segment")
+	}
+	if !foundReplacementTrigger {
+		t.Fatal("expected assistant_triggered event for the replacement segment")
+	}
+}
