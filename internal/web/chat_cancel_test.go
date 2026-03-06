@@ -424,11 +424,23 @@ func TestHandleChatSessionActivityReportsActiveTurns(t *testing.T) {
 		t.Fatalf("create chat session: %v", err)
 	}
 
-	app.registerActiveChatTurn(session.ID, "run-1", func() {})
+	firstCanceled := make(chan struct{}, 1)
+	app.registerActiveChatTurn(session.ID, "run-1", func() {
+		select {
+		case firstCanceled <- struct{}{}:
+		default:
+		}
+	})
 	app.registerActiveChatTurn(session.ID, "run-2", func() {})
 	app.turns.mu.Lock()
 	app.turns.queue[session.ID] = 3
 	app.turns.mu.Unlock()
+
+	select {
+	case <-firstCanceled:
+	default:
+		t.Fatal("expected replaced active turn to be canceled")
+	}
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/chat/sessions/"+session.ID+"/activity", map[string]any{})
 	if rr.Code != http.StatusOK {
@@ -439,11 +451,17 @@ func TestHandleChatSessionActivityReportsActiveTurns(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if got := intFromAny(payload["active_turns"], -1); got != 2 {
-		t.Fatalf("expected active_turns=2, got %v", payload["active_turns"])
+	if got := intFromAny(payload["active_turns"], -1); got != 1 {
+		t.Fatalf("expected active_turns=1, got %v", payload["active_turns"])
 	}
 	if got := intFromAny(payload["queued_turns"], -1); got != 3 {
 		t.Fatalf("expected queued_turns=3, got %v", payload["queued_turns"])
+	}
+	if got := strFromAny(payload["active_turn_id"]); got != "run-2" {
+		t.Fatalf("expected active_turn_id=run-2, got %q", got)
+	}
+	if got := strFromAny(payload["status"]); got != "running" {
+		t.Fatalf("expected status=running, got %q", got)
 	}
 }
 

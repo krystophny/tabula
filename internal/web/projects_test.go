@@ -22,6 +22,27 @@ type projectsListResponse struct {
 		ChatModel       string `json:"chat_model"`
 		ReasoningEffort string `json:"chat_model_reasoning_effort"`
 		CanvasSessionID string `json:"canvas_session_id"`
+		RunState        struct {
+			ActiveTurns  int    `json:"active_turns"`
+			QueuedTurns  int    `json:"queued_turns"`
+			IsWorking    bool   `json:"is_working"`
+			Status       string `json:"status"`
+			ActiveTurnID string `json:"active_turn_id"`
+		} `json:"run_state"`
+	} `json:"projects"`
+}
+
+type projectsActivityResponse struct {
+	OK       bool `json:"ok"`
+	Projects []struct {
+		ProjectID     string `json:"project_id"`
+		ChatSessionID string `json:"chat_session_id"`
+		RunState      struct {
+			ActiveTurns int    `json:"active_turns"`
+			QueuedTurns int    `json:"queued_turns"`
+			IsWorking   bool   `json:"is_working"`
+			Status      string `json:"status"`
+		} `json:"run_state"`
 	} `json:"projects"`
 }
 
@@ -69,6 +90,9 @@ func TestProjectsListIncludesActiveAndSessions(t *testing.T) {
 	}
 	if first.ChatModel == "" {
 		t.Fatalf("expected project chat model")
+	}
+	if first.RunState.Status == "" {
+		t.Fatalf("expected project run state status")
 	}
 }
 
@@ -271,6 +295,99 @@ func TestHubProjectCreatedWithFixedSparkModel(t *testing.T) {
 	if !foundHub {
 		t.Fatalf("expected hub project in projects list")
 	}
+}
+
+func TestProjectsListIncludesRunState(t *testing.T) {
+	app := newAuthedTestApp(t)
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("default project: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("chat session: %v", err)
+	}
+	app.registerActiveChatTurn(session.ID, "run-projects", func() {})
+	app.turns.mu.Lock()
+	app.turns.queue[session.ID] = 2
+	app.turns.mu.Unlock()
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects", map[string]any{})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected list 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var payload projectsListResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	for _, item := range payload.Projects {
+		if item.ID != project.ID {
+			continue
+		}
+		if item.RunState.ActiveTurns != 1 {
+			t.Fatalf("active_turns = %d, want 1", item.RunState.ActiveTurns)
+		}
+		if item.RunState.QueuedTurns != 2 {
+			t.Fatalf("queued_turns = %d, want 2", item.RunState.QueuedTurns)
+		}
+		if !item.RunState.IsWorking {
+			t.Fatalf("expected project to be working")
+		}
+		if item.RunState.Status != "running" {
+			t.Fatalf("status = %q, want running", item.RunState.Status)
+		}
+		if item.RunState.ActiveTurnID != "run-projects" {
+			t.Fatalf("active_turn_id = %q, want run-projects", item.RunState.ActiveTurnID)
+		}
+		return
+	}
+	t.Fatalf("expected project %q in list response", project.ID)
+}
+
+func TestProjectsActivityListsPerProjectRunState(t *testing.T) {
+	app := newAuthedTestApp(t)
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("default project: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("chat session: %v", err)
+	}
+	app.turns.mu.Lock()
+	app.turns.queue[session.ID] = 3
+	app.turns.mu.Unlock()
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects/activity", map[string]any{})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected activity 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var payload projectsActivityResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode activity response: %v", err)
+	}
+	for _, item := range payload.Projects {
+		if item.ProjectID != project.ID {
+			continue
+		}
+		if item.ChatSessionID != session.ID {
+			t.Fatalf("chat_session_id = %q, want %q", item.ChatSessionID, session.ID)
+		}
+		if item.RunState.ActiveTurns != 0 {
+			t.Fatalf("active_turns = %d, want 0", item.RunState.ActiveTurns)
+		}
+		if item.RunState.QueuedTurns != 3 {
+			t.Fatalf("queued_turns = %d, want 3", item.RunState.QueuedTurns)
+		}
+		if !item.RunState.IsWorking {
+			t.Fatalf("expected project to be working")
+		}
+		if item.RunState.Status != "queued" {
+			t.Fatalf("status = %q, want queued", item.RunState.Status)
+		}
+		return
+	}
+	t.Fatalf("expected project %q in activity response", project.ID)
 }
 
 func TestHubProjectRejectsModelUpdates(t *testing.T) {

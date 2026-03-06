@@ -1219,6 +1219,27 @@ body.panel-motion-enabled {
   color: #f9fafb;
 }
 
+.edge-project-btn.is-working {
+  border-color: #b45309;
+  background: #fef3c7;
+}
+
+.edge-project-btn.is-working::after {
+  content: "•";
+  margin-left: 0.35rem;
+  color: #b45309;
+}
+
+.edge-project-btn.is-active.is-working {
+  border-color: #92400e;
+  background: #92400e;
+  color: #fffbeb;
+}
+
+.edge-project-btn.is-active.is-working::after {
+  color: #fbbf24;
+}
+
 .liability-modal {
   position: fixed;
   inset: 0;

@@ -361,6 +361,7 @@
         chat_mode: 'chat',
         chat_model: 'spark',
         chat_model_reasoning_effort: 'low',
+        run_state: { active_turns: 0, queued_turns: 0, is_working: false, status: 'idle' },
       },
       {
         id: 'hub',
@@ -373,12 +374,27 @@
         chat_mode: 'chat',
         chat_model: 'spark',
         chat_model_reasoning_effort: 'low',
+        run_state: { active_turns: 0, queued_turns: 0, is_working: false, status: 'idle' },
       },
     ];
     let activeProjectId = 'test';
+    let harnessProjectRunStates = {
+      test: { active_turns: 0, queued_turns: 0, is_working: false, status: 'idle' },
+      hub: { active_turns: 0, queued_turns: 0, is_working: false, status: 'idle' },
+    };
+    window.__setProjectRunStates = (states) => {
+      const next = states && typeof states === 'object' ? states : {};
+      harnessProjectRunStates = {
+        ...harnessProjectRunStates,
+        ...next,
+      };
+    };
     const cloneProject = (id) => {
       const project = harnessProjects.find((item) => item.id === id) || harnessProjects[0];
-      return { ...project };
+      return {
+        ...project,
+        run_state: { ...(harnessProjectRunStates[project.id] || project.run_state || {}) },
+      };
     };
 
     // Mock fetch for /api/setup etc.
@@ -469,8 +485,19 @@
           payload: { project_id: projectId, model, reasoning_effort: effort },
         });
         return new Response(JSON.stringify({
-          project: { ...harnessProjects[index] },
+          project: cloneProject(projectId),
         }), { status: 200 });
+      }
+      if (u.includes('/api/projects/activity')) {
+        const projects = harnessProjects.map((project) => ({
+          project_id: project.id,
+          project_key: project.project_key,
+          name: project.name,
+          kind: project.kind,
+          chat_session_id: project.chat_session_id,
+          run_state: { ...(harnessProjectRunStates[project.id] || project.run_state || {}) },
+        }));
+        return new Response(JSON.stringify({ ok: true, projects }), { status: 200 });
       }
       if (u.includes('/api/projects/') && u.includes('/files')) {
         const pathPart = u.split('/api/projects/')[1] || '';
@@ -569,7 +596,7 @@
         }), { status: 200 });
       }
       if (u.includes('/api/projects')) {
-        const projects = harnessProjects.map((project) => ({ ...project }));
+        const projects = harnessProjects.map((project) => cloneProject(project.id));
         return new Response(JSON.stringify({
           projects,
           default_project_id: 'test',

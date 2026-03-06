@@ -221,13 +221,14 @@ func (a *App) handleChatSessionActivity(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
-	activeTurns := a.activeChatTurnCount(sessionID)
-	queuedTurns := a.queuedChatTurnCount(sessionID)
+	state := a.projectRunStateForSession(sessionID)
 	writeJSON(w, map[string]interface{}{
-		"ok":           true,
-		"active_turns": activeTurns,
-		"queued_turns": queuedTurns,
-		"is_working":   activeTurns > 0 || queuedTurns > 0,
+		"ok":             true,
+		"active_turns":   state.ActiveTurns,
+		"queued_turns":   state.QueuedTurns,
+		"is_working":     state.IsWorking,
+		"status":         state.Status,
+		"active_turn_id": state.ActiveTurnID,
 	})
 }
 

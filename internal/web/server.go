@@ -346,6 +346,7 @@ func (a *App) Router() http.Handler {
 	r.Get("/api/extensions", a.handleExtensions)
 	r.Post("/api/extensions/commands/{command_id}", a.handleExtensionCommandExecute)
 	r.Get("/api/projects", a.handleProjectsList)
+	r.Get("/api/projects/activity", a.handleProjectsActivity)
 	r.Post("/api/projects", a.handleProjectCreate)
 	r.Post("/api/projects/{project_id}/activate", a.handleProjectActivate)
 	r.Post("/api/projects/{project_id}/chat-model", a.handleProjectChatModelUpdate)

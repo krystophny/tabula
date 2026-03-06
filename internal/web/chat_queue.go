@@ -13,16 +13,21 @@ import (
 
 type chatTurnTracker struct {
 	mu         sync.Mutex
-	cancel     map[string]map[string]context.CancelFunc
+	active     map[string]activeChatTurn
 	queue      map[string]int
 	outputMode map[string][]string
 	localOnly  map[string][]bool
 	worker     map[string]bool
 }
 
+type activeChatTurn struct {
+	runID  string
+	cancel context.CancelFunc
+}
+
 func newChatTurnTracker() *chatTurnTracker {
 	return &chatTurnTracker{
-		cancel:     map[string]map[string]context.CancelFunc{},
+		active:     map[string]activeChatTurn{},
 		queue:      map[string]int{},
 		outputMode: map[string][]string{},
 		localOnly:  map[string][]bool{},
@@ -32,53 +37,52 @@ func newChatTurnTracker() *chatTurnTracker {
 
 func (t *chatTurnTracker) register(sessionID, runID string, cancelFn context.CancelFunc) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.cancel[sessionID] == nil {
-		t.cancel[sessionID] = map[string]context.CancelFunc{}
+	previous, hadPrevious := t.active[sessionID]
+	t.active[sessionID] = activeChatTurn{
+		runID:  runID,
+		cancel: cancelFn,
 	}
-	t.cancel[sessionID][runID] = cancelFn
+	t.mu.Unlock()
+	if hadPrevious && previous.runID != runID && previous.cancel != nil {
+		previous.cancel()
+	}
 }
 
 func (t *chatTurnTracker) unregister(sessionID, runID string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	runs := t.cancel[sessionID]
-	if runs == nil {
+	current, ok := t.active[sessionID]
+	if !ok {
 		return
 	}
-	delete(runs, runID)
-	if len(runs) == 0 {
-		delete(t.cancel, sessionID)
+	if current.runID == runID {
+		delete(t.active, sessionID)
 	}
 }
 
 func (t *chatTurnTracker) cancelActive(sessionID string) int {
 	t.mu.Lock()
-	runs := t.cancel[sessionID]
-	if len(runs) == 0 {
+	current, ok := t.active[sessionID]
+	if !ok {
 		t.mu.Unlock()
 		return 0
 	}
-	cancels := make([]context.CancelFunc, 0, len(runs))
-	for _, fn := range runs {
-		cancels = append(cancels, fn)
-	}
-	delete(t.cancel, sessionID)
+	delete(t.active, sessionID)
 	t.mu.Unlock()
-	for _, fn := range cancels {
-		fn()
+	if current.cancel != nil {
+		current.cancel()
 	}
-	return len(cancels)
+	return 1
 }
 
 func (t *chatTurnTracker) cancelAll() {
 	t.mu.Lock()
-	all := t.cancel
-	t.cancel = map[string]map[string]context.CancelFunc{}
+	all := t.active
+	t.active = map[string]activeChatTurn{}
 	t.mu.Unlock()
-	for _, runs := range all {
-		for _, fn := range runs {
-			fn()
+	for _, run := range all {
+		if run.cancel != nil {
+			run.cancel()
 		}
 	}
 }
@@ -89,13 +93,23 @@ func (t *chatTurnTracker) clearQueued(sessionID string) int {
 	queued := t.queue[sessionID]
 	delete(t.queue, sessionID)
 	delete(t.outputMode, sessionID)
+	delete(t.localOnly, sessionID)
 	return queued
 }
 
 func (t *chatTurnTracker) activeCount(sessionID string) int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return len(t.cancel[sessionID])
+	if _, ok := t.active[sessionID]; ok {
+		return 1
+	}
+	return 0
+}
+
+func (t *chatTurnTracker) activeRunID(sessionID string) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.active[sessionID].runID
 }
 
 func (t *chatTurnTracker) queuedCount(sessionID string) int {
@@ -173,6 +187,33 @@ func (t *chatTurnTracker) markIdleIfEmpty(sessionID string) bool {
 type dequeuedTurn struct {
 	outputMode string
 	localOnly  bool
+}
+
+type projectRunState struct {
+	ActiveTurns  int    `json:"active_turns"`
+	QueuedTurns  int    `json:"queued_turns"`
+	IsWorking    bool   `json:"is_working"`
+	Status       string `json:"status"`
+	ActiveTurnID string `json:"active_turn_id,omitempty"`
+}
+
+func newProjectRunState(activeTurns, queuedTurns int, activeTurnID string) projectRunState {
+	state := projectRunState{
+		ActiveTurns: activeTurns,
+		QueuedTurns: queuedTurns,
+		IsWorking:   activeTurns > 0 || queuedTurns > 0,
+		Status:      "idle",
+	}
+	if activeTurns > 0 {
+		state.Status = "running"
+	}
+	if activeTurns == 0 && queuedTurns > 0 {
+		state.Status = "queued"
+	}
+	if activeTurns > 0 {
+		state.ActiveTurnID = strings.TrimSpace(activeTurnID)
+	}
+	return state
 }
 
 func (a *App) registerActiveChatTurn(sessionID, runID string, cancel context.CancelFunc) {
@@ -293,8 +334,18 @@ func (a *App) activeChatTurnCount(sessionID string) int {
 	return a.turns.activeCount(sessionID)
 }
 
+func (a *App) activeChatTurnID(sessionID string) string {
+	return a.turns.activeRunID(sessionID)
+}
+
 func (a *App) queuedChatTurnCount(sessionID string) int {
 	return a.turns.queuedCount(sessionID)
+}
+
+func (a *App) projectRunStateForSession(sessionID string) projectRunState {
+	activeTurns := a.activeChatTurnCount(sessionID)
+	queuedTurns := a.queuedChatTurnCount(sessionID)
+	return newProjectRunState(activeTurns, queuedTurns, a.activeChatTurnID(sessionID))
 }
 
 func (a *App) enqueueAssistantTurn(sessionID, outputMode string, opts ...bool) int {

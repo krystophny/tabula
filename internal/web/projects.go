@@ -31,18 +31,19 @@ type projectCreateRequest struct {
 }
 
 type projectAPIModel struct {
-	ID                       string `json:"id"`
-	Name                     string `json:"name"`
-	Kind                     string `json:"kind"`
-	RootPath                 string `json:"root_path"`
-	ProjectKey               string `json:"project_key"`
-	MCPURL                   string `json:"mcp_url,omitempty"`
-	IsDefault                bool   `json:"is_default"`
-	ChatSessionID            string `json:"chat_session_id"`
-	ChatMode                 string `json:"chat_mode"`
-	ChatModel                string `json:"chat_model"`
-	ChatModelReasoningEffort string `json:"chat_model_reasoning_effort"`
-	CanvasSessionID          string `json:"canvas_session_id"`
+	ID                       string          `json:"id"`
+	Name                     string          `json:"name"`
+	Kind                     string          `json:"kind"`
+	RootPath                 string          `json:"root_path"`
+	ProjectKey               string          `json:"project_key"`
+	MCPURL                   string          `json:"mcp_url,omitempty"`
+	IsDefault                bool            `json:"is_default"`
+	ChatSessionID            string          `json:"chat_session_id"`
+	ChatMode                 string          `json:"chat_mode"`
+	ChatModel                string          `json:"chat_model"`
+	ChatModelReasoningEffort string          `json:"chat_model_reasoning_effort"`
+	CanvasSessionID          string          `json:"canvas_session_id"`
+	RunState                 projectRunState `json:"run_state"`
 }
 
 type projectChatModelRequest struct {
@@ -86,6 +87,15 @@ type projectWelcomeResponse struct {
 	Scope     string                  `json:"scope"`
 	Title     string                  `json:"title"`
 	Sections  []projectWelcomeSection `json:"sections"`
+}
+
+type projectActivityItem struct {
+	ProjectID     string          `json:"project_id"`
+	ProjectKey    string          `json:"project_key"`
+	Name          string          `json:"name"`
+	Kind          string          `json:"kind"`
+	ChatSessionID string          `json:"chat_session_id"`
+	RunState      projectRunState `json:"run_state"`
 }
 
 func normalizeProjectKindInput(kind, path string) string {
@@ -320,6 +330,22 @@ func (a *App) buildProjectAPIModel(project store.Project) (projectAPIModel, erro
 		ChatModel:                alias,
 		ChatModelReasoningEffort: effort,
 		CanvasSessionID:          a.canvasSessionIDForProject(project),
+		RunState:                 a.projectRunStateForSession(session.ID),
+	}, nil
+}
+
+func (a *App) buildProjectActivityItem(project store.Project) (projectActivityItem, error) {
+	session, err := a.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		return projectActivityItem{}, err
+	}
+	return projectActivityItem{
+		ProjectID:     project.ID,
+		ProjectKey:    project.ProjectKey,
+		Name:          project.Name,
+		Kind:          project.Kind,
+		ChatSessionID: session.ID,
+		RunState:      a.projectRunStateForSession(session.ID),
 	}, nil
 }
 
@@ -351,6 +377,30 @@ func (a *App) handleProjectsList(w http.ResponseWriter, r *http.Request) {
 		"default_project_id": defaultProject.ID,
 		"active_project_id":  activeProject.ID,
 		"projects":           items,
+	})
+}
+
+func (a *App) handleProjectsActivity(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAuth(w, r) {
+		return
+	}
+	projects, _, err := a.listProjectsWithDefault()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	items := make([]projectActivityItem, 0, len(projects))
+	for _, project := range projects {
+		item, err := a.buildProjectActivityItem(project)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		items = append(items, item)
+	}
+	writeJSON(w, map[string]interface{}{
+		"ok":       true,
+		"projects": items,
 	})
 }
 
@@ -913,15 +963,26 @@ func (a *App) buildHubWelcomeSections(projects []store.Project, activeProjectID 
 		if isHubProject(project) {
 			continue
 		}
+		item, err := a.buildProjectAPIModel(project)
+		if err != nil {
+			continue
+		}
 		subtitle := strings.TrimSpace(project.RootPath)
 		if project.ID == activeProjectID {
 			subtitle = "current active project"
+		}
+		description := "Open project canvas"
+		switch item.RunState.Status {
+		case "running":
+			description = fmt.Sprintf("%d active run, %d queued", item.RunState.ActiveTurns, item.RunState.QueuedTurns)
+		case "queued":
+			description = fmt.Sprintf("%d queued run", item.RunState.QueuedTurns)
 		}
 		projectCards = append(projectCards, projectWelcomeCard{
 			ID:          "project-" + project.ID,
 			Title:       strings.TrimSpace(project.Name),
 			Subtitle:    subtitle,
-			Description: "Open project canvas",
+			Description: description,
 			Action: projectWelcomeAction{
 				Type:      "switch_project",
 				ProjectID: project.ID,

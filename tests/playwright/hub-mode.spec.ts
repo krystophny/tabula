@@ -90,6 +90,20 @@ test('switching from hub back to project keeps normal project switching', async 
   }, { timeout: 5_000 }).toBe(true);
 });
 
+test('hub monitors project run state without activating the project', async ({ page }) => {
+  const projectButton = page.locator('#edge-top-projects .edge-project-btn:not(.edge-hub-btn)');
+
+  await page.evaluate(() => {
+    (window as any).__setProjectRunStates({
+      test: { active_turns: 1, queued_turns: 2, is_working: true, status: 'running', active_turn_id: 'turn-1' },
+    });
+  });
+
+  await expect.poll(async () => projectButton.getAttribute('title'), { timeout: 5_000 }).toContain('1 active, 2 queued');
+  await expect(projectButton).toHaveClass(/is-working/);
+  await expect(projectButton).not.toHaveClass(/is-active/);
+});
+
 test('system switch_model action updates project model state', async ({ page }) => {
   await page.evaluate(() => {
     document.getElementById('edge-top')?.classList.add('edge-pinned');
