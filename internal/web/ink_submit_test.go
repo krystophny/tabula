@@ -37,6 +37,7 @@ func TestInkSubmitWritesArtifacts(t *testing.T) {
 		"artifact_title": "README.md",
 		"artifact_path":  "README.md",
 		"svg":            `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80"><path d="M 10 10 L 40 40" /></svg>`,
+		"png_base64":     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3xwAAAAASUVORK5CYII=",
 		"strokes": []map[string]any{
 			{
 				"pointer_type": "pen",
@@ -57,10 +58,11 @@ func TestInkSubmitWritesArtifacts(t *testing.T) {
 		t.Fatalf("decode ink submit response: %v", err)
 	}
 	inkPath := strFromAny(payload["ink_svg_path"])
+	pngPath := strFromAny(payload["ink_png_path"])
 	summaryPath := strFromAny(payload["summary_path"])
 	manifestPath := strFromAny(payload["revision_manifest_path"])
 	historyPath := strFromAny(payload["revision_history_path"])
-	if inkPath == "" || summaryPath == "" || manifestPath == "" || historyPath == "" {
+	if inkPath == "" || pngPath == "" || summaryPath == "" || manifestPath == "" || historyPath == "" {
 		t.Fatalf("expected ink paths in response: %v", payload)
 	}
 
@@ -75,6 +77,13 @@ func TestInkSubmitWritesArtifacts(t *testing.T) {
 	if !strings.Contains(string(inkContent), "<svg") {
 		t.Fatalf("ink svg missing svg root: %s", string(inkContent))
 	}
+	pngContent, err := os.ReadFile(filepath.Join(project.RootPath, filepath.FromSlash(pngPath)))
+	if err != nil {
+		t.Fatalf("read ink png: %v", err)
+	}
+	if len(pngContent) == 0 {
+		t.Fatal("ink png was empty")
+	}
 
 	summaryContent, err := os.ReadFile(filepath.Join(project.RootPath, filepath.FromSlash(summaryPath)))
 	if err != nil {
@@ -83,6 +92,9 @@ func TestInkSubmitWritesArtifacts(t *testing.T) {
 	summaryText := string(summaryContent)
 	if !strings.Contains(summaryText, "Stroke count: `1`") {
 		t.Fatalf("ink summary missing stroke count: %s", summaryText)
+	}
+	if !strings.Contains(summaryText, "PNG artifact:") {
+		t.Fatalf("ink summary missing png reference: %s", summaryText)
 	}
 	if !strings.Contains(summaryText, "README.md") {
 		t.Fatalf("ink summary missing artifact title/path: %s", summaryText)

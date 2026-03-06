@@ -266,10 +266,18 @@ test.describe('canvas - tabula rasa', () => {
       return log.some((entry) => entry.type === 'api_fetch' && entry.action === 'ink_submit');
     }, { timeout: 5_000 }).toBe(true);
 
-    await expect.poll(async () => {
-      const log = await getLog(page);
-      return log.some((entry) => entry.type === 'message_sent' && String(entry.text || '').includes('.tabura/artifacts/ink/test-ink.md'));
-    }, { timeout: 5_000 }).toBe(true);
+    const payload = await page.evaluate(() => {
+      const log = (window as any).__harnessLog || [];
+      const hit = log.find((entry: any) => entry.type === 'api_fetch' && entry.action === 'ink_submit');
+      return hit?.payload || null;
+    });
+    expect(typeof payload?.png_base64).toBe('string');
+    expect(String(payload?.png_base64 || '').length).toBeGreaterThan(20);
+
+    const canvasImage = page.locator('#canvas-image');
+    await expect(canvasImage).toHaveClass(/is-active/);
+    const img = page.locator('#canvas-img');
+    await expect(img).toHaveAttribute('src', /test-ink\.png/);
   });
 });
 

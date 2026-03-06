@@ -1065,6 +1065,7 @@ function applyRuntimePreferences(runtime) {
   const runtimeSilent = parseOptionalBoolean(runtime?.silent_mode);
   state.ttsSilent = runtimeSilent === true;
   state.inputMode = normalizeInputMode(runtime?.input_mode || 'pen');
+  syncInputModeBodyState();
   state.startupBehavior = String(runtime?.startup_behavior || 'hub_first').trim().toLowerCase() || 'hub_first';
   state.disclaimerVersion = String(runtime?.disclaimer_version || '').trim();
   state.disclaimerAckRequired = Boolean(runtime?.disclaimer_ack_required);
@@ -1086,6 +1087,7 @@ async function updateRuntimePreferences(patch) {
     state.ttsSilent = silent;
   }
   state.inputMode = normalizeInputMode(payload?.input_mode || state.inputMode || 'pen');
+  syncInputModeBodyState();
   state.startupBehavior = String(payload?.startup_behavior || state.startupBehavior || 'hub_first').trim().toLowerCase() || 'hub_first';
   renderEdgeTopModelButtons();
   return payload;
@@ -3472,12 +3474,21 @@ function renderInkControls() {
   if (clear instanceof HTMLButtonElement) clear.disabled = state.inkSubmitInFlight;
 }
 
+function syncInputModeBodyState() {
+  document.body.classList.toggle('pen-input-mode', isPenInputMode());
+}
+
+function setPenInkingState(active) {
+  document.body.classList.toggle('pen-inking', Boolean(active));
+}
+
 function clearInkDraft() {
   const layer = inkLayerEl();
   if (layer) layer.innerHTML = '';
   state.inkDraft.strokes = [];
   state.inkDraft.dirty = false;
   resetInkDraftState();
+  setPenInkingState(false);
   renderInkControls();
 }
 
@@ -3561,6 +3572,41 @@ function buildInkSVGMarkup() {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${layer.innerHTML}</svg>`;
 }
 
+function buildInkPNGBase64() {
+  syncInkLayerSize();
+  const layer = inkLayerEl();
+  if (!(layer instanceof SVGSVGElement)) return '';
+  const viewBox = String(layer.getAttribute('viewBox') || '').trim();
+  const parts = viewBox.split(/\s+/).map((part) => Number(part));
+  const width = Math.max(1, Math.round(parts[2] || Number(layer.getAttribute('width')) || 1));
+  const height = Math.max(1, Math.round(parts[3] || Number(layer.getAttribute('height')) || 1));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#111827';
+  for (const stroke of state.inkDraft.strokes) {
+    const points = Array.isArray(stroke?.points) ? stroke.points : [];
+    if (points.length === 0) continue;
+    ctx.beginPath();
+    ctx.lineWidth = Math.max(1.5, Number(stroke?.width) || 2.4);
+    ctx.moveTo(Number(points[0]?.x) || 0, Number(points[0]?.y) || 0);
+    for (let i = 1; i < points.length; i += 1) {
+      ctx.lineTo(Number(points[i]?.x) || 0, Number(points[i]?.y) || 0);
+    }
+    if (points.length === 1) {
+      ctx.lineTo((Number(points[0]?.x) || 0) + 0.01, Number(points[0]?.y) || 0);
+    }
+    ctx.stroke();
+  }
+  return canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
+}
+
 async function submitInkDraft() {
   if (state.inkSubmitInFlight || state.inkDraft.strokes.length === 0) return false;
   const project = activeProject();
@@ -3584,6 +3630,7 @@ async function submitInkDraft() {
         })),
       })),
       svg: buildInkSVGMarkup(),
+      png_base64: buildInkPNGBase64(),
     };
     const resp = await fetch(apiURL('ink/submit'), {
       method: 'POST',
@@ -3595,6 +3642,7 @@ async function submitInkDraft() {
       throw new Error(detail);
     }
     const result = await resp.json();
+    const pngPath = String(result?.ink_png_path || '').trim();
     const summaryPath = String(result?.summary_path || '').trim();
     const inkPath = String(result?.ink_svg_path || '').trim();
     const revisionHistoryPath = String(result?.revision_history_path || '').trim();
@@ -3608,13 +3656,15 @@ async function submitInkDraft() {
     } else {
       showStatus('ink saved');
     }
-    if (summaryPath) {
+    if (pngPath) {
+      await openWorkspaceSidebarFile(pngPath);
+    } else if (summaryPath) {
       await openWorkspaceSidebarFile(summaryPath);
     } else if (inkPath) {
       await openWorkspaceSidebarFile(inkPath);
     }
-    if (wasBlankCanvas && summaryPath) {
-      await submitMessage(`Please inspect the handwritten note saved at \`${summaryPath}\` and respond to it if possible.`, { kind: 'ink_note' });
+    if (wasBlankCanvas && pngPath) {
+      showStatus(`ink saved as image: ${pngPath}`);
     }
     return true;
   } catch (err) {
@@ -5589,6 +5639,8 @@ function bindUi() {
       if (isEditableTarget(ev.target)) return;
       if (ev.target instanceof Element && ev.target.closest('.edge-panel,#pr-file-pane,#pr-file-drawer-backdrop')) return;
       if (beginInkStroke(ev)) {
+        try { window.getSelection()?.removeAllRanges(); } catch (_) {}
+        setPenInkingState(true);
         ev.preventDefault();
         try { canvasViewport.setPointerCapture(ev.pointerId); } catch (_) {}
       }
@@ -5604,11 +5656,16 @@ function bindUi() {
       if (state.inkDraft.activePointerId !== ev.pointerId) return;
       extendInkStroke(ev);
       resetInkDraftState();
+      setPenInkingState(false);
       renderInkControls();
       ev.preventDefault();
     };
     canvasViewport.addEventListener('pointerup', finishInkPointer, true);
     canvasViewport.addEventListener('pointercancel', finishInkPointer, true);
+    canvasViewport.addEventListener('selectstart', (ev) => {
+      if (!isPenInputMode()) return;
+      ev.preventDefault();
+    }, true);
   }
   window.addEventListener('scroll', syncIndicatorOnViewportChange, { passive: true });
   window.addEventListener('resize', syncIndicatorOnViewportChange);
@@ -6090,6 +6147,7 @@ async function init() {
   bindUi();
   syncInkLayerSize();
   renderInkControls();
+  syncInputModeBodyState();
   updateAssistantActivityIndicator();
   startDevReloadWatcher();
   startAssistantActivityWatcher();

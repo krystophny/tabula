@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"os"
@@ -27,6 +28,7 @@ type inkSubmitRequest struct {
 	ArtifactTitle string            `json:"artifact_title"`
 	ArtifactPath  string            `json:"artifact_path"`
 	SVG           string            `json:"svg"`
+	PNGBase64     string            `json:"png_base64"`
 	Strokes       []inkSubmitStroke `json:"strokes"`
 }
 
@@ -53,6 +55,11 @@ func (a *App) handleInkSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ink payload is required", http.StatusBadRequest)
 		return
 	}
+	pngBytes, err := decodeInkPNG(req.PNGBase64)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	inkDir := filepath.Join(project.RootPath, ".tabura", "artifacts", "ink")
 	if err := os.MkdirAll(inkDir, 0o755); err != nil {
@@ -71,6 +78,16 @@ func (a *App) handleInkSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	pngPath := ""
+	pngName := ""
+	if len(pngBytes) > 0 {
+		pngName = fmt.Sprintf("%s-%s-ink.png", stamp, baseName)
+		pngPath = filepath.Join(inkDir, pngName)
+		if err := os.WriteFile(pngPath, pngBytes, 0o644); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 
 	summaryName := fmt.Sprintf("%s-%s-ink.md", stamp, baseName)
 	summaryPath := filepath.Join(inkDir, summaryName)
@@ -84,6 +101,9 @@ func (a *App) handleInkSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprintf(&b, "- Stroke count: `%d`\n", len(req.Strokes))
 	fmt.Fprintf(&b, "- SVG artifact: `%s`\n\n", filepath.ToSlash(filepath.Join(".tabura", "artifacts", "ink", svgName)))
+	if pngName != "" {
+		fmt.Fprintf(&b, "- PNG artifact: `%s`\n\n", filepath.ToSlash(filepath.Join(".tabura", "artifacts", "ink", pngName)))
+	}
 	b.WriteString("## Stroke Summary\n\n")
 	for i, stroke := range req.Strokes {
 		points := len(stroke.Points)
@@ -108,16 +128,28 @@ func (a *App) handleInkSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	relPNGPath := ""
+	if pngPath != "" {
+		relPNGPath, err = filepath.Rel(project.RootPath, pngPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	revisionFiles := map[string]string{
+		"ink_svg": filepath.ToSlash(relSVGPath),
+		"summary": filepath.ToSlash(relSummaryPath),
+	}
+	if relPNGPath != "" {
+		revisionFiles["ink_png"] = filepath.ToSlash(relPNGPath)
+	}
 	revisionManifestPath, revisionHistoryPath, err := appendLocalRevision(
 		project.RootPath,
 		req.ArtifactTitle,
 		req.ArtifactPath,
 		"ink",
 		"handwritten ink capture",
-		map[string]string{
-			"ink_svg": filepath.ToSlash(relSVGPath),
-			"summary": filepath.ToSlash(relSummaryPath),
-		},
+		revisionFiles,
 	)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -127,8 +159,24 @@ func (a *App) handleInkSubmit(w http.ResponseWriter, r *http.Request) {
 		"ok":                     true,
 		"project_id":             project.ID,
 		"ink_svg_path":           filepath.ToSlash(relSVGPath),
+		"ink_png_path":           filepath.ToSlash(relPNGPath),
 		"summary_path":           filepath.ToSlash(relSummaryPath),
 		"revision_manifest_path": revisionManifestPath,
 		"revision_history_path":  revisionHistoryPath,
 	})
+}
+
+func decodeInkPNG(raw string) ([]byte, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	if idx := strings.Index(trimmed, ","); idx >= 0 && strings.HasPrefix(strings.ToLower(trimmed[:idx]), "data:image/png;base64") {
+		trimmed = trimmed[idx+1:]
+	}
+	data, err := base64.StdEncoding.DecodeString(trimmed)
+	if err != nil {
+		return nil, fmt.Errorf("invalid png payload")
+	}
+	return data, nil
 }
