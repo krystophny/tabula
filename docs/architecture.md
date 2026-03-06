@@ -88,9 +88,14 @@ Chat hook flow:
 2. Tabura receives `canvas_import_handoff` with `handoff_id`.
 3. Tabura peeks/consumes producer handoff payload and renders artifact.
 
-## Conversation Mode and Wake Word
+## Current Voice Runtime and Planned Companion Convergence
 
-Conversation mode enables hands-free voice interaction via a wake word ("alexa" using openWakeWord's `alexa_v0.1.onnx` model).
+Current runtime behavior still exposes a legacy conversation-mode path with a
+wake word. The active product direction is to converge that behavior into the
+planned Companion Mode documented in [`companion-mode-whitepaper.md`](companion-mode-whitepaper.md).
+
+Legacy conversation mode enables hands-free voice interaction via a wake word
+("alexa" using openWakeWord's `alexa_v0.1.onnx` model).
 
 Wake-word detection runs entirely in the browser using ONNX Runtime Web:
 - `melspectrogram.onnx` extracts mel features from raw audio.
@@ -106,10 +111,17 @@ Audio pipeline in `hotword.js`:
 - On wake-word detection, the app begins voice recording immediately (no intermediate listen window).
 
 State transitions:
-- **Paused** (black border + pause bars): conversation mode on, waiting for wake word.
+- **Paused** (black border + pause bars): legacy conversation mode on, waiting for wake word.
 - **Recording** (red border + red dot): wake word detected or user tapped, capturing speech.
 - **Listening** (blue border + pulse): follow-up window after TTS response (6s).
 - Follow-up timeout returns to **Paused** and restarts hotword monitoring.
+
+Planned Companion Mode differs from this legacy path in several ways:
+- it is project-scoped instead of a free-floating toggle
+- it always transcribes for context while active
+- it targets live meetings, 1:1 conversations, and workday presence with one model
+- it uses a humanoid idle surface or optional black mode when no document is shown
+- meetings and long-running tasks are intended to become temporary projects
 
 Utterance filtering (server-side in `internal/stt/transcribe.go`):
 - Whisper hallucination blocklist (13 phrases).

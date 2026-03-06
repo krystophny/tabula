@@ -82,26 +82,58 @@ UI behavior targets minimal redraw and low-motion interaction:
 - use high-contrast text and structural markers for diffs
 - preserve document continuity over chat-like modality switching
 
-## Conversation Mode
+## Companion Mode
 
-Conversation mode enables continuous hands-free interaction via wake word detection.
+This section describes the planned successor to the current split between
+tap-to-record interaction and legacy conversation-mode behavior. It is a
+product-direction spec, not a claim that the runtime has already converged.
 
-Activation: toggle the conversation button in the top edge panel.
+Companion Mode is the single continuous assistant mode for:
 
-Flow:
-1. **Passive listening**: hotword monitor runs in-browser (openWakeWord "alexa" model). Indicator shows pause bars (black border).
-2. **Wake word detected**: recording starts immediately. Indicator switches to recording (red border + dot).
-3. **Speech captured**: VAD detects end-of-utterance, audio is sent for STT transcription, then processed as a chat message.
-4. **Response**: assistant responds via TTS playback (if not in silent mode).
-5. **Follow-up window**: after TTS completes, a 6-second listening window opens for follow-up speech. Indicator shows listening (blue border + pulse).
-6. **Follow-up timeout**: if no speech is detected within 6s, returns to passive wake-word listening with pause indicator.
+- live in-person meetings
+- one-on-one conversations
+- solo workday assistant presence
+- online calls as one additional context source
 
-During the follow-up window, tap or push-to-talk overrides the VAD-based listen and starts manual recording.
+Companion Mode is:
 
-Nonsense/background filtering prevents spurious LLM calls during the follow-up window:
-- Short filler-only transcripts are rejected as noise.
-- Known Whisper hallucinations on silent audio are filtered.
-- TV/radio background patterns are rejected.
+- botless
+- local-first
+- Whisper-backed by default
+- manually toggled
+- always-transcribing for context
+
+Default capture policy:
+
+- microphone only
+- no separate meeting attendee/bot
+- no mandatory cloud recorder identity
+
+Default flow:
+1. User explicitly enters Companion Mode.
+2. Tabura continuously transcribes microphone input for context.
+3. Directed-speech / command detection decides when the assistant should answer.
+4. Assistant responds via TTS playback unless silent mode is enabled.
+5. Transcript context continues even when the assistant stays silent.
+
+Idle surface:
+
+- if no document is displayed, show a full-screen minimal humanoid face
+- face states represent `idle`, `listening`, `thinking`, `talking`, and `error`
+- black mode is the alternate idle surface
+- if a canvas document is visible, the document takes precedence over the idle surface
+
+Project model:
+
+- meetings and long-running jobs should default to temporary projects
+- each project keeps one active run in its main thread
+- Hub remains for ad hoc requests and run monitoring only
+
+Noise filtering remains important:
+
+- short filler-only transcripts should be rejected as noise
+- known Whisper hallucinations on silent audio should be filtered
+- background TV/radio patterns should be rejected
 
 ## Non-Goals for v0.0.1
 

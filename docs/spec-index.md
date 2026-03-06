@@ -19,8 +19,9 @@ Read in this order:
 1. `object-scoped-intent-ui.md`
 2. `interfaces.md`
 3. `architecture.md`
-4. `meeting-notes-privacy.md`
-5. `codex-app-server-pivot.md`
+4. `companion-mode-whitepaper.md`
+5. `meeting-notes-privacy.md`
+6. `codex-app-server-pivot.md`
 
 Integrated protocol reference:
 
