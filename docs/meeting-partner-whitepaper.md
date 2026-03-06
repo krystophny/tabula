@@ -6,6 +6,8 @@ This file previously described a `meeting-partner` product direction built on
 top of Tabura's extension/plugin architecture.
 
 That is now retired as the active roadmap.
+The underlying product need may still survive inside Companion Mode, but not as
+a private bundle product.
 
 ## Current Direction
 
@@ -13,6 +15,8 @@ That is now retired as the active roadmap.
   `krystophny/tabura` repo
 - Behavior should be implemented as normal modular core code
 - No private meeting-partner bundle/repo is required
+- Any retained interop surface should be a narrow local capability boundary,
+  not a meeting-partner platform
 
 ## Public Tracking
 

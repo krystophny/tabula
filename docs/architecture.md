@@ -26,9 +26,11 @@ Runtime stack:
 - `internal/web/server.go`
   - Browser APIs for chat sessions, canvas APIs, and chat/canvas websocket routes on the web listener.
 - `internal/extensions/host.go`
-  - Legacy manifest-driven compatibility runtime pending consolidation/removal.
+  - Legacy manifest-driven compatibility runtime pending contraction,
+    replacement, or removal.
 - `internal/plugins/manager.go`
-  - Legacy webhook compatibility runtime pending consolidation/removal.
+  - Legacy webhook compatibility runtime pending contraction, replacement, or
+    removal.
 - `internal/store/store.go`
   - SQLite persistence for auth and chat session/message history.
 - `internal/protocol/bootstrap.go`
@@ -67,8 +69,11 @@ The browser UI is a full-viewport canvas with no visible chrome:
 
 Chat hook flow:
 1. Current code may route through legacy extension/plugin compatibility hooks.
-2. New product behavior should stay in ordinary public core packages, not new extension/plugin surfaces.
-3. Meeting-notes follow-up planning lives in public `krystophny/tabura` issues only.
+2. New product behavior should stay in ordinary public core packages, not a new
+   bundle ecosystem.
+3. If any hook/API survives, it should be narrowed to explicit local
+   capability-provider interop and deterministic compatibility needs.
+4. Meeting-notes follow-up planning lives in public `krystophny/tabura` issues only.
 
 ## Interaction Model
 
@@ -150,5 +155,9 @@ not a private repo and not an extension/plugin bundle system.
 
 Auth/session, media transport, queueing, persistence, privacy invariants, and
 meeting-notes behavior stay in core. The legacy `internal/extensions` and
-`internal/plugins` packages should be treated as transitional compatibility
-code rather than an expanding product surface.
+`internal/plugins` packages should be treated as transitional compatibility or
+interop code rather than an expanding product surface.
+
+If a compatibility surface remains during cleanup, it should be justified as a
+small local capability boundary for deterministic external integrations such as
+Helpy, not as a general SDK.

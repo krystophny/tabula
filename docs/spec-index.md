@@ -45,6 +45,7 @@ Migration/support docs:
   - `meeting-partner-whitepaper.md`
   - `extension-platform-whitepaper.md`
   - `helpy-recovery-issue-pack.md`
+    - current use: Helpy interop boundary notes, not a private-repo recovery plan
 
 ## Source Code Anchors
 
