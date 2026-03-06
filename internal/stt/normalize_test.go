@@ -1,6 +1,7 @@
 package stt
 
 import (
+	"bytes"
 	"encoding/binary"
 	"os/exec"
 	"testing"
@@ -65,5 +66,21 @@ func TestNormalizeForWhisperProducesStrictPCM16WAV(t *testing.T) {
 	}
 	if ((len(out) - 44) % 2) != 0 {
 		t.Fatalf("data section not aligned to 16-bit samples: %d", len(out)-44)
+	}
+}
+
+func TestNormalizeForWhisperPassesThroughStrictPCM16WAVWithoutFFmpeg(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	in := buildTestPCM16WAV(16000, 1, 700, 0.35)
+	mimeType, out, err := NormalizeForWhisper("audio/wav", in)
+	if err != nil {
+		t.Fatalf("NormalizeForWhisper error: %v", err)
+	}
+	if mimeType != "audio/wav" {
+		t.Fatalf("mimeType=%q, want audio/wav", mimeType)
+	}
+	if !bytes.Equal(out, in) {
+		t.Fatal("strict PCM16 mono 16k WAV should pass through unchanged")
 	}
 }

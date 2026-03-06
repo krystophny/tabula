@@ -412,6 +412,7 @@ func TestPrivacyParticipantBufferCleanupOnStop(t *testing.T) {
 
 func TestParticipantBinaryChunkTranscribesWAVSegmentImmediately(t *testing.T) {
 	app := newAuthedTestApp(t)
+	t.Setenv("PATH", t.TempDir())
 
 	type upload struct {
 		path     string
