@@ -102,7 +102,10 @@ async function setConversationMode(page: Page, enabled: boolean) {
 }
 
 async function setSilentMode(page: Page, enabled: boolean) {
-  await waitForEdgeButtons(page);
+  await expect.poll(async () => page.evaluate(() => {
+    const button = document.querySelector('#edge-top-models .edge-silent-btn');
+    return button instanceof HTMLButtonElement;
+  })).toBe(true);
   await page.evaluate((target) => {
     const button = document.querySelector('#edge-top-models .edge-silent-btn');
     if (!(button instanceof HTMLButtonElement)) {
