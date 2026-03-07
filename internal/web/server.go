@@ -98,6 +98,7 @@ type App struct {
 	turns            *chatTurnTracker
 	companionTurns   *companionPendingTurnTracker
 	companionRuntime *companionRuntimeTracker
+	projectAttention *projectAttentionTracker
 	tunnels          *tunnelRegistry
 	chatAppSessions  map[string]*appserver.Session
 	pendingDanger    map[string]*pendingDangerousAction
@@ -264,6 +265,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		turns:                         newChatTurnTracker(),
 		companionTurns:                newCompanionPendingTurnTracker(),
 		companionRuntime:              newCompanionRuntimeTracker(),
+		projectAttention:              newProjectAttentionTracker(),
 		tunnels:                       newTunnelRegistry(),
 		chatAppSessions:               map[string]*appserver.Session{},
 		pendingDanger:                 map[string]*pendingDangerousAction{},

@@ -151,6 +151,10 @@ func (a *App) handleReviewSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if err := a.markProjectReviewSubmitted(project); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	writeJSON(w, map[string]interface{}{
 		"ok":                     true,
 		"project_id":             project.ID,

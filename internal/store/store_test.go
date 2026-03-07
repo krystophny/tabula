@@ -346,6 +346,13 @@ func TestStoreChatSessionMessageAndThreading(t *testing.T) {
 	if updatedSession.Mode != "plan" {
 		t.Fatalf("mode = %q, want plan", updatedSession.Mode)
 	}
+	updatedSession, err = s.UpdateChatSessionMode(session.ID, "review")
+	if err != nil {
+		t.Fatalf("UpdateChatSessionMode(review) error: %v", err)
+	}
+	if updatedSession.Mode != "review" {
+		t.Fatalf("mode = %q, want review", updatedSession.Mode)
+	}
 	updatedSession, err = s.UpdateChatSessionMode(session.ID, "not-a-mode")
 	if err != nil {
 		t.Fatalf("UpdateChatSessionMode(invalid) error: %v", err)

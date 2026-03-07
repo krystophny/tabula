@@ -97,3 +97,92 @@ func TestReviewSubmitWritesMarkdownArtifact(t *testing.T) {
 		t.Fatalf("revision history missing heading: %s", string(historyContent))
 	}
 }
+
+func TestReviewSubmitClearsReviewPendingUnread(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("default project: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("chat session: %v", err)
+	}
+	if _, err := app.store.UpdateChatSessionMode(session.ID, "review"); err != nil {
+		t.Fatalf("set review mode: %v", err)
+	}
+
+	app.markProjectOutput(project.ProjectKey)
+
+	readActivity := func() projectsActivityResponse {
+		t.Helper()
+		rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects/activity", nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("activity status=%d body=%s", rr.Code, rr.Body.String())
+		}
+		var payload projectsActivityResponse
+		if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("decode activity response: %v", err)
+		}
+		return payload
+	}
+
+	assertState := func(unread, reviewPending bool) {
+		t.Helper()
+		payload := readActivity()
+		for _, item := range payload.Projects {
+			if item.ProjectID != project.ID {
+				continue
+			}
+			if item.ChatMode != "review" {
+				t.Fatalf("chat_mode = %q, want review", item.ChatMode)
+			}
+			if item.Unread != unread {
+				t.Fatalf("unread = %v, want %v", item.Unread, unread)
+			}
+			if item.ReviewPending != reviewPending {
+				t.Fatalf("review_pending = %v, want %v", item.ReviewPending, reviewPending)
+			}
+			return
+		}
+		t.Fatalf("expected project %q in activity response", project.ID)
+	}
+
+	assertState(true, true)
+
+	rrActivate := doAuthedJSONRequest(
+		t,
+		app.Router(),
+		http.MethodPost,
+		"/api/projects/"+project.ID+"/activate",
+		map[string]any{},
+	)
+	if rrActivate.Code != http.StatusOK {
+		t.Fatalf("activate status=%d body=%s", rrActivate.Code, rrActivate.Body.String())
+	}
+	assertState(true, true)
+
+	rrSubmit := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/review/submit", map[string]any{
+		"project_id":     project.ID,
+		"artifact_kind":  "text",
+		"artifact_title": "README.md",
+		"artifact_path":  "README.md",
+		"comments": []map[string]any{
+			{
+				"text": "Resolve before merge.",
+				"anchor": map[string]any{
+					"title": "README.md",
+					"line":  3,
+				},
+			},
+		},
+	})
+	if rrSubmit.Code != http.StatusOK {
+		t.Fatalf("review submit status=%d body=%s", rrSubmit.Code, rrSubmit.Body.String())
+	}
+	assertState(false, false)
+
+	app.markProjectOutput(project.ProjectKey)
+	assertState(true, true)
+}

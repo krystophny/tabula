@@ -26,6 +26,8 @@ type projectsListResponse struct {
 		ChatModel       string `json:"chat_model"`
 		ReasoningEffort string `json:"chat_model_reasoning_effort"`
 		CanvasSessionID string `json:"canvas_session_id"`
+		Unread          bool   `json:"unread"`
+		ReviewPending   bool   `json:"review_pending"`
 		RunState        struct {
 			ActiveTurns  int    `json:"active_turns"`
 			QueuedTurns  int    `json:"queued_turns"`
@@ -41,6 +43,9 @@ type projectsActivityResponse struct {
 	Projects []struct {
 		ProjectID     string `json:"project_id"`
 		ChatSessionID string `json:"chat_session_id"`
+		ChatMode      string `json:"chat_mode"`
+		Unread        bool   `json:"unread"`
+		ReviewPending bool   `json:"review_pending"`
 		RunState      struct {
 			ActiveTurns int    `json:"active_turns"`
 			QueuedTurns int    `json:"queued_turns"`
@@ -392,6 +397,92 @@ func TestProjectsActivityListsPerProjectRunState(t *testing.T) {
 		return
 	}
 	t.Fatalf("expected project %q in activity response", project.ID)
+}
+
+func TestProjectsActivityUnreadClearsOnActivate(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	linkedDir := t.TempDir()
+	rrCreate := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/projects", map[string]any{
+		"name":     "Unread Test",
+		"kind":     "linked",
+		"path":     filepath.Clean(linkedDir),
+		"activate": false,
+	})
+	if rrCreate.Code != http.StatusOK {
+		t.Fatalf("expected create 200, got %d: %s", rrCreate.Code, rrCreate.Body.String())
+	}
+	var createPayload struct {
+		Project struct {
+			ID string `json:"id"`
+		} `json:"project"`
+	}
+	if err := json.Unmarshal(rrCreate.Body.Bytes(), &createPayload); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	project, err := app.store.GetProject(createPayload.Project.ID)
+	if err != nil {
+		t.Fatalf("get project: %v", err)
+	}
+
+	app.markProjectOutput(project.ProjectKey)
+
+	findActivity := func() projectsActivityResponse {
+		t.Helper()
+		rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects/activity", map[string]any{})
+		if rr.Code != http.StatusOK {
+			t.Fatalf("expected activity 200, got %d: %s", rr.Code, rr.Body.String())
+		}
+		var payload projectsActivityResponse
+		if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("decode activity response: %v", err)
+		}
+		return payload
+	}
+
+	initial := findActivity()
+	foundUnread := false
+	for _, item := range initial.Projects {
+		if item.ProjectID != project.ID {
+			continue
+		}
+		foundUnread = true
+		if !item.Unread {
+			t.Fatalf("expected unread=true before activation")
+		}
+		if item.ReviewPending {
+			t.Fatalf("expected review_pending=false before activation")
+		}
+	}
+	if !foundUnread {
+		t.Fatalf("expected project %q in activity response", project.ID)
+	}
+
+	rrActivate := doAuthedJSONRequest(
+		t,
+		app.Router(),
+		http.MethodPost,
+		"/api/projects/"+project.ID+"/activate",
+		map[string]any{},
+	)
+	if rrActivate.Code != http.StatusOK {
+		t.Fatalf("expected activate 200, got %d: %s", rrActivate.Code, rrActivate.Body.String())
+	}
+
+	afterActivate := findActivity()
+	for _, item := range afterActivate.Projects {
+		if item.ProjectID != project.ID {
+			continue
+		}
+		if item.Unread {
+			t.Fatalf("expected unread=false after activation")
+		}
+		if item.ReviewPending {
+			t.Fatalf("expected review_pending=false after activation")
+		}
+		return
+	}
+	t.Fatalf("expected project %q in activity response after activation", project.ID)
 }
 
 func TestHubProjectRejectsModelUpdates(t *testing.T) {

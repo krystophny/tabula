@@ -166,7 +166,7 @@ func (a *App) handleChatSessionCreate(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		_ = a.store.TouchProject(resolvedProject.ID)
+		_ = a.markProjectSeen(resolvedProject)
 		if err := a.ensureProjectCanvasReady(resolvedProject); err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
