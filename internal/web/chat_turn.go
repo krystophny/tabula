@@ -570,6 +570,7 @@ func (a *App) finalizeAssistantResponse(
 		}
 		*persistedText = chatMarkdown
 	}
+	a.markProjectOutput(projectKey)
 	tid := strings.TrimSpace(turnID)
 	if tid == "" {
 		tid = fallbackTurnID

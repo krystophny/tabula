@@ -985,7 +985,7 @@ body.keyboard-open .indicator.is-paused {
 }
 
 .indicator.is-recording { --cue-frame-color: #d92d20; }
-.indicator.is-working  { --cue-frame-color: #111111; }
+.indicator.is-working  { --cue-frame-color: #16a34a; }
 .indicator.is-listening { --cue-frame-color: #2563eb; }
 .indicator.is-paused   { --cue-frame-color: #111111; }
 
@@ -1043,10 +1043,11 @@ body.keyboard-open .indicator.is-paused {
 
 .indicator.is-working .stop-square {
   display: inline-flex;
-  width: calc(var(--cue-chip-size) * 0.75);
-  height: calc(var(--cue-chip-size) * 0.75);
-  border-radius: 1px;
-  background: #111111;
+  width: 0;
+  height: 0;
+  border-top: calc(var(--cue-chip-size) * 0.4) solid transparent;
+  border-bottom: calc(var(--cue-chip-size) * 0.4) solid transparent;
+  border-left: calc(var(--cue-chip-size) * 0.66) solid #16a34a;
 }
 
 .indicator.is-paused .pause-bars {
@@ -1085,8 +1086,9 @@ body.keyboard-open .indicator.is-paused {
   }
   .indicator .record-dot,
   .indicator .stop-square {
-    background: #111111;
+    background: transparent;
   }
+  .indicator.is-working .stop-square { border-left-color: #111111; }
   .indicator.is-paused .pause-bars::before,
   .indicator.is-paused .pause-bars::after {
     background: #111111;
@@ -1480,24 +1482,28 @@ body.panel-motion-enabled {
 }
 
 .edge-project-btn.is-working {
-  border-color: #b45309;
-  background: #fef3c7;
+  border-color: #16a34a;
+  background: #dcfce7;
 }
 
 .edge-project-btn.is-working::after {
-  content: "•";
+  content: "▶";
   margin-left: 0.35rem;
-  color: #b45309;
+  color: #16a34a;
 }
 
 .edge-project-btn.is-active.is-working {
-  border-color: #92400e;
-  background: #92400e;
-  color: #fffbeb;
+  border-color: #166534;
+  background: #166534;
+  color: #ecfdf5;
 }
 
 .edge-project-btn.is-active.is-working::after {
-  color: #fbbf24;
+  color: #bbf7d0;
+}
+
+.edge-project-btn.is-unread {
+  font-weight: 700;
 }
 
 .liability-modal {

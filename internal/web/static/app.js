@@ -2393,11 +2393,12 @@ function syncChatScroll(host) {
 }
 
 function setChatMode(mode) {
-  state.chatMode = String(mode || 'chat').toLowerCase() === 'plan' ? 'plan' : 'chat';
+  const normalized = String(mode || 'chat').toLowerCase();
+  state.chatMode = normalized === 'plan' || normalized === 'review' ? normalized : 'chat';
   const pill = document.getElementById('chat-mode-pill');
   if (pill) {
     pill.textContent = state.chatMode;
-    pill.className = `badge ${state.chatMode === 'plan' ? 'review' : ''}`;
+    pill.className = `badge ${state.chatMode === 'plan' || state.chatMode === 'review' ? 'review' : ''}`;
   }
 }
 
@@ -3879,8 +3880,11 @@ async function fetchProjects() {
   state.projects = projects.map((project) => ({
     ...project,
     id: String(project?.id || ''),
+    chat_mode: String(project?.chat_mode || 'chat'),
     chat_model_reasoning_effort: String(project?.chat_model_reasoning_effort || '').trim().toLowerCase(),
     run_state: normalizeProjectRunState(project?.run_state),
+    unread: Boolean(project?.unread),
+    review_pending: Boolean(project?.review_pending),
   })).filter((project) => project.id);
   state.defaultProjectId = String(payload?.default_project_id || '').trim();
   state.serverActiveProjectId = String(payload?.active_project_id || '').trim();
@@ -3917,10 +3921,13 @@ function projectRunStateSummary(project) {
 
 function upsertProject(project) {
   if (!project || !project.id) return;
+  project.chat_mode = String(project.chat_mode || 'chat');
   if (project.chat_model_reasoning_effort !== undefined) {
     project.chat_model_reasoning_effort = String(project.chat_model_reasoning_effort || '').trim().toLowerCase();
   }
   project.run_state = normalizeProjectRunState(project.run_state);
+  project.unread = Boolean(project.unread);
+  project.review_pending = Boolean(project.review_pending);
   const index = state.projects.findIndex((item) => item.id === project.id);
   if (index >= 0) {
     state.projects[index] = project;
@@ -4022,6 +4029,9 @@ function renderEdgeTopProjects() {
     }
     if (runState.is_working) {
       button.classList.add('is-working');
+    }
+    if (project.unread) {
+      button.classList.add('is-unread');
     }
     if (runState.status === 'running') {
       button.classList.add('is-running');
@@ -4457,7 +4467,7 @@ async function refreshAssistantActivity() {
 }
 
 async function refreshProjectRunStates() {
-  if (!isHubActive() || projectRunStatesInFlight) return;
+  if (projectRunStatesInFlight) return;
   projectRunStatesInFlight = true;
   try {
     const resp = await fetch(apiURL('projects/activity'), { cache: 'no-store' });
@@ -4471,7 +4481,10 @@ async function refreshProjectRunStates() {
       if (!existing) continue;
       upsertProject({
         ...existing,
+        chat_mode: item?.chat_mode || existing.chat_mode,
         run_state: item?.run_state,
+        unread: item?.unread,
+        review_pending: item?.review_pending,
       });
     }
     renderEdgeTopProjects();
@@ -4494,9 +4507,7 @@ function startAssistantActivityWatcher() {
       }
     }
     void refreshAssistantActivity();
-    if (isHubActive()) {
-      void refreshProjectRunStates();
-    }
+    void refreshProjectRunStates();
   };
   assistantActivityTimer = window.setInterval(tick, ASSISTANT_ACTIVITY_POLL_MS);
   tick();

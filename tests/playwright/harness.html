@@ -380,6 +380,8 @@
         chat_mode: 'chat',
         chat_model: 'spark',
         chat_model_reasoning_effort: 'low',
+        unread: false,
+        review_pending: false,
         run_state: { active_turns: 0, queued_turns: 0, is_working: false, status: 'idle' },
       },
       {
@@ -393,6 +395,8 @@
         chat_mode: 'chat',
         chat_model: 'spark',
         chat_model_reasoning_effort: 'low',
+        unread: false,
+        review_pending: false,
         run_state: { active_turns: 0, queued_turns: 0, is_working: false, status: 'idle' },
       },
     ];
@@ -423,6 +427,20 @@
         ...harnessProjectRunStates,
         ...next,
       };
+    };
+    window.__setProjectActivity = (states) => {
+      const next = states && typeof states === 'object' ? states : {};
+      for (const [projectId, patch] of Object.entries(next)) {
+        const index = harnessProjects.findIndex((project) => project.id === projectId);
+        if (index < 0 || !patch || typeof patch !== 'object') continue;
+        harnessProjects[index] = {
+          ...harnessProjects[index],
+          ...patch,
+          unread: Boolean(patch.unread ?? harnessProjects[index].unread),
+          review_pending: Boolean(patch.review_pending ?? harnessProjects[index].review_pending),
+          chat_mode: String(patch.chat_mode || harnessProjects[index].chat_mode || 'chat'),
+        };
+      }
     };
     const cloneProject = (id) => {
       const project = harnessProjects.find((item) => item.id === id) || harnessProjects[0];
@@ -501,6 +519,8 @@
           chat_mode: 'chat',
           chat_model: 'spark',
           chat_model_reasoning_effort: 'low',
+          unread: false,
+          review_pending: false,
           run_state: { active_turns: 0, queued_turns: 0, is_working: false, status: 'idle' },
         };
         harnessProjects.push(project);
@@ -524,8 +544,18 @@
       }
       if (u.includes('/api/projects') && u.includes('/activate')) {
         const activateId = decodeURIComponent(u.split('/api/projects/')[1].split('/activate')[0] || '').trim();
+        const index = harnessProjects.findIndex((project) => project.id === activateId);
+        if (index < 0) {
+          return new Response('project not found', { status: 404 });
+        }
+        activeProjectId = harnessProjects[index].id;
+        if (!(harnessProjects[index].review_pending && harnessProjects[index].chat_mode === 'review')) {
+          harnessProjects[index] = {
+            ...harnessProjects[index],
+            unread: false,
+          };
+        }
         const project = cloneProject(activateId);
-        activeProjectId = project.id;
         window.__harnessLog.push({
           type: 'api_fetch',
           action: 'project_activate',
@@ -625,6 +655,9 @@
           name: project.name,
           kind: project.kind,
           chat_session_id: project.chat_session_id,
+          chat_mode: project.chat_mode,
+          unread: Boolean(project.unread),
+          review_pending: Boolean(project.review_pending),
           run_state: { ...(harnessProjectRunStates[project.id] || project.run_state || {}) },
         }));
         return new Response(JSON.stringify({ ok: true, projects }), { status: 200 });

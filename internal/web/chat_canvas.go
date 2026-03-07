@@ -168,6 +168,7 @@ func (a *App) writeCanvasFileBlock(projectKey, canvasSessionID string, block fil
 	}); err != nil {
 		return false
 	}
+	a.markProjectOutput(projectKey)
 	return true
 }
 
@@ -249,10 +250,10 @@ func (a *App) refreshCanvasFromDisk(projectKey string) bool {
 	if t == nil {
 		return false
 	}
-	return a.pushCanvasFileIfChanged(t)
+	return a.pushCanvasFileIfChanged(projectKey, t)
 }
 
-func (a *App) pushCanvasFileIfChanged(t *canvasFileTarget) bool {
+func (a *App) pushCanvasFileIfChanged(projectKey string, t *canvasFileTarget) bool {
 	diskBytes, err := os.ReadFile(t.filePath)
 	if err != nil {
 		return false
@@ -276,6 +277,7 @@ func (a *App) pushCanvasFileIfChanged(t *canvasFileTarget) bool {
 		"title":            t.title,
 		"markdown_or_text": diskContent,
 	})
+	a.markProjectOutput(projectKey)
 	return true
 }
 
@@ -330,6 +332,7 @@ func (a *App) watchCanvasFile(ctx context.Context, projectKey string) {
 				"title":            t.title,
 				"markdown_or_text": content,
 			})
+			a.markProjectOutput(projectKey)
 		case _, ok := <-watcher.Errors:
 			if !ok {
 				return

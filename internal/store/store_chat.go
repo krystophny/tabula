@@ -11,6 +11,8 @@ func normalizeChatMode(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "plan":
 		return "plan"
+	case "review":
+		return "review"
 	default:
 		return "chat"
 	}

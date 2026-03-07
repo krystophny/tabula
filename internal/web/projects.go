@@ -45,6 +45,8 @@ type projectAPIModel struct {
 	ChatModelReasoningEffort string          `json:"chat_model_reasoning_effort"`
 	CanvasSessionID          string          `json:"canvas_session_id"`
 	RunState                 projectRunState `json:"run_state"`
+	Unread                   bool            `json:"unread"`
+	ReviewPending            bool            `json:"review_pending"`
 }
 
 type projectChatModelRequest struct {
@@ -96,7 +98,10 @@ type projectActivityItem struct {
 	Name          string          `json:"name"`
 	Kind          string          `json:"kind"`
 	ChatSessionID string          `json:"chat_session_id"`
+	ChatMode      string          `json:"chat_mode"`
 	RunState      projectRunState `json:"run_state"`
+	Unread        bool            `json:"unread"`
+	ReviewPending bool            `json:"review_pending"`
 }
 
 func normalizeProjectKindInput(kind, path string) string {
@@ -339,6 +344,7 @@ func (a *App) buildProjectAPIModel(project store.Project) (projectAPIModel, erro
 	}
 	alias := a.effectiveProjectChatModelAlias(project)
 	effort := strings.TrimSpace(modelprofile.NormalizeReasoningEffort(alias, project.ChatModelReasoningEffort))
+	unread, reviewPending := a.projectUnreadState(project, session)
 	return projectAPIModel{
 		ID:                       project.ID,
 		Name:                     project.Name,
@@ -353,6 +359,8 @@ func (a *App) buildProjectAPIModel(project store.Project) (projectAPIModel, erro
 		ChatModelReasoningEffort: effort,
 		CanvasSessionID:          a.canvasSessionIDForProject(project),
 		RunState:                 a.projectRunStateForSession(session.ID),
+		Unread:                   unread,
+		ReviewPending:            reviewPending,
 	}, nil
 }
 
@@ -361,14 +369,73 @@ func (a *App) buildProjectActivityItem(project store.Project) (projectActivityIt
 	if err != nil {
 		return projectActivityItem{}, err
 	}
+	unread, reviewPending := a.projectUnreadState(project, session)
 	return projectActivityItem{
 		ProjectID:     project.ID,
 		ProjectKey:    project.ProjectKey,
 		Name:          project.Name,
 		Kind:          project.Kind,
 		ChatSessionID: session.ID,
+		ChatMode:      session.Mode,
 		RunState:      a.projectRunStateForSession(session.ID),
+		Unread:        unread,
+		ReviewPending: reviewPending,
 	}, nil
+}
+
+func (a *App) projectUnreadState(project store.Project, session store.ChatSession) (bool, bool) {
+	lastSeenAt, lastCanvasChangeAt, lastReviewSubmitAt := a.projectAttention.snapshot(project.ProjectKey)
+	dbSeenAt := project.LastOpenedAt * int64(time.Second)
+	if lastSeenAt < dbSeenAt {
+		lastSeenAt = dbSeenAt
+	}
+	reviewPending := strings.EqualFold(session.Mode, "review") && lastCanvasChangeAt > lastReviewSubmitAt
+	unread := lastCanvasChangeAt > lastSeenAt || reviewPending
+	activeProjectID, err := a.store.ActiveProjectID()
+	if err == nil && strings.TrimSpace(activeProjectID) == project.ID && !reviewPending {
+		unread = false
+	}
+	return unread, reviewPending
+}
+
+func (a *App) markProjectSeen(project store.Project) error {
+	if err := a.store.TouchProject(project.ID); err != nil {
+		return err
+	}
+	a.projectAttention.markSeen(project.ProjectKey, time.Now().UnixNano())
+	return nil
+}
+
+func (a *App) markProjectReviewSubmitted(project store.Project) error {
+	now := time.Now().UnixNano()
+	if err := a.store.TouchProject(project.ID); err != nil {
+		return err
+	}
+	a.projectAttention.markSeen(project.ProjectKey, now)
+	a.projectAttention.markReviewSubmitted(project.ProjectKey, now)
+	return nil
+}
+
+func (a *App) markProjectOutput(projectKey string) {
+	key := strings.TrimSpace(projectKey)
+	if key == "" {
+		return
+	}
+	now := time.Now().UnixNano()
+	a.projectAttention.markCanvasChange(key, now)
+	project, err := a.store.GetProjectByProjectKey(key)
+	if err != nil {
+		return
+	}
+	activeProjectID, err := a.store.ActiveProjectID()
+	if err != nil || strings.TrimSpace(activeProjectID) != project.ID {
+		return
+	}
+	session, err := a.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil || strings.EqualFold(session.Mode, "review") {
+		return
+	}
+	a.projectAttention.markSeen(project.ProjectKey, now)
 }
 
 func (a *App) handleProjectsList(w http.ResponseWriter, r *http.Request) {
@@ -867,7 +934,7 @@ func (a *App) activateProject(projectID string) (store.Project, error) {
 	if err := a.store.SetActiveProjectID(project.ID); err != nil {
 		return store.Project{}, err
 	}
-	if err := a.store.TouchProject(project.ID); err != nil {
+	if err := a.markProjectSeen(project); err != nil {
 		return store.Project{}, err
 	}
 	return a.store.GetProject(project.ID)

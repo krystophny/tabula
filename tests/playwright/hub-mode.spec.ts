@@ -104,6 +104,39 @@ test('hub monitors project run state without activating the project', async ({ p
   await expect(projectButton).not.toHaveClass(/is-active/);
 });
 
+test('hub shows unread project state and activation clears it', async ({ page }) => {
+  await page.evaluate(() => {
+    document.getElementById('edge-top')?.classList.add('edge-pinned');
+  });
+  const hubButton = page.locator('#edge-top-projects .edge-hub-btn');
+  const projectButton = page.locator('#edge-top-projects .edge-project-btn:not(.edge-hub-btn)');
+
+  await hubButton.click();
+  await expect(hubButton).toHaveClass(/is-active/);
+
+  await page.evaluate(() => {
+    (window as any).__setProjectActivity({
+      test: { unread: true, review_pending: false, chat_mode: 'chat' },
+    });
+  });
+
+  await expect.poll(async () => projectButton.getAttribute('class'), { timeout: 5_000 }).toContain('is-unread');
+
+  await projectButton.click();
+  await expect(projectButton).not.toHaveClass(/is-unread/);
+
+  await hubButton.click();
+  await expect(hubButton).toHaveClass(/is-active/);
+
+  await page.evaluate(() => {
+    (window as any).__setProjectActivity({
+      test: { unread: true, review_pending: false, chat_mode: 'chat' },
+    });
+  });
+
+  await expect.poll(async () => projectButton.getAttribute('class'), { timeout: 5_000 }).toContain('is-unread');
+});
+
 test('system switch_model action updates project model state', async ({ page }) => {
   await page.evaluate(() => {
     document.getElementById('edge-top')?.classList.add('edge-pinned');
