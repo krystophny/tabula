@@ -36,7 +36,7 @@ const (
 )
 
 const intentLLMSystemPrompt = `You are Tabura's local router. Output JSON only.
-Allowed actions: switch_project, switch_workspace, list_workspace_items, switch_model, toggle_silent, toggle_live_dialogue, cancel_work, show_status, shell, open_file_canvas, make_item, delegate_item, snooze_item, split_items, capture_idea, create_github_issue, create_github_issue_split, chat.
+Allowed actions: switch_project, switch_workspace, list_workspace_items, create_workspace_from_git, switch_model, toggle_silent, toggle_live_dialogue, cancel_work, show_status, shell, open_file_canvas, make_item, delegate_item, snooze_item, split_items, capture_idea, create_github_issue, create_github_issue_split, chat.
 Use {"action":"chat"} unless user clearly requests a system action.
 For current-information requests (weather, web search, news, prices, schedules, latest/current updates), use {"action":"chat"} and MUST NOT use shell.
 For shell-like requests use {"action":"shell","command":"..."}.
@@ -323,7 +323,7 @@ func normalizeSystemActionName(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "toggle_conversation":
 		return "toggle_live_dialogue"
-	case "switch_project", "switch_workspace", "list_workspace_items", "switch_model", "toggle_silent", "toggle_live_dialogue", "cancel_work", "show_status", "shell", "open_file_canvas", "make_item", "delegate_item", "snooze_item", "split_items", "capture_idea", "create_github_issue", "create_github_issue_split":
+	case "switch_project", "switch_workspace", "list_workspace_items", "create_workspace_from_git", "switch_model", "toggle_silent", "toggle_live_dialogue", "cancel_work", "show_status", "shell", "open_file_canvas", "make_item", "delegate_item", "snooze_item", "split_items", "capture_idea", "create_github_issue", "create_github_issue_split":
 		return strings.ToLower(strings.TrimSpace(raw))
 	default:
 		return ""
@@ -1381,6 +1381,18 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 			"item_ids":     itemIDs,
 			"item_titles":  titles,
 			"item_count":   len(items),
+		}, nil
+	case "create_workspace_from_git":
+		workspace, repoURL, err := a.createWorkspaceFromGit(systemActionGitRepoURL(action.Params), systemActionGitTargetPath(action.Params))
+		if err != nil {
+			return "", nil, err
+		}
+		return fmt.Sprintf("Created workspace %s at %s.", workspace.Name, workspace.DirPath), map[string]interface{}{
+			"type":         "create_workspace_from_git",
+			"workspace_id": workspace.ID,
+			"name":         workspace.Name,
+			"dir_path":     workspace.DirPath,
+			"repo_url":     repoURL,
 		}, nil
 	case "switch_model":
 		targetProject, err := a.systemActionTargetProject(session)

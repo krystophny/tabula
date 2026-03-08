@@ -16,6 +16,9 @@ func parseInlineWorkspaceIntent(text string) *SystemAction {
 	if trimmed == "" {
 		return nil
 	}
+	if action := parseCreateWorkspaceFromGitIntent(trimmed); action != nil {
+		return action
+	}
 	lower := normalizeItemCommandText(trimmed)
 	switch lower {
 	case "show items here", "show open items here", "show items for this workspace", "what's open", "what is open", "what's open here", "what is open here":

@@ -149,6 +149,7 @@ func TestParseSystemAction(t *testing.T) {
 		{name: "switch project", raw: `{"action":"switch_project","name":"docs"}`, wantAction: "switch_project"},
 		{name: "switch workspace", raw: `{"action":"switch_workspace","workspace":"tabula"}`, wantAction: "switch_workspace"},
 		{name: "list workspace items", raw: `{"action":"list_workspace_items","workspace":"tabula"}`, wantAction: "list_workspace_items"},
+		{name: "create workspace from git", raw: `{"action":"create_workspace_from_git","repo_url":"git@github.com:user/repo.git"}`, wantAction: "create_workspace_from_git"},
 		{name: "switch model", raw: `{"action":"switch_model","alias":"gpt","effort":"high"}`, wantAction: "switch_model"},
 		{name: "toggle silent", raw: `{"action":"toggle_silent"}`, wantAction: "toggle_silent"},
 		{name: "toggle live dialogue", raw: `{"action":"toggle_live_dialogue"}`, wantAction: "toggle_live_dialogue"},
