@@ -1934,6 +1934,56 @@ body.panel-motion-enabled {
   color: #78350f;
 }
 
+.chat-approval-request .chat-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.chat-approval-title {
+  font-weight: 600;
+}
+
+.chat-approval-meta {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.82;
+}
+
+.chat-approval-detail {
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.chat-approval-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.15rem;
+}
+
+.chat-approval-btn {
+  border: 1px solid #b45309;
+  background: #fff7ed;
+  color: #78350f;
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chat-approval-btn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.chat-approval-status {
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-top: 0.2rem;
+}
+
 .chat-message.is-pending .chat-bubble {
   opacity: 0.82;
 }

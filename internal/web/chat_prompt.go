@@ -136,7 +136,9 @@ func buildPromptFromHistoryForModeWithCompanion(mode string, messages []store.Ch
 	}
 
 	if strings.EqualFold(strings.TrimSpace(mode), "plan") {
-		b.WriteString("You are in plan mode. Focus on analysis, design, and specification before implementation.\n\n")
+		b.WriteString("You are in plan mode. Propose actions step by step and wait for approval before executing risky or tool-driven work.\n")
+		b.WriteString("Explain what you intend to do and why, then continue once the approval decision is available.\n")
+		b.WriteString("For research tasks, propose each retrieval step clearly and present findings as artifacts or concise chat updates.\n\n")
 	}
 
 	appendCompanionPromptContext(&b, companion)

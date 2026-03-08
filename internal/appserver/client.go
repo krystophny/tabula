@@ -21,13 +21,13 @@ type Client struct {
 }
 
 type PromptRequest struct {
-	CWD       string
-	Prompt    string
-	Model     string        // thread-level default model
-	TurnModel string        // per-turn model override (sent in turn/start if set)
+	CWD          string
+	Prompt       string
+	Model        string                 // thread-level default model
+	TurnModel    string                 // per-turn model override (sent in turn/start if set)
 	ThreadParams map[string]interface{} // additional params for thread/start
-	TurnParams  map[string]interface{} // additional params for turn/start
-	Timeout   time.Duration
+	TurnParams   map[string]interface{} // additional params for turn/start
+	Timeout      time.Duration
 }
 
 type PromptResponse struct {
@@ -47,6 +47,8 @@ type StreamEvent struct {
 	Error       string
 	ContextUsed int64
 	ContextMax  int64
+	Approval    *ApprovalRequest
+	Respond     func(string) error
 }
 
 func NewClient(rawURL string) (*Client, error) {
@@ -175,24 +177,28 @@ func (c *Client) SendPromptStream(ctx context.Context, req PromptRequest, onEven
 		return nil, contextErr(ctx, err)
 	}
 
-	threadParams := map[string]interface{}{
+	threadParams := applyDefaultApprovalPolicy(map[string]interface{}{
 		"cwd":                    strings.TrimSpace(req.CWD),
-		"approvalPolicy":         "never",
 		"sandbox":                "danger-full-access",
 		"experimentalRawEvents":  false,
 		"persistExtendedHistory": true,
 		"ephemeral":              false,
-	}
+	})
 	if strings.TrimSpace(req.Model) != "" {
 		threadParams["model"] = strings.TrimSpace(req.Model)
 	}
 	if len(req.ThreadParams) > 0 {
 		for key, value := range req.ThreadParams {
 			if strings.TrimSpace(key) != "" {
+				if strings.EqualFold(strings.TrimSpace(key), "approvalPolicy") {
+					threadParams[key] = normalizeApprovalPolicy(fmt.Sprint(value))
+					continue
+				}
 				threadParams[key] = value
 			}
 		}
 	}
+	threadParams["approvalPolicy"] = normalizeApprovalPolicy(fmt.Sprint(threadParams["approvalPolicy"]))
 	if err := c.writeJSON(ctx, conn, map[string]interface{}{
 		"jsonrpc": "2.0",
 		"id":      2,
@@ -304,6 +310,30 @@ func (c *Client) readTurnUntilComplete(ctx context.Context, conn *websocket.Conn
 		msg, err := readJSON(ctx, conn)
 		if err != nil {
 			return "", "", nil, err
+		}
+
+		if approvalReq, ok := parseApprovalRequest(msg); ok {
+			ev := StreamEvent{
+				Type:     "approval_request",
+				ThreadID: threadID,
+				TurnID:   turnID,
+				Approval: approvalReq,
+			}
+			ev.Respond = func(decision string) error {
+				return c.writeJSON(ctx, conn, map[string]interface{}{
+					"jsonrpc": "2.0",
+					"id":      approvalReq.ID,
+					"result": map[string]interface{}{
+						"decision": normalizeApprovalDecision(decision),
+					},
+				})
+			}
+			if onEvent != nil {
+				onEvent(ev)
+			} else {
+				_ = ev.Respond("cancel")
+			}
+			continue
 		}
 
 		if msgID, hasID := jsonRPCID(msg); hasID && msgID == 3 {

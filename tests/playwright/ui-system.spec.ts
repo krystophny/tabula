@@ -378,6 +378,59 @@ test.describe('mode_changed event', () => {
   });
 });
 
+test.describe('approval_request event', () => {
+  test.beforeEach(async ({ page }) => {
+    await waitReady(page);
+    await page.evaluate(() => {
+      document.getElementById('edge-right-tap')?.click();
+    });
+    await page.waitForTimeout(200);
+  });
+
+  test('renders approval card and sends approval response', async ({ page }) => {
+    await page.evaluate(() => {
+      const app = (window as any)._taburaApp;
+      const ws = app?.getState?.().chatWs;
+      (window as any).__approvalMessages = [];
+      if (!ws) return;
+      const originalSend = ws.send.bind(ws);
+      ws.send = (data: string) => {
+        try {
+          (window as any).__approvalMessages.push(JSON.parse(String(data)));
+        } catch (_) {}
+        originalSend(data);
+      };
+    });
+
+    await injectChatEvent(page, {
+      type: 'approval_request',
+      request_id: 'approval-1',
+      action: 'command_execution',
+      description: 'Allow command execution: run git status',
+      reason: 'run git status',
+    });
+
+    const card = page.locator('.chat-approval-request').last();
+    await expect(card.locator('.chat-approval-title')).toHaveText('Allow command execution: run git status');
+    await expect(card.locator('.chat-approval-detail')).toHaveText('run git status');
+
+    await card.getByRole('button', { name: 'Approve' }).click();
+
+    await expect.poll(async () => {
+      return page.evaluate(() => (window as any).__approvalMessages || []);
+    }).toEqual([
+      {
+        type: 'approval_response',
+        request_id: 'approval-1',
+        decision: 'accept',
+      },
+    ]);
+
+    await injectChatEvent(page, { type: 'approval_resolved', request_id: 'approval-1', decision: 'accept' });
+    await expect(card.locator('.chat-approval-status')).toHaveText('Approved');
+  });
+});
+
 
 // =============================================================================
 // action: open_canvas event
