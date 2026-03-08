@@ -3371,6 +3371,67 @@ function ideaRefinementHeading(entry) {
   return 'Idea Notes';
 }
 
+function appendIdeaPromotionPreview(detail, preview) {
+  const target = String(preview?.target || '').trim().toLowerCase();
+  if (!target) return;
+  detail.push('', '## Promotion Review', '');
+  if (target === 'task') {
+    detail.push('- Pending: task draft');
+    detail.push('- Confirm with: `create this idea task`');
+  } else if (target === 'items') {
+    detail.push('- Pending: item proposals');
+    detail.push('- Confirm with: `create these idea items` or `create selected idea items 1,2`');
+  } else if (target === 'github') {
+    detail.push('- Pending: GitHub issue draft');
+    detail.push('- Confirm with: `create this idea GitHub issue`');
+  }
+  detail.push('- Optional: add `and mark this idea done` or `and keep this idea`');
+  if (target === 'github') {
+    const title = String(preview?.issue?.title || '').trim();
+    const body = String(preview?.issue?.body || '').trim();
+    if (title) {
+      detail.push('', `### ${title}`);
+    }
+    if (body) {
+      detail.push('', body);
+    }
+    return;
+  }
+  const candidates = Array.isArray(preview?.candidates) ? preview.candidates : [];
+  candidates.forEach((entry, offset) => {
+    const title = String(entry?.title || '').trim();
+    if (!title) return;
+    const index = Number(entry?.index || offset + 1) || (offset + 1);
+    detail.push('', `### ${index}. ${title}`);
+    const body = String(entry?.details || '').trim();
+    if (body) {
+      detail.push('', body);
+    }
+  });
+}
+
+function appendIdeaPromotions(detail, promotions) {
+  const records = Array.isArray(promotions) ? promotions : [];
+  if (records.length === 0) return;
+  detail.push('', '## Promotions');
+  records.forEach((entry) => {
+    const target = String(entry?.target || '').trim().toLowerCase();
+    if (!target) return;
+    let label = target;
+    if (target === 'github') label = 'GitHub issue';
+    let line = `- ${label}`;
+    const count = Number(entry?.count || 0);
+    if (count > 0) line += ` x${count}`;
+    const createdAt = String(entry?.created_at || '').trim();
+    if (createdAt) line += ` on ${createdAt}`;
+    const refs = Array.isArray(entry?.refs)
+      ? entry.refs.map((ref) => String(ref || '').trim()).filter(Boolean)
+      : [];
+    if (refs.length > 0) line += ` [${refs.join(', ')}]`;
+    detail.push(line);
+  });
+}
+
 function buildIdeaNoteMarkdown(title, artifactMeta) {
   const noteTitle = String(artifactMeta?.title || title || 'Idea').trim() || 'Idea';
   const notes = Array.isArray(artifactMeta?.notes)
@@ -3408,6 +3469,8 @@ function buildIdeaNoteMarkdown(title, artifactMeta) {
     if (!body) return;
     detail.push('', `## ${ideaRefinementHeading(entry)}`, '', body);
   });
+  appendIdeaPromotionPreview(detail, artifactMeta?.promotion_preview);
+  appendIdeaPromotions(detail, artifactMeta?.promotions);
   return detail.join('\n');
 }
 
