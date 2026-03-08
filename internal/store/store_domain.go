@@ -634,6 +634,138 @@ func (s *Store) AssignItem(id, actorID int64) error {
 	return nil
 }
 
+func (s *Store) UnassignItem(id int64) error {
+	item, err := s.GetItem(id)
+	if err != nil {
+		return err
+	}
+	if item.State == ItemStateDone {
+		return fmt.Errorf("cannot unassign item in %s state", item.State)
+	}
+	if item.ActorID == nil {
+		return errors.New("item is not assigned")
+	}
+	res, err := s.db.Exec(
+		`UPDATE items
+		 SET actor_id = NULL, state = ?, updated_at = datetime('now')
+		 WHERE id = ?`,
+		ItemStateInbox,
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) CompleteItemByActor(id, actorID int64) error {
+	item, err := s.GetItem(id)
+	if err != nil {
+		return err
+	}
+	if item.State == ItemStateDone {
+		return fmt.Errorf("cannot complete item in %s state", item.State)
+	}
+	if item.ActorID == nil {
+		return errors.New("item is not assigned")
+	}
+	if *item.ActorID != actorID {
+		return errors.New("item actor does not match")
+	}
+	res, err := s.db.Exec(
+		`UPDATE items
+		 SET state = ?, updated_at = datetime('now')
+		 WHERE id = ?`,
+		ItemStateDone,
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) ReturnItemToInbox(id int64) error {
+	item, err := s.GetItem(id)
+	if err != nil {
+		return err
+	}
+	if item.State == ItemStateDone {
+		return fmt.Errorf("cannot return item from %s state", item.State)
+	}
+	res, err := s.db.Exec(
+		`UPDATE items
+		 SET state = ?, updated_at = datetime('now')
+		 WHERE id = ?`,
+		ItemStateInbox,
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) CompleteItemBySource(source, sourceRef string) error {
+	cleanSource := strings.TrimSpace(source)
+	cleanSourceRef := strings.TrimSpace(sourceRef)
+	if cleanSource == "" || cleanSourceRef == "" {
+		return errors.New("item source and source_ref are required")
+	}
+	res, err := s.db.Exec(
+		`UPDATE items
+		 SET state = ?, updated_at = datetime('now')
+		 WHERE source = ? AND source_ref = ? AND state != ?`,
+		ItemStateDone,
+		cleanSource,
+		cleanSourceRef,
+		ItemStateDone,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected > 0 {
+		return nil
+	}
+	var existingCount int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM items WHERE source = ? AND source_ref = ?`,
+		cleanSource,
+		cleanSourceRef,
+	).Scan(&existingCount); err != nil {
+		return err
+	}
+	if existingCount == 0 {
+		return sql.ErrNoRows
+	}
+	return fmt.Errorf("cannot complete item from source %s:%s", cleanSource, cleanSourceRef)
+}
+
 func (s *Store) UpdateItemTimes(id int64, visibleAfter, followUpAt *string) error {
 	res, err := s.db.Exec(
 		`UPDATE items

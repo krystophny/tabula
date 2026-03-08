@@ -357,6 +357,15 @@ func TestDomainCRUDRoundTrip(t *testing.T) {
 	if assignedItem.ActorID == nil || *assignedItem.ActorID != human.ID {
 		t.Fatalf("CreateItem(assigned).ActorID = %v, want %d", assignedItem.ActorID, human.ID)
 	}
+	sourceCompleteRef := "issue-183"
+	sourceItem, err := s.CreateItem("Source completion item", ItemOptions{
+		State:     ItemStateWaiting,
+		Source:    &source,
+		SourceRef: &sourceCompleteRef,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(source completion) error: %v", err)
+	}
 
 	if err := s.AssignItem(artifactItem.ID, agent.ID); err != nil {
 		t.Fatalf("AssignItem() error: %v", err)
@@ -370,6 +379,89 @@ func TestDomainCRUDRoundTrip(t *testing.T) {
 	}
 	if err := s.AssignItem(artifactItem.ID, 9999); err == nil {
 		t.Fatal("expected assign to nonexistent actor error")
+	}
+	if err := s.AssignItem(artifactItem.ID, human.ID); err != nil {
+		t.Fatalf("AssignItem(reassign) error: %v", err)
+	}
+	gotItem, err = s.GetItem(artifactItem.ID)
+	if err != nil {
+		t.Fatalf("GetItem(artifact reassigned) error: %v", err)
+	}
+	if gotItem.ActorID == nil || *gotItem.ActorID != human.ID {
+		t.Fatalf("GetItem(artifact reassigned).ActorID = %v, want %d", gotItem.ActorID, human.ID)
+	}
+	if gotItem.State != ItemStateWaiting {
+		t.Fatalf("GetItem(artifact reassigned).State = %q, want %q", gotItem.State, ItemStateWaiting)
+	}
+	if err := s.UnassignItem(artifactItem.ID); err != nil {
+		t.Fatalf("UnassignItem() error: %v", err)
+	}
+	gotItem, err = s.GetItem(artifactItem.ID)
+	if err != nil {
+		t.Fatalf("GetItem(artifact unassigned) error: %v", err)
+	}
+	if gotItem.ActorID != nil {
+		t.Fatalf("GetItem(artifact unassigned).ActorID = %v, want nil", gotItem.ActorID)
+	}
+	if gotItem.State != ItemStateInbox {
+		t.Fatalf("GetItem(artifact unassigned).State = %q, want %q", gotItem.State, ItemStateInbox)
+	}
+	if err := s.UnassignItem(artifactItem.ID); err == nil {
+		t.Fatal("expected unassign on unassigned item error")
+	}
+	if err := s.AssignItem(artifactItem.ID, agent.ID); err != nil {
+		t.Fatalf("AssignItem(reassign to agent) error: %v", err)
+	}
+	if err := s.CompleteItemByActor(artifactItem.ID, human.ID); err == nil {
+		t.Fatal("expected complete with wrong actor error")
+	}
+	if err := s.CompleteItemByActor(artifactItem.ID, agent.ID); err != nil {
+		t.Fatalf("CompleteItemByActor() error: %v", err)
+	}
+	gotItem, err = s.GetItem(artifactItem.ID)
+	if err != nil {
+		t.Fatalf("GetItem(artifact completed) error: %v", err)
+	}
+	if gotItem.State != ItemStateDone {
+		t.Fatalf("GetItem(artifact completed).State = %q, want %q", gotItem.State, ItemStateDone)
+	}
+	if err := s.CompleteItemByActor(artifactItem.ID, agent.ID); err == nil {
+		t.Fatal("expected double complete error")
+	}
+	if err := s.AssignItem(artifactItem.ID, human.ID); err == nil {
+		t.Fatal("expected assign on done item error")
+	}
+	if err := s.ReturnItemToInbox(assignedItem.ID); err != nil {
+		t.Fatalf("ReturnItemToInbox() error: %v", err)
+	}
+	gotItem, err = s.GetItem(assignedItem.ID)
+	if err != nil {
+		t.Fatalf("GetItem(returned to inbox) error: %v", err)
+	}
+	if gotItem.State != ItemStateInbox {
+		t.Fatalf("GetItem(returned to inbox).State = %q, want %q", gotItem.State, ItemStateInbox)
+	}
+	if gotItem.ActorID == nil || *gotItem.ActorID != human.ID {
+		t.Fatalf("GetItem(returned to inbox).ActorID = %v, want %d", gotItem.ActorID, human.ID)
+	}
+	if err := s.ReturnItemToInbox(artifactItem.ID); err == nil {
+		t.Fatal("expected return on done item error")
+	}
+	if err := s.CompleteItemBySource(source, sourceCompleteRef); err != nil {
+		t.Fatalf("CompleteItemBySource() error: %v", err)
+	}
+	gotItem, err = s.GetItem(sourceItem.ID)
+	if err != nil {
+		t.Fatalf("GetItem(source completed) error: %v", err)
+	}
+	if gotItem.State != ItemStateDone {
+		t.Fatalf("GetItem(source completed).State = %q, want %q", gotItem.State, ItemStateDone)
+	}
+	if err := s.CompleteItemBySource(source, sourceCompleteRef); err == nil {
+		t.Fatal("expected double source complete error")
+	}
+	if err := s.CompleteItemBySource("github", "missing"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("CompleteItemBySource(missing) error = %v, want sql.ErrNoRows", err)
 	}
 
 	if err := s.UpdateItemTimes(inboxItem.ID, &visibleAfter, &followUpAt); err != nil {
@@ -403,15 +495,24 @@ func TestDomainCRUDRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListItemsByState(waiting) error: %v", err)
 	}
-	if len(waitingItems) != 2 {
-		t.Fatalf("ListItemsByState(waiting) len = %d, want 2", len(waitingItems))
+	if len(waitingItems) != 0 {
+		t.Fatalf("ListItemsByState(waiting) len = %d, want 0", len(waitingItems))
 	}
 	doneItems, err := s.ListItemsByState(ItemStateDone)
 	if err != nil {
 		t.Fatalf("ListItemsByState(done) error: %v", err)
 	}
-	if len(doneItems) != 1 || doneItems[0].ID != inboxItem.ID {
-		t.Fatalf("ListItemsByState(done) = %+v, want inbox item %d", doneItems, inboxItem.ID)
+	if len(doneItems) != 3 {
+		t.Fatalf("ListItemsByState(done) len = %d, want 3", len(doneItems))
+	}
+	doneIDs := map[int64]bool{}
+	for _, item := range doneItems {
+		doneIDs[item.ID] = true
+	}
+	for _, id := range []int64{artifactItem.ID, sourceItem.ID, inboxItem.ID} {
+		if !doneIDs[id] {
+			t.Fatalf("ListItemsByState(done) missing item %d: %+v", id, doneItems)
+		}
 	}
 	if _, err := s.ListItemsByState("paused"); err == nil {
 		t.Fatal("expected invalid ListItemsByState error")
