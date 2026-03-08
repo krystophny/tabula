@@ -41,7 +41,6 @@ function normalizeMode(mode) {
 }
 
 function liveSessionSnapshot() {
-  const dialogueMode = state.active && state.mode === LIVE_SESSION_MODE_DIALOGUE;
   return {
     liveSessionActive: state.active,
     liveSessionMode: state.mode,
@@ -49,9 +48,6 @@ function liveSessionSnapshot() {
     liveSessionDialogueListenActive: state.dialogueListenActive,
     liveSessionDialogueListenTimer: state.dialogueListenTimer,
     liveSessionMeetingSessionID: state.meetingSessionID,
-    conversationMode: dialogueMode,
-    conversationListenActive: state.dialogueListenActive,
-    conversationListenTimer: state.dialogueListenTimer,
   };
 }
 

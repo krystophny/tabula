@@ -5,7 +5,7 @@ Core paradigm:
 - Tap to talk, right-click to type, keyboard auto-activates. No visible chrome.
 - Responses stream as ephemeral overlays; document edits update in place with diff highlighting.
 - Edge panels (hover/swipe to reveal) for project switching and chat panel access.
-- Live sessions are split into `Dialogue` and `Meeting`, with shared hotword and audio runtime behavior.
+- Live sessions are split into `Dialogue` and `Meeting`, with one shared audio runtime and built-in `Alexa` hotword behavior.
 
 License: MIT (`LICENSE`)
 Legal notice: Tabura is provided "as is" and "as available" without warranties, and to the maximum extent permitted by applicable law the authors/contributors accept no liability for damages, data loss, or misuse. You are solely responsible for backups, verification, and safe operation. See [`DISCLAIMER.md`](DISCLAIMER.md).
@@ -14,7 +14,7 @@ Legal notice: Tabura is provided "as is" and "as available" without warranties, 
 
 - **Spec hub**: [`docs/spec-index.md`](docs/spec-index.md)
 - **System architecture**: [`docs/architecture.md`](docs/architecture.md)
-- **Live session direction**: [`docs/companion-mode-whitepaper.md`](docs/companion-mode-whitepaper.md)
+- **Live session architecture**: [`docs/architecture.md`](docs/architecture.md)
 - **Codex app-server integration**: [`docs/codex-app-server-pivot.md`](docs/codex-app-server-pivot.md)
 - **HTTP/MCP interface inventory**: [`docs/interfaces.md`](docs/interfaces.md)
 - **UI paradigm**: [`docs/object-scoped-intent-ui.md`](docs/object-scoped-intent-ui.md)

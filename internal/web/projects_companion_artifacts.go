@@ -370,7 +370,7 @@ func formatCompanionSessionStamp(session *store.ParticipantSession) string {
 
 func renderCompanionTranscriptMarkdown(session *store.ParticipantSession, segments []store.ParticipantSegment) string {
 	var b strings.Builder
-	b.WriteString("# Companion Transcript\n\n")
+	b.WriteString("# Meeting Transcript\n\n")
 	if session == nil {
 		b.WriteString("No transcript is available for this project yet.\n")
 		return b.String()
@@ -414,7 +414,7 @@ func renderCompanionTranscriptText(session *store.ParticipantSession, segments [
 
 func renderCompanionSummaryMarkdown(session *store.ParticipantSession, summary string, updatedAt int64) string {
 	var b strings.Builder
-	b.WriteString("# Companion Summary\n\n")
+	b.WriteString("# Meeting Summary\n\n")
 	if session == nil {
 		b.WriteString("No summary is available for this project yet.\n")
 		return b.String()
@@ -456,7 +456,7 @@ func renderCompanionSummaryText(session *store.ParticipantSession, summary strin
 
 func renderCompanionReferencesMarkdown(session *store.ParticipantSession, entities []string, topics []any) string {
 	var b strings.Builder
-	b.WriteString("# Companion References\n\n")
+	b.WriteString("# Meeting References\n\n")
 	if session == nil {
 		b.WriteString("No references are available for this project yet.\n")
 		return b.String()

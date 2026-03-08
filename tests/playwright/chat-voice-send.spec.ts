@@ -20,8 +20,15 @@ async function clearLog(page: Page) {
 
 async function injectChatEvent(page: Page, payload: Record<string, unknown>) {
   await page.evaluate((payloadData) => {
+    const app = (window as any)._taburaApp;
+    const activeChatWs = app?.getState?.().chatWs;
+    if (activeChatWs && typeof activeChatWs.injectEvent === 'function') {
+      activeChatWs.injectEvent(payloadData);
+      return;
+    }
     const sessions = (window as any).__mockWsSessions || [];
-    const chatWs = sessions.find((ws: any) => typeof ws.url === 'string' && ws.url.includes('/ws/chat/'));
+    const candidates = sessions.filter((ws: any) => typeof ws.url === 'string' && ws.url.includes('/ws/chat/'));
+    const chatWs = candidates[candidates.length - 1];
     if (chatWs?.injectEvent) {
       chatWs.injectEvent(payloadData);
     }

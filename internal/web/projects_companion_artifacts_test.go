@@ -74,7 +74,7 @@ func TestProjectCompanionTranscriptAPIAndExports(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET transcript markdown status = %d, want 200", rr.Code)
 	}
-	if !strings.Contains(rr.Body.String(), "# Companion Transcript") {
+	if !strings.Contains(rr.Body.String(), "# Meeting Transcript") {
 		t.Fatalf("transcript markdown missing header: %q", rr.Body.String())
 	}
 	if !strings.Contains(rr.Body.String(), "alpha note") || !strings.Contains(rr.Body.String(), "beta note") {
@@ -119,7 +119,7 @@ func TestProjectCompanionSummaryAndReferencesAPIAndExports(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET summary markdown status = %d, want 200", rr.Code)
 	}
-	if !strings.Contains(rr.Body.String(), "# Companion Summary") || !strings.Contains(rr.Body.String(), "Decision summary") {
+	if !strings.Contains(rr.Body.String(), "# Meeting Summary") || !strings.Contains(rr.Body.String(), "Decision summary") {
 		t.Fatalf("summary markdown missing expected content: %q", rr.Body.String())
 	}
 
@@ -145,7 +145,7 @@ func TestProjectCompanionSummaryAndReferencesAPIAndExports(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET references markdown status = %d, want 200", rr.Code)
 	}
-	if !strings.Contains(rr.Body.String(), "# Companion References") {
+	if !strings.Contains(rr.Body.String(), "# Meeting References") {
 		t.Fatalf("references markdown missing header: %q", rr.Body.String())
 	}
 	if !strings.Contains(rr.Body.String(), "Acme") || !strings.Contains(rr.Body.String(), "Status") {
@@ -158,7 +158,7 @@ func TestProjectCompanionSummaryAndReferencesAPIAndExports(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read transcript artifact: %v", err)
 	}
-	if !strings.Contains(string(transcriptBody), "# Companion Transcript") {
+	if !strings.Contains(string(transcriptBody), "# Meeting Transcript") {
 		t.Fatalf("transcript artifact missing header: %q", string(transcriptBody))
 	}
 

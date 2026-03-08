@@ -36,7 +36,7 @@ const (
 )
 
 const intentLLMSystemPrompt = `You are Tabura's local router. Output JSON only.
-Allowed actions: switch_project, switch_model, toggle_silent, toggle_conversation, cancel_work, show_status, shell, open_file_canvas, chat.
+Allowed actions: switch_project, switch_model, toggle_silent, toggle_live_dialogue, cancel_work, show_status, shell, open_file_canvas, chat.
 Use {"action":"chat"} unless user clearly requests a system action.
 For current-information requests (weather, web search, news, prices, schedules, latest/current updates), use {"action":"chat"} and MUST NOT use shell.
 For shell-like requests use {"action":"shell","command":"..."}.
@@ -320,7 +320,9 @@ func systemActionStringParam(params map[string]interface{}, key string) string {
 
 func normalizeSystemActionName(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "switch_project", "switch_model", "toggle_silent", "toggle_conversation", "cancel_work", "show_status", "shell", "open_file_canvas":
+	case "toggle_conversation":
+		return "toggle_live_dialogue"
+	case "switch_project", "switch_model", "toggle_silent", "toggle_live_dialogue", "cancel_work", "show_status", "shell", "open_file_canvas":
 		return strings.ToLower(strings.TrimSpace(raw))
 	default:
 		return ""
@@ -1307,8 +1309,8 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 			}, nil
 	case "toggle_silent":
 		return "Toggled silent mode.", map[string]interface{}{"type": "toggle_silent"}, nil
-	case "toggle_conversation":
-		return "Toggled Live Dialogue.", map[string]interface{}{"type": "toggle_conversation"}, nil
+	case "toggle_live_dialogue":
+		return "Toggled Live Dialogue.", map[string]interface{}{"type": "toggle_live_dialogue"}, nil
 	case "cancel_work":
 		activeCanceled, queuedCanceled := a.cancelChatWork(sessionID)
 		total := activeCanceled + queuedCanceled

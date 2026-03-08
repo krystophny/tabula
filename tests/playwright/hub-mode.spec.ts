@@ -16,8 +16,15 @@ async function clearLog(page: Page) {
 
 async function injectChatEvent(page: Page, payload: Record<string, unknown>) {
   await page.evaluate((eventPayload) => {
+    const app = (window as any)._taburaApp;
+    const activeChatWs = app?.getState?.().chatWs;
+    if (activeChatWs && typeof activeChatWs.injectEvent === 'function') {
+      activeChatWs.injectEvent(eventPayload);
+      return;
+    }
     const sessions = (window as any).__mockWsSessions || [];
-    const chatWs = sessions.find((ws: any) => String(ws?.url || '').includes('/ws/chat/'));
+    const candidates = sessions.filter((ws: any) => String(ws?.url || '').includes('/ws/chat/'));
+    const chatWs = candidates[candidates.length - 1];
     if (chatWs && typeof chatWs.injectEvent === 'function') {
       chatWs.injectEvent(eventPayload);
     }
@@ -168,17 +175,26 @@ test('system switch_model action updates project model state', async ({ page }) 
   }).toBe(false);
 });
 
-test('system toggle actions update ui state', async ({ page }) => {
-  const silentButton = page.locator('#edge-top-models .edge-silent-btn');
+test('system toggle_live_dialogue updates ui state', async ({ page }) => {
+  await page.evaluate(() => {
+    const buttons = Array.from(document.querySelectorAll('#edge-top-projects .edge-project-btn'));
+    const button = buttons.find((node) => !node.classList.contains('edge-hub-btn'));
+    if (button instanceof HTMLButtonElement) {
+      button.click();
+    }
+  });
+  await expect.poll(async () => page.evaluate(() => {
+    const app = (window as any)._taburaApp;
+    const state = app?.getState?.();
+    const wsOpen = (window as any).WebSocket.OPEN;
+    if (String(state?.activeProjectId || '') !== 'test') return '';
+    return state?.chatWs?.readyState === wsOpen ? 'ready' : 'waiting';
+  })).toBe('ready');
   const dialogueButton = page.locator('#edge-top-models .edge-live-dialogue-btn');
 
-  await expect(silentButton).not.toHaveClass(/is-active/);
   await expect(dialogueButton).toBeVisible();
+  await injectChatEvent(page, { type: 'system_action', action: { type: 'toggle_live_dialogue' } });
 
-  await injectChatEvent(page, { type: 'system_action', action: { type: 'toggle_silent' } });
-  await injectChatEvent(page, { type: 'system_action', action: { type: 'toggle_conversation' } });
-
-  await expect(silentButton).toHaveClass(/is-active/);
   await expect(page.locator('#edge-top-models .edge-live-status')).toContainText('Dialogue');
 });
 

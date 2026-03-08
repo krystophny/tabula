@@ -85,9 +85,6 @@ const state = {
   liveSessionHotword: LIVE_SESSION_HOTWORD_DEFAULT,
   liveSessionDialogueListenActive: false,
   liveSessionDialogueListenTimer: null,
-  conversationMode: false,
-  conversationListenActive: false,
-  conversationListenTimer: null,
   hotwordEnabled: false,
   hotwordActive: false,
   voiceTranscriptSubmitInFlight: false,
@@ -199,6 +196,9 @@ const COMPANION_VIEW_PATH_PREFIX = '__tabura_companion__';
 const COMPANION_TRANSCRIPT_VIEW_PATH = `${COMPANION_VIEW_PATH_PREFIX}/transcript`;
 const COMPANION_SUMMARY_VIEW_PATH = `${COMPANION_VIEW_PATH_PREFIX}/summary`;
 const COMPANION_REFERENCES_VIEW_PATH = `${COMPANION_VIEW_PATH_PREFIX}/references`;
+const MEETING_TRANSCRIPT_LABEL = 'Meeting Transcript';
+const MEETING_SUMMARY_LABEL = 'Meeting Summary';
+const MEETING_REFERENCES_LABEL = 'Meeting References';
 let localMessageSeq = 0;
 const CHAT_CTRL_LONG_PRESS_MS = 180;
 const ARTIFACT_EDIT_LONG_TAP_MS = 420;
@@ -696,9 +696,6 @@ function applyLiveSessionStateSnapshot(snapshot = null) {
   state.liveSessionHotword = String(nextSnapshot.liveSessionHotword || LIVE_SESSION_HOTWORD_DEFAULT).trim() || LIVE_SESSION_HOTWORD_DEFAULT;
   state.liveSessionDialogueListenActive = Boolean(nextSnapshot.liveSessionDialogueListenActive);
   state.liveSessionDialogueListenTimer = nextSnapshot.liveSessionDialogueListenTimer ?? null;
-  state.conversationMode = state.liveSessionActive && state.liveSessionMode === LIVE_SESSION_MODE_DIALOGUE;
-  state.conversationListenActive = state.liveSessionDialogueListenActive;
-  state.conversationListenTimer = state.liveSessionDialogueListenTimer;
   requestHotwordSync();
 }
 
@@ -914,7 +911,7 @@ function stopTTSPlayback() {
 }
 
 configureLiveSession({
-  canStartDialogueListen: canStartConversationListen,
+  canStartDialogueListen: canStartLiveDialogueListen,
   onStateChange: (snapshot) => {
     applyLiveSessionStateSnapshot(snapshot);
     renderEdgeTopModelButtons();
@@ -1433,7 +1430,7 @@ function companionStatusCopy(runtimeState) {
     case COMPANION_RUNTIME_STATES.TALKING:
       return { label: 'Talking', detail: 'Speaking the current response.' };
     case COMPANION_RUNTIME_STATES.ERROR:
-      return { label: 'Error', detail: 'Companion hit a runtime error.' };
+      return { label: 'Error', detail: 'Meeting mode hit a runtime error.' };
     default:
       return { label: 'Idle', detail: 'Ready in the background.' };
   }
@@ -2255,7 +2252,7 @@ async function stopVoiceCaptureAndSend() {
   updateAssistantActivityIndicator();
   showStatus('transcribing...');
   let remoteStopped = false;
-  let reopenConversationListen = false;
+  let reopenDialogueListen = false;
   try {
     let sttBlob = null;
     let mimeType = '';
@@ -2295,7 +2292,7 @@ async function stopVoiceCaptureAndSend() {
     if (!transcript) {
       if (isDialogueLiveSession() && isHotwordCapture) {
         state.voiceAwaitingTurn = false;
-        reopenConversationListen = true;
+        reopenDialogueListen = true;
         return;
       }
       throw new Error(voiceCaptureEmptyReasonMessage(result?.reason));
@@ -2314,7 +2311,7 @@ async function stopVoiceCaptureAndSend() {
     const y = Number.isFinite(pos?.y) ? Number(pos.y) : null;
     showVoiceCaptureNotice(`voice capture failed: ${message}`, x, y);
     if (isDialogueLiveSession()) {
-      reopenConversationListen = true;
+      reopenDialogueListen = true;
     }
   } finally {
     if (!remoteStopped) {
@@ -2332,7 +2329,7 @@ async function stopVoiceCaptureAndSend() {
       syncVoiceLifecycle('voice-capture-stop-finished');
     }
     updateAssistantActivityIndicator();
-    if (reopenConversationListen && isDialogueLiveSession()) {
+    if (reopenDialogueListen && isDialogueLiveSession()) {
       // Re-open follow-up listen only after capture teardown has settled.
       window.setTimeout(() => {
         if (!isDialogueLiveSession()) return;
@@ -2523,10 +2520,10 @@ function isUiReadyForStatus() {
   return mode === VOICE_LIFECYCLE.IDLE;
 }
 
-function canStartConversationListen() {
+function canStartLiveDialogueListen() {
   if (!canSpeakTTS()) return false;
   if (!isDialogueLiveSession()) return false;
-  const mode = syncVoiceLifecycle('can-start-conversation');
+  const mode = syncVoiceLifecycle('can-start-live-dialogue');
   if (mode === VOICE_LIFECYCLE.RECORDING || mode === VOICE_LIFECYCLE.STOPPING_RECORDING) return false;
   if (mode === VOICE_LIFECYCLE.TTS_PLAYING) return false;
   if (state.chatVoiceCapture) return false;
@@ -2791,9 +2788,9 @@ function companionViewKindForPath(path) {
 
 function workspaceCompanionEntries() {
   return [
-    { name: 'Companion Transcript', path: COMPANION_TRANSCRIPT_VIEW_PATH, is_dir: false },
-    { name: 'Companion Summary', path: COMPANION_SUMMARY_VIEW_PATH, is_dir: false },
-    { name: 'Companion References', path: COMPANION_REFERENCES_VIEW_PATH, is_dir: false },
+    { name: MEETING_TRANSCRIPT_LABEL, path: COMPANION_TRANSCRIPT_VIEW_PATH, is_dir: false },
+    { name: MEETING_SUMMARY_LABEL, path: COMPANION_SUMMARY_VIEW_PATH, is_dir: false },
+    { name: MEETING_REFERENCES_LABEL, path: COMPANION_REFERENCES_VIEW_PATH, is_dir: false },
   ];
 }
 
@@ -3090,9 +3087,9 @@ async function openCompanionWorkspaceView(viewKind, filePath) {
   const projectID = String(state.activeProjectId || '').trim();
   if (!projectID) return false;
   const titles = {
-    transcript: 'Companion Transcript',
-    summary: 'Companion Summary',
-    references: 'Companion References',
+    transcript: MEETING_TRANSCRIPT_LABEL,
+    summary: MEETING_SUMMARY_LABEL,
+    references: MEETING_REFERENCES_LABEL,
   };
   const endpoint = viewKind === 'transcript' || viewKind === 'summary' || viewKind === 'references'
     ? viewKind
@@ -3117,7 +3114,7 @@ async function openCompanionWorkspaceView(viewKind, filePath) {
     if (isMobileViewport()) { setPrReviewDrawerOpen(false); closeEdgePanels(); }
     return true;
   } catch (err) {
-    appendPlainMessage('system', `${titles[viewKind] || 'Companion view'} failed: ${String(err?.message || err)}`);
+    appendPlainMessage('system', `${titles[viewKind] || 'Meeting view'} failed: ${String(err?.message || err)}`);
     return false;
   }
 }
@@ -4886,7 +4883,7 @@ function handleChatEvent(payload) {
       }
     } else if (actionType === 'toggle_silent') {
       toggleTTSSilentMode();
-    } else if (actionType === 'toggle_conversation') {
+    } else if (actionType === 'toggle_live_dialogue' || actionType === 'toggle_conversation') {
       const next = state.liveSessionActive ? '' : LIVE_SESSION_MODE_DIALOGUE;
       const action = next
         ? activateLiveSession(next)
@@ -5071,7 +5068,7 @@ function handleChatEvent(payload) {
     // If live dialogue is active but no TTS was queued (e.g. TTS error,
     // empty md, or all text already spoken during streaming), kick the listen
     // cycle so the hands-free loop does not stall.
-    if (isDialogueLiveSession() && !ttsPlayer && shouldSpeakTurn) {
+    if (isDialogueLiveSession() && !ttsPlayer && shouldSpeakTurn && canSpeakTTS()) {
       onLiveSessionTTSPlaybackComplete();
     }
     return;
@@ -5171,7 +5168,7 @@ function handleChatEvent(payload) {
     void refreshAssistantActivity();
     updateOverlay(`**Error:** ${errText}`);
     window.setTimeout(() => hideOverlay(), 2000);
-    if (isDialogueLiveSession()) {
+    if (isDialogueLiveSession() && canSpeakTTS()) {
       onLiveSessionTTSPlaybackComplete();
     }
   }

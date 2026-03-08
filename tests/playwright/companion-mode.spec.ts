@@ -13,8 +13,15 @@ async function waitReady(page: Page) {
 
 async function injectChatEvent(page: Page, payload: Record<string, unknown>) {
   await page.evaluate((eventPayload) => {
+    const app = (window as any)._taburaApp;
+    const activeChatWs = app?.getState?.().chatWs;
+    if (activeChatWs && typeof activeChatWs.injectEvent === 'function') {
+      activeChatWs.injectEvent(eventPayload);
+      return;
+    }
     const sessions = (window as any).__mockWsSessions || [];
-    const chatWs = sessions.find((ws: any) => typeof ws.url === 'string' && ws.url.includes('/ws/chat/'));
+    const candidates = sessions.filter((ws: any) => typeof ws.url === 'string' && ws.url.includes('/ws/chat/'));
+    const chatWs = candidates[candidates.length - 1];
     if (chatWs?.injectEvent) {
       chatWs.injectEvent(eventPayload);
     }
@@ -158,17 +165,17 @@ test('workspace sidebar exposes companion transcript, summary, and references vi
 
   await page.locator('#edge-left-tap').click();
   await expect(page.locator('#pr-file-pane')).toHaveClass(/is-open/);
-  await expect(page.locator('#pr-file-list')).toContainText('Companion Transcript');
-  await expect(page.locator('#pr-file-list')).toContainText('Companion Summary');
-  await expect(page.locator('#pr-file-list')).toContainText('Companion References');
+  await expect(page.locator('#pr-file-list')).toContainText('Meeting Transcript');
+  await expect(page.locator('#pr-file-list')).toContainText('Meeting Summary');
+  await expect(page.locator('#pr-file-list')).toContainText('Meeting References');
 
-  await page.getByRole('button', { name: 'Companion Transcript' }).click();
+  await page.getByRole('button', { name: 'Meeting Transcript' }).click();
   await expect(page.locator('#canvas-text')).toContainText('Harness companion transcript');
 
-  await page.getByRole('button', { name: 'Companion Summary' }).click();
+  await page.getByRole('button', { name: 'Meeting Summary' }).click();
   await expect(page.locator('#canvas-text')).toContainText('Harness companion summary');
 
-  await page.getByRole('button', { name: 'Companion References' }).click();
+  await page.getByRole('button', { name: 'Meeting References' }).click();
   await expect(page.locator('#canvas-text')).toContainText('Acme');
   await expect(page.locator('#canvas-text')).toContainText('Budget');
 });
@@ -196,7 +203,7 @@ test('companion idle surface tracks runtime state and hides behind open artifact
   }
 
   await page.locator('#edge-left-tap').click();
-  await page.getByRole('button', { name: 'Companion Transcript' }).click();
+  await page.getByRole('button', { name: 'Meeting Transcript' }).click();
   await expect(page.locator('#canvas-text')).toContainText('Harness companion transcript');
   await expect(page.locator('#companion-idle-surface')).toBeHidden();
 });

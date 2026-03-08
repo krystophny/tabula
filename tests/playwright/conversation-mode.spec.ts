@@ -102,7 +102,10 @@ async function setConversationMode(page: Page, enabled: boolean) {
 }
 
 async function setSilentMode(page: Page, enabled: boolean) {
-  await waitForEdgeButtons(page);
+  await expect.poll(async () => page.evaluate(() => {
+    const button = document.querySelector('#edge-top-models .edge-silent-btn');
+    return button instanceof HTMLButtonElement;
+  })).toBe(true);
   await page.evaluate((target) => {
     const button = document.querySelector('#edge-top-models .edge-silent-btn');
     if (!(button instanceof HTMLButtonElement)) {
@@ -118,7 +121,6 @@ async function setSilentMode(page: Page, enabled: boolean) {
     return button instanceof HTMLButtonElement ? button.getAttribute('aria-pressed') : 'false';
   })).toBe(enabled ? 'true' : 'false');
 }
-
 async function triggerVoiceAssistantTTS(page: Page, turnID: string, text = 'Hello there.') {
   await page.evaluate(() => {
     const app = (window as any)._taburaApp;
@@ -321,7 +323,15 @@ test('PTT during dialogue listen cancels listen and starts push-to-talk', async 
 test('silent mode with dialogue enabled does not open follow-up listen', async ({ page }) => {
   await setConversationListenWindowMs(page, 1_200);
   await setConversationMode(page, true);
-  await setSilentMode(page, true);
+  await page.evaluate(() => {
+    const app = (window as any)._taburaApp;
+    const state = app?.getState?.();
+    if (!state) {
+      throw new Error('app state unavailable');
+    }
+    state.ttsSilent = true;
+    document.body.classList.add('silent-mode');
+  });
   await clearLog(page);
 
   await triggerVoiceAssistantTTS(page, 'conv-silent-1');

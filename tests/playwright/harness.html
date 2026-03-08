@@ -43,7 +43,7 @@
               <div class="companion-idle-mouth"></div>
             </div>
             <div class="companion-idle-copy">
-              <div class="companion-idle-kicker">Companion</div>
+              <div class="companion-idle-kicker">Meeting</div>
               <div class="companion-idle-status" aria-live="polite">Idle</div>
               <div class="companion-idle-detail">Ready in the background.</div>
             </div>
@@ -708,7 +708,7 @@
       if (u.includes('/api/projects/') && u.includes('/transcript')) {
         const format = new URL(u, window.location.href).searchParams.get('format') || 'json';
         if (format === 'md') {
-          return new Response('# Companion Transcript\n\n- **Speaker** (10:00:00): Harness companion transcript\n', {
+          return new Response('# Meeting Transcript\n\n- **Speaker** (10:00:00): Harness companion transcript\n', {
             status: 200,
             headers: { 'Content-Type': 'text/markdown; charset=utf-8' },
           });
@@ -725,7 +725,7 @@
       if (u.includes('/api/projects/') && u.includes('/summary')) {
         const format = new URL(u, window.location.href).searchParams.get('format') || 'json';
         if (format === 'md') {
-          return new Response('# Companion Summary\n\nHarness companion summary\n', {
+          return new Response('# Meeting Summary\n\nHarness companion summary\n', {
             status: 200,
             headers: { 'Content-Type': 'text/markdown; charset=utf-8' },
           });
@@ -743,7 +743,7 @@
       if (u.includes('/api/projects/') && u.includes('/references')) {
         const format = new URL(u, window.location.href).searchParams.get('format') || 'json';
         if (format === 'md') {
-          return new Response('# Companion References\n\n## Entities\n\n- Acme\n\n## Topic Timeline\n\n- Budget\n', {
+          return new Response('# Meeting References\n\n## Entities\n\n- Acme\n\n## Topic Timeline\n\n- Budget\n', {
             status: 200,
             headers: { 'Content-Type': 'text/markdown; charset=utf-8' },
           });

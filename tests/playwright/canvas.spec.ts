@@ -60,9 +60,15 @@ async function waitForLogEntry(page: Page, type: string, action?: string) {
 
 async function injectChatEvent(page: Page, payload: Record<string, unknown>) {
   await page.evaluate((p) => {
+    const app = (window as any)._taburaApp;
+    const activeChatWs = app?.getState?.().chatWs;
+    if (activeChatWs && typeof activeChatWs.injectEvent === 'function') {
+      activeChatWs.injectEvent(p);
+      return;
+    }
     const sessions = (window as any).__mockWsSessions || [];
-    // Find the chat WS (not canvas)
-    const chatWs = sessions.find((ws: any) => ws.url && ws.url.includes('/ws/chat/'));
+    const candidates = sessions.filter((ws: any) => ws.url && ws.url.includes('/ws/chat/'));
+    const chatWs = candidates[candidates.length - 1];
     if (chatWs) {
       chatWs.injectEvent(p);
     }

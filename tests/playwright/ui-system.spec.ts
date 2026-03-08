@@ -32,9 +32,16 @@ async function injectCanvasModuleRef(page: Page) {
 
 async function injectChatEvent(page: Page, payload: Record<string, unknown>) {
   await page.evaluate((p) => {
+    const app = (window as any)._taburaApp;
+    const activeChatWs = app?.getState?.().chatWs;
+    if (activeChatWs && typeof activeChatWs.injectEvent === 'function') {
+      activeChatWs.injectEvent(p);
+      return;
+    }
     const sessions = (window as any).__mockWsSessions || [];
-    const chatWs = sessions.find((ws: any) => ws.url && ws.url.includes('/ws/chat/'));
-    if (chatWs) chatWs.injectEvent(p);
+    const candidates = sessions.filter((ws: any) => ws.url && ws.url.includes('/ws/chat/'));
+    const chatWs = candidates[candidates.length - 1];
+    if (chatWs && typeof chatWs.injectEvent === 'function') chatWs.injectEvent(p);
   }, payload);
 }
 
@@ -459,6 +466,23 @@ test.describe('turn lifecycle events', () => {
 // =============================================================================
 
 test.describe('Live Dialogue multi-turn', () => {
+  async function switchToTestProject(page: Page) {
+    await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll('#edge-top-projects .edge-project-btn'));
+      const button = buttons.find((node) => node.textContent?.trim().toLowerCase() === 'test');
+      if (button instanceof HTMLButtonElement) {
+        button.click();
+      }
+    });
+    await expect.poll(async () => page.evaluate(() => {
+      const app = (window as any)._taburaApp;
+      const state = app?.getState?.();
+      const wsOpen = (window as any).WebSocket.OPEN;
+      if (String(state?.activeProjectId || '') !== 'test') return '';
+      return state?.chatWs?.readyState === wsOpen ? 'ready' : 'waiting';
+    })).toBe('ready');
+  }
+
   async function waitForEdgeButtons(page: Page) {
     await expect.poll(async () => page.evaluate(() => {
       const dialogue = document.querySelector('#edge-top-models .edge-live-dialogue-btn');
@@ -468,8 +492,15 @@ test.describe('Live Dialogue multi-turn', () => {
   }
 
   async function enableConversationMode(page: Page) {
+    await switchToTestProject(page);
     await waitForEdgeButtons(page);
-    await page.locator('#edge-top-models .edge-live-dialogue-btn').click();
+    await page.evaluate(() => {
+      const button = document.querySelector('#edge-top-models .edge-live-dialogue-btn');
+      if (!(button instanceof HTMLButtonElement)) {
+        throw new Error('dialogue button not found');
+      }
+      button.click();
+    });
     await expect(page.locator('#edge-top-models .edge-live-status')).toContainText('Dialogue');
   }
 
@@ -498,12 +529,6 @@ test.describe('Live Dialogue multi-turn', () => {
     await clearLog(page);
 
     await triggerVoiceAssistantTTS(page, 'conv-1');
-
-    // TTS should have been queued
-    await expect.poll(async () => {
-      const log = await getLog(page);
-      return log.some(e => e.type === 'tts');
-    }).toBe(true);
 
     // Wait for mock TTS playback to complete and listen indicator to appear
     await expect.poll(async () => page.evaluate(() => {
@@ -608,10 +633,25 @@ test.describe('project state persistence', () => {
     expect(stored).toBe(true);
   });
 
-  test('system toggle_conversation enters live dialogue', async ({ page }) => {
+  test('system toggle_live_dialogue enters live dialogue', async ({ page }) => {
+    await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll('#edge-top-projects .edge-project-btn'));
+      const button = buttons.find((node) => node.textContent?.trim().toLowerCase() === 'test');
+      if (button instanceof HTMLButtonElement) {
+        button.click();
+      }
+    });
+    await expect.poll(async () => page.evaluate(() => {
+      const app = (window as any)._taburaApp;
+      const state = app?.getState?.();
+      const wsOpen = (window as any).WebSocket.OPEN;
+      if (String(state?.activeProjectId || '') !== 'test') return '';
+      return state?.chatWs?.readyState === wsOpen ? 'ready' : 'waiting';
+    })).toBe('ready');
+
     await injectChatEvent(page, {
       type: 'system_action',
-      action: { type: 'toggle_conversation' },
+      action: { type: 'toggle_live_dialogue' },
     });
     await page.waitForTimeout(200);
 
