@@ -18,12 +18,20 @@ func TestParseInlineWorkspaceIntent(t *testing.T) {
 		wantWorkspace string
 		wantRepoURL   string
 		wantTarget    string
+		wantNewName   string
+		wantScratch   bool
 	}{
 		{text: "open workspace Alpha", wantAction: "switch_workspace", wantWorkspace: "Alpha"},
 		{text: "switch to workspace Beta", wantAction: "switch_workspace", wantWorkspace: "Beta"},
 		{text: "switch to ./repo", wantAction: "switch_workspace", wantWorkspace: "./repo"},
 		{text: "show items here", wantAction: "list_workspace_items"},
 		{text: "what's open", wantAction: "list_workspace_items"},
+		{text: "list workspaces", wantAction: "list_workspaces"},
+		{text: "create workspace ./notes", wantAction: "create_workspace", wantWorkspace: "./notes"},
+		{text: "create scratch workspace", wantAction: "create_workspace", wantScratch: true},
+		{text: "rename workspace Alpha to Beta", wantAction: "rename_workspace", wantWorkspace: "Alpha", wantNewName: "Beta"},
+		{text: "delete workspace Alpha", wantAction: "delete_workspace", wantWorkspace: "Alpha"},
+		{text: "show workspace details for Alpha", wantAction: "show_workspace_details", wantWorkspace: "Alpha"},
 		{text: "create workspace from git@github.com:user/repo.git", wantAction: "create_workspace_from_git", wantRepoURL: "git@github.com:user/repo.git"},
 		{text: "create workspace from https://gitlab.example.com/user/data-repo.git to ~/write/proposal", wantAction: "create_workspace_from_git", wantRepoURL: "https://gitlab.example.com/user/data-repo.git", wantTarget: "~/write/proposal"},
 	}
@@ -41,11 +49,17 @@ func TestParseInlineWorkspaceIntent(t *testing.T) {
 			if got := systemActionWorkspaceRef(action.Params); got != tc.wantWorkspace {
 				t.Fatalf("workspace ref = %q, want %q", got, tc.wantWorkspace)
 			}
+			if got := systemActionWorkspaceNewName(action.Params); got != tc.wantNewName {
+				t.Fatalf("new_name = %q, want %q", got, tc.wantNewName)
+			}
 			if got := systemActionGitRepoURL(action.Params); got != tc.wantRepoURL {
 				t.Fatalf("repo_url = %q, want %q", got, tc.wantRepoURL)
 			}
-			if got := systemActionGitTargetPath(action.Params); got != tc.wantTarget {
+			if got := systemActionGitTargetPath(action.Params); tc.wantAction == "create_workspace_from_git" && got != tc.wantTarget {
 				t.Fatalf("target_path = %q, want %q", got, tc.wantTarget)
+			}
+			if got := systemActionBoolParam(action.Params, "scratch"); got != tc.wantScratch {
+				t.Fatalf("scratch = %v, want %v", got, tc.wantScratch)
 			}
 		})
 	}
@@ -231,6 +245,119 @@ func TestClassifyAndExecuteSystemActionCreateWorkspaceFromGit(t *testing.T) {
 	}
 	if strings.TrimSpace(string(readmeBody)) != "# example-workspace" {
 		t.Fatalf("README = %q", string(readmeBody))
+	}
+}
+
+func TestClassifyAndExecuteSystemActionWorkspaceManagement(t *testing.T) {
+	app := newAuthedTestApp(t)
+	app.intentLLMURL = ""
+	app.intentClassifierURL = ""
+
+	hub, err := app.ensureHubProject()
+	if err != nil {
+		t.Fatalf("ensure hub project: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(hub.ProjectKey)
+	if err != nil {
+		t.Fatalf("chat session: %v", err)
+	}
+
+	message, payloads, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "create workspace ./notes")
+	if !handled {
+		t.Fatal("expected create workspace command to be handled")
+	}
+	expectedDir := filepath.Join(hub.RootPath, "notes")
+	if message != "Created workspace notes at "+expectedDir+"." {
+		t.Fatalf("message = %q", message)
+	}
+	if len(payloads) != 1 || strFromAny(payloads[0]["type"]) != "create_workspace" {
+		t.Fatalf("payloads = %#v", payloads)
+	}
+	workspaceID := int64FromAny(payloads[0]["workspace_id"])
+	workspace, err := app.store.GetWorkspace(workspaceID)
+	if err != nil {
+		t.Fatalf("GetWorkspace(notes) error: %v", err)
+	}
+	if workspace.Name != "notes" {
+		t.Fatalf("workspace.Name = %q, want %q", workspace.Name, "notes")
+	}
+	if workspace.DirPath != expectedDir {
+		t.Fatalf("workspace.DirPath = %q, want %q", workspace.DirPath, expectedDir)
+	}
+	if !workspace.IsActive {
+		t.Fatal("expected created workspace to be active")
+	}
+	if _, err := os.Stat(expectedDir); err != nil {
+		t.Fatalf("expected workspace directory to exist: %v", err)
+	}
+
+	message, payloads, handled = app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "create scratch workspace research lab")
+	if !handled {
+		t.Fatal("expected scratch workspace command to be handled")
+	}
+	if !strings.Contains(message, "Created scratch workspace research lab at ") {
+		t.Fatalf("message = %q", message)
+	}
+	if len(payloads) != 1 || strFromAny(payloads[0]["type"]) != "create_scratch_workspace" {
+		t.Fatalf("scratch payloads = %#v", payloads)
+	}
+	scratchDir := strFromAny(payloads[0]["dir_path"])
+	if !strings.Contains(filepath.ToSlash(scratchDir), "/.tabura/artifacts/tmp/") {
+		t.Fatalf("scratch dir = %q, want .tabura/artifacts/tmp path", scratchDir)
+	}
+
+	message, payloads, handled = app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "list workspaces")
+	if !handled {
+		t.Fatal("expected list workspaces command to be handled")
+	}
+	if !strings.Contains(message, "Workspaces:") || !strings.Contains(message, "research lab") || !strings.Contains(message, "notes") {
+		t.Fatalf("message = %q", message)
+	}
+	if len(payloads) != 1 || strFromAny(payloads[0]["type"]) != "list_workspaces" {
+		t.Fatalf("list payloads = %#v", payloads)
+	}
+
+	message, payloads, handled = app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "show workspace details for notes")
+	if !handled {
+		t.Fatal("expected show workspace details command to be handled")
+	}
+	if !strings.Contains(message, "Workspace notes") || !strings.Contains(message, "- Path: "+expectedDir) {
+		t.Fatalf("message = %q", message)
+	}
+	if len(payloads) != 1 || strFromAny(payloads[0]["type"]) != "show_workspace_details" {
+		t.Fatalf("details payloads = %#v", payloads)
+	}
+
+	message, payloads, handled = app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "rename workspace notes to Research Notes")
+	if !handled {
+		t.Fatal("expected rename workspace command to be handled")
+	}
+	if message != "Renamed workspace notes to Research Notes." {
+		t.Fatalf("message = %q", message)
+	}
+	if len(payloads) != 1 || strFromAny(payloads[0]["type"]) != "rename_workspace" {
+		t.Fatalf("rename payloads = %#v", payloads)
+	}
+	renamed, err := app.store.GetWorkspace(workspaceID)
+	if err != nil {
+		t.Fatalf("GetWorkspace(renamed) error: %v", err)
+	}
+	if renamed.Name != "Research Notes" {
+		t.Fatalf("renamed.Name = %q, want %q", renamed.Name, "Research Notes")
+	}
+
+	message, payloads, handled = app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "delete workspace Research Notes")
+	if !handled {
+		t.Fatal("expected delete workspace command to be handled")
+	}
+	if message != "Deleted workspace Research Notes." {
+		t.Fatalf("message = %q", message)
+	}
+	if len(payloads) != 1 || strFromAny(payloads[0]["type"]) != "delete_workspace" {
+		t.Fatalf("delete payloads = %#v", payloads)
+	}
+	if _, err := app.store.GetWorkspace(workspaceID); err == nil {
+		t.Fatal("expected deleted workspace to be gone")
 	}
 }
 

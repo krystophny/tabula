@@ -298,6 +298,16 @@ func TestDomainCRUDRoundTrip(t *testing.T) {
 	if workspaceA.IsActive {
 		t.Fatal("expected inactive workspace after SetActiveWorkspace")
 	}
+	workspaceA, err = s.UpdateWorkspaceName(workspaceA.ID, " Workspace Alpha ")
+	if err != nil {
+		t.Fatalf("UpdateWorkspaceName() error: %v", err)
+	}
+	if workspaceA.Name != "Workspace Alpha" {
+		t.Fatalf("UpdateWorkspaceName().Name = %q, want %q", workspaceA.Name, "Workspace Alpha")
+	}
+	if _, err := s.UpdateWorkspaceName(999999, "Missing"); err == nil {
+		t.Fatal("expected missing workspace rename error")
+	}
 
 	human, err := s.CreateActor("Alice", ActorKindHuman)
 	if err != nil {

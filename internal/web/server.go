@@ -388,6 +388,7 @@ func (a *App) Router() http.Handler {
 	r.Get("/api/workspaces", a.handleWorkspaceList)
 	r.Post("/api/workspaces", a.handleWorkspaceCreate)
 	r.Get("/api/workspaces/{workspace_id}", a.handleWorkspaceGet)
+	r.Put("/api/workspaces/{workspace_id}", a.handleWorkspaceUpdate)
 	r.Delete("/api/workspaces/{workspace_id}", a.handleWorkspaceDelete)
 	r.Get("/api/external-accounts", a.handleExternalAccountList)
 	r.Post("/api/external-accounts", a.handleExternalAccountCreate)

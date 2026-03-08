@@ -617,6 +617,25 @@ func (s *Store) SetActiveWorkspace(id int64) error {
 	return tx.Commit()
 }
 
+func (s *Store) UpdateWorkspaceName(id int64, name string) (Workspace, error) {
+	cleanName := normalizeWorkspaceName(name)
+	if cleanName == "" {
+		return Workspace{}, errors.New("workspace name is required")
+	}
+	res, err := s.db.Exec(`UPDATE workspaces SET name = ?, updated_at = datetime('now') WHERE id = ?`, cleanName, id)
+	if err != nil {
+		return Workspace{}, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return Workspace{}, err
+	}
+	if affected == 0 {
+		return Workspace{}, sql.ErrNoRows
+	}
+	return s.GetWorkspace(id)
+}
+
 func (s *Store) DeleteWorkspace(id int64) error {
 	res, err := s.db.Exec(`DELETE FROM workspaces WHERE id = ?`, id)
 	if err != nil {

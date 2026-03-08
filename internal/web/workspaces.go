@@ -8,6 +8,11 @@ type workspaceCreateRequest struct {
 	IsActive bool   `json:"is_active"`
 }
 
+type workspaceUpdateRequest struct {
+	Name     *string `json:"name"`
+	IsActive *bool   `json:"is_active"`
+}
+
 func (a *App) handleWorkspaceList(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
@@ -43,6 +48,57 @@ func (a *App) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		workspace, err = a.store.GetWorkspace(workspace.ID)
+		if err != nil {
+			writeDomainStoreError(w, err)
+			return
+		}
+	}
+	writeJSON(w, map[string]any{
+		"ok":        true,
+		"workspace": workspace,
+	})
+}
+
+func (a *App) handleWorkspaceUpdate(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAuth(w, r) {
+		return
+	}
+	workspaceID, err := parseURLInt64Param(r, "workspace_id")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var req workspaceUpdateRequest
+	if err := decodeJSON(r, &req); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.Name == nil && req.IsActive == nil {
+		http.Error(w, "at least one workspace update is required", http.StatusBadRequest)
+		return
+	}
+	workspace, err := a.store.GetWorkspace(workspaceID)
+	if err != nil {
+		writeDomainStoreError(w, err)
+		return
+	}
+	if req.Name != nil {
+		workspace, err = a.store.UpdateWorkspaceName(workspaceID, *req.Name)
+		if err != nil {
+			writeDomainStoreError(w, err)
+			return
+		}
+	}
+	if req.IsActive != nil {
+		if !*req.IsActive {
+			http.Error(w, "is_active=false is not supported", http.StatusBadRequest)
+			return
+		}
+		if err := a.store.SetActiveWorkspace(workspaceID); err != nil {
+			writeDomainStoreError(w, err)
+			return
+		}
+		workspace, err = a.store.GetWorkspace(workspaceID)
 		if err != nil {
 			writeDomainStoreError(w, err)
 			return

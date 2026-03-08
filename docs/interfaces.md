@@ -48,6 +48,7 @@ Domain model API:
 - `GET /api/workspaces`
 - `POST /api/workspaces`
 - `GET /api/workspaces/{workspace_id}`
+- `PUT /api/workspaces/{workspace_id}`
 - `DELETE /api/workspaces/{workspace_id}`
 - `GET /api/external-accounts`
 - `POST /api/external-accounts`

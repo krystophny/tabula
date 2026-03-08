@@ -46,6 +46,25 @@ func TestWorkspaceCRUDAPI(t *testing.T) {
 		t.Fatalf("get workspace status = %d, want 200: %s", rrGet.Code, rrGet.Body.String())
 	}
 
+	rrUpdate := doAuthedJSONRequest(t, app.Router(), http.MethodPut, "/api/workspaces/"+itoa(workspaceID), map[string]any{
+		"name":      "Renamed Workspace",
+		"is_active": true,
+	})
+	if rrUpdate.Code != http.StatusOK {
+		t.Fatalf("update workspace status = %d, want 200: %s", rrUpdate.Code, rrUpdate.Body.String())
+	}
+	updatePayload := decodeJSONResponse(t, rrUpdate)
+	updatedWorkspace, ok := updatePayload["workspace"].(map[string]any)
+	if !ok {
+		t.Fatalf("update workspace payload = %#v", updatePayload)
+	}
+	if updatedWorkspace["name"] != "Renamed Workspace" {
+		t.Fatalf("updated workspace name = %#v, want %q", updatedWorkspace["name"], "Renamed Workspace")
+	}
+	if isActive, _ := updatedWorkspace["is_active"].(bool); !isActive {
+		t.Fatalf("updated workspace payload = %#v, want active workspace", updatedWorkspace)
+	}
+
 	rrDuplicate := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/workspaces", map[string]any{
 		"name":     "Duplicate",
 		"dir_path": workspacePath,

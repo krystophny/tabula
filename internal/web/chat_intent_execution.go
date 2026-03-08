@@ -220,6 +220,10 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 			"name":         workspace.Name,
 			"dir_path":     workspace.DirPath,
 		}, nil
+	case "list_workspaces":
+		return a.executeListWorkspacesAction(session)
+	case "create_workspace":
+		return a.executeCreateWorkspaceAction(session, action)
 	case "list_workspace_items":
 		workspace, err := a.resolveWorkspaceReference(session.ProjectKey, systemActionWorkspaceRef(action.Params))
 		if err != nil {
@@ -256,6 +260,12 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 			"dir_path":     workspace.DirPath,
 			"repo_url":     repoURL,
 		}, nil
+	case "rename_workspace":
+		return a.executeRenameWorkspaceAction(session, action)
+	case "delete_workspace":
+		return a.executeDeleteWorkspaceAction(session, action)
+	case "show_workspace_details":
+		return a.executeShowWorkspaceDetailsAction(session, action)
 	case "switch_model":
 		targetProject, err := a.systemActionTargetProject(session)
 		if err != nil {
