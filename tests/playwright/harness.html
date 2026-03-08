@@ -527,6 +527,20 @@
         },
       ],
     });
+    const defaultMeetingSummaryProposals = () => ([
+      {
+        index: 0,
+        title: 'Draft the revised agenda',
+        actor_name: 'Alice',
+        evidence: 'ACTION: Alice will draft the revised agenda.',
+      },
+      {
+        index: 1,
+        title: 'Review the budget appendix',
+        actor_name: '',
+        evidence: 'TODO: review the budget appendix.',
+      },
+    ]);
     const mockPrDiff = (prNumber) => [
       'diff --git a/src/review.js b/src/review.js',
       'index 1111111..2222222 100644',
@@ -539,6 +553,7 @@
     window.__itemSidebarData = defaultItemSidebarData();
     window.__itemSidebarActors = defaultItemSidebarActors();
     window.__itemSidebarArtifacts = defaultItemSidebarArtifacts();
+    window.__meetingSummaryProposals = defaultMeetingSummaryProposals();
     window.__itemSidebarResponseDelays = {
       inbox: [],
       waiting: [],
@@ -564,6 +579,11 @@
         acc[key] = { ...source[key] };
         return acc;
       }, {});
+    };
+    window.__setMeetingSummaryProposals = (next) => {
+      window.__meetingSummaryProposals = Array.isArray(next)
+        ? next.map((entry, index) => ({ index, ...entry }))
+        : defaultMeetingSummaryProposals();
     };
     window.__queueItemSidebarResponseDelay = (view, delayMs) => {
       const key = String(view || '').trim().toLowerCase();
@@ -633,6 +653,13 @@
       });
       window.__itemSidebarData = data;
       return removed;
+    }
+    function prependInboxItem(entry) {
+      const data = window.__itemSidebarData || defaultItemSidebarData();
+      const inbox = Array.isArray(data.inbox) ? data.inbox : [];
+      data.inbox = [cloneItemSidebarEntry(entry)].concat(inbox);
+      window.__itemSidebarData = data;
+      return entry;
     }
     window.__participantConfig = {
       companion_enabled: false,
@@ -967,6 +994,67 @@
           session: { id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' },
           summary_text: 'Harness companion summary',
           updated_at: 101,
+        }), { status: 200 });
+      }
+      if (u.includes('/api/projects/') && u.includes('/meeting-items') && opts?.method === 'POST') {
+        let body = {};
+        try { body = JSON.parse(String(opts?.body || '{}')); } catch (_) { body = {}; }
+        const proposals = Array.isArray(window.__meetingSummaryProposals) ? window.__meetingSummaryProposals : defaultMeetingSummaryProposals();
+        const selected = Array.isArray(body.selected) ? body.selected : [];
+        const nextIDBase = 900 + (Array.isArray((window.__itemSidebarData || {}).inbox) ? window.__itemSidebarData.inbox.length : 0);
+        const createdItems = selected
+          .map((index) => Number(index))
+          .filter((index, position, all) => Number.isInteger(index) && index >= 0 && all.indexOf(index) === position)
+          .map((index) => proposals.find((entry) => Number(entry?.index ?? -1) === index))
+          .filter(Boolean)
+          .map((proposal, offset) => prependInboxItem({
+            id: nextIDBase + offset,
+            title: String(proposal.title || ''),
+            state: 'inbox',
+            artifact_id: 701,
+            source: 'meeting_summary',
+            source_ref: `psess-harness-001:${Number(proposal.index || 0)}`,
+            artifact_title: 'Meeting Summary',
+            artifact_kind: 'markdown',
+            actor_name: String(proposal.actor_name || ''),
+            created_at: '2026-03-08 15:00:00',
+            updated_at: '2026-03-08 15:00:00',
+          }));
+        window.__itemSidebarArtifacts = {
+          ...(window.__itemSidebarArtifacts || {}),
+          701: {
+            id: 701,
+            kind: 'markdown',
+            title: 'Meeting Summary',
+            meta_json: JSON.stringify({ summary: 'Harness companion summary' }),
+          },
+        };
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'meeting_items_create',
+          method: opts?.method || 'POST',
+          url: u,
+          payload: body,
+        });
+        return new Response(JSON.stringify({
+          ok: true,
+          project_id: activeProjectId,
+          project_key: '/tmp/test',
+          session: { id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' },
+          proposed_items: proposals,
+          created_items: createdItems,
+        }), { status: 200 });
+      }
+      if (u.includes('/api/projects/') && u.includes('/meeting-items')) {
+        const proposals = Array.isArray(window.__meetingSummaryProposals) ? window.__meetingSummaryProposals : defaultMeetingSummaryProposals();
+        return new Response(JSON.stringify({
+          ok: true,
+          project_id: activeProjectId,
+          project_key: '/tmp/test',
+          sessions: [{ id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' }],
+          session: { id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' },
+          summary_text: 'Harness companion summary',
+          proposed_items: proposals,
         }), { status: 200 });
       }
       if (u.includes('/api/projects/') && u.includes('/references')) {

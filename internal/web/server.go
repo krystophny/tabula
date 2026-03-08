@@ -379,6 +379,8 @@ func (a *App) Router() http.Handler {
 	r.Get("/api/projects/{project_id}/transcript", a.handleProjectCompanionTranscript)
 	r.Get("/api/projects/{project_id}/summary", a.handleProjectCompanionSummary)
 	r.Get("/api/projects/{project_id}/references", a.handleProjectCompanionReferences)
+	r.Get("/api/projects/{project_id}/meeting-items", a.handleProjectMeetingItemsGet)
+	r.Post("/api/projects/{project_id}/meeting-items", a.handleProjectMeetingItemsCreate)
 	r.Post("/api/ink/submit", a.handleInkSubmit)
 	r.Post("/api/review/submit", a.handleReviewSubmit)
 	r.Get("/api/workspaces", a.handleWorkspaceList)

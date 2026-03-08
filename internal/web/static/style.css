@@ -2085,6 +2085,86 @@ body.panel-motion-enabled {
   padding-left: 0.35rem;
 }
 
+.meeting-summary-items {
+  margin-top: 1.5rem;
+  padding: 1rem 1rem 1.1rem;
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  border-radius: 16px;
+  background: rgba(247, 248, 250, 0.92);
+}
+
+.meeting-summary-items h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.meeting-summary-items-copy,
+.meeting-summary-items-status {
+  margin: 0;
+  color: rgba(17, 24, 39, 0.72);
+  font-size: 0.95rem;
+}
+
+.meeting-summary-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.9rem;
+}
+
+.meeting-summary-items-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.7rem 0.8rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  cursor: pointer;
+}
+
+.meeting-summary-items-row.is-created {
+  opacity: 0.65;
+}
+
+.meeting-summary-items-row input[type="checkbox"] {
+  margin-top: 0.2rem;
+}
+
+.meeting-summary-items-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.meeting-summary-items-title {
+  font-weight: 600;
+  color: #111827;
+}
+
+.meeting-summary-items-meta {
+  font-size: 0.9rem;
+  color: rgba(17, 24, 39, 0.68);
+}
+
+.meeting-summary-items-submit {
+  margin-top: 0.9rem;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.68rem 1rem;
+  background: #111827;
+  color: #f9fafb;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.meeting-summary-items-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .chat-bubble.markdown ul,
 .chat-bubble.markdown ol {
   margin: 0.4rem 0 0.4rem 1.25rem;

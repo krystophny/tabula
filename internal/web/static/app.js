@@ -227,6 +227,7 @@ const COMPANION_REFERENCES_VIEW_PATH = `${COMPANION_VIEW_PATH_PREFIX}/references
 const MEETING_TRANSCRIPT_LABEL = 'Meeting Transcript';
 const MEETING_SUMMARY_LABEL = 'Meeting Summary';
 const MEETING_REFERENCES_LABEL = 'Meeting References';
+const MEETING_SUMMARY_ITEMS_PANEL_ID = 'meeting-summary-items';
 let localMessageSeq = 0;
 const CHAT_CTRL_LONG_PRESS_MS = 180;
 const ARTIFACT_EDIT_LONG_TAP_MS = 420;
@@ -4228,11 +4229,217 @@ async function openCompanionWorkspaceView(viewKind, filePath) {
       title: titles[viewKind] || filePath,
       text,
     });
+    if (viewKind === 'summary') {
+      void renderMeetingSummaryItems(projectID, filePath);
+    }
     showCanvasColumn('canvas-text');
     if (isMobileViewport()) { setPrReviewDrawerOpen(false); closeEdgePanels(); }
     return true;
   } catch (err) {
     appendPlainMessage('system', `${titles[viewKind] || 'Meeting view'} failed: ${String(err?.message || err)}`);
+    return false;
+  }
+}
+
+function clearMeetingSummaryItemsPanel() {
+  const existing = document.getElementById(MEETING_SUMMARY_ITEMS_PANEL_ID);
+  if (existing instanceof HTMLElement) {
+    existing.remove();
+  }
+}
+
+function isCurrentMeetingSummaryView(projectID, filePath) {
+  return String(state.activeProjectId || '').trim() === String(projectID || '').trim()
+    && normalizeWorkspaceBrowserPath(state.workspaceOpenFilePath) === normalizeWorkspaceBrowserPath(filePath);
+}
+
+function meetingSummaryItemsButtonLabel(count) {
+  return count === 1 ? 'Create 1 inbox item' : `Create ${count} inbox items`;
+}
+
+function setMeetingSummaryItemsBusy(panel, busy, label = '') {
+  if (!(panel instanceof HTMLElement)) return;
+  panel.dataset.busy = busy ? 'true' : 'false';
+  panel.querySelectorAll('input,button').forEach((node) => {
+    if (node instanceof HTMLInputElement || node instanceof HTMLButtonElement) {
+      node.disabled = busy;
+    }
+  });
+  const submit = panel.querySelector('.meeting-summary-items-submit');
+  if (submit instanceof HTMLButtonElement && label) {
+    submit.textContent = label;
+  }
+}
+
+function countSelectedMeetingSummaryItems(panel) {
+  if (!(panel instanceof HTMLElement)) return 0;
+  return panel.querySelectorAll('.meeting-summary-items-list input[type="checkbox"]:checked').length;
+}
+
+function updateMeetingSummaryItemsSelection(panel) {
+  if (!(panel instanceof HTMLElement)) return;
+  const count = countSelectedMeetingSummaryItems(panel);
+  const submit = panel.querySelector('.meeting-summary-items-submit');
+  if (submit instanceof HTMLButtonElement) {
+    submit.disabled = count === 0 || panel.dataset.busy === 'true';
+    submit.textContent = meetingSummaryItemsButtonLabel(count);
+  }
+}
+
+async function submitMeetingSummaryItems(projectID, panel) {
+  if (!(panel instanceof HTMLElement)) return false;
+  const selected = Array.from(panel.querySelectorAll('.meeting-summary-items-list input[type="checkbox"]:checked'))
+    .map((node) => Number(node.value || '-1'))
+    .filter((value) => Number.isInteger(value) && value >= 0);
+  if (selected.length === 0) {
+    showStatus('select at least one action item');
+    return false;
+  }
+  setMeetingSummaryItemsBusy(panel, true, 'Creating inbox items...');
+  try {
+    const resp = await fetch(apiURL(`projects/${encodeURIComponent(projectID)}/meeting-items`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ selected }),
+    });
+    if (!resp.ok) {
+      const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
+      throw new Error(detail);
+    }
+    const payload = await resp.json();
+    const createdItems = Array.isArray(payload?.created_items) ? payload.created_items : [];
+    const createdCount = createdItems.length;
+    const createdSet = new Set(selected);
+    panel.querySelectorAll('.meeting-summary-items-list input[type="checkbox"]').forEach((node) => {
+      if (!(node instanceof HTMLInputElement)) return;
+      if (!createdSet.has(Number(node.value || '-1'))) return;
+      node.checked = false;
+      node.disabled = true;
+      const row = node.closest('.meeting-summary-items-row');
+      if (row instanceof HTMLElement) {
+        row.classList.add('is-created');
+      }
+    });
+    const status = panel.querySelector('.meeting-summary-items-status');
+    if (status instanceof HTMLElement) {
+      status.textContent = createdCount === 1
+        ? '1 inbox item created from this summary.'
+        : `${createdCount} inbox items created from this summary.`;
+    }
+    await loadItemSidebarView('inbox');
+    setMeetingSummaryItemsBusy(panel, false);
+    panel.querySelectorAll('.meeting-summary-items-list input[type="checkbox"]').forEach((node) => {
+      if (!(node instanceof HTMLInputElement)) return;
+      if (createdSet.has(Number(node.value || '-1'))) {
+        node.disabled = true;
+      }
+    });
+    updateMeetingSummaryItemsSelection(panel);
+    showStatus(createdCount === 1 ? 'meeting item added to inbox' : 'meeting items added to inbox');
+    return true;
+  } catch (err) {
+    setMeetingSummaryItemsBusy(panel, false);
+    updateMeetingSummaryItemsSelection(panel);
+    showStatus(`meeting item create failed: ${String(err?.message || err || 'unknown error')}`);
+    return false;
+  }
+}
+
+async function renderMeetingSummaryItems(projectID, filePath) {
+  clearMeetingSummaryItemsPanel();
+  const pane = document.getElementById('canvas-text');
+  if (!(pane instanceof HTMLElement) || !isCurrentMeetingSummaryView(projectID, filePath)) return false;
+
+  const panel = document.createElement('section');
+  panel.id = MEETING_SUMMARY_ITEMS_PANEL_ID;
+  panel.className = 'meeting-summary-items';
+
+  const heading = document.createElement('h2');
+  heading.textContent = 'Proposed Inbox Items';
+  panel.appendChild(heading);
+
+  const intro = document.createElement('p');
+  intro.className = 'meeting-summary-items-copy';
+  intro.textContent = 'Select the action items you want to turn into inbox items.';
+  panel.appendChild(intro);
+
+  const status = document.createElement('p');
+  status.className = 'meeting-summary-items-status';
+  status.textContent = 'Loading action items...';
+  panel.appendChild(status);
+
+  pane.appendChild(panel);
+
+  try {
+    const resp = await fetch(apiURL(`projects/${encodeURIComponent(projectID)}/meeting-items`), { cache: 'no-store' });
+    if (!resp.ok) {
+      const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
+      throw new Error(detail);
+    }
+    const payload = await resp.json();
+    if (!panel.isConnected || !isCurrentMeetingSummaryView(projectID, filePath)) return false;
+    const proposedItems = Array.isArray(payload?.proposed_items) ? payload.proposed_items : [];
+    if (proposedItems.length === 0) {
+      status.textContent = 'No action items detected in this summary yet.';
+      return true;
+    }
+    status.textContent = 'Choose the actions you want to keep.';
+
+    const list = document.createElement('div');
+    list.className = 'meeting-summary-items-list';
+    proposedItems.forEach((proposal) => {
+      const index = Number(proposal?.index || 0);
+      const title = String(proposal?.title || '').trim();
+      if (!title) return;
+      const row = document.createElement('label');
+      row.className = 'meeting-summary-items-row';
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = String(index);
+      checkbox.checked = true;
+      checkbox.addEventListener('change', () => {
+        updateMeetingSummaryItemsSelection(panel);
+      });
+
+      const body = document.createElement('span');
+      body.className = 'meeting-summary-items-body';
+
+      const titleNode = document.createElement('span');
+      titleNode.className = 'meeting-summary-items-title';
+      titleNode.textContent = title;
+      body.appendChild(titleNode);
+
+      const metaParts = [];
+      const actorName = String(proposal?.actor_name || '').trim();
+      const evidence = String(proposal?.evidence || '').trim();
+      if (actorName) metaParts.push(actorName);
+      if (evidence) metaParts.push(evidence);
+      if (metaParts.length > 0) {
+        const meta = document.createElement('span');
+        meta.className = 'meeting-summary-items-meta';
+        meta.textContent = metaParts.join(' | ');
+        body.appendChild(meta);
+      }
+
+      row.appendChild(checkbox);
+      row.appendChild(body);
+      list.appendChild(row);
+    });
+    panel.appendChild(list);
+
+    const submit = document.createElement('button');
+    submit.type = 'button';
+    submit.className = 'meeting-summary-items-submit';
+    submit.addEventListener('click', () => {
+      void submitMeetingSummaryItems(projectID, panel);
+    });
+    panel.appendChild(submit);
+    updateMeetingSummaryItemsSelection(panel);
+    return true;
+  } catch (err) {
+    if (!panel.isConnected || !isCurrentMeetingSummaryView(projectID, filePath)) return false;
+    status.textContent = `Action items unavailable: ${String(err?.message || err || 'unknown error')}`;
     return false;
   }
 }

@@ -186,6 +186,57 @@ test('workspace sidebar exposes companion transcript, summary, and references vi
   await expect(page.locator('#canvas-text')).toContainText('Budget');
 });
 
+test('meeting summary proposes selectable inbox items and creates the chosen ones', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await waitReady(page);
+
+  await page.evaluate(() => {
+    (window as any).__setItemSidebarData({
+      inbox: [],
+      waiting: [],
+      someday: [],
+      done: [],
+    });
+    (window as any).__setMeetingSummaryProposals([
+      {
+        title: 'Draft the revised agenda',
+        actor_name: 'Alice',
+        evidence: 'ACTION: Alice will draft the revised agenda.',
+      },
+      {
+        title: 'Review the budget appendix',
+        actor_name: '',
+        evidence: 'TODO: review the budget appendix.',
+      },
+    ]);
+  });
+
+  await page.locator('#edge-left-tap').click();
+  await expect(page.locator('#pr-file-pane')).toHaveClass(/is-open/);
+  await switchSidebarToFiles(page);
+  await page.getByRole('button', { name: 'Meeting Summary' }).click();
+  await page.locator('#edge-left-tap').click();
+  await expect(page.locator('#pr-file-pane')).not.toHaveClass(/is-open/);
+
+  await expect(page.locator('#meeting-summary-items')).toContainText('Draft the revised agenda');
+  await expect(page.locator('#meeting-summary-items')).toContainText('Review the budget appendix');
+
+  await page.getByLabel(/Review the budget appendix/).uncheck();
+  await page.getByRole('button', { name: 'Create 1 inbox item' }).click();
+
+  await page.locator('#edge-left-tap').click();
+  await expect(page.locator('#pr-file-pane')).toHaveClass(/is-open/);
+  await expect(page.locator('#pr-file-list')).toContainText('Draft the revised agenda');
+  await expect(page.locator('#pr-file-list')).toContainText('Alice');
+  await expect(page.locator('#pr-file-list')).not.toContainText('Review the budget appendix');
+
+  const log = await page.evaluate(() => (window as any).__harnessLog);
+  expect(log.some((entry: any) => entry?.action === 'meeting_items_create'
+    && Array.isArray(entry?.payload?.selected)
+    && entry.payload.selected.length === 1
+    && Number(entry.payload.selected[0]) === 0)).toBe(true);
+});
+
 test('companion idle surface tracks runtime state and hides behind open artifacts', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await waitReady(page);
