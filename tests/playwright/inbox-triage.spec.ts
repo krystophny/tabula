@@ -161,6 +161,46 @@ test.describe('inbox triage interactions', () => {
     await expect(page.locator('#canvas-text')).toContainText('Workspace: Default');
   });
 
+  test('idea notes render promotion review details on canvas', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await waitReady(page);
+    await page.evaluate(() => {
+      (window as any).__setItemSidebarArtifacts({
+        501: {
+          id: 501,
+          kind: 'idea_note',
+          title: 'Parser cleanup plan',
+          meta_json: JSON.stringify({
+            title: 'Parser cleanup plan',
+            transcript: 'Break parser cleanup into a small refactor, a test pass, and one cleanup issue.',
+            capture_mode: 'voice',
+            captured_at: '2026-03-08T09:40:00Z',
+            workspace: 'Default',
+            notes: [
+              'Draft the rollout checklist',
+              'Add regression coverage',
+            ],
+            promotion_preview: {
+              target: 'items',
+              candidates: [
+                { index: 1, title: 'Draft the rollout checklist', details: 'Draft the rollout checklist' },
+                { index: 2, title: 'Add regression coverage', details: 'Add regression coverage' },
+              ],
+            },
+          }),
+        },
+      });
+    });
+    await openInbox(page);
+
+    await page.locator('#pr-file-list .pr-file-item[data-item-id="101"]').click();
+
+    await expect(page.locator('#canvas-text')).toContainText('Promotion Review');
+    await expect(page.locator('#canvas-text')).toContainText('create these idea items');
+    await expect(page.locator('#canvas-text')).toContainText('Draft the rollout checklist');
+    await expect(page.locator('#canvas-text')).toContainText('Add regression coverage');
+  });
+
   test('touch gestures expose feedback and commit done, delete, delegate, and later', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await waitReady(page);

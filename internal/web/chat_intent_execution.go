@@ -292,6 +292,10 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 		return a.captureIdeaItem(session, action)
 	case "refine_idea_note":
 		return a.refineConversationIdea(session, action)
+	case "promote_idea":
+		return a.previewIdeaPromotion(session, action)
+	case "apply_idea_promotion":
+		return a.applyIdeaPromotion(session, action)
 	case "make_item", "delegate_item", "snooze_item", "split_items":
 		return a.createConversationItem(sessionID, session, action)
 	case "link_workspace_artifact":

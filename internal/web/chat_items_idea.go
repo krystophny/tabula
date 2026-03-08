@@ -11,13 +11,15 @@ import (
 )
 
 type ideaNoteMeta struct {
-	Title       string               `json:"title,omitempty"`
-	Transcript  string               `json:"transcript,omitempty"`
-	CaptureMode string               `json:"capture_mode,omitempty"`
-	CapturedAt  string               `json:"captured_at,omitempty"`
-	Workspace   string               `json:"workspace,omitempty"`
-	Notes       []string             `json:"notes,omitempty"`
-	Refinements []ideaNoteRefinement `json:"refinements,omitempty"`
+	Title            string                `json:"title,omitempty"`
+	Transcript       string                `json:"transcript,omitempty"`
+	CaptureMode      string                `json:"capture_mode,omitempty"`
+	CapturedAt       string                `json:"captured_at,omitempty"`
+	Workspace        string                `json:"workspace,omitempty"`
+	Notes            []string              `json:"notes,omitempty"`
+	Refinements      []ideaNoteRefinement  `json:"refinements,omitempty"`
+	PromotionPreview *ideaPromotionPreview `json:"promotion_preview,omitempty"`
+	Promotions       []ideaPromotionRecord `json:"promotions,omitempty"`
 }
 
 type ideaNoteRefinement struct {
@@ -26,6 +28,31 @@ type ideaNoteRefinement struct {
 	Prompt    string `json:"prompt,omitempty"`
 	Body      string `json:"body,omitempty"`
 	RefinedAt string `json:"refined_at,omitempty"`
+}
+
+type ideaPromotionPreview struct {
+	Target     string                   `json:"target,omitempty"`
+	CreatedAt  string                   `json:"created_at,omitempty"`
+	Candidates []ideaPromotionCandidate `json:"candidates,omitempty"`
+	Issue      *ideaPromotionIssueDraft `json:"issue,omitempty"`
+}
+
+type ideaPromotionCandidate struct {
+	Index   int    `json:"index,omitempty"`
+	Title   string `json:"title,omitempty"`
+	Details string `json:"details,omitempty"`
+}
+
+type ideaPromotionIssueDraft struct {
+	Title string `json:"title,omitempty"`
+	Body  string `json:"body,omitempty"`
+}
+
+type ideaPromotionRecord struct {
+	Target    string   `json:"target,omitempty"`
+	CreatedAt string   `json:"created_at,omitempty"`
+	Count     int      `json:"count,omitempty"`
+	Refs      []string `json:"refs,omitempty"`
 }
 
 func ideaNoteString(value *string) string {
@@ -94,6 +121,8 @@ func parseIdeaNoteMeta(metaJSON *string, fallbackTitle string) ideaNoteMeta {
 		out = append(out, refinement)
 	}
 	meta.Refinements = out
+	meta.PromotionPreview = normalizeIdeaPromotionPreview(meta.PromotionPreview)
+	meta.Promotions = normalizeIdeaPromotionRecords(meta.Promotions)
 	return meta
 }
 
@@ -115,6 +144,8 @@ func parseIdeaNoteMetaPtr(meta ideaNoteMeta) ideaNoteMeta {
 	normalized.Workspace = meta.Workspace
 	normalized.Notes = meta.Notes
 	normalized.Refinements = meta.Refinements
+	normalized.PromotionPreview = meta.PromotionPreview
+	normalized.Promotions = meta.Promotions
 	return parseIdeaNoteMeta(mustJSONString(normalized), normalized.Title)
 }
 
@@ -144,6 +175,82 @@ func normalizeIdeaNoteLines(lines []string) []string {
 		}
 		seen[clean] = struct{}{}
 		out = append(out, clean)
+	}
+	return out
+}
+
+func normalizeIdeaPromotionPreview(preview *ideaPromotionPreview) *ideaPromotionPreview {
+	if preview == nil {
+		return nil
+	}
+	normalized := &ideaPromotionPreview{
+		Target:    normalizeIdeaPromotionTarget(preview.Target),
+		CreatedAt: strings.TrimSpace(preview.CreatedAt),
+	}
+	for _, candidate := range preview.Candidates {
+		title := strings.TrimSpace(candidate.Title)
+		details := strings.TrimSpace(candidate.Details)
+		if title == "" {
+			continue
+		}
+		index := candidate.Index
+		if index <= 0 {
+			index = len(normalized.Candidates) + 1
+		}
+		normalized.Candidates = append(normalized.Candidates, ideaPromotionCandidate{
+			Index:   index,
+			Title:   title,
+			Details: details,
+		})
+	}
+	if preview.Issue != nil {
+		title := strings.TrimSpace(preview.Issue.Title)
+		body := strings.TrimSpace(preview.Issue.Body)
+		if title != "" || body != "" {
+			normalized.Issue = &ideaPromotionIssueDraft{
+				Title: title,
+				Body:  body,
+			}
+		}
+	}
+	if normalized.Target == "" {
+		return nil
+	}
+	if normalized.Target == ideaPromotionTargetGitHub && normalized.Issue == nil {
+		return nil
+	}
+	if normalized.Target != ideaPromotionTargetGitHub && len(normalized.Candidates) == 0 {
+		return nil
+	}
+	return normalized
+}
+
+func normalizeIdeaPromotionRecords(records []ideaPromotionRecord) []ideaPromotionRecord {
+	if len(records) == 0 {
+		return nil
+	}
+	out := make([]ideaPromotionRecord, 0, len(records))
+	for _, record := range records {
+		target := normalizeIdeaPromotionTarget(record.Target)
+		if target == "" {
+			continue
+		}
+		refs := make([]string, 0, len(record.Refs))
+		for _, ref := range record.Refs {
+			clean := strings.TrimSpace(ref)
+			if clean != "" {
+				refs = append(refs, clean)
+			}
+		}
+		out = append(out, ideaPromotionRecord{
+			Target:    target,
+			CreatedAt: strings.TrimSpace(record.CreatedAt),
+			Count:     record.Count,
+			Refs:      refs,
+		})
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }
@@ -192,7 +299,75 @@ func renderIdeaNoteMarkdown(meta ideaNoteMeta) string {
 		}
 		fmt.Fprintf(&b, "\n## %s\n\n%s\n", heading, body)
 	}
+	appendIdeaPromotionPreviewMarkdown(&b, meta.PromotionPreview)
+	appendIdeaPromotionHistoryMarkdown(&b, meta.Promotions)
 	return strings.TrimSpace(b.String())
+}
+
+func appendIdeaPromotionPreviewMarkdown(b *strings.Builder, preview *ideaPromotionPreview) {
+	preview = normalizeIdeaPromotionPreview(preview)
+	if preview == nil {
+		return
+	}
+	b.WriteString("\n\n## Promotion Review\n\n")
+	switch preview.Target {
+	case ideaPromotionTargetTask:
+		b.WriteString("- Pending: task draft\n")
+		b.WriteString("- Confirm with: `create this idea task`\n")
+	case ideaPromotionTargetItems:
+		b.WriteString("- Pending: item proposals\n")
+		b.WriteString("- Confirm with: `create these idea items` or `create selected idea items 1,2`\n")
+	case ideaPromotionTargetGitHub:
+		b.WriteString("- Pending: GitHub issue draft\n")
+		b.WriteString("- Confirm with: `create this idea GitHub issue`\n")
+	}
+	b.WriteString("- Optional: add `and mark this idea done` or `and keep this idea`\n")
+	switch preview.Target {
+	case ideaPromotionTargetTask, ideaPromotionTargetItems:
+		for _, candidate := range preview.Candidates {
+			fmt.Fprintf(b, "\n### %d. %s\n", candidate.Index, candidate.Title)
+			if candidate.Details != "" {
+				fmt.Fprintf(b, "\n%s\n", candidate.Details)
+			}
+		}
+	case ideaPromotionTargetGitHub:
+		if preview.Issue != nil {
+			fmt.Fprintf(b, "\n### %s\n", preview.Issue.Title)
+			if preview.Issue.Body != "" {
+				fmt.Fprintf(b, "\n%s\n", preview.Issue.Body)
+			}
+		}
+	}
+}
+
+func appendIdeaPromotionHistoryMarkdown(b *strings.Builder, records []ideaPromotionRecord) {
+	records = normalizeIdeaPromotionRecords(records)
+	if len(records) == 0 {
+		return
+	}
+	b.WriteString("\n\n## Promotions\n")
+	for _, record := range records {
+		label := record.Target
+		switch record.Target {
+		case ideaPromotionTargetTask:
+			label = "task"
+		case ideaPromotionTargetItems:
+			label = "items"
+		case ideaPromotionTargetGitHub:
+			label = "GitHub issue"
+		}
+		line := fmt.Sprintf("- %s", label)
+		if record.Count > 0 {
+			line += fmt.Sprintf(" x%d", record.Count)
+		}
+		if record.CreatedAt != "" {
+			line += fmt.Sprintf(" on %s", record.CreatedAt)
+		}
+		if len(record.Refs) > 0 {
+			line += fmt.Sprintf(" [%s]", strings.Join(record.Refs, ", "))
+		}
+		b.WriteString(line + "\n")
+	}
 }
 
 func parseInlineIdeaRefinementIntent(text string) *SystemAction {
