@@ -36,13 +36,13 @@ const (
 )
 
 const intentLLMSystemPrompt = `You are Tabura's local router. Output JSON only.
-Allowed actions: switch_project, switch_model, toggle_silent, toggle_live_dialogue, cancel_work, show_status, shell, open_file_canvas, make_item, delegate_item, snooze_item, split_items, chat.
+Allowed actions: switch_project, switch_model, toggle_silent, toggle_live_dialogue, cancel_work, show_status, shell, open_file_canvas, make_item, delegate_item, snooze_item, split_items, create_github_issue, create_github_issue_split, chat.
 Use {"action":"chat"} unless user clearly requests a system action.
 For current-information requests (weather, web search, news, prices, schedules, latest/current updates), use {"action":"chat"} and MUST NOT use shell.
 For shell-like requests use {"action":"shell","command":"..."}.
 For open/show/display file requests, end with {"action":"open_file_canvas","path":"..."}.
 If exact path is uncertain, use multi-step {"actions":[...]}: shell search first, then open_file_canvas with path="$last_shell_path".
-For item materialization requests use make_item, delegate_item, snooze_item, or split_items.
+For item materialization requests use make_item, delegate_item, snooze_item, split_items, create_github_issue, or create_github_issue_split.
 Prefer case-insensitive filename search (for example -iname) and use single quotes inside JSON command strings.`
 
 type localIntentClassifierResponse struct {
@@ -323,7 +323,7 @@ func normalizeSystemActionName(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "toggle_conversation":
 		return "toggle_live_dialogue"
-	case "switch_project", "switch_model", "toggle_silent", "toggle_live_dialogue", "cancel_work", "show_status", "shell", "open_file_canvas", "make_item", "delegate_item", "snooze_item", "split_items":
+	case "switch_project", "switch_model", "toggle_silent", "toggle_live_dialogue", "cancel_work", "show_status", "shell", "open_file_canvas", "make_item", "delegate_item", "snooze_item", "split_items", "create_github_issue", "create_github_issue_split":
 		return strings.ToLower(strings.TrimSpace(raw))
 	default:
 		return ""
@@ -765,6 +765,17 @@ func (a *App) classifyAndExecuteSystemAction(ctx context.Context, sessionID stri
 		}
 		return message, payloads, true
 	}
+	if inlineGitHubActions := parseInlineGitHubIssueActions(trimmedText); len(inlineGitHubActions) > 0 {
+		enforced := enforceRoutingPolicy(trimmedText, inlineGitHubActions)
+		if len(enforced) == 0 {
+			return "", nil, false
+		}
+		message, payloads, err := a.executeSystemActionPlan(sessionID, session, trimmedText, enforced)
+		if err != nil {
+			return githubIssueActionFailurePrefix(enforced) + err.Error(), nil, true
+		}
+		return message, payloads, true
+	}
 
 	if strings.TrimSpace(a.intentLLMURL) != "" {
 		llmActions, llmErr := a.classifyIntentPlanWithLLM(ctx, trimmedText)
@@ -793,6 +804,9 @@ func (a *App) classifyAndExecuteSystemAction(ctx context.Context, sessionID stri
 				}
 				message, payloads, err := a.executeSystemActionPlan(sessionID, session, trimmedText, enforced)
 				if err != nil {
+					if strings.HasPrefix(normalized.Action, "create_github_issue") {
+						return githubIssueActionFailurePrefix(enforced) + err.Error(), nil, true
+					}
 					return itemActionFailurePrefix(normalized.Action) + err.Error(), nil, true
 				}
 				return message, payloads, true
@@ -1347,6 +1361,8 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 		return status, nil, nil
 	case "make_item", "delegate_item", "snooze_item", "split_items":
 		return a.createConversationItem(sessionID, session, action)
+	case "create_github_issue", "create_github_issue_split":
+		return a.createGitHubIssueFromConversation(sessionID, session, action)
 	case "shell":
 		targetProject, err := a.systemActionTargetProject(session)
 		if err != nil {

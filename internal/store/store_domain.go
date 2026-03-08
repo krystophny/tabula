@@ -868,6 +868,40 @@ func (s *Store) UpdateItemArtifact(id int64, artifactID *int64) error {
 	return nil
 }
 
+func (s *Store) UpdateItemSource(id int64, source, sourceRef string) error {
+	cleanSource := strings.TrimSpace(source)
+	cleanSourceRef := strings.TrimSpace(sourceRef)
+	if cleanSource == "" || cleanSourceRef == "" {
+		return errors.New("item source and source_ref are required")
+	}
+	existing, err := s.GetItemBySource(cleanSource, cleanSourceRef)
+	switch {
+	case err == nil && existing.ID != id:
+		return fmt.Errorf("item source %s:%s is already linked to item %d", cleanSource, cleanSourceRef, existing.ID)
+	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		return err
+	}
+	res, err := s.db.Exec(
+		`UPDATE items
+		 SET source = ?, source_ref = ?, updated_at = datetime('now')
+		 WHERE id = ?`,
+		cleanSource,
+		cleanSourceRef,
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) SyncItemStateBySource(source, sourceRef, state string) error {
 	cleanSource := strings.TrimSpace(source)
 	cleanSourceRef := strings.TrimSpace(sourceRef)

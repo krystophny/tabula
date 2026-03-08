@@ -1071,6 +1071,40 @@ func TestSourceItemUpsertAndSyncState(t *testing.T) {
 	}
 }
 
+func TestUpdateItemSource(t *testing.T) {
+	s := newTestStore(t)
+
+	item, err := s.CreateItem("Promote me", ItemOptions{})
+	if err != nil {
+		t.Fatalf("CreateItem() error: %v", err)
+	}
+	if err := s.UpdateItemSource(item.ID, "github", "owner/tabula#77"); err != nil {
+		t.Fatalf("UpdateItemSource() error: %v", err)
+	}
+
+	updated, err := s.GetItem(item.ID)
+	if err != nil {
+		t.Fatalf("GetItem() error: %v", err)
+	}
+	if updated.Source == nil || *updated.Source != "github" {
+		t.Fatalf("updated.Source = %v, want github", updated.Source)
+	}
+	if updated.SourceRef == nil || *updated.SourceRef != "owner/tabula#77" {
+		t.Fatalf("updated.SourceRef = %v, want owner/tabula#77", updated.SourceRef)
+	}
+
+	other, err := s.CreateItem("Other item", ItemOptions{})
+	if err != nil {
+		t.Fatalf("CreateItem(other) error: %v", err)
+	}
+	if err := s.UpdateItemSource(other.ID, "github", "owner/tabula#77"); err == nil {
+		t.Fatal("expected duplicate source/source_ref error")
+	}
+	if err := s.UpdateItemSource(9999, "github", "owner/tabula#88"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("UpdateItemSource(missing) error = %v, want sql.ErrNoRows", err)
+	}
+}
+
 func TestInferWorkspaceForArtifact(t *testing.T) {
 	s := newTestStore(t)
 

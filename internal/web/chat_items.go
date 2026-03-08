@@ -29,6 +29,7 @@ type conversationCanvasArtifact struct {
 type conversationItemContext struct {
 	Title         string
 	AssistantText string
+	BodyText      string
 	WorkspaceID   *int64
 	ArtifactID    *int64
 }
@@ -158,7 +159,7 @@ func parseItemSplitCount(raw string) (int, bool) {
 
 func isItemSystemAction(action string) bool {
 	switch strings.ToLower(strings.TrimSpace(action)) {
-	case "make_item", "delegate_item", "snooze_item", "split_items":
+	case "make_item", "delegate_item", "snooze_item", "split_items", "create_github_issue", "create_github_issue_split":
 		return true
 	default:
 		return false
@@ -166,6 +167,10 @@ func isItemSystemAction(action string) bool {
 }
 
 func itemActionFailurePrefix(action string) string {
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "create_github_issue", "create_github_issue_split":
+		return "I couldn't create the GitHub issue: "
+	}
 	if strings.EqualFold(strings.TrimSpace(action), "split_items") {
 		return "I couldn't create the items: "
 	}
@@ -482,6 +487,10 @@ func (a *App) buildConversationItemContext(sessionID string, project store.Proje
 	if title == "" {
 		return conversationItemContext{}, errors.New("no recent assistant output to turn into an item")
 	}
+	bodyText := assistantText
+	if canvas != nil && strings.TrimSpace(canvas.Text) != "" {
+		bodyText = cleanConversationItemText(canvas.Text)
+	}
 	artifact, err := a.createConversationArtifact(project, title, assistantText, canvas)
 	if err != nil {
 		return conversationItemContext{}, err
@@ -493,6 +502,7 @@ func (a *App) buildConversationItemContext(sessionID string, project store.Proje
 	ctx := conversationItemContext{
 		Title:         title,
 		AssistantText: assistantText,
+		BodyText:      bodyText,
 		WorkspaceID:   workspaceID,
 	}
 	if artifact != nil {
@@ -608,8 +618,8 @@ func (a *App) createConversationItem(sessionID string, session store.ChatSession
 		}, nil
 	case "split_items":
 		count := systemActionSplitCount(action.Params)
-		if count <= 0 {
-			return "", nil, errors.New("split item count is required")
+		if count < 0 {
+			return "", nil, errors.New("split item count must be positive")
 		}
 		titles, err := deriveSplitItemTitles(ctx.AssistantText, count)
 		if err != nil {
