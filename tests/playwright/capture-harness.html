@@ -12,6 +12,7 @@
       <p class="capture-kicker">Quick Capture</p>
       <h1 id="capture-title">Catch the thought before it drifts.</h1>
       <p class="capture-copy">Capture a note fast, save it into the inbox, and leave the full canvas out of the way.</p>
+      <p id="capture-alert" class="capture-alert" hidden></p>
 
       <button id="capture-record" class="capture-record" type="button" aria-pressed="false">
         <span class="capture-record-ring" aria-hidden="true"></span>
@@ -33,6 +34,7 @@
       <div class="capture-actions">
         <button id="capture-save" class="capture-save" type="button" disabled>Save</button>
         <button id="capture-retry" class="capture-retry" type="button" hidden>Retry voice memo</button>
+        <button id="capture-fallback" class="capture-fallback" type="button" hidden>Save as text note instead</button>
         <button id="capture-reset" class="capture-reset" type="button">Clear</button>
       </div>
 
@@ -46,14 +48,31 @@
       const artifactRequests = [];
       const transcribeRequests = [];
       const fetchRequests = [];
+      const searchParams = new URLSearchParams(window.location.search);
+      let online = searchParams.get('online') !== '0';
+      let permissionMode = searchParams.get('permission') || 'granted';
       let transcribeResponses = [
         { status: 200, body: { text: 'Voice memo from capture harness. Follow up tomorrow morning.' } },
       ];
+
+      window.__taburaCaptureTestEnv = {
+        isSecureContext: searchParams.get('secure') !== '0',
+        protocol: searchParams.get('protocol') || window.location.protocol,
+        hostname: searchParams.get('host') || window.location.hostname,
+        queueDatabaseName: `tabura-capture-${Math.random().toString(16).slice(2)}`,
+      };
 
       window.__captureRequests = itemRequests;
       window.__captureArtifactRequests = artifactRequests;
       window.__captureTranscribeRequests = transcribeRequests;
       window.__captureFetchRequests = fetchRequests;
+      window.__setCaptureOnline = (value) => {
+        online = Boolean(value);
+        window.dispatchEvent(new Event(online ? 'online' : 'offline'));
+      };
+      window.__setCapturePermissionMode = (value) => {
+        permissionMode = String(value || 'granted');
+      };
       window.__setCaptureTranscribeResponses = (responses) => {
         if (!Array.isArray(responses) || responses.length === 0) {
           transcribeResponses = [
@@ -79,6 +98,9 @@
           url: String(url),
           method: options.method || 'GET',
         });
+        if (!online) {
+          throw new TypeError('Failed to fetch');
+        }
         if (String(url).includes('/api/stt/transcribe')) {
           transcribeRequests.push({
             method: options.method || 'GET',
@@ -124,7 +146,38 @@
       Object.defineProperty(navigator, 'mediaDevices', {
         configurable: true,
         value: {
-          getUserMedia: async () => new FakeStream(),
+          getUserMedia: async () => {
+            if (permissionMode === 'denied') {
+              const error = new Error('Permission denied');
+              error.name = 'NotAllowedError';
+              throw error;
+            }
+            if (permissionMode === 'dismissed') {
+              const error = new Error('Permission dismissed');
+              error.name = 'NotAllowedError';
+              throw error;
+            }
+            return new FakeStream();
+          },
+        },
+      });
+
+      Object.defineProperty(navigator, 'onLine', {
+        configurable: true,
+        get() {
+          return online;
+        },
+      });
+
+      Object.defineProperty(navigator, 'permissions', {
+        configurable: true,
+        value: {
+          query: async ({ name }) => ({
+            name,
+            state: permissionMode === 'granted' ? 'granted' : permissionMode === 'denied' ? 'denied' : 'prompt',
+            addEventListener() {},
+            removeEventListener() {},
+          }),
         },
       });
 

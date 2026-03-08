@@ -85,6 +85,23 @@ body::before {
   color: var(--capture-muted);
 }
 
+.capture-alert {
+  margin: 18px 0 0;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(166, 63, 31, 0.18);
+  background: rgba(166, 63, 31, 0.08);
+  color: var(--capture-accent-strong);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.capture-alert[data-tone="info"] {
+  border-color: rgba(29, 122, 82, 0.16);
+  background: rgba(29, 122, 82, 0.08);
+  color: var(--capture-ink);
+}
+
 .capture-record {
   width: 100%;
   margin-top: 24px;
@@ -105,6 +122,7 @@ body::before {
 .capture-record:focus-visible,
 .capture-save:focus-visible,
 .capture-retry:focus-visible,
+.capture-fallback:focus-visible,
 .capture-reset:focus-visible,
 #capture-note:focus-visible {
   outline: 3px solid rgba(29, 122, 82, 0.24);
@@ -170,6 +188,7 @@ body::before {
 
 .capture-save,
 .capture-retry,
+.capture-fallback,
 .capture-reset {
   min-height: 52px;
   border-radius: 999px;
@@ -205,7 +224,18 @@ body::before {
   color: var(--capture-accent-strong);
 }
 
+.capture-fallback {
+  padding: 0 20px;
+  border: 1px solid rgba(29, 122, 82, 0.2);
+  background: rgba(29, 122, 82, 0.08);
+  color: #155843;
+}
+
 .capture-retry[hidden] {
+  display: none;
+}
+
+.capture-fallback[hidden] {
   display: none;
 }
 
@@ -248,6 +278,16 @@ body[data-capture-state="saving"] .capture-card {
 
 body[data-capture-state="transcribing"] .capture-card {
   box-shadow: 0 28px 80px rgba(166, 63, 31, 0.18);
+}
+
+body[data-capture-state="success"] .capture-card {
+  box-shadow: 0 28px 80px rgba(29, 122, 82, 0.22);
+  border-color: rgba(29, 122, 82, 0.2);
+}
+
+body[data-capture-state="failed"] .capture-card,
+body[data-capture-state="offline"] .capture-card {
+  border-color: rgba(166, 63, 31, 0.22);
 }
 
 @keyframes capturePulse {
