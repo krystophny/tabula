@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"sync"
@@ -846,5 +847,221 @@ func TestResurfaceDueItems(t *testing.T) {
 		if item.State != tc.want {
 			t.Fatalf("%s state = %q, want %q", tc.name, item.State, tc.want)
 		}
+	}
+}
+
+func TestFindWorkspaceContainingPathPrefersDeepestMatch(t *testing.T) {
+	s := newTestStore(t)
+
+	rootDir := filepath.Join(t.TempDir(), "workspace-root")
+	nestedDir := filepath.Join(rootDir, "nested")
+	rootWorkspace, err := s.CreateWorkspace("Root", rootDir)
+	if err != nil {
+		t.Fatalf("CreateWorkspace(root) error: %v", err)
+	}
+	nestedWorkspace, err := s.CreateWorkspace("Nested", nestedDir)
+	if err != nil {
+		t.Fatalf("CreateWorkspace(nested) error: %v", err)
+	}
+
+	insideNested := filepath.Join(nestedDir, "docs", "note.md")
+	gotID, err := s.FindWorkspaceContainingPath(insideNested)
+	if err != nil {
+		t.Fatalf("FindWorkspaceContainingPath(inside nested) error: %v", err)
+	}
+	if gotID == nil || *gotID != nestedWorkspace.ID {
+		t.Fatalf("FindWorkspaceContainingPath(inside nested) = %v, want %d", gotID, nestedWorkspace.ID)
+	}
+
+	insideRootOnly := filepath.Join(rootDir, "readme.md")
+	gotID, err = s.FindWorkspaceContainingPath(insideRootOnly)
+	if err != nil {
+		t.Fatalf("FindWorkspaceContainingPath(inside root) error: %v", err)
+	}
+	if gotID == nil || *gotID != rootWorkspace.ID {
+		t.Fatalf("FindWorkspaceContainingPath(inside root) = %v, want %d", gotID, rootWorkspace.ID)
+	}
+
+	gotID, err = s.FindWorkspaceContainingPath(filepath.Join(t.TempDir(), "outside.md"))
+	if err != nil {
+		t.Fatalf("FindWorkspaceContainingPath(outside) error: %v", err)
+	}
+	if gotID != nil {
+		t.Fatalf("FindWorkspaceContainingPath(outside) = %v, want nil", *gotID)
+	}
+}
+
+func TestFindWorkspaceByGitRemoteMatchesUniqueWorkspace(t *testing.T) {
+	s := newTestStore(t)
+
+	repoA := filepath.Join(t.TempDir(), "workspace-a")
+	repoB := filepath.Join(t.TempDir(), "workspace-b")
+	repoC := filepath.Join(t.TempDir(), "workspace-c")
+	initGitRepoWithRemote(t, repoA, "git@github.com:owner/alpha.git")
+	initGitRepoWithRemote(t, repoB, "https://github.com/owner/beta.git")
+	initGitRepoWithRemote(t, repoC, "ssh://git@github.com/owner/alpha.git")
+
+	workspaceA, err := s.CreateWorkspace("Alpha A", repoA)
+	if err != nil {
+		t.Fatalf("CreateWorkspace(alpha a) error: %v", err)
+	}
+	if _, err := s.CreateWorkspace("Beta", repoB); err != nil {
+		t.Fatalf("CreateWorkspace(beta) error: %v", err)
+	}
+	if _, err := s.CreateWorkspace("Alpha C", repoC); err != nil {
+		t.Fatalf("CreateWorkspace(alpha c) error: %v", err)
+	}
+
+	gotID, err := s.FindWorkspaceByGitRemote("owner/beta")
+	if err != nil {
+		t.Fatalf("FindWorkspaceByGitRemote(beta) error: %v", err)
+	}
+	if gotID == nil {
+		t.Fatal("FindWorkspaceByGitRemote(beta) = nil, want workspace ID")
+	}
+	gotWorkspace, err := s.GetWorkspace(*gotID)
+	if err != nil {
+		t.Fatalf("GetWorkspace(beta) error: %v", err)
+	}
+	if gotWorkspace.Name != "Beta" {
+		t.Fatalf("FindWorkspaceByGitRemote(beta) picked %q, want Beta", gotWorkspace.Name)
+	}
+
+	gotID, err = s.FindWorkspaceByGitRemote("owner/alpha")
+	if err != nil {
+		t.Fatalf("FindWorkspaceByGitRemote(alpha) error: %v", err)
+	}
+	if gotID != nil {
+		t.Fatalf("FindWorkspaceByGitRemote(alpha) = %v, want nil for ambiguous match", *gotID)
+	}
+
+	gotID, err = s.FindWorkspaceByGitRemote("owner/missing")
+	if err != nil {
+		t.Fatalf("FindWorkspaceByGitRemote(missing) error: %v", err)
+	}
+	if gotID != nil {
+		t.Fatalf("FindWorkspaceByGitRemote(missing) = %v, want nil", *gotID)
+	}
+
+	if workspaceA.ID == 0 {
+		t.Fatal("expected created workspace ID")
+	}
+}
+
+func TestInferWorkspaceForArtifact(t *testing.T) {
+	s := newTestStore(t)
+
+	docWorkspaceDir := filepath.Join(t.TempDir(), "docs")
+	docWorkspace, err := s.CreateWorkspace("Docs", docWorkspaceDir)
+	if err != nil {
+		t.Fatalf("CreateWorkspace(docs) error: %v", err)
+	}
+	repoDir := filepath.Join(t.TempDir(), "repo")
+	initGitRepoWithRemote(t, repoDir, "https://github.com/owner/tabula.git")
+	repoWorkspace, err := s.CreateWorkspace("Repo", repoDir)
+	if err != nil {
+		t.Fatalf("CreateWorkspace(repo) error: %v", err)
+	}
+
+	docPath := filepath.Join(docWorkspaceDir, "notes", "draft.md")
+	docArtifact, err := s.CreateArtifact(ArtifactKindMarkdown, &docPath, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("CreateArtifact(doc) error: %v", err)
+	}
+	inferredDoc, err := s.InferWorkspaceForArtifact(docArtifact)
+	if err != nil {
+		t.Fatalf("InferWorkspaceForArtifact(doc) error: %v", err)
+	}
+	if inferredDoc == nil || *inferredDoc != docWorkspace.ID {
+		t.Fatalf("InferWorkspaceForArtifact(doc) = %v, want %d", inferredDoc, docWorkspace.ID)
+	}
+
+	issueURL := "https://github.com/owner/tabula/issues/214"
+	ghArtifact, err := s.CreateArtifact(ArtifactKindGitHubIssue, nil, &issueURL, nil, nil)
+	if err != nil {
+		t.Fatalf("CreateArtifact(github) error: %v", err)
+	}
+	inferredGitHub, err := s.InferWorkspaceForArtifact(ghArtifact)
+	if err != nil {
+		t.Fatalf("InferWorkspaceForArtifact(github) error: %v", err)
+	}
+	if inferredGitHub == nil || *inferredGitHub != repoWorkspace.ID {
+		t.Fatalf("InferWorkspaceForArtifact(github) = %v, want %d", inferredGitHub, repoWorkspace.ID)
+	}
+
+	metaJSON := `{"source_ref":"owner/tabula#PR-214"}`
+	prArtifact, err := s.CreateArtifact(ArtifactKindGitHubPR, nil, nil, nil, &metaJSON)
+	if err != nil {
+		t.Fatalf("CreateArtifact(github pr) error: %v", err)
+	}
+	inferredPR, err := s.InferWorkspaceForArtifact(prArtifact)
+	if err != nil {
+		t.Fatalf("InferWorkspaceForArtifact(github pr) error: %v", err)
+	}
+	if inferredPR == nil || *inferredPR != repoWorkspace.ID {
+		t.Fatalf("InferWorkspaceForArtifact(github pr) = %v, want %d", inferredPR, repoWorkspace.ID)
+	}
+
+	unknownURL := "https://github.com/owner/unknown/issues/1"
+	unknownArtifact, err := s.CreateArtifact(ArtifactKindGitHubIssue, nil, &unknownURL, nil, nil)
+	if err != nil {
+		t.Fatalf("CreateArtifact(unknown github) error: %v", err)
+	}
+	inferredUnknown, err := s.InferWorkspaceForArtifact(unknownArtifact)
+	if err != nil {
+		t.Fatalf("InferWorkspaceForArtifact(unknown github) error: %v", err)
+	}
+	if inferredUnknown != nil {
+		t.Fatalf("InferWorkspaceForArtifact(unknown github) = %v, want nil", *inferredUnknown)
+	}
+}
+
+func TestCreateItemInfersWorkspaceFromArtifactWithoutOverridingExplicitWorkspace(t *testing.T) {
+	s := newTestStore(t)
+
+	artifactWorkspaceDir := filepath.Join(t.TempDir(), "artifact-workspace")
+	explicitWorkspaceDir := filepath.Join(t.TempDir(), "explicit-workspace")
+	artifactWorkspace, err := s.CreateWorkspace("Artifact Workspace", artifactWorkspaceDir)
+	if err != nil {
+		t.Fatalf("CreateWorkspace(artifact) error: %v", err)
+	}
+	explicitWorkspace, err := s.CreateWorkspace("Explicit Workspace", explicitWorkspaceDir)
+	if err != nil {
+		t.Fatalf("CreateWorkspace(explicit) error: %v", err)
+	}
+
+	docPath := filepath.Join(artifactWorkspaceDir, "docs", "task.md")
+	artifact, err := s.CreateArtifact(ArtifactKindDocument, &docPath, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("CreateArtifact() error: %v", err)
+	}
+
+	inferredItem, err := s.CreateItem("Infer from artifact", ItemOptions{ArtifactID: &artifact.ID})
+	if err != nil {
+		t.Fatalf("CreateItem(inferred) error: %v", err)
+	}
+	if inferredItem.WorkspaceID == nil || *inferredItem.WorkspaceID != artifactWorkspace.ID {
+		t.Fatalf("CreateItem(inferred).WorkspaceID = %v, want %d", inferredItem.WorkspaceID, artifactWorkspace.ID)
+	}
+
+	explicitItem, err := s.CreateItem("Keep explicit workspace", ItemOptions{
+		ArtifactID:  &artifact.ID,
+		WorkspaceID: &explicitWorkspace.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(explicit) error: %v", err)
+	}
+	if explicitItem.WorkspaceID == nil || *explicitItem.WorkspaceID != explicitWorkspace.ID {
+		t.Fatalf("CreateItem(explicit).WorkspaceID = %v, want %d", explicitItem.WorkspaceID, explicitWorkspace.ID)
+	}
+}
+
+func initGitRepoWithRemote(t *testing.T, dirPath, remoteURL string) {
+	t.Helper()
+	if err := exec.Command("git", "init", dirPath).Run(); err != nil {
+		t.Fatalf("git init %s: %v", dirPath, err)
+	}
+	if err := exec.Command("git", "-C", dirPath, "remote", "add", "origin", remoteURL).Run(); err != nil {
+		t.Fatalf("git remote add origin %s: %v", dirPath, err)
 	}
 }

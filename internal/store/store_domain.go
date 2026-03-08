@@ -2,8 +2,11 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -344,6 +347,151 @@ func (s *Store) ListWorkspaces() ([]Workspace, error) {
 	return out, nil
 }
 
+func (s *Store) FindWorkspaceContainingPath(filePath string) (*int64, error) {
+	targetPath := normalizeWorkspacePath(filePath)
+	if targetPath == "" {
+		return nil, nil
+	}
+	workspaces, err := s.ListWorkspaces()
+	if err != nil {
+		return nil, err
+	}
+	var best *Workspace
+	for i := range workspaces {
+		rel, err := filepath.Rel(workspaces[i].DirPath, targetPath)
+		if err != nil {
+			continue
+		}
+		if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if best == nil || len(workspaces[i].DirPath) > len(best.DirPath) {
+			best = &workspaces[i]
+		}
+	}
+	if best == nil {
+		return nil, nil
+	}
+	return &best.ID, nil
+}
+
+func normalizeGitHubOwnerRepo(raw string) string {
+	clean := strings.TrimSpace(strings.ToLower(raw))
+	if clean == "" {
+		return ""
+	}
+	clean = strings.TrimSuffix(clean, ".git")
+	if idx := strings.Index(clean, "#"); idx >= 0 {
+		clean = clean[:idx]
+	}
+	clean = strings.Trim(clean, "/")
+	switch {
+	case strings.HasPrefix(clean, "git@github.com:"):
+		clean = strings.TrimPrefix(clean, "git@github.com:")
+	case strings.HasPrefix(clean, "ssh://git@github.com/"):
+		clean = strings.TrimPrefix(clean, "ssh://git@github.com/")
+	case strings.HasPrefix(clean, "https://github.com/"):
+		clean = strings.TrimPrefix(clean, "https://github.com/")
+	case strings.HasPrefix(clean, "http://github.com/"):
+		clean = strings.TrimPrefix(clean, "http://github.com/")
+	}
+	parts := strings.Split(clean, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[0] + "/" + parts[1]
+}
+
+func githubOwnerRepoFromURL(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	if !strings.EqualFold(parsed.Host, "github.com") {
+		return ""
+	}
+	return normalizeGitHubOwnerRepo(parsed.Path)
+}
+
+func githubOwnerRepoFromMeta(metaJSON string) string {
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(metaJSON), &payload); err != nil {
+		return ""
+	}
+	for _, key := range []string{"owner_repo", "repo", "source_ref", "url", "html_url"} {
+		value, _ := payload[key].(string)
+		if repo := normalizeGitHubOwnerRepo(value); repo != "" {
+			return repo
+		}
+		if repo := githubOwnerRepoFromURL(value); repo != "" {
+			return repo
+		}
+	}
+	return ""
+}
+
+func workspaceGitRemoteOwnerRepo(dirPath string) (string, error) {
+	cmd := exec.Command("git", "-C", dirPath, "remote", "get-url", "origin")
+	output, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return "", nil
+		}
+		return "", err
+	}
+	return normalizeGitHubOwnerRepo(string(output)), nil
+}
+
+func (s *Store) FindWorkspaceByGitRemote(ownerRepo string) (*int64, error) {
+	target := normalizeGitHubOwnerRepo(ownerRepo)
+	if target == "" {
+		return nil, nil
+	}
+	workspaces, err := s.ListWorkspaces()
+	if err != nil {
+		return nil, err
+	}
+	var matches []int64
+	for _, workspace := range workspaces {
+		repo, err := workspaceGitRemoteOwnerRepo(workspace.DirPath)
+		if err != nil {
+			return nil, err
+		}
+		if repo == target {
+			matches = append(matches, workspace.ID)
+		}
+	}
+	if len(matches) != 1 {
+		return nil, nil
+	}
+	return &matches[0], nil
+}
+
+func (s *Store) InferWorkspaceForArtifact(artifact Artifact) (*int64, error) {
+	switch artifact.Kind {
+	case ArtifactKindDocument, ArtifactKindMarkdown, ArtifactKindPDF:
+		if artifact.RefPath == nil {
+			return nil, nil
+		}
+		return s.FindWorkspaceContainingPath(*artifact.RefPath)
+	case ArtifactKindGitHubIssue, ArtifactKindGitHubPR:
+		var ownerRepo string
+		if artifact.RefURL != nil {
+			ownerRepo = githubOwnerRepoFromURL(*artifact.RefURL)
+		}
+		if ownerRepo == "" && artifact.MetaJSON != nil {
+			ownerRepo = githubOwnerRepoFromMeta(*artifact.MetaJSON)
+		}
+		if ownerRepo == "" {
+			return nil, nil
+		}
+		return s.FindWorkspaceByGitRemote(ownerRepo)
+	default:
+		return nil, nil
+	}
+}
+
 func (s *Store) SetActiveWorkspace(id int64) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -587,6 +735,17 @@ func (s *Store) CreateItem(title string, opts ItemOptions) (Item, error) {
 	}
 	if cleanState == "" {
 		return Item{}, errors.New("invalid item state")
+	}
+	if opts.WorkspaceID == nil && opts.ArtifactID != nil {
+		artifact, err := s.GetArtifact(*opts.ArtifactID)
+		if err != nil {
+			return Item{}, err
+		}
+		inferredWorkspaceID, err := s.InferWorkspaceForArtifact(artifact)
+		if err != nil {
+			return Item{}, err
+		}
+		opts.WorkspaceID = inferredWorkspaceID
 	}
 	res, err := s.db.Exec(
 		`INSERT INTO items (
