@@ -36,6 +36,7 @@ export function renderInkControls() {
   if (!(controls instanceof HTMLElement)) return;
   const visible = isPenInputMode() && state.inkDraft.dirty;
   controls.style.display = visible ? '' : 'none';
+  document.body.classList.toggle('ink-controls-visible', visible);
   const submit = document.getElementById('ink-submit');
   const clear = document.getElementById('ink-clear');
   if (submit instanceof HTMLButtonElement) submit.disabled = state.inkSubmitInFlight;

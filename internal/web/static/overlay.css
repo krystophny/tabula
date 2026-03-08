@@ -18,6 +18,10 @@
   background: #f3f3f3;
 }
 
+body.ink-controls-visible .bug-report-button {
+  bottom: calc(6.5rem + var(--safe-area-bottom));
+}
+
 .bug-report-sheet {
   position: fixed;
   inset: 0;
