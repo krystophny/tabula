@@ -84,6 +84,74 @@ test.describe('capture page', () => {
     expect(itemRequests[0].title).toBe('Retry worked after the STT sidecar came back.');
   });
 
+  test('shows an actionable HTTPS warning on insecure non-loopback origins', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/tests/playwright/capture-harness.html?secure=0&protocol=http:&host=tabura.local:8420');
+
+    await expect(page.locator('#capture-alert')).toContainText('Voice capture requires HTTPS.');
+    await expect(page.locator('#capture-alert')).toContainText('https://tabura.local:8420/tests/playwright/capture-harness.html');
+    await expect(page.locator('#capture-record')).toBeDisabled();
+  });
+
+  test('shows Safari recovery guidance when microphone access is denied', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/tests/playwright/capture-harness.html?permission=denied');
+
+    await page.locator('#capture-record').click({ force: true });
+
+    await expect(page.locator('#capture-alert')).toContainText('Check Settings > Safari > Microphone');
+    await expect(page.locator('#capture-status')).toContainText('Microphone access is currently denied.');
+  });
+
+  test('queues voice memos offline and uploads them on reconnect', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/tests/playwright/capture-harness.html?online=0');
+
+    await page.locator('#capture-record').click({ force: true });
+    await page.locator('#capture-record').click({ force: true });
+
+    await expect(page.locator('body')).toHaveAttribute('data-capture-state', 'offline');
+    await expect(page.locator('#capture-status')).toContainText('Saved locally');
+
+    const transcribeRequestsBefore = await page.evaluate(() => (window as any).__captureTranscribeRequests);
+    expect(transcribeRequestsBefore).toHaveLength(0);
+
+    await page.evaluate(() => {
+      (window as any).__setCaptureOnline(true);
+    });
+
+    await expect(page.locator('#capture-status')).toContainText('Saved: Voice memo from capture harness.');
+    const transcribeRequestsAfter = await page.evaluate(() => (window as any).__captureTranscribeRequests);
+    expect(transcribeRequestsAfter).toHaveLength(1);
+    const itemRequests = await page.evaluate(() => (window as any).__captureRequests);
+    expect(itemRequests).toHaveLength(1);
+  });
+
+  test('offers a text fallback after repeated voice save failures', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/tests/playwright/capture-harness.html');
+
+    await page.evaluate(() => {
+      (window as any).__setCaptureTranscribeResponses([
+        { status: 502, body: { error: 'sidecar unavailable' } },
+        { status: 502, body: { error: 'sidecar unavailable' } },
+        { status: 502, body: { error: 'sidecar unavailable' } },
+      ]);
+    });
+
+    await page.locator('#capture-record').click({ force: true });
+    await page.locator('#capture-record').click({ force: true });
+
+    await expect(page.locator('#capture-retry')).toBeVisible();
+    await page.locator('#capture-retry').click();
+    await page.locator('#capture-retry').click();
+
+    await expect(page.locator('#capture-fallback')).toBeVisible();
+    await page.locator('#capture-fallback').click();
+    await expect(page.locator('#capture-note')).toBeFocused();
+    await expect(page.locator('#capture-status')).toContainText('Type the memo');
+  });
+
   test('toggles record state with the large capture button', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/tests/playwright/capture-harness.html');
@@ -94,7 +162,7 @@ test.describe('capture page', () => {
     await expect(page.locator('#capture-record')).toHaveAttribute('aria-pressed', 'true');
 
     await page.locator('#capture-record').click({ force: true });
-    await expect(page.locator('body')).toHaveAttribute('data-capture-state', 'idle');
+    await expect(page.locator('body')).toHaveAttribute('data-capture-state', 'success');
     await expect(page.locator('#capture-record')).toHaveAttribute('aria-pressed', 'false');
     await expect(page.locator('#capture-status')).toContainText('Saved: Voice memo from capture harness.');
   });
