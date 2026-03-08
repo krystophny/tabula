@@ -1,0 +1,99 @@
+.ink-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 6;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.ink-layer path {
+  fill: none;
+  stroke: #111827;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.ink-controls {
+  position: absolute;
+  right: calc(0.75rem + var(--safe-area-right));
+  bottom: calc(0.75rem + var(--safe-area-bottom));
+  z-index: 390;
+  display: flex;
+  gap: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18);
+}
+
+.ink-controls .edge-btn {
+  min-height: 48px;
+  padding: 0.65rem 1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.tool-palette {
+  position: fixed;
+  left: 50%;
+  bottom: calc(1rem + var(--safe-area-bottom));
+  transform: translateX(-50%);
+  z-index: 395;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.5rem;
+  border: 1px solid rgba(17, 24, 39, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+  backdrop-filter: blur(10px);
+}
+
+.tool-palette-btn {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: #334155;
+  padding: 0;
+  cursor: pointer;
+}
+
+.tool-palette-btn:hover,
+.tool-palette-btn:focus-visible {
+  border-color: rgba(15, 23, 42, 0.16);
+  background: rgba(241, 245, 249, 0.96);
+  color: #0f172a;
+}
+
+.tool-palette-btn.is-active {
+  border-color: #0f172a;
+  background: #0f172a;
+  color: #f8fafc;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.22);
+}
+
+.tool-palette-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.tool-palette-btn svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
