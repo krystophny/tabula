@@ -93,6 +93,7 @@ type App struct {
 
 	mu               sync.Mutex
 	confirmMu        sync.Mutex
+	approvalMu       sync.Mutex
 	workerWG         sync.WaitGroup
 	hub              *wsHub
 	turns            *chatTurnTracker
@@ -103,6 +104,7 @@ type App struct {
 	tunnels          *tunnelRegistry
 	chatAppSessions  map[string]*appserver.Session
 	pendingDanger    map[string]*pendingDangerousAction
+	pendingApprovals map[string]map[string]*pendingAppServerApproval
 	ghCommandRunner  ghCommandRunner
 
 	shutdownCtx    context.Context
@@ -271,6 +273,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		tunnels:                       newTunnelRegistry(),
 		chatAppSessions:               map[string]*appserver.Session{},
 		pendingDanger:                 map[string]*pendingDangerousAction{},
+		pendingApprovals:              map[string]map[string]*pendingAppServerApproval{},
 		ghCommandRunner:               runGitHubCLI,
 		shutdownCtx:                   shutdownCtx,
 		shutdownCancel:                shutdownCancel,

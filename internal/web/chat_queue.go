@@ -408,8 +408,11 @@ func (a *App) getOrCreateAppSession(sessionID string, cwd string, profile appSer
 	a.mu.Lock()
 	s := a.chatAppSessions[sessionID]
 	a.mu.Unlock()
-	if s != nil && s.IsOpen() {
+	if s != nil && s.IsOpen() && s.MatchesConfig(cwd, profile.Model, profile.ThreadParams) {
 		return s, true, nil
+	}
+	if s != nil {
+		_ = s.Close()
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()

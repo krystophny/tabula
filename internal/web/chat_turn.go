@@ -49,6 +49,7 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string, localOnly bo
 			a.appServerSparkReasoningEffort,
 		)
 	}
+	profile = a.appServerProfileForChatSession(session, profile)
 	appSess, resumed, sessErr := a.getOrCreateAppSession(sessionID, cwd, profile)
 	if sessErr != nil {
 		a.runAssistantTurnLegacy(sessionID, session, messages, outputMode, profile)
@@ -195,6 +196,23 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string, localOnly bo
 			payload["context_max"] = ev.ContextMax
 		case "context_compact":
 			// pass through to frontend
+		case "approval_request":
+			decision, decisionErr := a.requestAppServerApproval(ctx, sessionID, ev)
+			if decisionErr != nil {
+				if ev.Respond != nil {
+					_ = ev.Respond("cancel")
+				}
+				shouldBroadcast = false
+				return
+			}
+			if ev.Respond != nil {
+				if respondErr := ev.Respond(decision); respondErr != nil {
+					shouldBroadcast = false
+					return
+				}
+			}
+			shouldBroadcast = false
+			return
 		case "error":
 			if strings.TrimSpace(ev.TurnID) != "" {
 				latestTurnID = ev.TurnID
@@ -311,6 +329,7 @@ func (a *App) tryRunLocalSystemActionTurn(sessionID string, session store.ChatSe
 // runAssistantTurnLegacy is the single-shot fallback when persistent session
 // fails to connect. Each call creates a new WS + thread.
 func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession, messages []store.ChatMessage, outputMode string, profile appServerModelProfile) {
+	profile = a.appServerProfileForChatSession(session, profile)
 	canvasCtx := a.resolveCanvasContext(session.ProjectKey)
 	prompt := buildPromptFromHistoryForMode(session.Mode, messages, canvasCtx, outputMode, profile.Alias)
 	if strings.TrimSpace(prompt) == "" {
@@ -443,6 +462,23 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 			if renderPlan.AutoCanvas {
 				payload["auto_canvas"] = true
 			}
+		case "approval_request":
+			decision, decisionErr := a.requestAppServerApproval(ctx, sessionID, ev)
+			if decisionErr != nil {
+				if ev.Respond != nil {
+					_ = ev.Respond("cancel")
+				}
+				shouldBroadcast = false
+				return
+			}
+			if ev.Respond != nil {
+				if respondErr := ev.Respond(decision); respondErr != nil {
+					shouldBroadcast = false
+					return
+				}
+			}
+			shouldBroadcast = false
+			return
 		case "error":
 			if strings.TrimSpace(ev.TurnID) != "" {
 				latestTurnID = ev.TurnID

@@ -119,10 +119,12 @@ func handleSTTCancel(conn *chatWSConn) {
 
 func handleChatWSTextMessage(a *App, conn *chatWSConn, sessionID string, data []byte) {
 	var msg struct {
-		Type     string `json:"type"`
-		MimeType string `json:"mime_type"`
-		Text     string `json:"text"`
-		Lang     string `json:"lang"`
+		Type      string `json:"type"`
+		MimeType  string `json:"mime_type"`
+		Text      string `json:"text"`
+		Lang      string `json:"lang"`
+		RequestID string `json:"request_id"`
+		Decision  string `json:"decision"`
 	}
 	if err := json.Unmarshal(data, &msg); err != nil {
 		return
@@ -143,5 +145,13 @@ func handleChatWSTextMessage(a *App, conn *chatWSConn, sessionID string, data []
 		handleParticipantStart(a, conn, sessionID)
 	case "participant_stop":
 		handleParticipantStop(a, conn)
+	case "approval_response":
+		if !a.resolvePendingAppServerApproval(sessionID, msg.RequestID, msg.Decision) {
+			_ = conn.writeJSON(map[string]interface{}{
+				"type":       "approval_error",
+				"request_id": strings.TrimSpace(msg.RequestID),
+				"error":      "approval request not found",
+			})
+		}
 	}
 }

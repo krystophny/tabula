@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -14,15 +15,15 @@ import (
 // Session maintains a persistent WebSocket connection to the codex app server,
 // reusing a single thread across multiple turns.
 type Session struct {
-	client   *Client
-	conn     *websocket.Conn
-	threadID string
-	model    string
+	client       *Client
+	conn         *websocket.Conn
+	threadID     string
+	model        string
 	threadParams map[string]interface{}
-	cwd      string
-	mu       sync.Mutex
-	closed   bool
-	nextID   int
+	cwd          string
+	mu           sync.Mutex
+	closed       bool
+	nextID       int
 
 	// Context tracking (updated from turn/completed usage data).
 	ContextUsed int64
@@ -126,15 +127,15 @@ func (s *Session) handshake(ctx context.Context) error {
 
 func (s *Session) startThread(ctx context.Context, resumeThreadID string) (string, error) {
 	reqID := s.allocID()
-	params := map[string]interface{}{
+	params := applyDefaultApprovalPolicy(map[string]interface{}{
 		"cwd":                    s.cwd,
-		"approvalPolicy":         "never",
 		"sandbox":                "danger-full-access",
 		"experimentalRawEvents":  false,
 		"persistExtendedHistory": true,
 		"ephemeral":              false,
-	}
+	})
 	params = mergeStringInterfaceParams(params, s.threadParams)
+	params["approvalPolicy"] = normalizeApprovalPolicy(fmt.Sprint(params["approvalPolicy"]))
 	if s.model != "" {
 		params["model"] = s.model
 	}
@@ -162,6 +163,21 @@ func (s *Session) startThread(ctx context.Context, resumeThreadID string) (strin
 
 // ThreadID returns the app server thread ID for this session.
 func (s *Session) ThreadID() string { return s.threadID }
+
+func (s *Session) MatchesConfig(cwd, model string, threadParams map[string]interface{}) bool {
+	if s == nil {
+		return false
+	}
+	expected := cloneStringInterfaceMap(threadParams)
+	expected = applyDefaultApprovalPolicy(expected)
+	expected["approvalPolicy"] = normalizeApprovalPolicy(fmt.Sprint(expected["approvalPolicy"]))
+	actual := cloneStringInterfaceMap(s.threadParams)
+	actual = applyDefaultApprovalPolicy(actual)
+	actual["approvalPolicy"] = normalizeApprovalPolicy(fmt.Sprint(actual["approvalPolicy"]))
+	return strings.TrimSpace(s.cwd) == strings.TrimSpace(cwd) &&
+		strings.TrimSpace(s.model) == strings.TrimSpace(model) &&
+		reflect.DeepEqual(actual, expected)
+}
 
 // IsOpen returns true if the session connection is still usable.
 func (s *Session) IsOpen() bool {
@@ -251,6 +267,30 @@ func (s *Session) readTurnUntilComplete(ctx context.Context, turnRPCID int, onEv
 		msg, err := readJSON(ctx, s.conn)
 		if err != nil {
 			return "", "", nil, err
+		}
+
+		if approvalReq, ok := parseApprovalRequest(msg); ok {
+			ev := StreamEvent{
+				Type:     "approval_request",
+				ThreadID: s.threadID,
+				TurnID:   turnID,
+				Approval: approvalReq,
+			}
+			ev.Respond = func(decision string) error {
+				return s.writeJSON(ctx, map[string]interface{}{
+					"jsonrpc": "2.0",
+					"id":      approvalReq.ID,
+					"result": map[string]interface{}{
+						"decision": normalizeApprovalDecision(decision),
+					},
+				})
+			}
+			if onEvent != nil {
+				onEvent(ev)
+			} else {
+				_ = ev.Respond("cancel")
+			}
+			continue
 		}
 
 		if msgID, hasID := jsonRPCID(msg); hasID && msgID == turnRPCID {

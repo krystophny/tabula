@@ -71,6 +71,7 @@ const state = {
   disclaimerVersion: '',
   welcomeSurface: null,
   pendingByTurn: new Map(),
+  pendingApprovals: new Map(),
   pendingQueue: [],
   assistantActiveTurns: new Set(),
   assistantUnknownTurns: 0,
@@ -4321,6 +4322,108 @@ function appendPlainMessage(role, text, options = {}) {
   return row;
 }
 
+function approvalDecisionLabel(decision) {
+  const value = String(decision || '').trim().toLowerCase();
+  if (value === 'accept' || value === 'approve') return 'Approved';
+  if (value === 'decline' || value === 'reject') return 'Rejected';
+  return 'Cancelled';
+}
+
+function setApprovalButtonsDisabled(row, disabled) {
+  if (!(row instanceof HTMLElement)) return;
+  row.querySelectorAll('button[data-approval-decision]').forEach((button) => {
+    if (button instanceof HTMLButtonElement) {
+      button.disabled = disabled;
+    }
+  });
+}
+
+function renderApprovalRequestCard(payload) {
+  const requestID = String(payload?.request_id || '').trim();
+  if (!requestID) return null;
+  let row = state.pendingApprovals.get(requestID) || null;
+  if (!(row instanceof HTMLElement)) {
+    row = appendPlainMessage('system', '', { localId: requestID });
+    if (!(row instanceof HTMLElement)) return null;
+    row.classList.add('chat-approval-request');
+    state.pendingApprovals.set(requestID, row);
+  }
+  const bubble = row.querySelector('.chat-bubble');
+  if (!(bubble instanceof HTMLElement)) return row;
+  const description = String(payload?.description || 'Approval required').trim();
+  const action = String(payload?.action || payload?.request_kind || '').trim().replace(/_/g, ' ');
+  const reason = String(payload?.reason || '').trim();
+  const grantRoot = String(payload?.grant_root || '').trim();
+  bubble.innerHTML = '';
+
+  const title = document.createElement('div');
+  title.className = 'chat-approval-title';
+  title.textContent = description;
+  bubble.appendChild(title);
+
+  if (action) {
+    const meta = document.createElement('div');
+    meta.className = 'chat-approval-meta';
+    meta.textContent = action;
+    bubble.appendChild(meta);
+  }
+  if (reason) {
+    const detail = document.createElement('div');
+    detail.className = 'chat-approval-detail';
+    detail.textContent = reason;
+    bubble.appendChild(detail);
+  }
+  if (grantRoot) {
+    const scope = document.createElement('div');
+    scope.className = 'chat-approval-detail';
+    scope.textContent = `scope: ${grantRoot}`;
+    bubble.appendChild(scope);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'chat-approval-actions';
+  [
+    ['Approve', 'accept'],
+    ['Reject', 'decline'],
+    ['Cancel', 'cancel'],
+  ].forEach(([label, decision]) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'chat-approval-btn';
+    button.dataset.approvalDecision = decision;
+    button.textContent = label;
+    button.addEventListener('click', () => {
+      setApprovalButtonsDisabled(row, true);
+      if (!sendChatWsJSON({ type: 'approval_response', request_id: requestID, decision })) {
+        setApprovalButtonsDisabled(row, false);
+        showStatus('approval send failed');
+      }
+    });
+    actions.appendChild(button);
+  });
+  bubble.appendChild(actions);
+  syncChatScroll(chatHistoryEl());
+  return row;
+}
+
+function resolveApprovalRequestCard(requestID, decision) {
+  const key = String(requestID || '').trim();
+  if (!key) return;
+  const row = state.pendingApprovals.get(key);
+  if (!(row instanceof HTMLElement)) return;
+  setApprovalButtonsDisabled(row, true);
+  row.classList.add('is-resolved');
+  const bubble = row.querySelector('.chat-bubble');
+  if (!(bubble instanceof HTMLElement)) return;
+  let status = row.querySelector('.chat-approval-status');
+  if (!(status instanceof HTMLElement)) {
+    status = document.createElement('div');
+    status.className = 'chat-approval-status';
+    bubble.appendChild(status);
+  }
+  status.textContent = approvalDecisionLabel(decision);
+}
+
 function appendRenderedAssistant(markdownText, options = {}) {
   const host = chatHistoryEl();
   if (!host) return null;
@@ -4469,6 +4572,7 @@ function ensurePendingForTurn(turnID) {
 
 function resetAssistantTurnTracking({ clearError = false } = {}) {
   state.pendingByTurn.clear();
+  state.pendingApprovals.clear();
   state.pendingQueue = [];
   state.voiceTurns.clear();
   state.assistantActiveTurns.clear();
@@ -4488,6 +4592,7 @@ function resetAssistantTurnTracking({ clearError = false } = {}) {
 function clearChatHistory() {
   const host = chatHistoryEl();
   if (host) host.innerHTML = '';
+  state.pendingApprovals.clear();
 }
 
 function clearWelcomeSurface() {
@@ -5657,6 +5762,13 @@ function closeChatWs() {
   state.chatWs = null;
 }
 
+function sendChatWsJSON(payload) {
+  const ws = state.chatWs;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+  ws.send(JSON.stringify(payload));
+  return true;
+}
+
 function openChatWs() {
   if (!state.chatSessionId) return;
   const turnToken = state.chatWsToken + 1;
@@ -5869,6 +5981,25 @@ function handleChatEvent(payload) {
     if (summary) {
       showStatus('confirmation required');
       appendPlainMessage('system', `Confirmation required: ${summary}`);
+    }
+    return;
+  }
+
+  if (type === 'approval_request') {
+    renderApprovalRequestCard(payload);
+    showStatus('approval required');
+    return;
+  }
+
+  if (type === 'approval_resolved') {
+    resolveApprovalRequestCard(payload?.request_id, payload?.decision);
+    return;
+  }
+
+  if (type === 'approval_error') {
+    const message = String(payload?.error || 'approval failed').trim();
+    if (message) {
+      showStatus(message);
     }
     return;
   }

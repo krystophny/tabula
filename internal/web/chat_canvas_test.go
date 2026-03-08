@@ -193,6 +193,9 @@ func TestBuildPromptFromHistory_PlanMode(t *testing.T) {
 	if !strings.Contains(prompt, "plan mode") {
 		t.Error("prompt should mention plan mode")
 	}
+	if !strings.Contains(prompt, "wait for approval") {
+		t.Error("prompt should require approval in plan mode")
+	}
 }
 
 func TestBuildPromptFromHistoryForMode_SilentUsesToolOnlyPreamble(t *testing.T) {
