@@ -18,6 +18,11 @@ Routes in `internal/serve/app.go`:
 
 ## Web Runtime HTTP APIs
 
+Public pages:
+- `GET /`
+- `GET /canvas`
+- `GET /capture`
+
 Auth and setup:
 - `GET /api/setup`
 - `POST /api/setup`

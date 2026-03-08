@@ -432,6 +432,7 @@ func (a *App) Router() http.Handler {
 	// static
 	r.Get("/", a.serveIndex)
 	r.Get("/canvas", a.serveCanvas)
+	r.Get("/capture", a.serveCapture)
 	if a.devRuntime {
 		diskDir := filepath.Join(a.localProjectDir, "internal", "web", "static")
 		r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.Dir(diskDir))))
@@ -537,6 +538,33 @@ func (a *App) serveIndex(w http.ResponseWriter, r *http.Request) {
 func (a *App) serveCanvas(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Location", "./?desktop=1")
 	w.WriteHeader(http.StatusTemporaryRedirect)
+}
+
+func (a *App) serveCapture(w http.ResponseWriter, r *http.Request) {
+	var data []byte
+	var err error
+	if a.devRuntime {
+		data, err = os.ReadFile(filepath.Join(a.localProjectDir, "internal", "web", "static", "capture.html"))
+	} else {
+		data, err = staticFiles.ReadFile("static/capture.html")
+	}
+	if err != nil {
+		http.Error(w, "capture client not found", http.StatusNotFound)
+		return
+	}
+	page := string(data)
+	boot := strings.TrimSpace(a.bootID)
+	if boot != "" {
+		styleTag := `href="./static/capture.css"`
+		styleTagVer := fmt.Sprintf(`href="./static/capture.css?v=%s"`, url.QueryEscape(boot))
+		scriptTag := `src="./static/capture.js"`
+		scriptTagVer := fmt.Sprintf(`src="./static/capture.js?v=%s"`, url.QueryEscape(boot))
+		page = strings.Replace(page, styleTag, styleTagVer, 1)
+		page = strings.Replace(page, scriptTag, scriptTagVer, 1)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write([]byte(page))
 }
 
 func decodeJSON(r *http.Request, out interface{}) error {

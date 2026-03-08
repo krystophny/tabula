@@ -91,6 +91,14 @@ var MCPDaemonRoutes = []string{
 
 var WebRouteSections = []RouteSection{
 	{
+		Title: "Public pages",
+		Routes: []string{
+			"GET /",
+			"GET /canvas",
+			"GET /capture",
+		},
+	},
+	{
 		Title: "Auth and setup",
 		Routes: []string{
 			"GET /api/setup",

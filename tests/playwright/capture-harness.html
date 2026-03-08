@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Capture Harness</title>
+  <link rel="stylesheet" href="/internal/web/static/capture.css">
+</head>
+<body data-capture-state="idle">
+  <main id="capture-page" class="capture-shell" data-state="idle">
+    <section class="capture-card" aria-labelledby="capture-title">
+      <p class="capture-kicker">Quick Capture</p>
+      <h1 id="capture-title">Catch the thought before it drifts.</h1>
+      <p class="capture-copy">Capture a note fast, save it into the inbox, and leave the full canvas out of the way.</p>
+
+      <button id="capture-record" class="capture-record" type="button" aria-pressed="false">
+        <span class="capture-record-ring" aria-hidden="true"></span>
+        <span class="capture-record-label">Record</span>
+        <span class="capture-record-hint">Tap once to start, again to stop.</span>
+      </button>
+
+      <label class="capture-field" for="capture-note">
+        <span class="capture-field-label">Type a note</span>
+        <textarea
+          id="capture-note"
+          rows="5"
+          maxlength="4000"
+          placeholder="Idea, reminder, fragment, next step..."
+          autocomplete="off"
+        ></textarea>
+      </label>
+
+      <div class="capture-actions">
+        <button id="capture-save" class="capture-save" type="button" disabled>Save</button>
+        <button id="capture-reset" class="capture-reset" type="button">Clear</button>
+      </div>
+
+      <p id="capture-status" class="capture-status" role="status" aria-live="polite"></p>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      const savedRequests = [];
+      window.__captureRequests = savedRequests;
+
+      window.fetch = async (url, options = {}) => {
+        if (String(url).includes('/api/items')) {
+          const payload = options && options.body ? JSON.parse(String(options.body)) : {};
+          savedRequests.push(payload);
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ ok: true, item: { id: savedRequests.length, title: payload.title || '' } }),
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: true }),
+        };
+      };
+
+      class FakeTrack {
+        stop() {}
+      }
+
+      class FakeStream {
+        getTracks() {
+          return [new FakeTrack()];
+        }
+      }
+
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: {
+          getUserMedia: async () => new FakeStream(),
+        },
+      });
+
+      class FakeMediaRecorder {
+        constructor(stream) {
+          this.stream = stream;
+          this.state = 'inactive';
+          this.mimeType = 'audio/webm';
+          this.listeners = {};
+        }
+
+        addEventListener(type, listener) {
+          if (!this.listeners[type]) {
+            this.listeners[type] = [];
+          }
+          this.listeners[type].push(listener);
+        }
+
+        _emit(type, event) {
+          const handlers = this.listeners[type] || [];
+          handlers.forEach((handler) => handler(event));
+        }
+
+        start() {
+          this.state = 'recording';
+        }
+
+        stop() {
+          this.state = 'inactive';
+          this._emit('dataavailable', { data: new Blob(['recorded memo'], { type: this.mimeType }) });
+          this._emit('stop', {});
+        }
+      }
+
+      window.MediaRecorder = FakeMediaRecorder;
+    })();
+  </script>
+  <script src="/internal/web/static/capture.js"></script>
+</body>
+</html>

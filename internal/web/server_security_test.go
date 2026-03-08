@@ -89,6 +89,35 @@ func TestServeCanvasRedirectIsRelative(t *testing.T) {
 	}
 }
 
+func TestServeCaptureUsesStandaloneAssets(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/capture", nil)
+	rr := httptest.NewRecorder()
+	app.Router().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET /capture status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, fragment := range []string{
+		`id="capture-page"`,
+		`href="./static/capture.css`,
+		`src="./static/capture.js`,
+		`id="capture-record"`,
+		`id="capture-note"`,
+	} {
+		if !strings.Contains(body, fragment) {
+			t.Fatalf("GET /capture body missing %q", fragment)
+		}
+	}
+	for _, forbidden := range []string{`id="workspace"`, `id="edge-left-tap"`, `src="./static/app.js"`} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("GET /capture body unexpectedly contained %q", forbidden)
+		}
+	}
+}
+
 // newTestWSConn creates a chatWSConn backed by a real websocket for testing.
 // The returned cleanup function closes both ends.
 func newTestWSConn(t *testing.T) (*chatWSConn, func()) {
