@@ -2,17 +2,23 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/krystophny/tabura/internal/store"
 )
 
 const taburaVersion = "0.1.8"
@@ -55,11 +61,25 @@ type bugReportBundle struct {
 	ScreenshotPath   string          `json:"screenshot,omitempty"`
 	AnnotatedPath    string          `json:"annotated_image,omitempty"`
 	WorkspaceDirPath string          `json:"workspace_dir_path,omitempty"`
+	GitHubIssueURL   string          `json:"github_issue_url,omitempty"`
+	GitHubIssueNo    int             `json:"github_issue_number,omitempty"`
+	ItemID           int64           `json:"item_id,omitempty"`
+	IssueLabels      []string        `json:"issue_labels,omitempty"`
 }
 
 type bugReportFile struct {
 	bytes []byte
 	ext   string
+}
+
+type bugReportWorkspace struct {
+	Name    string
+	DirPath string
+	ID      *int64
+}
+
+type gitHubLabelName struct {
+	Name string `json:"name"`
 }
 
 func (a *App) handleBugReportCreate(w http.ResponseWriter, r *http.Request) {
@@ -85,12 +105,12 @@ func (a *App) handleBugReportCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		annotated = &file
 	}
-	workspaceName, workspaceDir, err := a.resolveBugReportWorkspace()
+	workspace, err := a.resolveBugReportWorkspace()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	reportDir, reportID, err := createBugReportDir(workspaceDir, req.Timestamp)
+	reportDir, reportID, err := createBugReportDir(workspace.DirPath, req.Timestamp)
 	if err != nil {
 		http.Error(w, "create bug report dir failed", http.StatusInternalServerError)
 		return
@@ -116,9 +136,9 @@ func (a *App) handleBugReportCreate(w http.ResponseWriter, r *http.Request) {
 		Version:          firstNonEmpty(strings.TrimSpace(req.Version), taburaVersion),
 		BootID:           strings.TrimSpace(req.BootID),
 		StartedAt:        strings.TrimSpace(req.StartedAt),
-		GitSHA:           resolveGitSHA(workspaceDir),
+		GitSHA:           resolveGitSHA(workspace.DirPath),
 		ActiveMode:       strings.TrimSpace(req.ActiveMode),
-		ActiveWorkspace:  workspaceName,
+		ActiveWorkspace:  workspace.Name,
 		ActiveSphere:     "",
 		CanvasState:      normalizeBugReportRawJSON(req.CanvasState),
 		RecentEvents:     cleanBugReportLines(req.RecentEvents),
@@ -126,39 +146,64 @@ func (a *App) handleBugReportCreate(w http.ResponseWriter, r *http.Request) {
 		Device:           req.Device,
 		Note:             strings.TrimSpace(req.Note),
 		VoiceTranscript:  strings.TrimSpace(req.VoiceTranscript),
-		ScreenshotPath:   toBugReportRelativePath(workspaceDir, screenshotPath),
-		AnnotatedPath:    toBugReportRelativePath(workspaceDir, annotatedPath),
-		WorkspaceDirPath: workspaceDir,
-	}
-	bundleJSON, err := json.MarshalIndent(bundle, "", "  ")
-	if err != nil {
-		http.Error(w, "encode bundle failed", http.StatusInternalServerError)
-		return
+		ScreenshotPath:   toBugReportRelativePath(workspace.DirPath, screenshotPath),
+		AnnotatedPath:    toBugReportRelativePath(workspace.DirPath, annotatedPath),
+		WorkspaceDirPath: workspace.DirPath,
 	}
 	bundlePath := filepath.Join(reportDir, "bundle.json")
-	if err := os.WriteFile(bundlePath, bundleJSON, 0o644); err != nil {
+	if err := writeBugReportBundle(bundlePath, bundle); err != nil {
 		http.Error(w, "write bundle failed", http.StatusInternalServerError)
+		return
+	}
+	issue, itemID, err := a.createGitHubIssueFromBugReport(workspace, bundlePath, bundle)
+	if err != nil {
+		http.Error(
+			w,
+			fmt.Sprintf("bug bundle saved but GitHub issue creation failed: %v", err),
+			http.StatusBadGateway,
+		)
+		return
+	}
+	bundle.GitHubIssueURL = strings.TrimSpace(issue.URL)
+	bundle.GitHubIssueNo = issue.Number
+	bundle.ItemID = itemID
+	bundle.IssueLabels = []string{"bug", "p0"}
+	if err := writeBugReportBundle(bundlePath, bundle); err != nil {
+		http.Error(w, "update bundle failed", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, map[string]any{
 		"ok":              true,
 		"report_id":       reportID,
-		"bundle_path":     toBugReportRelativePath(workspaceDir, bundlePath),
+		"bundle_path":     toBugReportRelativePath(workspace.DirPath, bundlePath),
 		"screenshot_path": bundle.ScreenshotPath,
 		"annotated_path":  bundle.AnnotatedPath,
-		"workspace":       workspaceName,
+		"workspace":       workspace.Name,
 		"git_sha":         bundle.GitSHA,
+		"issue_number":    issue.Number,
+		"issue_url":       strings.TrimSpace(issue.URL),
+		"issue_title":     strings.TrimSpace(issue.Title),
+		"item_id":         itemID,
 	})
 }
 
-func (a *App) resolveBugReportWorkspace() (string, string, error) {
+func writeBugReportBundle(path string, bundle bugReportBundle) error {
+	bundleJSON, err := json.MarshalIndent(bundle, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, bundleJSON, 0o644)
+}
+
+func (a *App) resolveBugReportWorkspace() (bugReportWorkspace, error) {
 	workspaces, err := a.store.ListWorkspaces()
 	if err != nil {
-		return "", "", err
+		return bugReportWorkspace{}, err
 	}
 	for _, workspace := range workspaces {
 		if workspace.IsActive {
-			return workspace.Name, workspace.DirPath, nil
+			id := workspace.ID
+			return bugReportWorkspace{Name: workspace.Name, DirPath: workspace.DirPath, ID: &id}, nil
 		}
 	}
 	if root := strings.TrimSpace(a.localProjectDir); root != "" {
@@ -166,9 +211,246 @@ func (a *App) resolveBugReportWorkspace() (string, string, error) {
 		if strings.TrimSpace(name) == "" || name == "." || name == string(filepath.Separator) {
 			name = "local"
 		}
-		return name, root, nil
+		return bugReportWorkspace{Name: name, DirPath: root}, nil
 	}
-	return "", "", errors.New("bug report requires an active workspace or local project")
+	return bugReportWorkspace{}, errors.New("bug report requires an active workspace or local project")
+}
+
+func (a *App) createGitHubIssueFromBugReport(workspace bugReportWorkspace, bundlePath string, bundle bugReportBundle) (ghIssueListItem, int64, error) {
+	workspaceID, err := a.ensureBugReportWorkspaceID(workspace)
+	if err != nil {
+		return ghIssueListItem{}, 0, err
+	}
+	if err := a.ensureGitHubLabels(workspace.DirPath, map[string]struct {
+		Color       string
+		Description string
+	}{
+		"bug": {Color: "d73a4a", Description: "Something isn't working"},
+		"p0":  {Color: "b60205", Description: "Highest priority"},
+	}); err != nil {
+		return ghIssueListItem{}, 0, err
+	}
+	issue, err := a.createGitHubIssueInWorkspace(
+		workspace.DirPath,
+		bugReportIssueTitle(bundle),
+		bugReportIssueBody(bundle, toBugReportRelativePath(workspace.DirPath, bundlePath)),
+		[]string{"bug", "p0"},
+		nil,
+	)
+	if err != nil {
+		return ghIssueListItem{}, 0, err
+	}
+	source := "bug_report"
+	sourceRef := fmt.Sprintf("issue:%d", issue.Number)
+	item, err := a.store.CreateItem(strings.TrimSpace(issue.Title), store.ItemOptions{
+		WorkspaceID: workspaceID,
+		Source:      &source,
+		SourceRef:   &sourceRef,
+	})
+	if err != nil {
+		return ghIssueListItem{}, 0, err
+	}
+	ownerRepo := bugReportOwnerRepoFromIssueURL(issue.URL)
+	if ownerRepo == "" && workspaceID != nil {
+		ownerRepo, _ = a.store.GitHubRepoForWorkspace(*workspaceID)
+	}
+	if ownerRepo != "" {
+		if err := a.syncGitHubIssueArtifact(item, ownerRepo, issue); err != nil {
+			return ghIssueListItem{}, 0, err
+		}
+	}
+	return issue, item.ID, nil
+}
+
+func (a *App) ensureBugReportWorkspaceID(workspace bugReportWorkspace) (*int64, error) {
+	if workspace.ID != nil && *workspace.ID > 0 {
+		id := *workspace.ID
+		return &id, nil
+	}
+	existing, err := a.store.GetWorkspaceByPath(workspace.DirPath)
+	switch {
+	case err == nil:
+		id := existing.ID
+		return &id, nil
+	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		return nil, err
+	}
+	created, err := a.store.CreateWorkspace(workspace.Name, workspace.DirPath)
+	if err != nil {
+		return nil, err
+	}
+	id := created.ID
+	return &id, nil
+}
+
+func (a *App) ensureGitHubLabels(cwd string, wanted map[string]struct {
+	Color       string
+	Description string
+}) error {
+	runner := a.ghCommandRunner
+	if runner == nil {
+		runner = runGitHubCLI
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), githubIssueListTimeout)
+	defer cancel()
+	raw, err := runner(ctx, cwd, "label", "list", "--json", "name", "--limit", "200")
+	if err != nil {
+		return err
+	}
+	var labels []gitHubLabelName
+	if err := json.Unmarshal([]byte(raw), &labels); err != nil {
+		return fmt.Errorf("invalid github label response: %w", err)
+	}
+	existing := map[string]struct{}{}
+	for _, label := range labels {
+		if clean := strings.ToLower(strings.TrimSpace(label.Name)); clean != "" {
+			existing[clean] = struct{}{}
+		}
+	}
+	for name, spec := range wanted {
+		if _, ok := existing[strings.ToLower(strings.TrimSpace(name))]; ok {
+			continue
+		}
+		_, err := runner(
+			ctx,
+			cwd,
+			"label", "create", name,
+			"--color", spec.Color,
+			"--description", spec.Description,
+		)
+		if err != nil && !strings.Contains(strings.ToLower(err.Error()), "already exists") {
+			return err
+		}
+	}
+	return nil
+}
+
+func bugReportIssueTitle(bundle bugReportBundle) string {
+	for _, candidate := range []string{
+		firstSentence(bundle.Note),
+		firstSentence(bundle.VoiceTranscript),
+		bugReportCanvasArtifactTitle(bundle.CanvasState),
+	} {
+		clean := strings.TrimSpace(candidate)
+		if clean == "" {
+			continue
+		}
+		return truncateText("Bug report: "+clean, 96)
+	}
+	return "Bug report: interaction failure"
+}
+
+func bugReportCanvasArtifactTitle(raw json.RawMessage) string {
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	for _, key := range []string{"artifact_title", "active_artifact_title", "title"} {
+		if clean := strings.TrimSpace(fmt.Sprint(payload[key])); clean != "" && clean != "<nil>" {
+			return clean
+		}
+	}
+	return ""
+}
+
+func bugReportOwnerRepoFromIssueURL(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || !strings.EqualFold(parsed.Host, "github.com") {
+		return ""
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	return strings.ToLower(parts[0] + "/" + parts[1])
+}
+
+func firstSentence(raw string) string {
+	clean := strings.Join(strings.Fields(strings.TrimSpace(raw)), " ")
+	if clean == "" {
+		return ""
+	}
+	for _, sep := range []string{". ", "! ", "? ", "\n"} {
+		if idx := strings.Index(clean, sep); idx > 0 {
+			clean = clean[:idx]
+			break
+		}
+	}
+	return strings.Trim(clean, " .!?\t\r\n")
+}
+
+func truncateText(raw string, max int) string {
+	clean := strings.TrimSpace(raw)
+	if max <= 0 || len(clean) <= max {
+		return clean
+	}
+	cut := strings.TrimSpace(clean[:max])
+	cut = strings.TrimRight(cut, ".,:;!-")
+	return cut + "..."
+}
+
+func bugReportIssueBody(bundle bugReportBundle, bundlePath string) string {
+	var b strings.Builder
+	summary := firstNonEmpty(strings.TrimSpace(bundle.Note), strings.TrimSpace(bundle.VoiceTranscript))
+	if summary != "" {
+		b.WriteString("## Summary\n\n")
+		b.WriteString(summary)
+		b.WriteString("\n\n")
+	}
+	b.WriteString("## Context\n\n")
+	for _, line := range []string{
+		bugReportContextLine("Trigger", bundle.Trigger),
+		bugReportContextLine("Active mode", bundle.ActiveMode),
+		bugReportContextLine("Workspace", bundle.ActiveWorkspace),
+		bugReportContextLine("Page", bundle.PageURL),
+		bugReportContextLine("Version", bundle.Version),
+		bugReportContextLine("Git SHA", bundle.GitSHA),
+		bugReportContextLine("Canvas artifact", bugReportCanvasArtifactTitle(bundle.CanvasState)),
+	} {
+		if line != "" {
+			b.WriteString(line)
+		}
+	}
+	b.WriteString("\n## Evidence\n\n")
+	for _, line := range []string{
+		bugReportContextLine("Bundle", bundlePath),
+		bugReportContextLine("Screenshot", bundle.ScreenshotPath),
+		bugReportContextLine("Annotated image", bundle.AnnotatedPath),
+	} {
+		if line != "" {
+			b.WriteString(line)
+		}
+	}
+	if len(bundle.RecentEvents) > 0 {
+		b.WriteString("\n## Recent events\n\n")
+		for _, event := range bundle.RecentEvents {
+			b.WriteString("- ")
+			b.WriteString(event)
+			b.WriteString("\n")
+		}
+	}
+	if len(bundle.BrowserLogs) > 0 {
+		b.WriteString("\n## Browser logs\n\n```text\n")
+		for _, line := range bundle.BrowserLogs {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		b.WriteString("```\n")
+	}
+	if transcript := strings.TrimSpace(bundle.VoiceTranscript); transcript != "" {
+		b.WriteString("\n## Voice transcript\n\n")
+		b.WriteString(transcript)
+		b.WriteString("\n")
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func bugReportContextLine(label, value string) string {
+	clean := strings.TrimSpace(value)
+	if clean == "" {
+		return ""
+	}
+	return fmt.Sprintf("- %s: `%s`\n", label, clean)
 }
 
 func decodeBugReportDataURL(raw string) (bugReportFile, error) {

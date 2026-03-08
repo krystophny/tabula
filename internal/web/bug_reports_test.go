@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -8,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/krystophny/tabura/internal/store"
 )
 
 const testPNGDataURL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5W8xkAAAAASUVORK5CYII="
@@ -16,12 +19,34 @@ func TestHandleBugReportCreateWritesBundleUnderWorkspaceArtifacts(t *testing.T) 
 	app := newAuthedTestApp(t)
 	workspaceDir := t.TempDir()
 	initGitRepo(t, workspaceDir)
+	addGitRemote(t, workspaceDir, "https://github.com/owner/tabula.git")
 	workspace, err := app.store.CreateWorkspace("Tabura", workspaceDir)
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
 	if err := app.store.SetActiveWorkspace(workspace.ID); err != nil {
 		t.Fatalf("SetActiveWorkspace() error: %v", err)
+	}
+	var ghCalls [][]string
+	app.ghCommandRunner = func(_ context.Context, cwd string, args ...string) (string, error) {
+		ghCalls = append(ghCalls, append([]string{cwd}, args...))
+		if cwd != workspaceDir {
+			t.Fatalf("gh cwd = %q, want %q", cwd, workspaceDir)
+		}
+		if len(args) >= 3 && args[0] == "label" && args[1] == "list" {
+			return `[{"name":"bug"}]`, nil
+		}
+		if len(args) >= 3 && args[0] == "label" && args[1] == "create" && args[2] == "p0" {
+			return "", nil
+		}
+		if len(args) >= 2 && args[0] == "issue" && args[1] == "create" {
+			return "https://github.com/owner/tabula/issues/77\n", nil
+		}
+		if len(args) >= 2 && args[0] == "issue" && args[1] == "view" {
+			return `{"number":77,"title":"Bug report: The indicator froze after the tap","url":"https://github.com/owner/tabula/issues/77","state":"OPEN","labels":[{"name":"bug"},{"name":"p0"}],"assignees":[]}`, nil
+		}
+		t.Fatalf("unexpected gh invocation: %v", args)
+		return "", nil
 	}
 
 	rr := doAuthedJSONRequest(t, app.Router(), "POST", "/api/bugs/report", map[string]any{
@@ -57,6 +82,15 @@ func TestHandleBugReportCreateWritesBundleUnderWorkspaceArtifacts(t *testing.T) 
 	if !strings.HasSuffix(annotatedPath, "annotated.png") {
 		t.Fatalf("annotated_path = %q, want annotated.png suffix", annotatedPath)
 	}
+	if got := intFromAny(payload["issue_number"], 0); got != 77 {
+		t.Fatalf("issue_number = %d, want 77", got)
+	}
+	if got := strFromAny(payload["issue_url"]); got != "https://github.com/owner/tabula/issues/77" {
+		t.Fatalf("issue_url = %q", got)
+	}
+	if got := strFromAny(payload["issue_title"]); got != "Bug report: The indicator froze after the tap" {
+		t.Fatalf("issue_title = %q", got)
+	}
 	bundleBytes, err := os.ReadFile(filepath.Join(workspaceDir, filepath.FromSlash(bundlePath)))
 	if err != nil {
 		t.Fatalf("read bundle: %v", err)
@@ -83,6 +117,12 @@ func TestHandleBugReportCreateWritesBundleUnderWorkspaceArtifacts(t *testing.T) 
 	if got := strFromAny(bundle["annotated_image"]); got != annotatedPath {
 		t.Fatalf("bundle annotated_image = %q, want %q", got, annotatedPath)
 	}
+	if got := strFromAny(bundle["github_issue_url"]); got != "https://github.com/owner/tabula/issues/77" {
+		t.Fatalf("bundle github_issue_url = %q", got)
+	}
+	if got := intFromAny(bundle["github_issue_number"], 0); got != 77 {
+		t.Fatalf("bundle github_issue_number = %d, want 77", got)
+	}
 	if got := strFromAny(bundle["git_sha"]); !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(got) {
 		t.Fatalf("git_sha = %q, want 40 hex chars", got)
 	}
@@ -92,6 +132,44 @@ func TestHandleBugReportCreateWritesBundleUnderWorkspaceArtifacts(t *testing.T) 
 	}
 	if got := strFromAny(canvasState["artifact_title"]); got != "README.md" {
 		t.Fatalf("canvas_state.artifact_title = %q, want %q", got, "README.md")
+	}
+	item, err := app.store.GetItemBySource("bug_report", "issue:77")
+	if err != nil {
+		t.Fatalf("GetItemBySource() error: %v", err)
+	}
+	if item.WorkspaceID == nil || *item.WorkspaceID != workspace.ID {
+		t.Fatalf("item.WorkspaceID = %v, want %d", item.WorkspaceID, workspace.ID)
+	}
+	if item.ArtifactID == nil {
+		t.Fatal("expected GitHub issue artifact to be linked")
+	}
+	artifact, err := app.store.GetArtifact(*item.ArtifactID)
+	if err != nil {
+		t.Fatalf("GetArtifact() error: %v", err)
+	}
+	if artifact.Kind != store.ArtifactKindGitHubIssue {
+		t.Fatalf("artifact.Kind = %q, want %q", artifact.Kind, store.ArtifactKindGitHubIssue)
+	}
+	createCall := ""
+	for _, call := range ghCalls {
+		if len(call) > 2 && call[1] == "issue" && call[2] == "create" {
+			createCall = strings.Join(call[1:], " ")
+			break
+		}
+	}
+	if createCall == "" {
+		t.Fatal("missing gh issue create call")
+	}
+	for _, needle := range []string{
+		"--label bug",
+		"--label p0",
+		"--title Bug report: The indicator froze after the tap",
+		"## Evidence",
+		".tabura/artifacts/bugs/",
+	} {
+		if !strings.Contains(createCall, needle) {
+			t.Fatalf("create call = %q, missing %q", createCall, needle)
+		}
 	}
 }
 
@@ -105,6 +183,58 @@ func TestHandleBugReportCreateRequiresWorkspaceContext(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), "active workspace or local project") {
 		t.Fatalf("POST /api/bugs/report body = %q, want workspace context error", rr.Body.String())
+	}
+}
+
+func TestHandleBugReportCreateUsesLocalProjectFallback(t *testing.T) {
+	dataDir := t.TempDir()
+	localProjectDir := t.TempDir()
+	initGitRepo(t, localProjectDir)
+	addGitRemote(t, localProjectDir, "https://github.com/owner/tabula.git")
+	app, err := New(dataDir, localProjectDir, "", "", "", "", "", false)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	if err := app.store.AddAuthSession(testAuthToken); err != nil {
+		t.Fatalf("AddAuthSession() error: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = app.Shutdown(context.Background())
+	})
+	app.ghCommandRunner = func(_ context.Context, cwd string, args ...string) (string, error) {
+		if cwd != localProjectDir {
+			t.Fatalf("gh cwd = %q, want %q", cwd, localProjectDir)
+		}
+		if len(args) >= 3 && args[0] == "label" && args[1] == "list" {
+			return `[{"name":"bug"},{"name":"p0"}]`, nil
+		}
+		if len(args) >= 2 && args[0] == "issue" && args[1] == "create" {
+			return "https://github.com/owner/tabula/issues/91\n", nil
+		}
+		if len(args) >= 2 && args[0] == "issue" && args[1] == "view" {
+			return `{"number":91,"title":"Bug report: Local project fallback","url":"https://github.com/owner/tabula/issues/91","state":"OPEN","labels":[{"name":"bug"},{"name":"p0"}],"assignees":[]}`, nil
+		}
+		t.Fatalf("unexpected gh invocation: %v", args)
+		return "", nil
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), "POST", "/api/bugs/report", map[string]any{
+		"note":                "Local project fallback.",
+		"screenshot_data_url": testPNGDataURL,
+	})
+	if rr.Code != 200 {
+		t.Fatalf("POST /api/bugs/report status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	workspace, err := app.store.GetWorkspaceByPath(localProjectDir)
+	if err != nil {
+		t.Fatalf("GetWorkspaceByPath() error: %v", err)
+	}
+	item, err := app.store.GetItemBySource("bug_report", "issue:91")
+	if err != nil {
+		t.Fatalf("GetItemBySource() error: %v", err)
+	}
+	if item.WorkspaceID == nil || *item.WorkspaceID != workspace.ID {
+		t.Fatalf("item.WorkspaceID = %v, want %d", item.WorkspaceID, workspace.ID)
 	}
 }
 
@@ -136,5 +266,14 @@ func initGitRepo(t *testing.T, dir string) {
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("%s failed: %v\n%s", strings.Join(args, " "), err, string(out))
 		}
+	}
+}
+
+func addGitRemote(t *testing.T, dir, remoteURL string) {
+	t.Helper()
+	cmd := exec.Command("git", "remote", "add", "origin", remoteURL)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git remote add origin failed: %v\n%s", err, string(out))
 	}
 }

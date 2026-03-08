@@ -1,5 +1,7 @@
 import { apiURL, getActiveArtifactTitle, getActiveTextEventId, getUiState, isOverlayVisible, isTextInputVisible } from './app-env.js';
 import { refs, state } from './app-context.js';
+import { showCanvasColumn } from './app-canvas-ui.js';
+import { renderCanvas } from './canvas.js';
 
 const showStatus = (...args) => refs.showStatus(...args);
 const fetchRuntimeMeta = (...args) => refs.fetchRuntimeMeta(...args);
@@ -51,6 +53,22 @@ function stringifyConsoleArg(value) {
   } catch (_) {
     return String(value);
   }
+}
+
+function bugReportIssueCanvasMarkdown(payload) {
+  const issueNumber = Number(payload?.issue_number || 0);
+  const issueURL = safeText(payload?.issue_url);
+  const bundlePath = safeText(payload?.bundle_path);
+  const lines = ['# Bug report filed', ''];
+  if (issueNumber > 0 && issueURL) {
+    lines.push(`- Issue: [#${issueNumber}](${issueURL})`);
+  } else if (issueURL) {
+    lines.push(`- Issue: ${issueURL}`);
+  }
+  if (bundlePath) {
+    lines.push(`- Bundle: \`${bundlePath}\``);
+  }
+  return lines.join('\n');
 }
 
 function recordRecentEvent(label) {
@@ -605,7 +623,15 @@ async function saveBugReport() {
     }
     const payload = await resp.json();
     closeBugReportSheet();
-    showStatus(`bug bundle saved: ${safeText(payload?.bundle_path) || 'ok'}`);
+    renderCanvas({
+      kind: 'text_artifact',
+      event_id: `bug-report-${Date.now()}`,
+      title: safeText(payload?.issue_title) || 'Bug report filed',
+      text: bugReportIssueCanvasMarkdown(payload),
+    });
+    showCanvasColumn('canvas-text');
+    const issueNumber = Number(payload?.issue_number || 0);
+    showStatus(issueNumber > 0 ? `bug report filed: #${issueNumber}` : `bug bundle saved: ${safeText(payload?.bundle_path) || 'ok'}`);
   } catch (err) {
     showStatus(`bug bundle failed: ${safeText(err?.message || err) || 'unknown error'}`);
   } finally {

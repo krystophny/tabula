@@ -47,6 +47,9 @@ test.describe('bug report flow', () => {
     expect(Array.isArray(request.recent_events)).toBe(true);
     expect(request.recent_events.length).toBeGreaterThan(0);
     expect(Array.isArray(request.browser_logs)).toBe(true);
+    await expect(page.locator('#bug-report-sheet')).toBeHidden();
+    await expect(page.locator('#canvas-text')).toContainText('Bug report filed');
+    await expect(page.locator('#canvas-text')).toContainText('#77');
   });
 
   test('keyboard shortcut opens the bug report sheet', async ({ page }) => {

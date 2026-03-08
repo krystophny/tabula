@@ -816,6 +816,10 @@
           bundle_path: '.tabura/artifacts/bugs/20260308-150405-abcd1234/bundle.json',
           screenshot_path: '.tabura/artifacts/bugs/20260308-150405-abcd1234/screenshot.png',
           annotated_path: body.annotated_data_url ? '.tabura/artifacts/bugs/20260308-150405-abcd1234/annotated.png' : '',
+          issue_number: 77,
+          issue_url: 'https://github.com/owner/tabula/issues/77',
+          issue_title: 'Bug report: Harness repro',
+          item_id: 501,
         }), { status: 200 });
       }
       if (u.endsWith('/api/projects') && opts?.method === 'POST') {
