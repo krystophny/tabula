@@ -125,6 +125,58 @@ CREATE TABLE chat_messages (
 	}
 }
 
+func TestStoreMigratesExistingItemsTableToAllowSomeday(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "tabura.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error: %v", err)
+	}
+	schema := `
+CREATE TABLE items (
+  id INTEGER PRIMARY KEY,
+  title TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'inbox' CHECK (state IN ('inbox', 'waiting', 'done')),
+  workspace_id INTEGER,
+  artifact_id INTEGER,
+  actor_id INTEGER,
+  visible_after TEXT,
+  follow_up_at TEXT,
+  source TEXT,
+  source_ref TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+INSERT INTO items (title, state) VALUES ('legacy waiting', 'waiting');
+`
+	if _, err := db.Exec(schema); err != nil {
+		_ = db.Close()
+		t.Fatalf("seed legacy items schema: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close legacy db: %v", err)
+	}
+
+	s, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("store.New() on legacy items db error: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Close()
+	})
+
+	item, err := s.GetItem(1)
+	if err != nil {
+		t.Fatalf("GetItem(legacy row) error: %v", err)
+	}
+	if item.State != ItemStateWaiting {
+		t.Fatalf("legacy item state = %q, want %q", item.State, ItemStateWaiting)
+	}
+
+	if _, err := s.CreateItem("someday migration", ItemOptions{State: ItemStateSomeday}); err != nil {
+		t.Fatalf("CreateItem(someday) after migration error: %v", err)
+	}
+}
+
 func TestItemSchemaAllowsNilOptionalFields(t *testing.T) {
 	s := newTestStore(t)
 
@@ -482,6 +534,12 @@ func TestDomainCRUDRoundTrip(t *testing.T) {
 	if err := s.UpdateItemState(inboxItem.ID, ItemStateWaiting); err != nil {
 		t.Fatalf("UpdateItemState(waiting) error: %v", err)
 	}
+	if err := s.UpdateItemState(workspaceItem.ID, ItemStateSomeday); err != nil {
+		t.Fatalf("UpdateItemState(someday) error: %v", err)
+	}
+	if err := s.UpdateItemState(workspaceItem.ID, ItemStateInbox); err != nil {
+		t.Fatalf("UpdateItemState(inbox from someday) error: %v", err)
+	}
 	if err := s.UpdateItemState(inboxItem.ID, ItemStateDone); err != nil {
 		t.Fatalf("UpdateItemState(done) error: %v", err)
 	}
@@ -591,6 +649,121 @@ func TestDomainConcurrentWorkspaceCreates(t *testing.T) {
 	}
 	if len(workspaces) != count {
 		t.Fatalf("ListWorkspaces() len = %d, want %d", len(workspaces), count)
+	}
+}
+
+func TestItemTriageOperations(t *testing.T) {
+	s := newTestStore(t)
+
+	actor, err := s.CreateActor("Codex", ActorKindAgent)
+	if err != nil {
+		t.Fatalf("CreateActor() error: %v", err)
+	}
+
+	laterItem, err := s.CreateItem("Later item", ItemOptions{})
+	if err != nil {
+		t.Fatalf("CreateItem(later) error: %v", err)
+	}
+	visibleAfter := "2026-03-10T09:00:00Z"
+	if err := s.TriageItemLater(laterItem.ID, visibleAfter); err != nil {
+		t.Fatalf("TriageItemLater() error: %v", err)
+	}
+	gotLater, err := s.GetItem(laterItem.ID)
+	if err != nil {
+		t.Fatalf("GetItem(later) error: %v", err)
+	}
+	if gotLater.State != ItemStateWaiting {
+		t.Fatalf("later state = %q, want %q", gotLater.State, ItemStateWaiting)
+	}
+	if gotLater.VisibleAfter == nil || *gotLater.VisibleAfter != visibleAfter {
+		t.Fatalf("later visible_after = %v, want %q", gotLater.VisibleAfter, visibleAfter)
+	}
+
+	delegateItem, err := s.CreateItem("Delegate item", ItemOptions{
+		VisibleAfter: &visibleAfter,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(delegate) error: %v", err)
+	}
+	if err := s.TriageItemDelegate(delegateItem.ID, actor.ID); err != nil {
+		t.Fatalf("TriageItemDelegate() error: %v", err)
+	}
+	gotDelegate, err := s.GetItem(delegateItem.ID)
+	if err != nil {
+		t.Fatalf("GetItem(delegate) error: %v", err)
+	}
+	if gotDelegate.State != ItemStateWaiting {
+		t.Fatalf("delegate state = %q, want %q", gotDelegate.State, ItemStateWaiting)
+	}
+	if gotDelegate.ActorID == nil || *gotDelegate.ActorID != actor.ID {
+		t.Fatalf("delegate actor = %v, want %d", gotDelegate.ActorID, actor.ID)
+	}
+	if gotDelegate.VisibleAfter != nil {
+		t.Fatalf("delegate visible_after = %v, want nil", gotDelegate.VisibleAfter)
+	}
+
+	somedayItem, err := s.CreateItem("Someday item", ItemOptions{
+		ActorID:      &actor.ID,
+		VisibleAfter: &visibleAfter,
+		FollowUpAt:   &visibleAfter,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(someday) error: %v", err)
+	}
+	if err := s.TriageItemSomeday(somedayItem.ID); err != nil {
+		t.Fatalf("TriageItemSomeday() error: %v", err)
+	}
+	gotSomeday, err := s.GetItem(somedayItem.ID)
+	if err != nil {
+		t.Fatalf("GetItem(someday) error: %v", err)
+	}
+	if gotSomeday.State != ItemStateSomeday {
+		t.Fatalf("someday state = %q, want %q", gotSomeday.State, ItemStateSomeday)
+	}
+	if gotSomeday.ActorID == nil || *gotSomeday.ActorID != actor.ID {
+		t.Fatalf("someday actor = %v, want %d", gotSomeday.ActorID, actor.ID)
+	}
+	if gotSomeday.VisibleAfter != nil || gotSomeday.FollowUpAt != nil {
+		t.Fatalf("someday timestamps = visible_after:%v follow_up_at:%v, want nil", gotSomeday.VisibleAfter, gotSomeday.FollowUpAt)
+	}
+
+	doneItem, err := s.CreateItem("Done item", ItemOptions{})
+	if err != nil {
+		t.Fatalf("CreateItem(done) error: %v", err)
+	}
+	if err := s.TriageItemDone(doneItem.ID); err != nil {
+		t.Fatalf("TriageItemDone() error: %v", err)
+	}
+	gotDone, err := s.GetItem(doneItem.ID)
+	if err != nil {
+		t.Fatalf("GetItem(done) error: %v", err)
+	}
+	if gotDone.State != ItemStateDone {
+		t.Fatalf("done state = %q, want %q", gotDone.State, ItemStateDone)
+	}
+
+	deleteItem, err := s.CreateItem("Delete me", ItemOptions{})
+	if err != nil {
+		t.Fatalf("CreateItem(delete) error: %v", err)
+	}
+	if err := s.TriageItemDelete(deleteItem.ID); err != nil {
+		t.Fatalf("TriageItemDelete() error: %v", err)
+	}
+	if _, err := s.GetItem(deleteItem.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetItem(deleted) error = %v, want sql.ErrNoRows", err)
+	}
+
+	if err := s.TriageItemLater(laterItem.ID, "tomorrow morning"); err == nil {
+		t.Fatal("expected invalid visible_after error")
+	}
+	if err := s.TriageItemDelegate(999999, actor.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("TriageItemDelegate(missing item) error = %v, want sql.ErrNoRows", err)
+	}
+	if err := s.TriageItemDelegate(laterItem.ID, 999999); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("TriageItemDelegate(missing actor) error = %v, want sql.ErrNoRows", err)
+	}
+	if err := s.TriageItemSomeday(doneItem.ID); err == nil {
+		t.Fatal("expected done item triage rejection")
 	}
 }
 

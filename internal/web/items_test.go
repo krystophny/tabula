@@ -1,6 +1,7 @@
 package web
 
 import (
+	"database/sql"
 	"net/http"
 	"strconv"
 	"testing"
@@ -155,5 +156,197 @@ func TestItemCompletionAPIRejectsWrongActorAndMissingItem(t *testing.T) {
 	})
 	if rrMissingItem.Code != http.StatusNotFound {
 		t.Fatalf("complete missing item status = %d, want 404: %s", rrMissingItem.Code, rrMissingItem.Body.String())
+	}
+}
+
+func TestItemTriageAPI(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	actor, err := app.store.CreateActor("Codex", store.ActorKindAgent)
+	if err != nil {
+		t.Fatalf("CreateActor() error: %v", err)
+	}
+
+	doneItem, err := app.store.CreateItem("Done me", store.ItemOptions{})
+	if err != nil {
+		t.Fatalf("CreateItem(done) error: %v", err)
+	}
+	rrDone := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(doneItem.ID)+"/triage", map[string]any{
+		"action": "done",
+	})
+	if rrDone.Code != http.StatusOK {
+		t.Fatalf("triage done status = %d, want 200: %s", rrDone.Code, rrDone.Body.String())
+	}
+	gotDone, err := app.store.GetItem(doneItem.ID)
+	if err != nil {
+		t.Fatalf("GetItem(done) error: %v", err)
+	}
+	if gotDone.State != store.ItemStateDone {
+		t.Fatalf("done state = %q, want %q", gotDone.State, store.ItemStateDone)
+	}
+
+	laterItem, err := app.store.CreateItem("Later me", store.ItemOptions{})
+	if err != nil {
+		t.Fatalf("CreateItem(later) error: %v", err)
+	}
+	visibleAfter := "2026-03-10T09:00:00Z"
+	rrLater := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(laterItem.ID)+"/triage", map[string]any{
+		"action":        "later",
+		"visible_after": visibleAfter,
+	})
+	if rrLater.Code != http.StatusOK {
+		t.Fatalf("triage later status = %d, want 200: %s", rrLater.Code, rrLater.Body.String())
+	}
+	gotLater, err := app.store.GetItem(laterItem.ID)
+	if err != nil {
+		t.Fatalf("GetItem(later) error: %v", err)
+	}
+	if gotLater.State != store.ItemStateWaiting {
+		t.Fatalf("later state = %q, want %q", gotLater.State, store.ItemStateWaiting)
+	}
+	if gotLater.VisibleAfter == nil || *gotLater.VisibleAfter != visibleAfter {
+		t.Fatalf("later visible_after = %v, want %q", gotLater.VisibleAfter, visibleAfter)
+	}
+
+	delegateItem, err := app.store.CreateItem("Delegate me", store.ItemOptions{
+		VisibleAfter: &visibleAfter,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(delegate) error: %v", err)
+	}
+	rrDelegate := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(delegateItem.ID)+"/triage", map[string]any{
+		"action":   "delegate",
+		"actor_id": actor.ID,
+	})
+	if rrDelegate.Code != http.StatusOK {
+		t.Fatalf("triage delegate status = %d, want 200: %s", rrDelegate.Code, rrDelegate.Body.String())
+	}
+	gotDelegate, err := app.store.GetItem(delegateItem.ID)
+	if err != nil {
+		t.Fatalf("GetItem(delegate) error: %v", err)
+	}
+	if gotDelegate.State != store.ItemStateWaiting {
+		t.Fatalf("delegate state = %q, want %q", gotDelegate.State, store.ItemStateWaiting)
+	}
+	if gotDelegate.ActorID == nil || *gotDelegate.ActorID != actor.ID {
+		t.Fatalf("delegate actor = %v, want %d", gotDelegate.ActorID, actor.ID)
+	}
+	if gotDelegate.VisibleAfter != nil {
+		t.Fatalf("delegate visible_after = %v, want nil", gotDelegate.VisibleAfter)
+	}
+
+	somedayItem, err := app.store.CreateItem("Someday me", store.ItemOptions{
+		VisibleAfter: &visibleAfter,
+		FollowUpAt:   &visibleAfter,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(someday) error: %v", err)
+	}
+	rrSomeday := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(somedayItem.ID)+"/triage", map[string]any{
+		"action": "someday",
+	})
+	if rrSomeday.Code != http.StatusOK {
+		t.Fatalf("triage someday status = %d, want 200: %s", rrSomeday.Code, rrSomeday.Body.String())
+	}
+	gotSomeday, err := app.store.GetItem(somedayItem.ID)
+	if err != nil {
+		t.Fatalf("GetItem(someday) error: %v", err)
+	}
+	if gotSomeday.State != store.ItemStateSomeday {
+		t.Fatalf("someday state = %q, want %q", gotSomeday.State, store.ItemStateSomeday)
+	}
+	if gotSomeday.VisibleAfter != nil || gotSomeday.FollowUpAt != nil {
+		t.Fatalf("someday timestamps = visible_after:%v follow_up_at:%v, want nil", gotSomeday.VisibleAfter, gotSomeday.FollowUpAt)
+	}
+
+	deleteItem, err := app.store.CreateItem("Delete me", store.ItemOptions{})
+	if err != nil {
+		t.Fatalf("CreateItem(delete) error: %v", err)
+	}
+	rrDelete := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(deleteItem.ID)+"/triage", map[string]any{
+		"action": "delete",
+	})
+	if rrDelete.Code != http.StatusOK {
+		t.Fatalf("triage delete status = %d, want 200: %s", rrDelete.Code, rrDelete.Body.String())
+	}
+	if _, err := app.store.GetItem(deleteItem.ID); err == nil {
+		t.Fatal("expected deleted item to be gone")
+	} else if err != sql.ErrNoRows {
+		t.Fatalf("GetItem(deleted) error = %v, want sql.ErrNoRows", err)
+	}
+}
+
+func TestItemTriageAPIRejectsInvalidRequests(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	actor, err := app.store.CreateActor("Codex", store.ActorKindAgent)
+	if err != nil {
+		t.Fatalf("CreateActor() error: %v", err)
+	}
+	doneItem, err := app.store.CreateItem("Already done", store.ItemOptions{})
+	if err != nil {
+		t.Fatalf("CreateItem(done) error: %v", err)
+	}
+	if err := app.store.TriageItemDone(doneItem.ID); err != nil {
+		t.Fatalf("TriageItemDone() setup error: %v", err)
+	}
+	inboxItem, err := app.store.CreateItem("Inbox item", store.ItemOptions{})
+	if err != nil {
+		t.Fatalf("CreateItem(inbox) error: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		path   string
+		body   map[string]any
+		status int
+	}{
+		{
+			name:   "missing visible_after",
+			path:   "/api/items/" + itoa(inboxItem.ID) + "/triage",
+			body:   map[string]any{"action": "later"},
+			status: http.StatusBadRequest,
+		},
+		{
+			name:   "invalid visible_after",
+			path:   "/api/items/" + itoa(inboxItem.ID) + "/triage",
+			body:   map[string]any{"action": "later", "visible_after": "tomorrow"},
+			status: http.StatusBadRequest,
+		},
+		{
+			name:   "missing actor",
+			path:   "/api/items/" + itoa(inboxItem.ID) + "/triage",
+			body:   map[string]any{"action": "delegate"},
+			status: http.StatusBadRequest,
+		},
+		{
+			name:   "unknown actor",
+			path:   "/api/items/" + itoa(inboxItem.ID) + "/triage",
+			body:   map[string]any{"action": "delegate", "actor_id": actor.ID + 999},
+			status: http.StatusBadRequest,
+		},
+		{
+			name:   "unknown action",
+			path:   "/api/items/" + itoa(inboxItem.ID) + "/triage",
+			body:   map[string]any{"action": "archive"},
+			status: http.StatusBadRequest,
+		},
+		{
+			name:   "missing item",
+			path:   "/api/items/999999/triage",
+			body:   map[string]any{"action": "done"},
+			status: http.StatusNotFound,
+		},
+		{
+			name:   "done item",
+			path:   "/api/items/" + itoa(doneItem.ID) + "/triage",
+			body:   map[string]any{"action": "someday"},
+			status: http.StatusBadRequest,
+		},
+	} {
+		rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, tc.path, tc.body)
+		if rr.Code != tc.status {
+			t.Fatalf("%s status = %d, want %d: %s", tc.name, rr.Code, tc.status, rr.Body.String())
+		}
 	}
 }

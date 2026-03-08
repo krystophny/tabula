@@ -10,6 +10,21 @@ import (
 	"time"
 )
 
+const itemsTableSchema = `CREATE TABLE IF NOT EXISTS items (
+  id INTEGER PRIMARY KEY,
+  title TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'inbox' CHECK (state IN ('inbox', 'waiting', 'someday', 'done')),
+  workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
+  artifact_id INTEGER REFERENCES artifacts(id) ON DELETE SET NULL,
+  actor_id INTEGER REFERENCES actors(id) ON DELETE SET NULL,
+  visible_after TEXT,
+  follow_up_at TEXT,
+  source TEXT,
+  source_ref TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);`
+
 func (s *Store) migrateDomainTables() error {
 	schema := `
 CREATE TABLE IF NOT EXISTS workspaces (
@@ -36,23 +51,14 @@ CREATE TABLE IF NOT EXISTS artifacts (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE TABLE IF NOT EXISTS items (
-  id INTEGER PRIMARY KEY,
-  title TEXT NOT NULL,
-  state TEXT NOT NULL DEFAULT 'inbox' CHECK (state IN ('inbox', 'waiting', 'done')),
-  workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
-  artifact_id INTEGER REFERENCES artifacts(id) ON DELETE SET NULL,
-  actor_id INTEGER REFERENCES actors(id) ON DELETE SET NULL,
-  visible_after TEXT,
-  follow_up_at TEXT,
-  source TEXT,
-  source_ref TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
 `
-	_, err := s.db.Exec(schema)
-	return err
+	if _, err := s.db.Exec(schema); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(itemsTableSchema); err != nil {
+		return err
+	}
+	return s.migrateItemTableStateSupport()
 }
 
 func normalizeWorkspaceName(name string) string {
@@ -107,6 +113,8 @@ func normalizeItemState(state string) string {
 		return ItemStateInbox
 	case ItemStateWaiting:
 		return ItemStateWaiting
+	case ItemStateSomeday:
+		return ItemStateSomeday
 	case ItemStateDone:
 		return ItemStateDone
 	default:
@@ -122,6 +130,43 @@ func validateItemTransition(current, next string) error {
 		return fmt.Errorf("cannot transition item from %s to %s", current, next)
 	}
 	return nil
+}
+
+func (s *Store) migrateItemTableStateSupport() error {
+	var schema sql.NullString
+	if err := s.db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'items'`).Scan(&schema); err != nil {
+		return err
+	}
+	if strings.Contains(strings.ToLower(schema.String), "'someday'") {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`ALTER TABLE items RENAME TO items_legacy`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(strings.Replace(itemsTableSchema, "IF NOT EXISTS ", "", 1)); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`
+INSERT INTO items (
+	id, title, state, workspace_id, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, created_at, updated_at
+)
+SELECT
+	id, title, state, workspace_id, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, created_at, updated_at
+FROM items_legacy
+`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DROP TABLE items_legacy`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func scanWorkspace(
@@ -588,6 +633,137 @@ func (s *Store) UpdateItemState(id int64, state string) error {
 	res, err := s.db.Exec(
 		`UPDATE items SET state = ?, updated_at = datetime('now') WHERE id = ?`,
 		next,
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) triageableItem(id int64) (Item, error) {
+	item, err := s.GetItem(id)
+	if err != nil {
+		return Item{}, err
+	}
+	if item.State == ItemStateDone {
+		return Item{}, fmt.Errorf("cannot triage item in %s state", item.State)
+	}
+	return item, nil
+}
+
+func normalizeRFC3339String(value string) (string, error) {
+	parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(value))
+	if err != nil {
+		return "", err
+	}
+	return parsed.UTC().Format(time.RFC3339Nano), nil
+}
+
+func (s *Store) TriageItemDone(id int64) error {
+	if _, err := s.triageableItem(id); err != nil {
+		return err
+	}
+	res, err := s.db.Exec(
+		`UPDATE items
+		 SET state = ?, updated_at = datetime('now')
+		 WHERE id = ?`,
+		ItemStateDone,
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) TriageItemLater(id int64, visibleAfter string) error {
+	if _, err := s.triageableItem(id); err != nil {
+		return err
+	}
+	normalized, err := normalizeRFC3339String(visibleAfter)
+	if err != nil {
+		return errors.New("visible_after must be a valid RFC3339 timestamp")
+	}
+	res, err := s.db.Exec(
+		`UPDATE items
+		 SET state = ?, visible_after = ?, updated_at = datetime('now')
+		 WHERE id = ?`,
+		ItemStateWaiting,
+		normalized,
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) TriageItemDelegate(id, actorID int64) error {
+	if _, err := s.triageableItem(id); err != nil {
+		return err
+	}
+	if _, err := s.GetActor(actorID); err != nil {
+		return err
+	}
+	res, err := s.db.Exec(
+		`UPDATE items
+		 SET actor_id = ?, state = ?, visible_after = NULL, updated_at = datetime('now')
+		 WHERE id = ?`,
+		actorID,
+		ItemStateWaiting,
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) TriageItemDelete(id int64) error {
+	if _, err := s.triageableItem(id); err != nil {
+		return err
+	}
+	return s.DeleteItem(id)
+}
+
+func (s *Store) TriageItemSomeday(id int64) error {
+	if _, err := s.triageableItem(id); err != nil {
+		return err
+	}
+	res, err := s.db.Exec(
+		`UPDATE items
+		 SET state = ?, visible_after = NULL, follow_up_at = NULL, updated_at = datetime('now')
+		 WHERE id = ?`,
+		ItemStateSomeday,
 		id,
 	)
 	if err != nil {

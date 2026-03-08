@@ -379,6 +379,7 @@ func (a *App) Router() http.Handler {
 	r.Put("/api/items/{item_id}/assign", a.handleItemAssign)
 	r.Put("/api/items/{item_id}/unassign", a.handleItemUnassign)
 	r.Put("/api/items/{item_id}/complete", a.handleItemComplete)
+	r.Post("/api/items/{item_id}/triage", a.handleItemTriage)
 	r.Post("/api/chat/sessions", a.handleChatSessionCreate)
 	r.Get("/api/chat/sessions/{session_id}/history", a.handleChatSessionHistory)
 	r.Get("/api/chat/sessions/{session_id}/activity", a.handleChatSessionActivity)

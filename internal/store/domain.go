@@ -18,6 +18,7 @@ const (
 
 	ItemStateInbox   = "inbox"
 	ItemStateWaiting = "waiting"
+	ItemStateSomeday = "someday"
 	ItemStateDone    = "done"
 )
 
