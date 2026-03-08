@@ -1,0 +1,438 @@
+#workspace {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+  min-width: 0;
+}
+
+#canvas-column {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+#canvas-viewport {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+  position: relative;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.canvas-pane {
+  display: none;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+  overflow-x: hidden;
+  position: relative;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  z-index: 1;
+}
+
+.canvas-pane.is-active {
+  display: flex;
+}
+
+#canvas-text,
+#canvas-image,
+#canvas-pdf {
+  padding: 1rem;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+#canvas-text {
+  font-size: var(--chat-content-font-size);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  user-select: text;
+  -webkit-user-select: text;
+  position: relative;
+  -webkit-touch-callout: none;
+  touch-action: pan-y;
+}
+
+#canvas-text:focus {
+  outline: none;
+}
+
+#canvas-text h1, #canvas-text h2, #canvas-text h3 { color: var(--accent); margin: 1rem 0 0.5rem; }
+#canvas-text code { background: var(--bg-elevated); padding: 0.15rem 0.3rem; border-radius: 3px; }
+#canvas-text pre {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  overflow-x: hidden;
+  border: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+#canvas-text pre code { background: none; padding: 0; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
+#canvas-text pre code.hljs { display: block; background: transparent; padding: 0; white-space: pre-wrap !important; word-break: break-word; overflow-wrap: anywhere; overflow-x: clip; }
+#canvas-text .hljs { white-space: pre-wrap !important; word-break: break-word; overflow-wrap: anywhere; overflow-x: clip; }
+#canvas-text pre code.hljs .hljs-keyword { font-weight: 700 !important; }
+
+#canvas-text pre code .hl-kw { color: #0000FF; font-weight: 600; }
+#canvas-text pre code .hl-str { color: #A31515; }
+#canvas-text pre code .hl-num { color: #098658; }
+#canvas-text pre code .hl-cmt { color: #008000; }
+
+#canvas-text.welcome-surface {
+  padding: 1.2rem;
+}
+
+.welcome-surface-root {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.welcome-surface-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.welcome-surface-subtitle {
+  color: #374151;
+}
+
+.welcome-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.welcome-section-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.welcome-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.7rem;
+}
+
+.welcome-card {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  padding: 0.9rem;
+  border-radius: 10px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.welcome-card:hover {
+  background: #f3f4f6;
+}
+
+.welcome-card-title {
+  font-weight: 700;
+}
+
+.welcome-card-subtitle {
+  font-size: 0.92rem;
+  color: #111827;
+  word-break: break-word;
+}
+
+.welcome-card-description {
+  font-size: 0.88rem;
+  color: #4b5563;
+}
+
+#canvas-text pre code .hl-diff-line {
+  display: block;
+  margin: 0 -0.2rem;
+  padding: 0 0.2rem;
+}
+
+#canvas-text pre code .hl-diff-line[data-file-line]::before {
+  content: attr(data-file-line);
+  display: inline-block;
+  min-width: 4ch;
+  margin-right: 0.6rem;
+  color: #6b6b6b;
+  user-select: none;
+}
+
+#canvas-text pre code .hl-diff-meta { color: #000080; }
+#canvas-text pre code .hl-diff-hunk { color: #0451A5; }
+#canvas-text pre code .hl-diff-add { color: inherit; background: #9bb95533; }
+#canvas-text pre code .hl-diff-del {
+  color: #6b7280;
+  background: #9ca3af2b;
+}
+
+#canvas-text pre code .hl-diff-ctx { color: #3B3B3B; }
+#canvas-text mjx-container {
+  max-width: 100%;
+}
+
+#canvas-text mjx-container[display="true"] {
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 0.85em 0;
+}
+
+#canvas-text ul,
+#canvas-text ol {
+  margin: 0.4rem 0 0.4rem 1.25rem;
+  padding-left: 1.25rem;
+  list-style-position: outside;
+}
+
+#canvas-text li {
+  margin: 0.15rem 0;
+  padding-left: 0.35rem;
+}
+
+#canvas-pdf {
+  position: relative;
+  min-height: 0;
+  overflow: auto;
+  touch-action: pan-y;
+}
+
+.canvas-pdf-surface {
+  position: relative;
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  align-items: stretch;
+}
+
+.canvas-pdf-status {
+  font-size: 0.92rem;
+  color: #3b3b3b;
+}
+
+.canvas-pdf-status.is-hidden {
+  display: none;
+}
+
+.canvas-pdf-status.is-error {
+  color: #991b1b;
+}
+
+.canvas-pdf-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  align-items: center;
+}
+
+.canvas-pdf-page {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.canvas-pdf-page-inner {
+  position: relative;
+  max-width: 100%;
+  background: #fff;
+  border: 1px solid #000;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.canvas-pdf-canvas {
+  display: block;
+  max-width: none;
+  height: auto;
+  background: #fff;
+  position: relative;
+  z-index: 0;
+}
+
+.canvas-pdf-page .textLayer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  opacity: 1;
+  z-index: 1;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  transform-origin: 0 0;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.canvas-pdf-page .textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  transform-origin: 0 0;
+  cursor: text;
+}
+
+.canvas-pdf-page .textLayer > :not(.markedContent),
+.canvas-pdf-page .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+}
+
+.canvas-pdf-page .textLayer span.markedContent {
+  top: 0;
+  height: 0;
+}
+
+.canvas-pdf-page .textLayer ::selection {
+  background: rgba(0, 0, 255, 0.25);
+  background: color-mix(in srgb, AccentColor, transparent 75%);
+}
+
+.canvas-pdf-page .textLayer br::selection {
+  background: transparent;
+}
+
+body.pen-input-mode #canvas-text,
+body.pen-input-mode .canvas-pdf-page .textLayer,
+body.pen-input-mode .canvas-pdf-page .textLayer :is(span, br) {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: default;
+}
+
+.canvas-pdf-page .annotationLayer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transform-origin: 0 0;
+  z-index: 2;
+}
+
+.canvas-pdf-page .annotationLayer section {
+  position: absolute;
+  text-align: initial;
+  pointer-events: auto;
+  box-sizing: border-box;
+  transform-origin: 0 0;
+}
+
+.canvas-pdf-page .textLayer.selecting ~ .annotationLayer section {
+  pointer-events: none;
+}
+
+.canvas-pdf-page .annotationLayer :is(.linkAnnotation, .buttonWidgetAnnotation.pushButton) > a {
+  position: absolute;
+  inset: 0;
+}
+
+.canvas-pdf-page .annotationLayer :is(.linkAnnotation, .buttonWidgetAnnotation.pushButton):not(.hasBorder) > a:hover {
+  opacity: 0.2;
+  background-color: rgb(255 255 0);
+  box-shadow: 0 2px 10px rgb(255 255 0);
+}
+
+.canvas-pdf-page .annotationLayer .linkAnnotation.hasBorder:hover {
+  background-color: rgb(255 255 0 / 0.2);
+}
+
+.canvas-pdf-fallback {
+  padding: 1rem;
+  color: var(--text);
+}
+
+#canvas-img { max-width: 100%; height: auto; }
+
+.review-line-highlight {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: var(--accent, #ffd400);
+  opacity: 0.12;
+  pointer-events: none;
+  z-index: 5;
+  border-radius: 2px;
+  transition: opacity 0.2s;
+}
+
+.diff-highlight {
+  background: #fef3c7;
+}
+
+#canvas-text .md-diff-changed {
+  background: #fef3c7;
+  border-radius: 4px;
+}
+
+#canvas-text li.md-diff-changed {
+  padding-right: 0.2rem;
+}
+
+#canvas-text ins.md-diff-ins {
+  font-weight: 700;
+  text-decoration: none;
+}
+
+#canvas-text del.md-diff-del-inline {
+  color: #6b7280;
+  background: #9ca3af1f;
+  text-decoration: line-through;
+  text-decoration-color: #9ca3af;
+}
+
+#canvas-text .md-diff-del-line {
+  border-left: 2px solid #9ca3af;
+  background: #9ca3af14;
+  margin: 0.14rem 0;
+  padding: 0.05rem 0.5rem;
+  white-space: pre-wrap;
+}
+
+#canvas-text .md-diff-del-line del {
+  color: #6b7280;
+  text-decoration: line-through;
+  text-decoration-color: #9ca3af;
+}
+
+.artifact-editor {
+  position: absolute;
+  inset: 0;
+  z-index: 120;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  resize: none;
+  outline: none;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--chat-content-font-size);
+  line-height: 1.6;
+  padding: 1rem;
+  white-space: pre;
+  overflow: auto;
+  tab-size: 2;
+}
+
+.artifact-editor:focus {
+  outline: none;
+}

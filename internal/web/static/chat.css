@@ -1,0 +1,165 @@
+.chat-pane-input-row {
+  flex-shrink: 0;
+  padding: 0.4rem 0.6rem calc(0.4rem + var(--safe-area-bottom, 0px));
+}
+
+.chat-pane-input-row.keyboard-open {
+  padding-bottom: 0.4rem;
+}
+
+.chat-pane-input-row textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+  font-size: var(--chat-content-font-size);
+  font-family: inherit;
+  line-height: 1.4;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+}
+
+.chat-message {
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.chat-message-meta {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #4b5563;
+}
+
+.chat-bubble {
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0.45rem 0.55rem;
+  line-height: 1.4;
+  color: #111827;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--chat-content-font-size);
+}
+
+.chat-bubble-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-bottom: 0.35rem;
+}
+
+.chat-bubble-progress:empty {
+  display: none;
+}
+
+.chat-bubble-progress-line {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: #374151;
+  border-left: 2px solid #d1d5db;
+  padding-left: 0.45rem;
+  white-space: pre-wrap;
+}
+
+.chat-bubble-body {
+  min-width: 0;
+}
+
+.chat-message.chat-user {
+  margin-left: auto;
+  align-items: flex-end;
+}
+
+.chat-message.chat-user .chat-bubble {
+  background: #111827;
+  color: #f9fafb;
+  border-color: #111827;
+}
+
+.chat-message.chat-system .chat-bubble {
+  background: #fef3c7;
+  border-color: #f59e0b;
+  color: #78350f;
+}
+
+.chat-approval-request .chat-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.chat-approval-title {
+  font-weight: 600;
+}
+
+.chat-approval-meta {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.82;
+}
+
+.chat-approval-detail {
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.chat-approval-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.15rem;
+}
+
+.chat-approval-btn {
+  border: 1px solid #b45309;
+  background: #fff7ed;
+  color: #78350f;
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chat-approval-btn:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.chat-approval-status {
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-top: 0.2rem;
+}
+
+.chat-message.is-pending .chat-bubble {
+  opacity: 0.82;
+}
+
+.chat-bubble.markdown pre {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 0.4rem;
+  overflow-x: auto;
+  background: #f9fafb;
+}
+
+.chat-bubble.markdown ul,
+.chat-bubble.markdown ol {
+  margin: 0.4rem 0 0.4rem 1.25rem;
+  padding-left: 1.25rem;
+  list-style-position: outside;
+}
+
+.chat-bubble.markdown li {
+  margin: 0.15rem 0;
+  padding-left: 0.35rem;
+}
