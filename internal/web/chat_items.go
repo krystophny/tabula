@@ -17,6 +17,8 @@ var (
 	itemTitlePrefixPattern = regexp.MustCompile(`^\s*(?:[#>*-]+|\d+[.)]|(?:\[[ xX]\]))\s*`)
 	itemDelegatePattern    = regexp.MustCompile(`(?i)^(?:delegate|assign)(?:\s+(?:this|it))?\s+to\s+(.+?)$`)
 	itemSplitPattern       = regexp.MustCompile(`(?i)^split\s+(?:this|it)\s+into\s+(.+?)\s+items?$`)
+	ideaPrefixPattern      = regexp.MustCompile(`(?i)^\s*(?:new\s+idea|idea|i\s+have\s+an\s+idea|capture)\s*:\s*(.+?)\s*$`)
+	ideaSentencePattern    = regexp.MustCompile(`^.*?[.!?](?:\s|$)`)
 )
 
 type conversationCanvasArtifact struct {
@@ -42,7 +44,21 @@ func normalizeItemCommandText(raw string) string {
 }
 
 func parseInlineItemIntent(text string, now time.Time) *SystemAction {
+	return parseInlineItemIntentWithInputMode(text, now, chatInputModeText)
+}
+
+func parseInlineItemIntentWithInputMode(text string, now time.Time, inputMode string) *SystemAction {
 	normalized := normalizeItemCommandText(text)
+	if ideaText, ok := extractIdeaCaptureText(text); ok {
+		return &SystemAction{
+			Action: "capture_idea",
+			Params: map[string]interface{}{
+				"text":       text,
+				"idea_text":  ideaText,
+				"input_mode": normalizeChatInputMode(inputMode),
+			},
+		}
+	}
 	switch normalized {
 	case "make this an item", "track this", "add to inbox":
 		return &SystemAction{Action: "make_item", Params: map[string]interface{}{}}
@@ -80,6 +96,47 @@ func parseInlineItemIntent(text string, now time.Time) *SystemAction {
 		}
 	}
 	return nil
+}
+
+func extractIdeaCaptureText(raw string) (string, bool) {
+	match := ideaPrefixPattern.FindStringSubmatch(raw)
+	if len(match) != 2 {
+		return "", false
+	}
+	clean := normalizeIdeaText(match[1])
+	if clean == "" {
+		return "", false
+	}
+	return clean, true
+}
+
+func normalizeIdeaText(raw string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(raw)), " ")
+}
+
+func deriveIdeaTitle(raw string) string {
+	clean := normalizeIdeaText(raw)
+	if clean == "" {
+		return ""
+	}
+	sentenceMatch := ideaSentencePattern.FindString(clean)
+	title := clean
+	if strings.TrimSpace(sentenceMatch) != "" {
+		title = normalizeIdeaText(sentenceMatch)
+	}
+	runes := []rune(title)
+	if len(runes) > 80 {
+		title = strings.TrimSpace(string(runes[:77])) + "..."
+	}
+	runes = []rune(title)
+	if len(runes) == 0 {
+		return ""
+	}
+	first := strings.ToUpper(string(runes[0]))
+	if len(runes) == 1 {
+		return first
+	}
+	return first + string(runes[1:])
 }
 
 func cleanActorReference(raw string) string {
@@ -159,7 +216,7 @@ func parseItemSplitCount(raw string) (int, bool) {
 
 func isItemSystemAction(action string) bool {
 	switch strings.ToLower(strings.TrimSpace(action)) {
-	case "make_item", "delegate_item", "snooze_item", "split_items", "create_github_issue", "create_github_issue_split":
+	case "make_item", "delegate_item", "snooze_item", "split_items", "capture_idea", "create_github_issue", "create_github_issue_split":
 		return true
 	default:
 		return false
@@ -170,6 +227,8 @@ func itemActionFailurePrefix(action string) string {
 	switch strings.ToLower(strings.TrimSpace(action)) {
 	case "create_github_issue", "create_github_issue_split":
 		return "I couldn't create the GitHub issue: "
+	case "capture_idea":
+		return "I couldn't capture the idea: "
 	}
 	if strings.EqualFold(strings.TrimSpace(action), "split_items") {
 		return "I couldn't create the items: "
@@ -542,6 +601,85 @@ func (a *App) resolveActorByName(name string) (store.Actor, error) {
 	default:
 		return store.Actor{}, fmt.Errorf("actor %q not found", cleanName)
 	}
+}
+
+func ideaArtifactMeta(title, transcript, inputMode string, capturedAt time.Time) (*string, error) {
+	payload := map[string]string{
+		"title":        title,
+		"transcript":   transcript,
+		"capture_mode": normalizeChatInputMode(inputMode),
+		"captured_at":  capturedAt.UTC().Format(time.RFC3339),
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	meta := string(raw)
+	return &meta, nil
+}
+
+func ideaCaptureConfirmation(title string) string {
+	clean := strings.TrimSpace(title)
+	if clean == "" {
+		return "Captured idea."
+	}
+	if strings.HasSuffix(clean, ".") || strings.HasSuffix(clean, "!") || strings.HasSuffix(clean, "?") {
+		return "Captured idea: " + clean
+	}
+	return "Captured idea: " + clean + "."
+}
+
+func (a *App) captureIdeaItem(session store.ChatSession, action *SystemAction) (string, map[string]interface{}, error) {
+	rawText := strings.TrimSpace(systemActionStringParam(action.Params, "text"))
+	ideaText, ok := extractIdeaCaptureText(rawText)
+	if !ok {
+		ideaText = normalizeIdeaText(systemActionStringParam(action.Params, "idea_text"))
+	}
+	if ideaText == "" {
+		return "", nil, errors.New("idea text is required after the prefix")
+	}
+	title := deriveIdeaTitle(ideaText)
+	if title == "" {
+		return "", nil, errors.New("idea title is required")
+	}
+
+	targetProject, err := a.systemActionTargetProject(session)
+	if err != nil {
+		return "", nil, err
+	}
+	workspaceID, err := a.resolveConversationWorkspaceID(targetProject, nil)
+	if err != nil {
+		return "", nil, err
+	}
+	inputMode := normalizeChatInputMode(systemActionStringParam(action.Params, "input_mode"))
+	capturedAt := time.Now().UTC()
+	metaJSON, err := ideaArtifactMeta(title, ideaText, inputMode, capturedAt)
+	if err != nil {
+		return "", nil, err
+	}
+	artifact, err := a.store.CreateArtifact(store.ArtifactKindIdeaNote, nil, nil, &title, metaJSON)
+	if err != nil {
+		return "", nil, err
+	}
+	source := "idea"
+	item, err := a.store.CreateItem(title, store.ItemOptions{
+		WorkspaceID: workspaceID,
+		ArtifactID:  &artifact.ID,
+		Source:      &source,
+	})
+	if err != nil {
+		return "", nil, err
+	}
+	payload := map[string]interface{}{
+		"type":         "item_created",
+		"item_id":      item.ID,
+		"state":        item.State,
+		"title":        item.Title,
+		"artifact_id":  artifact.ID,
+		"source":       source,
+		"capture_mode": inputMode,
+	}
+	return ideaCaptureConfirmation(item.Title), payload, nil
 }
 
 func (a *App) createConversationItem(sessionID string, session store.ChatSession, action *SystemAction) (string, map[string]interface{}, error) {

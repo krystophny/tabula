@@ -5322,6 +5322,7 @@ async function submitMessage(text, options = {}) {
   const body = {
     text: finalText,
     output_mode: state.ttsSilent ? 'silent' : 'voice',
+    input_mode: submitKind === 'voice_transcript' ? 'voice' : 'text',
   };
   try {
     if (submitKind === 'voice_transcript' && submitController) {

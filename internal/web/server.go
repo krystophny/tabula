@@ -98,6 +98,7 @@ type App struct {
 	turns            *chatTurnTracker
 	companionTurns   *companionPendingTurnTracker
 	companionRuntime *companionRuntimeTracker
+	chatInputModes   *chatInputModeTracker
 	projectAttention *projectAttentionTracker
 	tunnels          *tunnelRegistry
 	chatAppSessions  map[string]*appserver.Session
@@ -265,6 +266,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		turns:                         newChatTurnTracker(),
 		companionTurns:                newCompanionPendingTurnTracker(),
 		companionRuntime:              newCompanionRuntimeTracker(),
+		chatInputModes:                newChatInputModeTracker(),
 		projectAttention:              newProjectAttentionTracker(),
 		tunnels:                       newTunnelRegistry(),
 		chatAppSessions:               map[string]*appserver.Session{},
