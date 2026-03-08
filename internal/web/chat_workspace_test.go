@@ -2,6 +2,8 @@ package web
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,12 +16,16 @@ func TestParseInlineWorkspaceIntent(t *testing.T) {
 		text          string
 		wantAction    string
 		wantWorkspace string
+		wantRepoURL   string
+		wantTarget    string
 	}{
 		{text: "open workspace Alpha", wantAction: "switch_workspace", wantWorkspace: "Alpha"},
 		{text: "switch to workspace Beta", wantAction: "switch_workspace", wantWorkspace: "Beta"},
 		{text: "switch to ./repo", wantAction: "switch_workspace", wantWorkspace: "./repo"},
 		{text: "show items here", wantAction: "list_workspace_items"},
 		{text: "what's open", wantAction: "list_workspace_items"},
+		{text: "create workspace from git@github.com:user/repo.git", wantAction: "create_workspace_from_git", wantRepoURL: "git@github.com:user/repo.git"},
+		{text: "create workspace from https://gitlab.example.com/user/data-repo.git to ~/write/proposal", wantAction: "create_workspace_from_git", wantRepoURL: "https://gitlab.example.com/user/data-repo.git", wantTarget: "~/write/proposal"},
 	}
 
 	for _, tc := range cases {
@@ -34,6 +40,12 @@ func TestParseInlineWorkspaceIntent(t *testing.T) {
 			}
 			if got := systemActionWorkspaceRef(action.Params); got != tc.wantWorkspace {
 				t.Fatalf("workspace ref = %q, want %q", got, tc.wantWorkspace)
+			}
+			if got := systemActionGitRepoURL(action.Params); got != tc.wantRepoURL {
+				t.Fatalf("repo_url = %q, want %q", got, tc.wantRepoURL)
+			}
+			if got := systemActionGitTargetPath(action.Params); got != tc.wantTarget {
+				t.Fatalf("target_path = %q, want %q", got, tc.wantTarget)
 			}
 		})
 	}
@@ -153,6 +165,75 @@ func TestClassifyAndExecuteSystemActionListWorkspaceItemsUsesActiveWorkspace(t *
 	}
 }
 
+func TestClassifyAndExecuteSystemActionCreateWorkspaceFromGit(t *testing.T) {
+	app := newAuthedTestApp(t)
+	app.intentLLMURL = ""
+	app.intentClassifierURL = ""
+
+	cloneRoot := filepath.Join(t.TempDir(), "code")
+	t.Setenv("TABURA_WORKSPACE_CLONE_ROOT", cloneRoot)
+
+	sourceRepo := initGitTestRepo(t, "example-workspace")
+	hub, err := app.ensureHubProject()
+	if err != nil {
+		t.Fatalf("ensure hub project: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(hub.ProjectKey)
+	if err != nil {
+		t.Fatalf("chat session: %v", err)
+	}
+
+	command := "create workspace from file://" + filepath.ToSlash(sourceRepo)
+	message, payloads, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, command)
+	if !handled {
+		t.Fatal("expected create workspace from git command to be handled")
+	}
+	targetDir := filepath.Join(cloneRoot, "example-workspace")
+	if message != "Created workspace example-workspace at "+targetDir+"." {
+		t.Fatalf("message = %q", message)
+	}
+	if len(payloads) != 1 || strFromAny(payloads[0]["type"]) != "create_workspace_from_git" {
+		t.Fatalf("payloads = %#v", payloads)
+	}
+	if got := strFromAny(payloads[0]["dir_path"]); got != targetDir {
+		t.Fatalf("dir_path = %q, want %q", got, targetDir)
+	}
+
+	workspace, err := app.store.GetWorkspace(int64FromAny(payloads[0]["workspace_id"]))
+	if err != nil {
+		t.Fatalf("GetWorkspace() error: %v", err)
+	}
+	if workspace.Name != "example-workspace" {
+		t.Fatalf("workspace name = %q, want %q", workspace.Name, "example-workspace")
+	}
+	if !workspace.IsActive {
+		t.Fatal("expected cloned workspace to be active")
+	}
+	if workspace.DirPath != targetDir {
+		t.Fatalf("workspace dir_path = %q, want %q", workspace.DirPath, targetDir)
+	}
+	if _, err := os.Stat(filepath.Join(targetDir, ".git")); err != nil {
+		t.Fatalf("clone missing .git directory: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(targetDir, ".tabura", "codex-mcp.toml")); err != nil {
+		t.Fatalf("bootstrap missing codex-mcp.toml: %v", err)
+	}
+	gitignoreBody, err := os.ReadFile(filepath.Join(targetDir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	if !strings.Contains(string(gitignoreBody), ".tabura/artifacts/") {
+		t.Fatalf(".gitignore = %q, want .tabura/artifacts entry", string(gitignoreBody))
+	}
+	readmeBody, err := os.ReadFile(filepath.Join(targetDir, "README.md"))
+	if err != nil {
+		t.Fatalf("read cloned README: %v", err)
+	}
+	if strings.TrimSpace(string(readmeBody)) != "# example-workspace" {
+		t.Fatalf("README = %q", string(readmeBody))
+	}
+}
+
 func TestApplyWorkspacePromptContextIncludesActiveWorkspaceSummary(t *testing.T) {
 	app := newAuthedTestApp(t)
 	project, err := app.ensureDefaultProjectRecord()
@@ -188,5 +269,41 @@ func TestApplyWorkspacePromptContextIncludesActiveWorkspaceSummary(t *testing.T)
 	}
 	if !strings.Contains(prompt, "Conversation transcript:\nUSER:\nhello") {
 		t.Fatalf("prompt missing original content: %q", prompt)
+	}
+}
+
+func initGitTestRepo(t *testing.T, name string) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), name)
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("# "+name+"\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, string(output))
+		}
+	}
+	runGit("init", root)
+	runGit("-C", root, "add", "README.md")
+	runGit("-C", root, "-c", "user.name=Tabura Test", "-c", "user.email=test@example.com", "commit", "-m", "init")
+	return root
+}
+
+func int64FromAny(v any) int64 {
+	switch value := v.(type) {
+	case float64:
+		return int64(value)
+	case int64:
+		return value
+	case int:
+		return int64(value)
+	default:
+		return 0
 	}
 }
