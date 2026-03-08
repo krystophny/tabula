@@ -34,6 +34,8 @@ func TestParseInlineItemIntent(t *testing.T) {
 		wantWhen   string
 		wantCount  int
 	}{
+		{text: "idea: better swipe triage", wantAction: "capture_idea"},
+		{text: "new idea: add a review inbox", wantAction: "capture_idea"},
 		{text: "make this an item", wantAction: "make_item"},
 		{text: "delegate this to Codex", wantAction: "delegate_item", wantActor: "Codex"},
 		{text: "remind me tomorrow", wantAction: "snooze_item", wantWhen: "2026-03-09T09:00:00Z"},
@@ -224,6 +226,113 @@ func TestClassifyAndExecuteSystemActionSnoozeItemCreatesWaitingItem(t *testing.T
 	item := mustFirstItemByState(t, app, store.ItemStateWaiting)
 	if item.VisibleAfter == nil || *item.VisibleAfter != "2026-03-09T09:00:00Z" {
 		t.Fatalf("visible_after = %v", item.VisibleAfter)
+	}
+}
+
+func TestClassifyAndExecuteSystemActionCaptureIdeaCreatesInboxItemFromUserInput(t *testing.T) {
+	app := newAuthedTestApp(t)
+	app.intentLLMURL = ""
+	app.intentClassifierURL = ""
+
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensure default project: %v", err)
+	}
+	workspace, err := app.store.CreateWorkspace("Default", project.RootPath)
+	if err != nil {
+		t.Fatalf("CreateWorkspace() error: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("chat session: %v", err)
+	}
+	app.chatInputModes.set(session.ID, chatInputModeVoice)
+
+	message, payloads, handled := app.classifyAndExecuteSystemAction(
+		context.Background(),
+		session.ID,
+		session,
+		"idea: better swipe triage for waiting items. Capture the blockers too.",
+	)
+	if !handled {
+		t.Fatal("expected idea capture to be handled")
+	}
+	if message != "Captured idea: Better swipe triage for waiting items." {
+		t.Fatalf("message = %q", message)
+	}
+	if len(payloads) != 1 || strFromAny(payloads[0]["type"]) != "item_created" {
+		t.Fatalf("payloads = %#v", payloads)
+	}
+	if strFromAny(payloads[0]["capture_mode"]) != chatInputModeVoice {
+		t.Fatalf("capture_mode payload = %#v", payloads[0])
+	}
+
+	item := mustFirstItemByState(t, app, store.ItemStateInbox)
+	if item.Title != "Better swipe triage for waiting items." {
+		t.Fatalf("item title = %q", item.Title)
+	}
+	if item.WorkspaceID == nil || *item.WorkspaceID != workspace.ID {
+		t.Fatalf("workspace_id = %v, want %d", item.WorkspaceID, workspace.ID)
+	}
+	if item.Source == nil || *item.Source != "idea" {
+		t.Fatalf("item source = %v, want idea", item.Source)
+	}
+	if item.ArtifactID == nil {
+		t.Fatal("expected idea artifact to be linked")
+	}
+	artifact, err := app.store.GetArtifact(*item.ArtifactID)
+	if err != nil {
+		t.Fatalf("GetArtifact() error: %v", err)
+	}
+	if artifact.Kind != store.ArtifactKindIdeaNote {
+		t.Fatalf("artifact kind = %q, want %q", artifact.Kind, store.ArtifactKindIdeaNote)
+	}
+	if artifact.MetaJSON == nil || !containsAll(
+		*artifact.MetaJSON,
+		`"capture_mode":"voice"`,
+		`"transcript":"better swipe triage for waiting items. Capture the blockers too."`,
+		`"title":"Better swipe triage for waiting items."`,
+	) {
+		t.Fatalf("artifact meta_json = %v", artifact.MetaJSON)
+	}
+}
+
+func TestRunAssistantTurnCaptureIdeaPersistsAssistantConfirmation(t *testing.T) {
+	app := newAuthedTestApp(t)
+	app.intentLLMURL = ""
+	app.intentClassifierURL = ""
+
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensure default project: %v", err)
+	}
+	if _, err := app.store.CreateWorkspace("Default", project.RootPath); err != nil {
+		t.Fatalf("CreateWorkspace() error: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("chat session: %v", err)
+	}
+	if _, err := app.store.AddChatMessage(session.ID, "user", "idea: support batched inbox review", "idea: support batched inbox review", "text"); err != nil {
+		t.Fatalf("add user message: %v", err)
+	}
+	app.chatInputModes.set(session.ID, chatInputModeText)
+
+	app.runAssistantTurn(session.ID, turnOutputModeVoice, false)
+
+	messages, err := app.store.ListChatMessages(session.ID, 10)
+	if err != nil {
+		t.Fatalf("ListChatMessages() error: %v", err)
+	}
+	foundAssistant := false
+	for _, msg := range messages {
+		if msg.Role == "assistant" && msg.ContentPlain == "Captured idea: Support batched inbox review." {
+			foundAssistant = true
+			break
+		}
+	}
+	if !foundAssistant {
+		t.Fatalf("expected assistant confirmation in chat history, got %#v", messages)
 	}
 }
 

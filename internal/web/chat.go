@@ -71,6 +71,7 @@ When user asks to show/open an existing file, do NOT paste file body into chat; 
 type chatMessageRequest struct {
 	Text       string `json:"text"`
 	OutputMode string `json:"output_mode"`
+	InputMode  string `json:"input_mode,omitempty"`
 	LocalOnly  bool   `json:"local_only,omitempty"`
 }
 
@@ -345,6 +346,7 @@ func (a *App) handleChatSessionMessage(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	a.chatInputModes.set(sessionID, req.InputMode)
 	storedUser, err := a.store.AddChatMessage(sessionID, "user", text, text, "text")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

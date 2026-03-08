@@ -15,6 +15,7 @@ const (
 	ArtifactKindGitHubPR    ArtifactKind = "github_pr"
 	ArtifactKindTranscript  ArtifactKind = "transcript"
 	ArtifactKindPlanNote    ArtifactKind = "plan_note"
+	ArtifactKindIdeaNote    ArtifactKind = "idea_note"
 
 	ItemStateInbox   = "inbox"
 	ItemStateWaiting = "waiting"

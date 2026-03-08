@@ -311,6 +311,35 @@ test('click on canvas starts voice recording', async ({ page }) => {
   expect(sttActions).toContain('stop');
 });
 
+test('typed idea capture sends the idea prefix unchanged', async ({ page }) => {
+  await clearLog(page);
+
+  const input = page.locator('#chat-pane-input');
+  await input.fill('idea: better swipe triage');
+  await input.press('Enter');
+
+  await waitForLogEntry(page, 'message_sent');
+
+  const log = await getLog(page);
+  const sent = log.find((entry) => entry.type === 'message_sent');
+  expect(sent?.text).toBe('idea: better swipe triage');
+});
+
+test('voice idea capture sends the transcript unchanged', async ({ page }) => {
+  await setHarnessSTTTranscribeResponse(page, { text: 'idea: better swipe triage' }, 200);
+  await clearLog(page);
+
+  await page.mouse.click(400, 400);
+  await waitForLogEntry(page, 'recorder', 'start');
+  await page.mouse.click(400, 400);
+
+  await waitForLogEntry(page, 'message_sent');
+
+  const log = await getLog(page);
+  const sent = log.find((entry) => entry.type === 'message_sent');
+  expect(sent?.text).toBe('idea: better swipe triage');
+});
+
 test('sequential recordings reuse cached mic stream', async ({ page }) => {
   await clearLog(page);
 

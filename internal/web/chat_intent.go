@@ -36,13 +36,13 @@ const (
 )
 
 const intentLLMSystemPrompt = `You are Tabura's local router. Output JSON only.
-Allowed actions: switch_project, switch_workspace, list_workspace_items, switch_model, toggle_silent, toggle_live_dialogue, cancel_work, show_status, shell, open_file_canvas, make_item, delegate_item, snooze_item, split_items, create_github_issue, create_github_issue_split, chat.
+Allowed actions: switch_project, switch_workspace, list_workspace_items, switch_model, toggle_silent, toggle_live_dialogue, cancel_work, show_status, shell, open_file_canvas, make_item, delegate_item, snooze_item, split_items, capture_idea, create_github_issue, create_github_issue_split, chat.
 Use {"action":"chat"} unless user clearly requests a system action.
 For current-information requests (weather, web search, news, prices, schedules, latest/current updates), use {"action":"chat"} and MUST NOT use shell.
 For shell-like requests use {"action":"shell","command":"..."}.
 For open/show/display file requests, end with {"action":"open_file_canvas","path":"..."}.
 If exact path is uncertain, use multi-step {"actions":[...]}: shell search first, then open_file_canvas with path="$last_shell_path".
-For item materialization requests use make_item, delegate_item, snooze_item, split_items, create_github_issue, or create_github_issue_split.
+For item materialization requests use make_item, delegate_item, snooze_item, split_items, capture_idea, create_github_issue, or create_github_issue_split.
 Prefer case-insensitive filename search (for example -iname) and use single quotes inside JSON command strings.`
 
 type localIntentClassifierResponse struct {
@@ -323,7 +323,7 @@ func normalizeSystemActionName(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "toggle_conversation":
 		return "toggle_live_dialogue"
-	case "switch_project", "switch_workspace", "list_workspace_items", "switch_model", "toggle_silent", "toggle_live_dialogue", "cancel_work", "show_status", "shell", "open_file_canvas", "make_item", "delegate_item", "snooze_item", "split_items", "create_github_issue", "create_github_issue_split":
+	case "switch_project", "switch_workspace", "list_workspace_items", "switch_model", "toggle_silent", "toggle_live_dialogue", "cancel_work", "show_status", "shell", "open_file_canvas", "make_item", "delegate_item", "snooze_item", "split_items", "capture_idea", "create_github_issue", "create_github_issue_split":
 		return strings.ToLower(strings.TrimSpace(raw))
 	default:
 		return ""
@@ -451,6 +451,14 @@ func normalizeSystemActionForExecution(action *SystemAction, fallbackText string
 	}
 	if action.Params == nil {
 		action.Params = map[string]interface{}{}
+	}
+	if strings.EqualFold(strings.TrimSpace(action.Action), "capture_idea") {
+		if strings.TrimSpace(systemActionStringParam(action.Params, "text")) == "" {
+			action.Params["text"] = strings.TrimSpace(fallbackText)
+		}
+		if strings.TrimSpace(systemActionStringParam(action.Params, "input_mode")) == "" {
+			action.Params["input_mode"] = chatInputModeText
+		}
 	}
 	_ = fallbackText
 	return action
@@ -754,7 +762,8 @@ func (a *App) classifyAndExecuteSystemAction(ctx context.Context, sessionID stri
 		}
 	}
 
-	if inlineItemAction := parseInlineItemIntent(trimmedText, time.Now().UTC()); inlineItemAction != nil {
+	inputMode := a.chatInputModes.consume(sessionID)
+	if inlineItemAction := parseInlineItemIntentWithInputMode(trimmedText, time.Now().UTC(), inputMode); inlineItemAction != nil {
 		enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{inlineItemAction})
 		if len(enforced) == 0 {
 			return "", nil, false
@@ -808,6 +817,9 @@ func (a *App) classifyAndExecuteSystemAction(ctx context.Context, sessionID stri
 	localAction, localConfidence, localErr := a.classifyIntentLocally(ctx, trimmedText)
 	if localErr == nil && localAction != nil && localConfidence >= intentClassifierMinConfidence {
 		if normalized := normalizeSystemActionForExecution(localAction, trimmedText); normalized != nil {
+			if isItemSystemAction(normalized.Action) && strings.TrimSpace(systemActionStringParam(normalized.Params, "input_mode")) == "" {
+				normalized.Params["input_mode"] = inputMode
+			}
 			if isItemSystemAction(normalized.Action) {
 				enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{normalized})
 				if len(enforced) == 0 {
@@ -1408,6 +1420,8 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 			return "", nil, err
 		}
 		return status, nil, nil
+	case "capture_idea":
+		return a.captureIdeaItem(session, action)
 	case "make_item", "delegate_item", "snooze_item", "split_items":
 		return a.createConversationItem(sessionID, session, action)
 	case "create_github_issue", "create_github_issue_split":
