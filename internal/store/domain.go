@@ -12,6 +12,7 @@ const (
 	ActorKindAgent = "agent"
 
 	ArtifactKindEmail        ArtifactKind = "email"
+	ArtifactKindEmailThread  ArtifactKind = "email_thread"
 	ArtifactKindDocument     ArtifactKind = "document"
 	ArtifactKindPDF          ArtifactKind = "pdf"
 	ArtifactKindMarkdown     ArtifactKind = "markdown"

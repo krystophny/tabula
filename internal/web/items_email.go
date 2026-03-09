@@ -332,14 +332,22 @@ func emailArtifactMetaJSON(message *providerdata.EmailMessage) (string, error) {
 	return string(raw), nil
 }
 
-func (a *App) persistEmailMessage(ctx context.Context, sink tabsync.Sink, account store.ExternalAccount, message *providerdata.EmailMessage, followUp bool) (bool, error) {
+func copyInt64Pointer(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	out := *value
+	return &out
+}
+
+func (a *App) persistEmailMessage(ctx context.Context, sink tabsync.Sink, account store.ExternalAccount, message *providerdata.EmailMessage, followUp bool) (emailPersistedMessage, error) {
 	if message == nil || strings.TrimSpace(message.ID) == "" {
-		return false, nil
+		return emailPersistedMessage{}, nil
 	}
 	title := emailMessageTitle(message)
 	metaJSON, err := emailArtifactMetaJSON(message)
 	if err != nil {
-		return false, err
+		return emailPersistedMessage{}, err
 	}
 	binding := store.ExternalBinding{
 		AccountID:       account.ID,
@@ -355,23 +363,27 @@ func (a *App) persistEmailMessage(ctx context.Context, sink tabsync.Sink, accoun
 		MetaJSON: &metaJSON,
 	}, binding)
 	if err != nil {
-		return false, err
+		return emailPersistedMessage{}, err
 	}
-	if !followUp {
-		return false, nil
+	persisted := emailPersistedMessage{
+		Message:  message,
+		Artifact: artifact,
 	}
-
 	existingBinding, err := a.store.GetBindingByRemote(account.ID, account.Provider, emailBindingObjectType, strings.TrimSpace(message.ID))
 	if err != nil {
-		return false, err
+		return emailPersistedMessage{}, err
+	}
+	persisted.ItemID = copyInt64Pointer(existingBinding.ItemID)
+	if !followUp {
+		return persisted, nil
 	}
 	if existingBinding.ItemID != nil {
 		item, err := a.store.GetItem(*existingBinding.ItemID)
 		if err != nil {
-			return false, err
+			return emailPersistedMessage{}, err
 		}
 		if item.State == store.ItemStateDone {
-			return false, nil
+			return persisted, nil
 		}
 	}
 
@@ -386,9 +398,15 @@ func (a *App) persistEmailMessage(ctx context.Context, sink tabsync.Sink, accoun
 		SourceRef:  &sourceRef,
 	}, binding)
 	if err != nil {
-		return false, err
+		return emailPersistedMessage{}, err
 	}
-	return true, nil
+	updatedBinding, err := a.store.GetBindingByRemote(account.ID, account.Provider, emailBindingObjectType, strings.TrimSpace(message.ID))
+	if err != nil {
+		return emailPersistedMessage{}, err
+	}
+	persisted.ItemID = copyInt64Pointer(updatedBinding.ItemID)
+	persisted.FollowUpItem = true
+	return persisted, nil
 }
 
 func (a *App) syncEmailAccountWithProvider(ctx context.Context, account store.ExternalAccount, provider emailSyncProvider) (emailSyncResult, error) {
@@ -426,18 +444,27 @@ func (a *App) syncEmailAccountWithProvider(ctx context.Context, account store.Ex
 	}
 	sink := tabsync.NewStoreSink(a.store)
 	result := emailSyncResult{}
+	persistedMessages := make([]emailPersistedMessage, 0, len(messages))
 	for _, message := range messages {
 		if message == nil || strings.TrimSpace(message.ID) == "" {
 			continue
 		}
-		createdItem, err := a.persistEmailMessage(ctx, sink, account, message, hasEmailMessageID(followUpIDs, message.ID))
+		persisted, err := a.persistEmailMessage(ctx, sink, account, message, hasEmailMessageID(followUpIDs, message.ID))
 		if err != nil {
 			return emailSyncResult{}, err
 		}
+		persistedMessages = append(persistedMessages, persisted)
 		result.MessageCount++
-		if createdItem {
+		if persisted.FollowUpItem {
 			result.ItemCount++
 		}
+	}
+	threads, err := a.persistEmailThreads(ctx, sink, account, persistedMessages)
+	if err != nil {
+		return emailSyncResult{}, err
+	}
+	if err := a.persistEmailActionItems(account, threads); err != nil {
+		return emailSyncResult{}, err
 	}
 	return result, nil
 }

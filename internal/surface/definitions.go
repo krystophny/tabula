@@ -309,7 +309,7 @@ var MCPTools = []Tool{
 			"kind": {
 				Type:        "string",
 				Description: "Optional artifact kind filter.",
-				Enum:        []string{"email", "document", "pdf", "markdown", "image", "github_issue", "github_pr", "external_task", "transcript", "plan_note", "idea_note"},
+				Enum:        []string{"email", "email_thread", "document", "pdf", "markdown", "image", "github_issue", "github_pr", "external_task", "transcript", "plan_note", "idea_note"},
 			},
 			"workspace_id": {
 				Type:        "integer",

@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -161,8 +162,14 @@ func TestSourceSyncRunnerPollsGmailAndIMAPAccounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListItemArtifacts(gmail) error: %v", err)
 	}
-	if len(itemArtifacts) != 1 {
-		t.Fatalf("len(gmail item artifacts) = %d, want 1", len(itemArtifacts))
+	if len(itemArtifacts) != 2 {
+		t.Fatalf("len(gmail item artifacts) = %d, want 2", len(itemArtifacts))
+	}
+	if itemArtifacts[0].Artifact.Kind != store.ArtifactKindEmail {
+		t.Fatalf("gmail primary artifact kind = %q, want email", itemArtifacts[0].Artifact.Kind)
+	}
+	if itemArtifacts[1].Artifact.Kind != store.ArtifactKindEmailThread || itemArtifacts[1].Role != "related" {
+		t.Fatalf("gmail related thread artifact = %+v, want related email_thread", itemArtifacts[1])
 	}
 
 	var gmailMeta map[string]any
@@ -299,6 +306,181 @@ func TestSyncEmailAccountLeavesDoneItemsClosed(t *testing.T) {
 	}
 	if item.State != store.ItemStateDone {
 		t.Fatalf("item state after resync = %q, want done", item.State)
+	}
+}
+
+func TestSyncEmailAccountCreatesThreadArtifactsAndLinksEmailItems(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	account, err := app.store.CreateExternalAccount(store.SphereWork, store.ExternalProviderGmail, "Work Gmail", nil)
+	if err != nil {
+		t.Fatalf("CreateExternalAccount() error: %v", err)
+	}
+
+	provider := &fakeEmailSyncProvider{
+		listFunc: func(opts email.SearchOptions) ([]string, error) {
+			switch {
+			case opts.IsRead != nil && !*opts.IsRead:
+				return []string{"gmail-1"}, nil
+			case opts.IsFlagged != nil && *opts.IsFlagged:
+				return nil, nil
+			case !opts.Since.IsZero():
+				return []string{"gmail-1", "gmail-2"}, nil
+			default:
+				return nil, nil
+			}
+		},
+		messages: map[string]*providerdata.EmailMessage{
+			"gmail-1": {
+				ID:         "gmail-1",
+				ThreadID:   "thread-contract",
+				Subject:    "Re: Contract review",
+				Sender:     "Ada <ada@example.com>",
+				Recipients: []string{"legal@example.com"},
+				Date:       time.Date(2026, time.March, 9, 10, 0, 0, 0, time.UTC),
+				Labels:     []string{"INBOX"},
+			},
+			"gmail-2": {
+				ID:         "gmail-2",
+				ThreadID:   "thread-contract",
+				Subject:    "Contract review",
+				Sender:     "Bob <bob@example.com>",
+				Recipients: []string{"legal@example.com"},
+				Date:       time.Date(2026, time.March, 8, 9, 0, 0, 0, time.UTC),
+				Labels:     []string{"Archive"},
+				IsRead:     true,
+			},
+		},
+	}
+	app.newEmailSyncProvider = func(context.Context, store.ExternalAccount) (emailSyncProvider, error) {
+		return provider, nil
+	}
+
+	if _, err := app.syncEmailAccount(context.Background(), account); err != nil {
+		t.Fatalf("syncEmailAccount() error: %v", err)
+	}
+
+	threads, err := app.store.ListArtifactsByKind(store.ArtifactKindEmailThread)
+	if err != nil {
+		t.Fatalf("ListArtifactsByKind(email_thread) error: %v", err)
+	}
+	if len(threads) != 1 {
+		t.Fatalf("len(email_thread artifacts) = %d, want 1", len(threads))
+	}
+
+	var threadMeta map[string]any
+	if err := json.Unmarshal([]byte(strFromPointer(threads[0].MetaJSON)), &threadMeta); err != nil {
+		t.Fatalf("Unmarshal(thread meta) error: %v", err)
+	}
+	if got := strFromAny(threadMeta["thread_id"]); got != "thread-contract" {
+		t.Fatalf("thread_id = %q, want thread-contract", got)
+	}
+	if got := int(threadMeta["message_count"].(float64)); got != 2 {
+		t.Fatalf("message_count = %d, want 2", got)
+	}
+	if got := strFromAny(threadMeta["subject"]); got != "Contract review" {
+		t.Fatalf("subject = %q, want Contract review", got)
+	}
+
+	item, err := app.store.GetItemBySource(store.ExternalProviderGmail, "message:gmail-1")
+	if err != nil {
+		t.Fatalf("GetItemBySource(message) error: %v", err)
+	}
+	itemArtifacts, err := app.store.ListItemArtifacts(item.ID)
+	if err != nil {
+		t.Fatalf("ListItemArtifacts() error: %v", err)
+	}
+	if len(itemArtifacts) != 2 {
+		t.Fatalf("len(item artifacts) = %d, want 2", len(itemArtifacts))
+	}
+	if itemArtifacts[0].Artifact.Kind != store.ArtifactKindEmail {
+		t.Fatalf("primary artifact kind = %q, want email", itemArtifacts[0].Artifact.Kind)
+	}
+	if itemArtifacts[1].Artifact.Kind != store.ArtifactKindEmailThread || itemArtifacts[1].Role != "related" {
+		t.Fatalf("thread artifact link = %+v, want related email_thread", itemArtifacts[1])
+	}
+}
+
+func TestSyncEmailAccountExtractsThreadActionItems(t *testing.T) {
+	app := newAuthedTestApp(t)
+	app.calendarNow = func() time.Time {
+		return time.Date(2026, time.March, 9, 8, 0, 0, 0, time.UTC)
+	}
+
+	account, err := app.store.CreateExternalAccount(store.SphereWork, store.ExternalProviderGmail, "Work Gmail", nil)
+	if err != nil {
+		t.Fatalf("CreateExternalAccount() error: %v", err)
+	}
+
+	body := strings.Join([]string{
+		"Please send the draft contract by 2026-03-12.",
+		"Please schedule the contract review meeting.",
+	}, "\n")
+	provider := &fakeEmailSyncProvider{
+		listFunc: func(opts email.SearchOptions) ([]string, error) {
+			switch {
+			case opts.IsRead != nil && !*opts.IsRead:
+				return []string{"gmail-action"}, nil
+			case opts.IsFlagged != nil && *opts.IsFlagged:
+				return nil, nil
+			case !opts.Since.IsZero():
+				return []string{"gmail-action"}, nil
+			default:
+				return nil, nil
+			}
+		},
+		messages: map[string]*providerdata.EmailMessage{
+			"gmail-action": {
+				ID:         "gmail-action",
+				ThreadID:   "thread-action",
+				Subject:    "Contract review",
+				Sender:     "Ada <ada@example.com>",
+				Recipients: []string{"legal@example.com"},
+				Date:       time.Date(2026, time.March, 9, 7, 30, 0, 0, time.UTC),
+				Labels:     []string{"INBOX"},
+				BodyText:   &body,
+			},
+		},
+	}
+	app.newEmailSyncProvider = func(context.Context, store.ExternalAccount) (emailSyncProvider, error) {
+		return provider, nil
+	}
+
+	if _, err := app.syncEmailAccount(context.Background(), account); err != nil {
+		t.Fatalf("syncEmailAccount() error: %v", err)
+	}
+
+	sendItem, err := app.store.GetItemBySource(store.ExternalProviderGmail, "thread:thread-action:action:send-the-draft-contract")
+	if err != nil {
+		t.Fatalf("GetItemBySource(send) error: %v", err)
+	}
+	if sendItem.Title != "Send the draft contract" {
+		t.Fatalf("send item title = %q, want Send the draft contract", sendItem.Title)
+	}
+	if sendItem.FollowUpAt == nil || *sendItem.FollowUpAt != "2026-03-12T09:00:00Z" {
+		t.Fatalf("send item follow_up_at = %v, want 2026-03-12T09:00:00Z", sendItem.FollowUpAt)
+	}
+
+	meetingItem, err := app.store.GetItemBySource(store.ExternalProviderGmail, "thread:thread-action:action:schedule-the-contract-review-meeting")
+	if err != nil {
+		t.Fatalf("GetItemBySource(meeting) error: %v", err)
+	}
+	if meetingItem.Title != "Schedule the contract review meeting" {
+		t.Fatalf("meeting item title = %q, want Schedule the contract review meeting", meetingItem.Title)
+	}
+	if meetingItem.FollowUpAt != nil {
+		t.Fatalf("meeting item follow_up_at = %v, want nil", meetingItem.FollowUpAt)
+	}
+
+	threads, err := app.store.ListArtifactsByKind(store.ArtifactKindEmailThread)
+	if err != nil {
+		t.Fatalf("ListArtifactsByKind(email_thread) error: %v", err)
+	}
+	if len(threads) != 1 {
+		t.Fatalf("len(email_thread artifacts) = %d, want 1", len(threads))
+	}
+	if sendItem.ArtifactID == nil || meetingItem.ArtifactID == nil || *sendItem.ArtifactID != threads[0].ID || *meetingItem.ArtifactID != threads[0].ID {
+		t.Fatalf("action artifact ids = %v and %v, want thread artifact %d", sendItem.ArtifactID, meetingItem.ArtifactID, threads[0].ID)
 	}
 }
 
