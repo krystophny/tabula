@@ -566,6 +566,10 @@ func (a *App) serveIndex(w http.ResponseWriter, r *http.Request) {
 	page := string(data)
 	baseHref := html.EscapeString(publicBasePath(r))
 	page = strings.Replace(page, "<head>", fmt.Sprintf("<head>\n  <base href=\"%s\">", baseHref), 1)
+	if a.hasAuth(r) {
+		page = strings.Replace(page, `<div id="view-login" class="view">`, `<div id="view-login" class="view" style="display:none">`, 1)
+		page = strings.Replace(page, `<div id="view-main" class="view" style="display:none">`, `<div id="view-main" class="view">`, 1)
+	}
 	boot := strings.TrimSpace(a.bootID)
 	if boot != "" {
 		styleTag := `href="./static/style.css"`
@@ -617,6 +621,28 @@ func decodeJSON(r *http.Request, out interface{}) error {
 	return json.NewDecoder(io.LimitReader(r.Body, 16*1024*1024)).Decode(out)
 }
 
+func requestWantsJSON(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
+	if strings.HasPrefix(contentType, "application/json") {
+		return true
+	}
+	accept := strings.ToLower(strings.TrimSpace(r.Header.Get("Accept")))
+	return strings.Contains(accept, "application/json")
+}
+
+func loginRedirectPath(r *http.Request) string {
+	if r == nil {
+		return "/"
+	}
+	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-Prefix")); forwarded != "" {
+		return normalizeBasePath(forwarded)
+	}
+	return "/"
+}
+
 func (a *App) handleSetupCheck(w http.ResponseWriter, r *http.Request) {
 	hasPassword := a.store.HasAdminPassword()
 	res := map[string]interface{}{
@@ -633,9 +659,17 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Password string `json:"password"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
-		http.Error(w, "invalid JSON", http.StatusBadRequest)
-		return
+	if requestWantsJSON(r) {
+		if err := decodeJSON(r, &req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+	} else {
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "invalid form", http.StatusBadRequest)
+			return
+		}
+		req.Password = strings.TrimSpace(r.FormValue("password"))
 	}
 	if !a.store.VerifyAdminPassword(req.Password) {
 		time.Sleep(1 * time.Second)
@@ -645,6 +679,10 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	token := randomToken()
 	_ = a.store.AddAuthSession(token)
 	a.setAuthCookieForRequest(w, r, token)
+	if !requestWantsJSON(r) {
+		http.Redirect(w, r, loginRedirectPath(r), http.StatusSeeOther)
+		return
+	}
 	writeJSON(w, map[string]bool{"ok": true})
 }
 

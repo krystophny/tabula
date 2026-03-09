@@ -867,10 +867,12 @@ export async function authGate() {
       loginError.textContent = '';
       const pw = loginPassword.value;
       if (!pw) return;
+      if (loginBtn) loginBtn.disabled = true;
       try {
         const r = await fetch(apiURL('login'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
           body: JSON.stringify({ password: pw }),
         });
         if (!r.ok) {
@@ -881,6 +883,8 @@ export async function authGate() {
         resolve();
       } catch (err) {
         loginError.textContent = String(err?.message || err);
+      } finally {
+        if (loginBtn) loginBtn.disabled = false;
       }
     });
   });

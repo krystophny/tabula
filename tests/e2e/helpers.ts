@@ -3,8 +3,15 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import WebSocket from 'ws';
 
-export const SERVER_URL = 'http://127.0.0.1:8420';
-export const WS_URL = 'ws://127.0.0.1:8420';
+const DEFAULT_SERVER_URL = 'http://127.0.0.1:8420';
+const configuredServerURL = String(process.env.E2E_BASE_URL || process.env.TABURA_TEST_SERVER_URL || DEFAULT_SERVER_URL).trim();
+
+export const SERVER_URL = configuredServerURL || DEFAULT_SERVER_URL;
+export const WS_URL = (() => {
+  const url = new URL(SERVER_URL);
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  return url.toString().replace(/\/$/, '');
+})();
 const SESSION_COOKIE_NAME = 'tabura_session';
 
 // ---------------------------------------------------------------------------
@@ -59,6 +66,13 @@ export async function authenticate(): Promise<string> {
     throw new Error('Login succeeded but no session cookie returned');
   }
   return match[1];
+}
+
+export function requireTestPassword(): string {
+  if (!testPassword) {
+    throw new Error('Server requires auth but TABURA_TEST_PASSWORD not set (env or .env)');
+  }
+  return testPassword;
 }
 
 export async function authFetch(url: string, sessionToken: string, init?: RequestInit): Promise<Response> {
