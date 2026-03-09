@@ -27,6 +27,40 @@ const EDGE_TOP_TAP_SIZE_PX = 56;
 const EDGE_TOP_TAP_SIZE_SMALL_PX = 52;
 const EDGE_TAP_SIZE_SMALL_MEDIA_QUERY = '(max-width: 768px)';
 
+function clearEdgeHideTimer(timer) {
+  if (timer) clearTimeout(timer);
+  return null;
+}
+
+function isPointerInsideElement(element, clientX, clientY) {
+  if (!(element instanceof HTMLElement)) return false;
+  const rect = element.getBoundingClientRect();
+  return clientX >= rect.left
+    && clientX <= rect.right
+    && clientY >= rect.top
+    && clientY <= rect.bottom;
+}
+
+function scheduleEdgePanelHide(element, timerName) {
+  if (!(element instanceof HTMLElement)) return timerName === 'top' ? edgeTopTimer : edgeRightTimer;
+  const currentTimer = timerName === 'top' ? edgeTopTimer : edgeRightTimer;
+  if (currentTimer) return currentTimer;
+  const nextTimer = window.setTimeout(() => {
+    element.classList.remove('edge-active');
+    if (timerName === 'top') {
+      edgeTopTimer = null;
+    } else {
+      edgeRightTimer = null;
+    }
+  }, 300);
+  if (timerName === 'top') {
+    edgeTopTimer = nextTimer;
+  } else {
+    edgeRightTimer = nextTimer;
+  }
+  return nextTimer;
+}
+
 export function getEdgeTapSizePx() {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
     return EDGE_TAP_SIZE_PX;
@@ -120,14 +154,30 @@ export function initEdgePanels() {
     const edgeTapSize = getEdgeTapSizePx();
     const topEdgeTapSize = getTopEdgeTapSizePx();
     // Top edge
-    if (ev.clientY < topEdgeTapSize && edgeTop && !edgeTop.classList.contains('edge-pinned')) {
-      edgeTop.classList.add('edge-active');
-      if (edgeTopTimer) { clearTimeout(edgeTopTimer); edgeTopTimer = null; }
+    if (edgeTop && !edgeTop.classList.contains('edge-pinned')) {
+      const inTopTrigger = ev.clientY < topEdgeTapSize;
+      const insideTopPanel = isPointerInsideElement(edgeTop, ev.clientX, ev.clientY);
+      if (inTopTrigger) {
+        edgeTop.classList.add('edge-active');
+        edgeTopTimer = clearEdgeHideTimer(edgeTopTimer);
+      } else if (insideTopPanel) {
+        edgeTopTimer = clearEdgeHideTimer(edgeTopTimer);
+      } else if (edgeTop.classList.contains('edge-active')) {
+        scheduleEdgePanelHide(edgeTop, 'top');
+      }
     }
     // Right edge
-    if (ev.clientX > window.innerWidth - edgeTapSize && edgeRight && !edgeRight.classList.contains('edge-pinned')) {
-      edgeRight.classList.add('edge-active');
-      if (edgeRightTimer) { clearTimeout(edgeRightTimer); edgeRightTimer = null; }
+    if (edgeRight && !edgeRight.classList.contains('edge-pinned')) {
+      const inRightTrigger = ev.clientX > window.innerWidth - edgeTapSize;
+      const insideRightPanel = isPointerInsideElement(edgeRight, ev.clientX, ev.clientY);
+      if (inRightTrigger) {
+        edgeRight.classList.add('edge-active');
+        edgeRightTimer = clearEdgeHideTimer(edgeRightTimer);
+      } else if (insideRightPanel) {
+        edgeRightTimer = clearEdgeHideTimer(edgeRightTimer);
+      } else if (edgeRight.classList.contains('edge-active')) {
+        scheduleEdgePanelHide(edgeRight, 'right');
+      }
     }
   });
 
@@ -135,26 +185,20 @@ export function initEdgePanels() {
   if (edgeTop) {
     edgeTop.addEventListener('mouseleave', () => {
       if (edgeTop.classList.contains('edge-pinned')) return;
-      edgeTopTimer = setTimeout(() => {
-        edgeTop.classList.remove('edge-active');
-        edgeTopTimer = null;
-      }, 300);
+      scheduleEdgePanelHide(edgeTop, 'top');
     });
     edgeTop.addEventListener('mouseenter', () => {
-      if (edgeTopTimer) { clearTimeout(edgeTopTimer); edgeTopTimer = null; }
+      edgeTopTimer = clearEdgeHideTimer(edgeTopTimer);
     });
   }
 
   if (edgeRight) {
     edgeRight.addEventListener('mouseleave', () => {
       if (edgeRight.classList.contains('edge-pinned')) return;
-      edgeRightTimer = setTimeout(() => {
-        edgeRight.classList.remove('edge-active');
-        edgeRightTimer = null;
-      }, 300);
+      scheduleEdgePanelHide(edgeRight, 'right');
     });
     edgeRight.addEventListener('mouseenter', () => {
-      if (edgeRightTimer) { clearTimeout(edgeRightTimer); edgeRightTimer = null; }
+      edgeRightTimer = clearEdgeHideTimer(edgeRightTimer);
     });
   }
 

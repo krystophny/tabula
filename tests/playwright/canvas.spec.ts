@@ -753,6 +753,22 @@ test.describe('canvas - edge panels', () => {
     await expect(edgeTop).toHaveClass(/edge-active/);
   });
 
+  test('top projects panel hides after the cursor leaves it', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+
+    const edgeTop = page.locator('#edge-top');
+    await page.mouse.move(640, 5);
+    await page.waitForTimeout(100);
+    await expect(edgeTop).toHaveClass(/edge-active/);
+
+    await page.mouse.move(640, 360);
+    await page.waitForTimeout(350);
+
+    const classes = await edgeTop.getAttribute('class');
+    expect(classes).not.toContain('edge-active');
+    expect(classes).not.toContain('edge-pinned');
+  });
+
   test('Escape closes edge panels', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
 
