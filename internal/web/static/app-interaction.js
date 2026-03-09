@@ -8,6 +8,7 @@ const {
 } = context;
 
 const clearInkDraft = (...args) => refs.clearInkDraft(...args);
+const createSelectionAnnotation = (...args) => refs.createSelectionAnnotation(...args);
 const renderInkControls = (...args) => refs.renderInkControls(...args);
 const updateRuntimePreferences = (...args) => refs.updateRuntimePreferences(...args);
 const syncInteractionBodyState = (...args) => refs.syncInteractionBodyState(...args);
@@ -305,29 +306,7 @@ export function renderToolPalette() {
 export function maybeApplySelectionHighlight() {
   if (state.artifactEditMode) return false;
   if (state.interaction.surface !== 'annotate' || state.interaction.tool !== 'highlight') return false;
-  const pane = document.getElementById('canvas-text');
-  if (!(pane instanceof HTMLElement) || !pane.classList.contains('is-active')) return false;
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
-  const range = selection.getRangeAt(0);
-  const anchorNode = range.commonAncestorContainer instanceof Element
-    ? range.commonAncestorContainer
-    : range.commonAncestorContainer?.parentElement;
-  if (!(anchorNode instanceof Node) || !pane.contains(anchorNode)) return false;
-  const text = String(selection.toString() || '').trim();
-  if (!text) {
-    selection.removeAllRanges();
-    return false;
-  }
-  try {
-    const fragment = range.extractContents();
-    const mark = document.createElement('mark');
-    mark.className = 'canvas-user-highlight';
-    mark.appendChild(fragment);
-    range.insertNode(mark);
-    selection.removeAllRanges();
-    return true;
-  } catch (_) {
-    return false;
-  }
+  return createSelectionAnnotation();
 }

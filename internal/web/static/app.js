@@ -16,6 +16,7 @@ import * as canvasTransportModule from './app-canvas-transport.js';
 import * as canvasUiModule from './app-canvas-ui.js';
 import * as edgePanelsModule from './app-edge-panels.js';
 import * as bugReportModule from './app-bug-report.js';
+import * as annotationsModule from './app-annotations.js';
 import * as initModule from './app-init.js';
 
 setAppRefs({
@@ -36,11 +37,13 @@ setAppRefs({
   ...canvasUiModule,
   ...edgePanelsModule,
   ...bugReportModule,
+  ...annotationsModule,
   ...initModule,
 });
 
 runtimeUiModule.initRuntimeUi();
 bugReportModule.initBugReportUi();
+annotationsModule.initAnnotationUi();
 
 window._taburaApp = {
   getState,
