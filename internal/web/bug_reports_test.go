@@ -20,7 +20,7 @@ func TestHandleBugReportCreateWritesBundleUnderWorkspaceArtifacts(t *testing.T) 
 	workspaceDir := t.TempDir()
 	initGitRepo(t, workspaceDir)
 	addGitRemote(t, workspaceDir, "https://github.com/owner/tabula.git")
-	workspace, err := app.store.CreateWorkspace("Tabura", workspaceDir)
+	workspace, err := app.store.CreateWorkspace("Tabura", workspaceDir, store.SphereWork)
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
@@ -57,6 +57,7 @@ func TestHandleBugReportCreateWritesBundleUnderWorkspaceArtifacts(t *testing.T) 
 		"boot_id":       "boot-123",
 		"started_at":    "2026-03-08T14:00:00Z",
 		"active_mode":   "pen",
+		"active_sphere": store.SphereWork,
 		"canvas_state":  map[string]any{"has_artifact": true, "artifact_title": "README.md"},
 		"recent_events": []string{"tap at (12,18)", "report bug"},
 		"browser_logs":  []string{"warn: render slow"},
@@ -110,6 +111,9 @@ func TestHandleBugReportCreateWritesBundleUnderWorkspaceArtifacts(t *testing.T) 
 	}
 	if got := strFromAny(bundle["active_workspace"]); got != "Tabura" {
 		t.Fatalf("active_workspace = %q, want %q", got, "Tabura")
+	}
+	if got := strFromAny(bundle["active_sphere"]); got != store.SphereWork {
+		t.Fatalf("active_sphere = %q, want %q", got, store.SphereWork)
 	}
 	if got := strFromAny(bundle["active_mode"]); got != "pen" {
 		t.Fatalf("active_mode = %q, want %q", got, "pen")
@@ -187,6 +191,7 @@ func TestHandleBugReportCreateWritesBundleUnderWorkspaceArtifacts(t *testing.T) 
 		"--label p0",
 		"--title Bug report: The indicator froze after the tap",
 		"## Evidence",
+		"Sphere",
 		"## Device",
 		".tabura/artifacts/bugs/",
 		"\"platform\": \"macOS\"",
@@ -195,6 +200,57 @@ func TestHandleBugReportCreateWritesBundleUnderWorkspaceArtifacts(t *testing.T) 
 		if !strings.Contains(createCall, needle) {
 			t.Fatalf("create call = %q, missing %q", createCall, needle)
 		}
+	}
+}
+
+func TestHandleBugReportCreateFallsBackToWorkspaceSphere(t *testing.T) {
+	app := newAuthedTestApp(t)
+	workspaceDir := t.TempDir()
+	initGitRepo(t, workspaceDir)
+	addGitRemote(t, workspaceDir, "https://github.com/owner/tabula.git")
+	workspace, err := app.store.CreateWorkspace("Tabura", workspaceDir, store.SphereWork)
+	if err != nil {
+		t.Fatalf("CreateWorkspace() error: %v", err)
+	}
+	if err := app.store.SetActiveWorkspace(workspace.ID); err != nil {
+		t.Fatalf("SetActiveWorkspace() error: %v", err)
+	}
+	app.ghCommandRunner = func(_ context.Context, cwd string, args ...string) (string, error) {
+		if cwd != workspaceDir {
+			t.Fatalf("gh cwd = %q, want %q", cwd, workspaceDir)
+		}
+		if len(args) >= 3 && args[0] == "label" && args[1] == "list" {
+			return `[{"name":"bug"},{"name":"p0"}]`, nil
+		}
+		if len(args) >= 2 && args[0] == "issue" && args[1] == "create" {
+			return "https://github.com/owner/tabula/issues/88\n", nil
+		}
+		if len(args) >= 2 && args[0] == "issue" && args[1] == "view" {
+			return `{"number":88,"title":"Bug report: Sphere fallback","url":"https://github.com/owner/tabula/issues/88","state":"OPEN","labels":[{"name":"bug"},{"name":"p0"}],"assignees":[]}`, nil
+		}
+		t.Fatalf("unexpected gh invocation: %v", args)
+		return "", nil
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), "POST", "/api/bugs/report", map[string]any{
+		"note":                "Sphere fallback.",
+		"screenshot_data_url": testPNGDataURL,
+	})
+	if rr.Code != 200 {
+		t.Fatalf("POST /api/bugs/report status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	payload := decodeJSONResponse(t, rr)
+	bundlePath := strFromAny(payload["bundle_path"])
+	bundleBytes, err := os.ReadFile(filepath.Join(workspaceDir, filepath.FromSlash(bundlePath)))
+	if err != nil {
+		t.Fatalf("read bundle: %v", err)
+	}
+	var bundle map[string]any
+	if err := json.Unmarshal(bundleBytes, &bundle); err != nil {
+		t.Fatalf("decode bundle: %v", err)
+	}
+	if got := strFromAny(bundle["active_sphere"]); got != store.SphereWork {
+		t.Fatalf("active_sphere = %q, want %q", got, store.SphereWork)
 	}
 }
 
@@ -244,6 +300,7 @@ func TestHandleBugReportCreateUsesLocalProjectFallback(t *testing.T) {
 	}
 
 	rr := doAuthedJSONRequest(t, app.Router(), "POST", "/api/bugs/report", map[string]any{
+		"active_sphere":       store.SphereWork,
 		"note":                "Local project fallback.",
 		"screenshot_data_url": testPNGDataURL,
 	})
@@ -253,6 +310,9 @@ func TestHandleBugReportCreateUsesLocalProjectFallback(t *testing.T) {
 	workspace, err := app.store.GetWorkspaceByPath(localProjectDir)
 	if err != nil {
 		t.Fatalf("GetWorkspaceByPath() error: %v", err)
+	}
+	if workspace.Sphere != store.SphereWork {
+		t.Fatalf("workspace.Sphere = %q, want %q", workspace.Sphere, store.SphereWork)
 	}
 	item, err := app.store.GetItemBySource("bug_report", "issue:91")
 	if err != nil {

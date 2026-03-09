@@ -31,6 +31,7 @@ type bugReportRequest struct {
 	BootID           string          `json:"boot_id"`
 	StartedAt        string          `json:"started_at"`
 	ActiveMode       string          `json:"active_mode"`
+	ActiveSphere     string          `json:"active_sphere"`
 	CanvasState      json.RawMessage `json:"canvas_state"`
 	RecentEvents     []string        `json:"recent_events"`
 	BrowserLogs      []string        `json:"browser_logs"`
@@ -76,6 +77,7 @@ type bugReportWorkspace struct {
 	Name    string
 	DirPath string
 	ID      *int64
+	Sphere  string
 }
 
 type gitHubLabelName struct {
@@ -110,6 +112,9 @@ func (a *App) handleBugReportCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
+	if sphere := normalizeBugReportSphere(req.ActiveSphere); sphere != "" {
+		workspace.Sphere = sphere
+	}
 	reportDir, reportID, err := createBugReportDir(workspace.DirPath, req.Timestamp)
 	if err != nil {
 		http.Error(w, "create bug report dir failed", http.StatusInternalServerError)
@@ -139,7 +144,7 @@ func (a *App) handleBugReportCreate(w http.ResponseWriter, r *http.Request) {
 		GitSHA:           resolveGitSHA(workspace.DirPath),
 		ActiveMode:       strings.TrimSpace(req.ActiveMode),
 		ActiveWorkspace:  workspace.Name,
-		ActiveSphere:     "",
+		ActiveSphere:     workspace.Sphere,
 		CanvasState:      normalizeBugReportRawJSON(req.CanvasState),
 		RecentEvents:     cleanBugReportLines(req.RecentEvents),
 		BrowserLogs:      cleanBugReportLines(req.BrowserLogs),
@@ -203,7 +208,7 @@ func (a *App) resolveBugReportWorkspace() (bugReportWorkspace, error) {
 	for _, workspace := range workspaces {
 		if workspace.IsActive {
 			id := workspace.ID
-			return bugReportWorkspace{Name: workspace.Name, DirPath: workspace.DirPath, ID: &id}, nil
+			return bugReportWorkspace{Name: workspace.Name, DirPath: workspace.DirPath, ID: &id, Sphere: workspace.Sphere}, nil
 		}
 	}
 	if root := strings.TrimSpace(a.localProjectDir); root != "" {
@@ -275,12 +280,31 @@ func (a *App) ensureBugReportWorkspaceID(workspace bugReportWorkspace) (*int64, 
 	case err != nil && !errors.Is(err, sql.ErrNoRows):
 		return nil, err
 	}
+	if sphere := normalizeBugReportSphere(workspace.Sphere); sphere != "" {
+		created, err := a.store.CreateWorkspace(workspace.Name, workspace.DirPath, sphere)
+		if err != nil {
+			return nil, err
+		}
+		id := created.ID
+		return &id, nil
+	}
 	created, err := a.store.CreateWorkspace(workspace.Name, workspace.DirPath)
 	if err != nil {
 		return nil, err
 	}
 	id := created.ID
 	return &id, nil
+}
+
+func normalizeBugReportSphere(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case store.SphereWork:
+		return store.SphereWork
+	case store.SpherePrivate:
+		return store.SpherePrivate
+	default:
+		return ""
+	}
 }
 
 func (a *App) ensureGitHubLabels(cwd string, wanted map[string]struct {
@@ -401,6 +425,7 @@ func bugReportIssueBody(bundle bugReportBundle, bundlePath string) string {
 	for _, line := range []string{
 		bugReportContextLine("Trigger", bundle.Trigger),
 		bugReportContextLine("Active mode", bundle.ActiveMode),
+		bugReportContextLine("Sphere", bundle.ActiveSphere),
 		bugReportContextLine("Workspace", bundle.ActiveWorkspace),
 		bugReportContextLine("Page", bundle.PageURL),
 		bugReportContextLine("Version", bundle.Version),
