@@ -15,6 +15,8 @@ var itemFilterSourceCommands = map[string]string{
 	"show todoist items":      store.ExternalProviderTodoist,
 	"zeige todoist aufgaben":  store.ExternalProviderTodoist,
 	"zeige todoist items":     store.ExternalProviderTodoist,
+	"show evernote notes":     store.ExternalProviderEvernote,
+	"show evernote items":     store.ExternalProviderEvernote,
 	"show gmail messages":     store.ExternalProviderGmail,
 	"show gmail items":        store.ExternalProviderGmail,
 	"zeige gmail nachrichten": store.ExternalProviderGmail,

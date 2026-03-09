@@ -83,6 +83,13 @@ func TestExternalBindingStoreCRUDAndQueries(t *testing.T) {
 	if got.ID != created.ID {
 		t.Fatalf("GetBindingByRemote() id = %d, want %d", got.ID, created.ID)
 	}
+	latestRemoteAt, err := s.LatestBindingRemoteUpdatedAt(account.ID, ExternalProviderGmail, "email")
+	if err != nil {
+		t.Fatalf("LatestBindingRemoteUpdatedAt(created) error: %v", err)
+	}
+	if latestRemoteAt == nil || *latestRemoteAt != "2026-03-08T12:00:00Z" {
+		t.Fatalf("LatestBindingRemoteUpdatedAt(created) = %v, want 2026-03-08T12:00:00Z", latestRemoteAt)
+	}
 
 	updatedRemoteAt := "2026-03-08T13:15:00Z"
 	updated, err := s.UpsertExternalBinding(ExternalBinding{
@@ -108,6 +115,13 @@ func TestExternalBindingStoreCRUDAndQueries(t *testing.T) {
 	}
 	if updated.LastSyncedAt == "" {
 		t.Fatal("expected updated last_synced_at")
+	}
+	latestRemoteAt, err = s.LatestBindingRemoteUpdatedAt(account.ID, ExternalProviderGmail, "email")
+	if err != nil {
+		t.Fatalf("LatestBindingRemoteUpdatedAt(updated) error: %v", err)
+	}
+	if latestRemoteAt == nil || *latestRemoteAt != updatedRemoteAt {
+		t.Fatalf("LatestBindingRemoteUpdatedAt(updated) = %v, want %q", latestRemoteAt, updatedRemoteAt)
 	}
 
 	otherRemoteAt := "2026-03-08T08:30:00Z"
@@ -160,6 +174,13 @@ func TestExternalBindingStoreCRUDAndQueries(t *testing.T) {
 	}
 	if _, err := s.GetBindingByRemote(account.ID, ExternalProviderGmail, "email", "msg-1"); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("GetBindingByRemote(deleted) error = %v, want sql.ErrNoRows", err)
+	}
+	latestRemoteAt, err = s.LatestBindingRemoteUpdatedAt(account.ID, ExternalProviderGmail, "email")
+	if err != nil {
+		t.Fatalf("LatestBindingRemoteUpdatedAt(deleted) error: %v", err)
+	}
+	if latestRemoteAt != nil {
+		t.Fatalf("LatestBindingRemoteUpdatedAt(deleted) = %v, want nil", latestRemoteAt)
 	}
 }
 
@@ -215,6 +236,9 @@ func TestExternalBindingStoreRejectsInvalidInput(t *testing.T) {
 	}
 	if _, err := s.GetBindingByRemote(account.ID, ExternalProviderIMAP, "", "msg-1"); err == nil {
 		t.Fatal("expected missing object_type lookup error")
+	}
+	if _, err := s.LatestBindingRemoteUpdatedAt(account.ID, ExternalProviderIMAP, ""); err == nil {
+		t.Fatal("expected missing object_type latest lookup error")
 	}
 	if _, err := s.GetBindingByRemote(account.ID, ExternalProviderIMAP, "email", ""); err == nil {
 		t.Fatal("expected missing remote_id lookup error")

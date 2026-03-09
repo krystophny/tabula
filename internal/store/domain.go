@@ -17,6 +17,7 @@ const (
 	ArtifactKindGitHubIssue  ArtifactKind = "github_issue"
 	ArtifactKindGitHubPR     ArtifactKind = "github_pr"
 	ArtifactKindExternalTask ArtifactKind = "external_task"
+	ArtifactKindExternalNote ArtifactKind = "external_note"
 	ArtifactKindTranscript   ArtifactKind = "transcript"
 	ArtifactKindPlanNote     ArtifactKind = "plan_note"
 	ArtifactKindIdeaNote     ArtifactKind = "idea_note"

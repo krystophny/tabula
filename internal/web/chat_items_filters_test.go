@@ -26,6 +26,7 @@ func TestParseInlineItemIntentFilterCommands(t *testing.T) {
 		{text: "show all todoist tasks", wantAction: "show_filtered_items", wantSource: store.ExternalProviderTodoist, wantAll: true},
 		{text: "show my todoist tasks", wantAction: "show_filtered_items", wantSource: store.ExternalProviderTodoist},
 		{text: "zeige todoist aufgaben", wantAction: "show_filtered_items", wantSource: store.ExternalProviderTodoist},
+		{text: "show evernote notes", wantAction: "show_filtered_items", wantSource: store.ExternalProviderEvernote},
 		{text: "show unassigned items", wantAction: "show_filtered_items", wantNullWork: true},
 		{text: "zeige nicht zugeordnete items", wantAction: "show_filtered_items", wantNullWork: true},
 	}
