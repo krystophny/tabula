@@ -168,6 +168,27 @@ func todoistProjectMapping(mappings []store.ExternalContainerMapping, projectNam
 	return nil
 }
 
+func (a *App) todoistProjectMappingForAccount(account store.ExternalAccount, mappings []store.ExternalContainerMapping, projectName string) (*store.ExternalContainerMapping, error) {
+	mapping := todoistProjectMapping(mappings, projectName)
+	if mapping == nil {
+		return nil, nil
+	}
+	if mapping.Sphere != nil && !strings.EqualFold(strings.TrimSpace(*mapping.Sphere), account.Sphere) {
+		return nil, nil
+	}
+	if mapping.WorkspaceID == nil {
+		return mapping, nil
+	}
+	workspace, err := a.store.GetWorkspace(*mapping.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	if !strings.EqualFold(workspace.Sphere, account.Sphere) {
+		return nil, nil
+	}
+	return mapping, nil
+}
+
 func todoistProjectNameByID(projects []todoist.Project) map[string]string {
 	out := make(map[string]string, len(projects))
 	for _, project := range projects {
@@ -228,7 +249,10 @@ func (a *App) persistTodoistTask(account store.ExternalAccount, task todoist.Tas
 	if task.ProjectID != nil {
 		projectName = strings.TrimSpace(projectNames[strings.TrimSpace(*task.ProjectID)])
 	}
-	mapping := todoistProjectMapping(mappings, projectName)
+	mapping, err := a.todoistProjectMappingForAccount(account, mappings, projectName)
+	if err != nil {
+		return store.Item{}, err
+	}
 	source := store.ExternalProviderTodoist
 	sourceRef := todoistTaskSourceRef(task.ID)
 	title := strings.TrimSpace(task.Content)
@@ -244,6 +268,13 @@ func (a *App) persistTodoistTask(account store.ExternalAccount, task todoist.Tas
 		if mapping != nil {
 			updates.WorkspaceID = mappedWorkspaceUpdate(mapping)
 			updates.ProjectID = mappedProjectUpdate(mapping)
+		} else if existing.WorkspaceID != nil {
+			clear := int64(0)
+			updates.WorkspaceID = &clear
+		}
+		if mapping == nil || mapping.WorkspaceID == nil {
+			sphere := account.Sphere
+			updates.Sphere = &sphere
 		}
 		if err := a.store.UpdateItem(existing.ID, updates); err != nil {
 			return store.Item{}, err

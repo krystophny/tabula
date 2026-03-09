@@ -3,6 +3,8 @@ package web
 import (
 	"net/http"
 	"testing"
+
+	"github.com/krystophny/tabura/internal/store"
 )
 
 func TestExternalAccountCRUDAPI(t *testing.T) {
@@ -110,5 +112,62 @@ func TestExternalAccountAPIRejectsInvalidInput(t *testing.T) {
 	})
 	if rrMissingUpdate.Code != http.StatusNotFound {
 		t.Fatalf("missing update status = %d, want 404: %s", rrMissingUpdate.Code, rrMissingUpdate.Body.String())
+	}
+}
+
+func TestSphereScopedExternalAccountAPI(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	rrCreate := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/spheres/work/accounts", map[string]any{
+		"provider": "todoist",
+		"label":    "Work Todoist",
+		"config": map[string]any{
+			"base_url": "https://todoist.example.test",
+		},
+	})
+	if rrCreate.Code != http.StatusCreated {
+		t.Fatalf("scoped create status = %d, want 201: %s", rrCreate.Code, rrCreate.Body.String())
+	}
+	createPayload := decodeJSONDataResponse(t, rrCreate)
+	accountPayload, ok := createPayload["account"].(map[string]any)
+	if !ok {
+		t.Fatalf("scoped create payload = %#v", createPayload)
+	}
+	accountID := int64(accountPayload["id"].(float64))
+	if got := strFromAny(accountPayload["sphere"]); got != store.SphereWork {
+		t.Fatalf("created sphere = %q, want %q", got, store.SphereWork)
+	}
+
+	if _, err := app.store.CreateExternalAccount(store.SpherePrivate, store.ExternalProviderTodoist, "Private Todoist", map[string]any{
+		"base_url": "https://todoist.example.test/private",
+	}); err != nil {
+		t.Fatalf("CreateExternalAccount(private) error: %v", err)
+	}
+
+	rrList := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/spheres/work/accounts", nil)
+	if rrList.Code != http.StatusOK {
+		t.Fatalf("scoped list status = %d, want 200: %s", rrList.Code, rrList.Body.String())
+	}
+	listPayload := decodeJSONDataResponse(t, rrList)
+	accounts, ok := listPayload["accounts"].([]any)
+	if !ok || len(accounts) != 1 {
+		t.Fatalf("scoped list payload = %#v", listPayload)
+	}
+	if got := strFromAny(accounts[0].(map[string]any)["label"]); got != "Work Todoist" {
+		t.Fatalf("listed label = %q, want Work Todoist", got)
+	}
+
+	rrDelete := doAuthedJSONRequest(t, app.Router(), http.MethodDelete, "/api/spheres/work/accounts/"+itoa(accountID), nil)
+	if rrDelete.Code != http.StatusNoContent {
+		t.Fatalf("scoped delete status = %d, want 204: %s", rrDelete.Code, rrDelete.Body.String())
+	}
+
+	rrBadCreate := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/spheres/work/accounts", map[string]any{
+		"sphere":   "private",
+		"provider": "todoist",
+		"label":    "Wrong Sphere",
+	})
+	if rrBadCreate.Code != http.StatusBadRequest {
+		t.Fatalf("scoped mismatched create status = %d, want 400: %s", rrBadCreate.Code, rrBadCreate.Body.String())
 	}
 }

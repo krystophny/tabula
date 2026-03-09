@@ -250,6 +250,82 @@ func TestClassifyAndExecuteSystemActionSyncTodoistRemapUpdatesExistingItem(t *te
 	}
 }
 
+func TestClassifyAndExecuteSystemActionSyncTodoistUsesAccountSphereAsSourceOfTruth(t *testing.T) {
+	app := newAuthedTestApp(t)
+	app.intentLLMURL = ""
+	app.intentClassifierURL = ""
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/projects":
+			writeTodoistJSON(t, w, []map[string]any{{"id": "proj-1", "name": "Admin"}})
+		case r.Method == http.MethodGet && r.URL.Path == "/tasks":
+			writeTodoistJSON(t, w, []map[string]any{{
+				"id":         "task-1",
+				"content":    "Review proposal",
+				"project_id": "proj-1",
+				"url":        "https://todoist.test/task-1",
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	account := createTodoistTestAccountInSphere(t, app, store.SphereWork, "Work Todoist", server.URL)
+	privateWorkspace, err := app.store.CreateWorkspace("Admin", filepath.Join(t.TempDir(), "admin"), store.SpherePrivate)
+	if err != nil {
+		t.Fatalf("CreateWorkspace() error: %v", err)
+	}
+	if _, err := app.store.SetContainerMapping(store.ExternalProviderTodoist, "project", "Admin", &privateWorkspace.ID, nil, nil); err != nil {
+		t.Fatalf("SetContainerMapping() error: %v", err)
+	}
+	source := store.ExternalProviderTodoist
+	sourceRef := todoistTaskSourceRef("task-1")
+	existing, err := app.store.CreateItem("Old proposal title", store.ItemOptions{
+		WorkspaceID: &privateWorkspace.ID,
+		Source:      &source,
+		SourceRef:   &sourceRef,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(existing) error: %v", err)
+	}
+
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensure default project: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("chat session: %v", err)
+	}
+
+	if _, _, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "sync todoist"); !handled {
+		t.Fatal("expected sync command to be handled")
+	}
+
+	item, err := app.store.GetItem(existing.ID)
+	if err != nil {
+		t.Fatalf("GetItem() error: %v", err)
+	}
+	if item.WorkspaceID != nil {
+		t.Fatalf("item workspace_id = %#v, want nil after cross-sphere sync", item.WorkspaceID)
+	}
+	if item.Sphere != store.SphereWork {
+		t.Fatalf("item sphere = %q, want %q", item.Sphere, store.SphereWork)
+	}
+	if item.Title != "Review proposal" {
+		t.Fatalf("item title = %q, want Review proposal", item.Title)
+	}
+	binding, err := app.store.GetBindingByRemote(account.ID, store.ExternalProviderTodoist, "task", "task-1")
+	if err != nil {
+		t.Fatalf("GetBindingByRemote() error: %v", err)
+	}
+	if binding.ItemID == nil || *binding.ItemID != item.ID {
+		t.Fatalf("binding item_id = %#v, want %d", binding.ItemID, item.ID)
+	}
+}
+
 func TestClassifyAndExecuteSystemActionCreateTodoistTask(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
@@ -333,9 +409,13 @@ func TestClassifyAndExecuteSystemActionCreateTodoistTask(t *testing.T) {
 }
 
 func createTodoistTestAccount(t *testing.T, app *App, label, baseURL string) store.ExternalAccount {
+	return createTodoistTestAccountInSphere(t, app, store.SpherePrivate, label, baseURL)
+}
+
+func createTodoistTestAccountInSphere(t *testing.T, app *App, sphere, label, baseURL string) store.ExternalAccount {
 	t.Helper()
 	t.Setenv(todoist.TokenEnvVar(label), "todo-token")
-	account, err := app.store.CreateExternalAccount(store.SpherePrivate, store.ExternalProviderTodoist, label, map[string]any{
+	account, err := app.store.CreateExternalAccount(sphere, store.ExternalProviderTodoist, label, map[string]any{
 		"base_url": strings.TrimSpace(baseURL),
 	})
 	if err != nil {
