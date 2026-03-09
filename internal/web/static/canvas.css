@@ -183,12 +183,6 @@
 }
 
 #canvas-text pre code .hl-diff-ctx { color: #3B3B3B; }
-#canvas-text mark.canvas-user-highlight {
-  background: #fde68a;
-  color: inherit;
-  padding: 0 0.08rem;
-  border-radius: 0.2rem;
-}
 
 #canvas-text mjx-container {
   max-width: 100%;
@@ -331,6 +325,10 @@ body.tool-ink .canvas-pdf-page .textLayer :is(span, br) {
   pointer-events: none;
   transform-origin: 0 0;
   z-index: 2;
+}
+
+.canvas-pdf-page-inner > .canvas-annotation-layer {
+  z-index: 1;
 }
 
 .canvas-pdf-page .annotationLayer section {

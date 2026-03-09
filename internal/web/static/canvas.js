@@ -32,6 +32,21 @@ const pdfRenderState = {
   textLayers: new Set(),
 };
 
+function dispatchCanvasRendered(event) {
+  document.dispatchEvent(new CustomEvent('tabura:canvas-rendered', {
+    detail: {
+      kind: event?.kind || '',
+      title: event?.title || '',
+      path: event?.path || '',
+      event_id: event?.event_id || '',
+    },
+  }));
+}
+
+function dispatchCanvasCleared() {
+  document.dispatchEvent(new CustomEvent('tabura:canvas-cleared'));
+}
+
 export function getEls() {
   if (!els.text) {
     els.text = document.getElementById('canvas-text');
@@ -800,12 +815,14 @@ async function renderPdfSurface(event, options = {}) {
     const pdfDoc = await loadPdfDocument(pdfKey, url, token, reuseDocument);
     if (!pdfDoc || token !== pdfRenderState.generation) return;
     await renderPdfPages(pdfDoc, pagesHost, status, token);
+    dispatchCanvasRendered(event);
   } catch (err) {
     if (token !== pdfRenderState.generation) return;
     if (isPdfCancellationError(err)) return;
     console.warn('PDF render failed:', err);
     pdfRenderState.lastWidth = getPdfContainerWidth(e.pdf);
     renderPdfFallback(e.pdf, url, 'PDF preview unavailable.');
+    dispatchCanvasRendered(event);
   }
 }
 
@@ -827,6 +844,7 @@ export function renderCanvas(event) {
     previousArtifactText = nextState.previousArtifactText;
     previousBlockTexts = nextState.previousBlockTexts;
     previousArtifactTitle = nextState.previousArtifactTitle;
+    dispatchCanvasRendered(event);
   } else if (event.kind === 'image_artifact') {
     clearTextInteractionHandlers();
     hideAll();
@@ -839,6 +857,7 @@ export function renderCanvas(event) {
     activeTextEventId = null;
     activeArtifactTitle = event.title || '';
     activePdfEvent = null;
+    dispatchCanvasRendered(event);
   } else if (event.kind === 'pdf_artifact') {
     clearTextInteractionHandlers();
     hideAll();
@@ -864,6 +883,7 @@ export function clearCanvas() {
   previousArtifactText = '';
   previousBlockTexts = [];
   previousArtifactTitle = '';
+  dispatchCanvasCleared();
 }
 
 export function getPreviousArtifactText() {

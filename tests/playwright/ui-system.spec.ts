@@ -145,6 +145,76 @@ async function renderTestArtifact(page: Page, text = 'Line one\nLine two\nLine t
   }, text);
 }
 
+async function renderPdfArtifactMock(page: Page) {
+  await page.evaluate(() => {
+    const mod = (window as any).__canvasModule;
+    mod.renderCanvas({
+      event_id: 'art-pdf-1',
+      kind: 'pdf_artifact',
+      title: 'test.pdf',
+      path: 'docs/test.pdf',
+    });
+
+    const pane = document.getElementById('canvas-pdf');
+    if (!(pane instanceof HTMLElement)) return;
+    pane.style.display = '';
+    pane.classList.add('is-active');
+    pane.innerHTML = '';
+
+    const surface = document.createElement('div');
+    surface.className = 'canvas-pdf-surface';
+    const pagesHost = document.createElement('div');
+    pagesHost.className = 'canvas-pdf-pages';
+
+    const pageNode = document.createElement('section');
+    pageNode.className = 'canvas-pdf-page';
+    pageNode.dataset.page = '1';
+
+    const pageInner = document.createElement('div');
+    pageInner.className = 'canvas-pdf-page-inner';
+    pageInner.style.width = '640px';
+    pageInner.style.height = '860px';
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'canvas-pdf-canvas';
+    canvas.width = 640;
+    canvas.height = 860;
+    canvas.style.width = '640px';
+    canvas.style.height = '860px';
+    pageInner.appendChild(canvas);
+
+    const textLayer = document.createElement('div');
+    textLayer.className = 'textLayer canvas-pdf-text-layer';
+    textLayer.style.setProperty('--scale-factor', '1');
+
+    const line = document.createElement('span');
+    line.textContent = 'Persistent PDF note';
+    line.style.position = 'absolute';
+    line.style.left = '72px';
+    line.style.top = '132px';
+    line.style.fontSize = '18px';
+    line.style.lineHeight = '1';
+    textLayer.appendChild(line);
+    pageInner.appendChild(textLayer);
+
+    pageNode.appendChild(pageInner);
+    pagesHost.appendChild(pageNode);
+    surface.appendChild(pagesHost);
+    pane.appendChild(surface);
+
+    document.dispatchEvent(new CustomEvent('tabura:canvas-rendered', {
+      detail: {
+        kind: 'pdf_artifact',
+        title: 'test.pdf',
+        path: 'docs/test.pdf',
+        event_id: 'art-pdf-1',
+      },
+    }));
+    const app = (window as any)._taburaApp;
+    if (app?.getState) app.getState().hasArtifact = true;
+  });
+}
+
 async function dispatchTouchTap(page: Page, x: number, y: number) {
   await page.evaluate(({ x, y }) => {
     if (typeof Touch === 'undefined') return;
@@ -382,7 +452,7 @@ test.describe('floating tool palette', () => {
       document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
     });
 
-    await expect(page.locator('#canvas-text mark.canvas-user-highlight')).toContainText('Alpha');
+    await expect(page.locator('#canvas-text .canvas-user-highlight.is-persistent')).toHaveCount(1);
     const interaction = await page.evaluate(() => {
       const state = (window as any)._taburaApp?.getState?.();
       return {
@@ -394,6 +464,76 @@ test.describe('floating tool palette', () => {
       conversation: 'idle',
       artifactEditMode: false,
     });
+  });
+
+  test('highlight notes persist across reload for text artifacts', async ({ page }) => {
+    await injectCanvasEvent(page, {
+      kind: 'text_artifact',
+      event_id: 'art-highlight-note-1',
+      title: 'persist.md',
+      text: 'Alpha beta gamma',
+    });
+    await expect(page.locator('#canvas-text')).toBeVisible();
+    await page.locator('#surface-toggle').click();
+    await setInteractionTool(page, 'highlight');
+
+    await page.evaluate(() => {
+      const textNode = document.querySelector('#canvas-text p')?.firstChild;
+      if (!(textNode instanceof Text)) {
+        throw new Error('text node unavailable for note persistence test');
+      }
+      const range = document.createRange();
+      range.setStart(textNode, 0);
+      range.setEnd(textNode, 5);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+    });
+
+    await expect(page.locator('.annotation-bubble')).toBeVisible();
+    await page.locator('#annotation-note-input').fill('Needs follow-up');
+    await page.locator('#annotation-note-save').click();
+    await expect(page.locator('.canvas-annotation-badge')).toHaveText('1');
+    await expect(page.locator('.annotation-bubble-note')).toContainText('Needs follow-up');
+
+    await waitReady(page);
+    await injectCanvasModuleRef(page);
+    await injectCanvasEvent(page, {
+      kind: 'text_artifact',
+      event_id: 'art-highlight-note-2',
+      title: 'persist.md',
+      text: 'Alpha beta gamma',
+    });
+    await expect(page.locator('#canvas-text .canvas-user-highlight.is-persistent')).toHaveCount(1);
+    await expect(page.locator('.canvas-annotation-badge')).toHaveText('1');
+    await page.locator('.canvas-annotation-badge').click();
+    await expect(page.locator('.annotation-bubble-note')).toContainText('Needs follow-up');
+  });
+
+  test('highlight tool persists notes on PDF text selections', async ({ page }) => {
+    await injectCanvasModuleRef(page);
+    await renderPdfArtifactMock(page);
+    await setInteractionTool(page, 'highlight');
+
+    await page.evaluate(() => {
+      const textNode = document.querySelector('#canvas-pdf .textLayer span')?.firstChild;
+      if (!(textNode instanceof Text)) {
+        throw new Error('pdf text node unavailable for highlight test');
+      }
+      const range = document.createRange();
+      range.setStart(textNode, 0);
+      range.setEnd(textNode, 9);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+    });
+
+    await expect(page.locator('#canvas-pdf .canvas-user-highlight.is-persistent')).toHaveCount(1);
+    await page.locator('#annotation-note-input').fill('PDF anchor works');
+    await page.locator('#annotation-note-save').click();
+    await expect(page.locator('#canvas-pdf .canvas-annotation-badge')).toHaveText('1');
   });
 
   test('email artifacts opened from the sidebar default to annotate surface', async ({ page }) => {
