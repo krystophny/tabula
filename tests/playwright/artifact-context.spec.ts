@@ -189,7 +189,7 @@ test.describe('canvas layout', () => {
     await expect(activePanes).toHaveCount(0);
   });
 
-  test('text selection works without opening bubble', async ({ page }) => {
+  test('text selection in pointer mode does not show annotation UI', async ({ page }) => {
     await renderTestArtifact(page);
     const canvasText = page.locator('#canvas-text');
     await expect(canvasText).toBeVisible();
@@ -203,8 +203,8 @@ test.describe('canvas layout', () => {
     await page.mouse.up();
     await page.waitForTimeout(200);
 
-    const bubbleCount = await page.locator('.annotation-bubble').count();
-    expect(bubbleCount).toBe(0);
+    await expect(page.locator('#annotation-bubble')).toBeHidden();
+    await expect(page.locator('.canvas-user-highlight')).toHaveCount(0);
   });
 
   test('no tab bar in DOM', async ({ page }) => {

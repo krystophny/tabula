@@ -12,6 +12,7 @@ func TestStyleCSSImportsSplitStylesheets(t *testing.T) {
 	imports := []string{
 		`@import url("./base.css");`,
 		`@import url("./canvas.css");`,
+		`@import url("./annotations.css");`,
 		`@import url("./edge-panels.css");`,
 		`@import url("./chat.css");`,
 		`@import url("./ink.css");`,
@@ -48,6 +49,7 @@ func TestSplitStylesheetsExistAndStayBounded(t *testing.T) {
 	files := []string{
 		"base.css",
 		"canvas.css",
+		"annotations.css",
 		"edge-panels.css",
 		"chat.css",
 		"ink.css",
