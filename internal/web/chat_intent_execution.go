@@ -511,6 +511,8 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 		}, nil
 	case "show_calendar":
 		return a.executeCalendarAction(session, action)
+	case "show_briefing":
+		return a.executeBriefingAction(session, action)
 	case "print_item":
 		return a.executePrintItemAction(sessionID, session, action)
 	default:
