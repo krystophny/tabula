@@ -14,14 +14,18 @@ func TestStaticAppSplitFileLineLimits(t *testing.T) {
 		t.Fatal("runtime.Caller failed")
 	}
 	root := filepath.Join(filepath.Dir(filename), "static")
-	entries, err := filepath.Glob(filepath.Join(root, "app*.js"))
+	entries, err := filepath.Glob(filepath.Join(root, "*.js"))
 	if err != nil {
-		t.Fatalf("glob app*.js: %v", err)
+		t.Fatalf("glob *.js: %v", err)
 	}
 	if len(entries) == 0 {
-		t.Fatal("no app*.js files found")
+		t.Fatal("no first-party js files found")
 	}
 	for _, path := range entries {
+		base := filepath.Base(path)
+		if strings.HasSuffix(base, ".min.js") {
+			continue
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("read %s: %v", path, err)

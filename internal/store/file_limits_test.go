@@ -1,4 +1,4 @@
-package web
+package store
 
 import (
 	"os"
@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestWebSplitFileLineLimits(t *testing.T) {
+func TestStoreFileLineLimits(t *testing.T) {
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller failed")
@@ -30,17 +30,12 @@ func TestWebSplitFileLineLimits(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
 		}
-		lines := countLines(data)
+		lines := strings.Count(string(data), "\n")
+		if len(data) > 0 && data[len(data)-1] != '\n' {
+			lines++
+		}
 		if lines > 1000 {
 			t.Fatalf("%s has %d lines, want <= 1000", name, lines)
 		}
 	}
-}
-
-func countLines(data []byte) int {
-	lines := strings.Count(string(data), "\n")
-	if len(data) > 0 && data[len(data)-1] != '\n' {
-		lines++
-	}
-	return lines
 }
