@@ -335,17 +335,26 @@
     if (!title) {
       throw new Error('Transcription was empty after cleanup. Retry this memo.');
     }
+    return saveIdeaCapture(transcript, 'voice', 'capture_stt');
+  }
+
+  async function saveIdeaCapture(note, captureMode, source) {
+    const normalized = normalizeNote(note);
+    const title = deriveItemTitle(normalized);
+    if (!title) {
+      throw new Error('Capture was empty after cleanup.');
+    }
     const capturedAt = new Date().toISOString();
     const artifactPayload = await postJSON('./api/artifacts', {
       kind: 'idea_note',
       title,
       meta_json: JSON.stringify({
         title,
-        transcript,
-        capture_mode: 'voice',
+        transcript: normalized,
+        capture_mode: String(captureMode || 'text').trim() || 'text',
         captured_at: capturedAt,
-        notes: [transcript],
-        source: 'capture_stt',
+        notes: [normalized],
+        source: String(source || '').trim(),
       }),
     });
     const artifactID = Number(artifactPayload && artifactPayload.artifact && artifactPayload.artifact.id);
@@ -691,9 +700,7 @@
     setCaptureState('saving');
     setStatus('Saving...', '');
     try {
-      await postJSON('./api/items', {
-        title,
-      });
+      await saveIdeaCapture(note, 'text', 'capture_text');
       noteInput.value = '';
       clearVoiceMemoState();
       setCaptureState('success');

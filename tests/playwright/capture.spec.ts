@@ -21,6 +21,16 @@ test.describe('capture page', () => {
     const requests = await page.evaluate(() => (window as any).__captureRequests);
     expect(requests).toHaveLength(1);
     expect(requests[0].title).toBe('Follow up with the review queue tomorrow morning.');
+    expect(requests[0].artifact_id).toBe(1);
+
+    const artifactRequests = await page.evaluate(() => (window as any).__captureArtifactRequests);
+    expect(artifactRequests).toHaveLength(1);
+    expect(artifactRequests[0].kind).toBe('idea_note');
+    expect(artifactRequests[0].title).toBe('Follow up with the review queue tomorrow morning.');
+    const meta = JSON.parse(String(artifactRequests[0].meta_json));
+    expect(meta.capture_mode).toBe('text');
+    expect(meta.transcript).toBe('Follow up with the review queue tomorrow morning. Capture the blockers too.');
+    expect(meta.notes).toEqual(['Follow up with the review queue tomorrow morning. Capture the blockers too.']);
   });
 
   test('transcribes a voice memo and saves an artifact-backed inbox item', async ({ page }) => {
