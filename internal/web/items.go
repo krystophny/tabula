@@ -255,17 +255,25 @@ func (a *App) handleItemCreate(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	item, err := a.store.CreateItem(req.Title, store.ItemOptions{
-		State:        req.State,
-		WorkspaceID:  req.WorkspaceID,
-		Sphere:       req.Sphere,
-		ArtifactID:   req.ArtifactID,
-		ActorID:      req.ActorID,
-		VisibleAfter: req.VisibleAfter,
-		FollowUpAt:   req.FollowUpAt,
-		Source:       req.Source,
-		SourceRef:    req.SourceRef,
-	})
+	var (
+		item store.Item
+		err  error
+	)
+	if req.Source != nil && strings.EqualFold(strings.TrimSpace(*req.Source), store.ExternalProviderTodoist) && strings.TrimSpace(optionalStringValue(req.SourceRef)) == "" {
+		item, err = a.createTodoistBackedItem(req)
+	} else {
+		item, err = a.store.CreateItem(req.Title, store.ItemOptions{
+			State:        req.State,
+			WorkspaceID:  req.WorkspaceID,
+			Sphere:       req.Sphere,
+			ArtifactID:   req.ArtifactID,
+			ActorID:      req.ActorID,
+			VisibleAfter: req.VisibleAfter,
+			FollowUpAt:   req.FollowUpAt,
+			Source:       req.Source,
+			SourceRef:    req.SourceRef,
+		})
+	}
 	if err != nil {
 		writeItemStoreError(w, err)
 		return
@@ -316,6 +324,25 @@ func (a *App) handleItemUpdate(w http.ResponseWriter, r *http.Request) {
 			}
 			writeAPIError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+	}
+	current, err := a.store.GetItem(itemID)
+	if err != nil {
+		writeItemStoreError(w, err)
+		return
+	}
+	if todoistBackedItem(current) {
+		if req.FollowUpAt != nil {
+			if err := a.syncTodoistItemFollowUp(current, req.FollowUpAt); err != nil {
+				writeAPIError(w, http.StatusBadGateway, err.Error())
+				return
+			}
+		}
+		if req.State != nil && todoistDoneState(*req.State) && current.State != store.ItemStateDone {
+			if err := a.syncTodoistItemCompletion(current); err != nil {
+				writeAPIError(w, http.StatusBadGateway, err.Error())
+				return
+			}
 		}
 	}
 	if err := a.store.UpdateItem(itemID, store.ItemUpdate{
@@ -373,11 +400,22 @@ func (a *App) handleItemStateUpdate(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
+	item, err := a.store.GetItem(itemID)
+	if err != nil {
+		writeItemStoreError(w, err)
+		return
+	}
+	if todoistBackedItem(item) && todoistDoneState(req.State) && item.State != store.ItemStateDone {
+		if err := a.syncTodoistItemCompletion(item); err != nil {
+			writeAPIError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+	}
 	if err := a.store.UpdateItemState(itemID, req.State); err != nil {
 		writeItemStoreError(w, err)
 		return
 	}
-	item, err := a.store.GetItem(itemID)
+	item, err = a.store.GetItem(itemID)
 	if err != nil {
 		writeItemStoreError(w, err)
 		return
@@ -468,11 +506,22 @@ func (a *App) handleItemComplete(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	item, err := a.store.GetItem(itemID)
+	if err != nil {
+		writeItemStoreError(w, err)
+		return
+	}
+	if todoistBackedItem(item) && item.State != store.ItemStateDone {
+		if err := a.syncTodoistItemCompletion(item); err != nil {
+			writeAPIError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+	}
 	if err := a.store.CompleteItemByActor(itemID, req.ActorID); err != nil {
 		writeItemStoreError(w, err)
 		return
 	}
-	item, err := a.store.GetItem(itemID)
+	item, err = a.store.GetItem(itemID)
 	if err != nil {
 		writeItemStoreError(w, err)
 		return
@@ -499,6 +548,17 @@ func (a *App) handleItemTriage(w http.ResponseWriter, r *http.Request) {
 
 	switch strings.ToLower(strings.TrimSpace(req.Action)) {
 	case "done":
+		item, err := a.store.GetItem(itemID)
+		if err != nil {
+			writeItemStoreError(w, err)
+			return
+		}
+		if todoistBackedItem(item) && item.State != store.ItemStateDone {
+			if err := a.syncTodoistItemCompletion(item); err != nil {
+				writeAPIError(w, http.StatusBadGateway, err.Error())
+				return
+			}
+		}
 		err = a.store.TriageItemDone(itemID)
 	case "later":
 		if strings.TrimSpace(req.VisibleAfter) == "" {

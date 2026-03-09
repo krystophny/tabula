@@ -260,6 +260,7 @@ func (a *App) persistTodoistTask(account store.ExternalAccount, task todoist.Tas
 		return store.Item{}, errors.New("todoist task content is required")
 	}
 	followUpAt := todoistTaskFollowUpAt(task)
+	desiredState := todoistItemState(task)
 	if existing, err := a.store.GetItemBySource(source, sourceRef); err == nil {
 		updates := store.ItemUpdate{
 			Title:      &title,
@@ -283,6 +284,31 @@ func (a *App) persistTodoistTask(account store.ExternalAccount, task todoist.Tas
 		if err != nil {
 			return store.Item{}, err
 		}
+		switch {
+		case desiredState == store.ItemStateDone && item.State != store.ItemStateDone:
+			if err := a.store.CompleteItemBySource(source, sourceRef); err != nil {
+				return store.Item{}, err
+			}
+			item, err = a.store.GetItem(existing.ID)
+			if err != nil {
+				return store.Item{}, err
+			}
+		case desiredState == store.ItemStateInbox && item.State == store.ItemStateDone:
+			if err := a.store.SyncItemStateBySource(source, sourceRef, store.ItemStateInbox); err != nil {
+				return store.Item{}, err
+			}
+			item, err = a.store.GetItem(existing.ID)
+			if err != nil {
+				return store.Item{}, err
+			}
+		}
+		if err := a.syncTodoistTaskArtifact(item, task, projectNames); err != nil {
+			return store.Item{}, err
+		}
+		item, err = a.store.GetItem(existing.ID)
+		if err != nil {
+			return store.Item{}, err
+		}
 		containerRef := strings.TrimSpace(projectName)
 		if _, err := a.store.UpsertExternalBinding(store.ExternalBinding{
 			AccountID:    account.ID,
@@ -300,6 +326,7 @@ func (a *App) persistTodoistTask(account store.ExternalAccount, task todoist.Tas
 	}
 
 	opts := store.ItemOptions{
+		State:      desiredState,
 		ProjectID:  mappingProjectID(mapping),
 		Sphere:     &account.Sphere,
 		FollowUpAt: followUpAt,
@@ -310,6 +337,13 @@ func (a *App) persistTodoistTask(account store.ExternalAccount, task todoist.Tas
 		opts.WorkspaceID = mapping.WorkspaceID
 	}
 	item, err := a.store.CreateItem(title, opts)
+	if err != nil {
+		return store.Item{}, err
+	}
+	if err := a.syncTodoistTaskArtifact(item, task, projectNames); err != nil {
+		return store.Item{}, err
+	}
+	item, err = a.store.GetItem(item.ID)
 	if err != nil {
 		return store.Item{}, err
 	}

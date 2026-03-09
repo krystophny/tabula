@@ -176,6 +176,19 @@ func TestClassifyAndExecuteSystemActionSyncTodoist(t *testing.T) {
 	if item.Title != "Review proposal" {
 		t.Fatalf("item title = %q, want Review proposal", item.Title)
 	}
+	if item.ArtifactID == nil {
+		t.Fatal("expected synced todoist artifact")
+	}
+	artifact, err := app.store.GetArtifact(*item.ArtifactID)
+	if err != nil {
+		t.Fatalf("GetArtifact() error: %v", err)
+	}
+	if artifact.Kind != store.ArtifactKindExternalTask {
+		t.Fatalf("artifact kind = %q, want %q", artifact.Kind, store.ArtifactKindExternalTask)
+	}
+	if artifact.RefURL == nil || *artifact.RefURL != "https://todoist.test/task-1" {
+		t.Fatalf("artifact ref_url = %v, want task URL", artifact.RefURL)
+	}
 	binding, err := app.store.GetBindingByRemote(account.ID, store.ExternalProviderTodoist, "task", "task-1")
 	if err != nil {
 		t.Fatalf("GetBindingByRemote() error: %v", err)
