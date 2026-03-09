@@ -242,10 +242,8 @@ func (a *App) persistTodoistTask(account store.ExternalAccount, task todoist.Tas
 			FollowUpAt: followUpAt,
 		}
 		if mapping != nil {
-			if mapping.WorkspaceID != nil {
-				updates.WorkspaceID = mapping.WorkspaceID
-			}
-			updates.ProjectID = mapping.ProjectID
+			updates.WorkspaceID = mappedWorkspaceUpdate(mapping)
+			updates.ProjectID = mappedProjectUpdate(mapping)
 		}
 		if err := a.store.UpdateItem(existing.ID, updates); err != nil {
 			return store.Item{}, err
@@ -303,6 +301,30 @@ func mappingProjectID(mapping *store.ExternalContainerMapping) *string {
 		return nil
 	}
 	return mapping.ProjectID
+}
+
+func mappedWorkspaceUpdate(mapping *store.ExternalContainerMapping) *int64 {
+	if mapping == nil {
+		return nil
+	}
+	if mapping.WorkspaceID != nil {
+		workspaceID := *mapping.WorkspaceID
+		return &workspaceID
+	}
+	clear := int64(0)
+	return &clear
+}
+
+func mappedProjectUpdate(mapping *store.ExternalContainerMapping) *string {
+	if mapping == nil {
+		return nil
+	}
+	if mapping.ProjectID != nil {
+		projectID := strings.TrimSpace(*mapping.ProjectID)
+		return &projectID
+	}
+	clear := ""
+	return &clear
 }
 
 func optionalStringPointer(value string) *string {

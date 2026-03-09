@@ -182,6 +182,71 @@ func TestClassifyAndExecuteSystemActionSyncTodoist(t *testing.T) {
 	}
 }
 
+func TestClassifyAndExecuteSystemActionSyncTodoistRemapUpdatesExistingItem(t *testing.T) {
+	app := newAuthedTestApp(t)
+	app.intentLLMURL = ""
+	app.intentClassifierURL = ""
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/projects":
+			writeTodoistJSON(t, w, []map[string]any{{"id": "proj-1", "name": "Admin"}})
+		case r.Method == http.MethodGet && r.URL.Path == "/tasks":
+			writeTodoistJSON(t, w, []map[string]any{{
+				"id":         "task-1",
+				"content":    "Review proposal",
+				"project_id": "proj-1",
+				"url":        "https://todoist.test/task-1",
+			}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	createTodoistTestAccount(t, app, "Personal Todoist", server.URL)
+	workspace, err := app.store.CreateWorkspace("Admin", filepath.Join(t.TempDir(), "admin"))
+	if err != nil {
+		t.Fatalf("CreateWorkspace() error: %v", err)
+	}
+	targetProject, err := app.store.CreateProject("Tabura", "tabura", filepath.Join(t.TempDir(), "tabura"), "managed", "", "", false)
+	if err != nil {
+		t.Fatalf("CreateProject() error: %v", err)
+	}
+	if _, err := app.store.SetContainerMapping(store.ExternalProviderTodoist, "project", "Admin", &workspace.ID, nil, nil); err != nil {
+		t.Fatalf("SetContainerMapping(workspace) error: %v", err)
+	}
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensure default project: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("chat session: %v", err)
+	}
+
+	if _, _, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "sync todoist"); !handled {
+		t.Fatal("expected initial sync command to be handled")
+	}
+	if _, err := app.store.SetContainerMapping(store.ExternalProviderTodoist, "project", "Admin", nil, &targetProject.ID, nil); err != nil {
+		t.Fatalf("SetContainerMapping(project) error: %v", err)
+	}
+	if _, _, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "sync todoist"); !handled {
+		t.Fatal("expected remap sync command to be handled")
+	}
+
+	item, err := app.store.GetItemBySource(store.ExternalProviderTodoist, "task:task-1")
+	if err != nil {
+		t.Fatalf("GetItemBySource() error: %v", err)
+	}
+	if item.WorkspaceID != nil {
+		t.Fatalf("item workspace_id = %#v, want nil after remap", item.WorkspaceID)
+	}
+	if item.ProjectID == nil || *item.ProjectID != targetProject.ID {
+		t.Fatalf("item project_id = %#v, want %q", item.ProjectID, targetProject.ID)
+	}
+}
+
 func TestClassifyAndExecuteSystemActionCreateTodoistTask(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
