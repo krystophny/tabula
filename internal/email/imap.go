@@ -791,6 +791,11 @@ func (c *IMAPClient) Archive(ctx context.Context, messageIDs []string) (int, err
 	return c.moveMessages(ctx, messageIDs, []string{"Archive", "Archiv"}, "Archive", "archive")
 }
 
+// MoveToInbox restores messages to INBOX.
+func (c *IMAPClient) MoveToInbox(ctx context.Context, messageIDs []string) (int, error) {
+	return c.moveMessages(ctx, messageIDs, []string{"INBOX"}, "INBOX", "move to inbox")
+}
+
 // Trash moves messages to the trash mailbox.
 func (c *IMAPClient) Trash(ctx context.Context, messageIDs []string) (int, error) {
 	return c.moveMessages(ctx, messageIDs, []string{"Gelöschte Elemente", "Trash", "TRASH", "Deleted Items", "Deleted Messages"}, "Trash", "trash")

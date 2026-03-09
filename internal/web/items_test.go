@@ -173,6 +173,20 @@ func TestItemCRUDAndStateAPI(t *testing.T) {
 		t.Fatalf("done item sphere = %q, want %q", doneItem.Sphere, store.SphereWork)
 	}
 
+	rrReopen := doAuthedJSONRequest(t, app.Router(), http.MethodPut, "/api/items/"+itoa(itemID)+"/state", map[string]any{
+		"state": store.ItemStateInbox,
+	})
+	if rrReopen.Code != http.StatusOK {
+		t.Fatalf("item reopen status = %d, want 200: %s", rrReopen.Code, rrReopen.Body.String())
+	}
+	reopenedItem, err := app.store.GetItem(itemID)
+	if err != nil {
+		t.Fatalf("GetItem(reopened) error: %v", err)
+	}
+	if reopenedItem.State != store.ItemStateInbox {
+		t.Fatalf("reopened state = %q, want %q", reopenedItem.State, store.ItemStateInbox)
+	}
+
 	rrGet := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/"+itoa(itemID), nil)
 	if rrGet.Code != http.StatusOK {
 		t.Fatalf("get item status = %d, want 200: %s", rrGet.Code, rrGet.Body.String())

@@ -14,10 +14,12 @@ import (
 )
 
 type fakeEmailSyncProvider struct {
-	listFunc  func(email.SearchOptions) ([]string, error)
-	messages  map[string]*providerdata.EmailMessage
-	contacts  []providerdata.Contact
-	listCalls []email.SearchOptions
+	listFunc         func(email.SearchOptions) ([]string, error)
+	messages         map[string]*providerdata.EmailMessage
+	contacts         []providerdata.Contact
+	listCalls        []email.SearchOptions
+	archiveCalls     [][]string
+	moveToInboxCalls [][]string
 }
 
 func (f *fakeEmailSyncProvider) ListMessages(_ context.Context, opts email.SearchOptions) ([]string, error) {
@@ -40,6 +42,16 @@ func (f *fakeEmailSyncProvider) GetMessages(_ context.Context, messageIDs []stri
 
 func (f *fakeEmailSyncProvider) Close() error {
 	return nil
+}
+
+func (f *fakeEmailSyncProvider) Archive(_ context.Context, messageIDs []string) (int, error) {
+	f.archiveCalls = append(f.archiveCalls, append([]string(nil), messageIDs...))
+	return len(messageIDs), nil
+}
+
+func (f *fakeEmailSyncProvider) MoveToInbox(_ context.Context, messageIDs []string) (int, error) {
+	f.moveToInboxCalls = append(f.moveToInboxCalls, append([]string(nil), messageIDs...))
+	return len(messageIDs), nil
 }
 
 func (f *fakeEmailSyncProvider) ListContacts(_ context.Context) ([]providerdata.Contact, error) {
@@ -859,6 +871,129 @@ func TestSyncEmailAccountOnlyCreatesInboxItemsForFollowUpMessages(t *testing.T) 
 	}
 	if got := strFromAny(emailMeta["body"]); got != body {
 		t.Fatalf("email body = %q, want %q", got, body)
+	}
+}
+
+func TestItemTriageDoneArchivesRemoteGmailMessage(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	account, err := app.store.CreateExternalAccount(store.SpherePrivate, store.ExternalProviderGmail, "Private Gmail", nil)
+	if err != nil {
+		t.Fatalf("CreateExternalAccount() error: %v", err)
+	}
+	provider := &fakeEmailSyncProvider{
+		listFunc: func(opts email.SearchOptions) ([]string, error) {
+			switch {
+			case opts.Folder == "INBOX":
+				return []string{"gmail-archive"}, nil
+			case !opts.Since.IsZero():
+				return []string{"gmail-archive"}, nil
+			default:
+				return nil, nil
+			}
+		},
+		messages: map[string]*providerdata.EmailMessage{
+			"gmail-archive": {
+				ID:         "gmail-archive",
+				ThreadID:   "thread-archive",
+				Subject:    "Archive me",
+				Sender:     "Ada <ada@example.com>",
+				Recipients: []string{"chr.albert@gmail.com"},
+				Date:       time.Date(2026, time.March, 9, 21, 0, 0, 0, time.UTC),
+				Labels:     []string{"INBOX"},
+			},
+		},
+	}
+	app.newEmailSyncProvider = func(context.Context, store.ExternalAccount) (emailSyncProvider, error) {
+		return provider, nil
+	}
+
+	if _, err := app.syncEmailAccount(context.Background(), account); err != nil {
+		t.Fatalf("syncEmailAccount() error: %v", err)
+	}
+	item, err := app.store.GetItemBySource(store.ExternalProviderGmail, "message:gmail-archive")
+	if err != nil {
+		t.Fatalf("GetItemBySource() error: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), "POST", "/api/items/"+itoa(item.ID)+"/triage", map[string]any{
+		"action": "done",
+	})
+	if rr.Code != 200 {
+		t.Fatalf("triage done status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	if len(provider.archiveCalls) != 1 || len(provider.archiveCalls[0]) != 1 || provider.archiveCalls[0][0] != "gmail-archive" {
+		t.Fatalf("archive calls = %#v, want gmail-archive", provider.archiveCalls)
+	}
+	updated, err := app.store.GetItem(item.ID)
+	if err != nil {
+		t.Fatalf("GetItem(updated) error: %v", err)
+	}
+	if updated.State != store.ItemStateDone {
+		t.Fatalf("updated state = %q, want done", updated.State)
+	}
+}
+
+func TestItemStateUpdateInboxRestoresRemoteGmailMessage(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	account, err := app.store.CreateExternalAccount(store.SpherePrivate, store.ExternalProviderGmail, "Private Gmail", nil)
+	if err != nil {
+		t.Fatalf("CreateExternalAccount() error: %v", err)
+	}
+	provider := &fakeEmailSyncProvider{
+		listFunc: func(opts email.SearchOptions) ([]string, error) {
+			switch {
+			case opts.Folder == "INBOX":
+				return []string{"gmail-restore"}, nil
+			case !opts.Since.IsZero():
+				return []string{"gmail-restore"}, nil
+			default:
+				return nil, nil
+			}
+		},
+		messages: map[string]*providerdata.EmailMessage{
+			"gmail-restore": {
+				ID:         "gmail-restore",
+				ThreadID:   "thread-restore",
+				Subject:    "Restore me",
+				Sender:     "Ada <ada@example.com>",
+				Recipients: []string{"chr.albert@gmail.com"},
+				Date:       time.Date(2026, time.March, 9, 21, 15, 0, 0, time.UTC),
+				Labels:     []string{"INBOX"},
+			},
+		},
+	}
+	app.newEmailSyncProvider = func(context.Context, store.ExternalAccount) (emailSyncProvider, error) {
+		return provider, nil
+	}
+
+	if _, err := app.syncEmailAccount(context.Background(), account); err != nil {
+		t.Fatalf("syncEmailAccount() error: %v", err)
+	}
+	item, err := app.store.GetItemBySource(store.ExternalProviderGmail, "message:gmail-restore")
+	if err != nil {
+		t.Fatalf("GetItemBySource() error: %v", err)
+	}
+	if err := app.store.TriageItemDone(item.ID); err != nil {
+		t.Fatalf("TriageItemDone() error: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), "PUT", "/api/items/"+itoa(item.ID)+"/state", map[string]any{
+		"state": store.ItemStateInbox,
+	})
+	if rr.Code != 200 {
+		t.Fatalf("state inbox status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	if len(provider.moveToInboxCalls) != 1 || len(provider.moveToInboxCalls[0]) != 1 || provider.moveToInboxCalls[0][0] != "gmail-restore" {
+		t.Fatalf("move to inbox calls = %#v, want gmail-restore", provider.moveToInboxCalls)
+	}
+	updated, err := app.store.GetItem(item.ID)
+	if err != nil {
+		t.Fatalf("GetItem(updated) error: %v", err)
+	}
+	if updated.State != store.ItemStateInbox {
+		t.Fatalf("updated state = %q, want inbox", updated.State)
 	}
 }
 

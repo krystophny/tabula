@@ -548,7 +548,7 @@ export async function showItemSidebarProjectMenu(item, x, y) {
 }
 
 export function showItemSidebarActionMenu(item, x, y) {
-  const view = normalizeItemSidebarView(state.itemSidebarView);
+  const itemState = normalizeItemSidebarView(item?.state || state.itemSidebarView);
   const nextSphere = normalizeActiveSphere(item?.sphere) === 'work' ? 'private' : 'work';
   const sphereEntry = Number(item?.workspace_id || 0) > 0
     ? []
@@ -557,13 +557,34 @@ export function showItemSidebarActionMenu(item, x, y) {
         action: 'move_sphere',
         onClick: () => performItemSidebarSphereUpdate(item, nextSphere),
       }];
-  const entries = view === 'someday'
+  const reopenEntry = {
+    label: itemSidebarActionLabel('inbox', item),
+    action: 'inbox',
+    onClick: () => performItemSidebarStateUpdate(item, 'inbox'),
+  };
+  const entries = itemState === 'done'
     ? [
+      reopenEntry,
       {
-        label: itemSidebarActionLabel('inbox', item),
-        action: 'inbox',
-        onClick: () => performItemSidebarStateUpdate(item, 'inbox'),
+        label: 'Workspace...',
+        action: 'workspace',
+        onClick: () => showItemSidebarWorkspaceMenu(item, x, y),
       },
+      {
+        label: 'Project...',
+        action: 'project',
+        onClick: () => showItemSidebarProjectMenu(item, x, y),
+      },
+      ...sphereEntry,
+      {
+        label: itemSidebarActionLabel('delete', item),
+        action: 'delete',
+        onClick: () => performItemSidebarTriage(item, 'delete'),
+      },
+    ]
+    : itemState === 'someday'
+    ? [
+      reopenEntry,
       {
         label: itemSidebarActionLabel('done', item),
         action: 'done',
@@ -580,6 +601,36 @@ export function showItemSidebarActionMenu(item, x, y) {
         onClick: () => showItemSidebarProjectMenu(item, x, y),
       },
       ...sphereEntry,
+      {
+        label: itemSidebarActionLabel('delete', item),
+        action: 'delete',
+        onClick: () => performItemSidebarTriage(item, 'delete'),
+      },
+    ]
+    : itemState === 'waiting'
+    ? [
+      reopenEntry,
+      {
+        label: itemSidebarActionLabel('done', item),
+        action: 'done',
+        onClick: () => performItemSidebarTriage(item, 'done'),
+      },
+      {
+        label: 'Workspace...',
+        action: 'workspace',
+        onClick: () => showItemSidebarWorkspaceMenu(item, x, y),
+      },
+      {
+        label: 'Project...',
+        action: 'project',
+        onClick: () => showItemSidebarProjectMenu(item, x, y),
+      },
+      ...sphereEntry,
+      {
+        label: itemSidebarActionLabel('someday', item),
+        action: 'someday',
+        onClick: () => performItemSidebarTriage(item, 'someday'),
+      },
       {
         label: itemSidebarActionLabel('delete', item),
         action: 'delete',

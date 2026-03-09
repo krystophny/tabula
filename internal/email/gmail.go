@@ -420,6 +420,11 @@ func (c *GmailClient) Archive(ctx context.Context, messageIDs []string) (int, er
 	return c.ModifyLabels(ctx, messageIDs, nil, []string{"INBOX"})
 }
 
+// MoveToInbox restores messages to inbox.
+func (c *GmailClient) MoveToInbox(ctx context.Context, messageIDs []string) (int, error) {
+	return c.ModifyLabels(ctx, messageIDs, []string{"INBOX"}, nil)
+}
+
 // Trash moves messages to trash.
 func (c *GmailClient) Trash(ctx context.Context, messageIDs []string) (int, error) {
 	if len(messageIDs) == 0 {

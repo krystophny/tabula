@@ -394,7 +394,7 @@ export function renderSidebarRow({
     };
     resetSwipeUi();
   }, { passive: true });
-  if ((triageEnabled || state.itemSidebarView === 'someday') && item) {
+  if (triageEnabled && item) {
     button.addEventListener('touchmove', (ev) => {
       if (!touchState) return;
       const t = ev.touches && ev.touches[0];
@@ -416,6 +416,8 @@ export function renderSidebarRow({
       touchState = null;
       resetSwipeUi();
     });
+  }
+  if (item) {
     button.addEventListener('contextmenu', (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
@@ -544,7 +546,7 @@ export function handleItemSidebarKeyboardShortcut(ev) {
     action = 'delegate';
   } else if (view === 'inbox' && (key === 's' || key === 'S')) {
     action = 'someday';
-  } else if (view === 'someday' && (key === 'a' || key === 'A')) {
+  } else if (view !== 'inbox' && (key === 'a' || key === 'A')) {
     action = 'inbox';
   } else {
     return false;

@@ -156,6 +156,10 @@ func (p *ExchangeMailProvider) Archive(ctx context.Context, messageIDs []string)
 	return p.applyMessageIDs(ctx, messageIDs, p.client.ArchiveMessage)
 }
 
+func (p *ExchangeMailProvider) MoveToInbox(ctx context.Context, messageIDs []string) (int, error) {
+	return p.applyMessageIDs(ctx, messageIDs, p.client.MoveMessageToInbox)
+}
+
 func (p *ExchangeMailProvider) Trash(ctx context.Context, messageIDs []string) (int, error) {
 	return p.applyMessageIDs(ctx, messageIDs, p.client.DeleteMessage)
 }

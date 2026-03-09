@@ -154,6 +154,11 @@ const privateEmailInboxItem = {
   updated_at: '2026-03-08 09:12:00',
 };
 
+const reopenedEmailItem = {
+  ...privateEmailInboxItem,
+  state: 'done',
+};
+
 async function setInboxItems(page: Page, items: Array<Record<string, unknown>>) {
   await page.evaluate((nextItems) => {
     (window as any).__setItemSidebarData({ inbox: nextItems });
@@ -553,6 +558,50 @@ test.describe('inbox triage interactions', () => {
     await setInboxItems(page, [parserInboxItem]);
     await page.keyboard.press('Backspace');
     await expect(page.locator('#pr-file-list')).not.toContainText('Review parser cleanup');
+  });
+
+  test('non-inbox items support context menus and can move back to inbox', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await waitReady(page);
+    await openInbox(page);
+    await page.evaluate((doneItem) => {
+      (window as any).__setItemSidebarData({
+        inbox: [],
+        waiting: [{
+          ...doneItem,
+          id: 101,
+          title: 'Follow up with Bob',
+          state: 'waiting',
+          artifact_id: 501,
+          artifact_kind: 'idea_note',
+          artifact_title: 'Parser cleanup plan',
+          source: 'github',
+          source_ref: 'owner/repo#177',
+        }],
+        someday: [],
+        done: [doneItem],
+      });
+    }, reopenedEmailItem);
+
+    await page.locator('.sidebar-tab', { hasText: 'Waiting' }).click();
+    const waitingRow = page.locator('#pr-file-list .pr-file-item[data-item-id="101"]');
+    await waitingRow.click({ button: 'right' });
+    await expect(page.locator('#item-sidebar-menu')).toContainText('Back to Inbox');
+    await page.mouse.click(10, 10);
+
+    await page.locator('.sidebar-tab', { hasText: 'Done' }).click();
+    const doneRow = page.locator('#pr-file-list .pr-file-item[data-item-id="102"]');
+    await doneRow.click({ button: 'right' });
+    await expect(page.locator('#item-sidebar-menu')).toContainText('Back to Inbox');
+    await page.locator('#item-sidebar-menu .item-sidebar-menu-item', { hasText: 'Back to Inbox' }).click();
+
+    await expect(page.locator('#pr-file-list')).toContainText('No done items.');
+    await page.locator('.sidebar-tab', { hasText: 'Inbox' }).click();
+    await expect(page.locator('#pr-file-list')).toContainText('Answer triage email');
+    await expect.poll(async () => {
+      const log = await page.evaluate(() => (window as any).__harnessLog || []);
+      return log.some((entry: any) => entry?.action === 'item_state' && entry?.payload?.state === 'inbox');
+    }).toBe(true);
   });
 
   test('partial swipe cancels cleanly, rapid swipes remain stable, and empty inbox stays inert', async ({ page }) => {

@@ -15,6 +15,7 @@ type EmailProvider interface {
 	MarkRead(ctx context.Context, messageIDs []string) (int, error)
 	MarkUnread(ctx context.Context, messageIDs []string) (int, error)
 	Archive(ctx context.Context, messageIDs []string) (int, error)
+	MoveToInbox(ctx context.Context, messageIDs []string) (int, error)
 	Trash(ctx context.Context, messageIDs []string) (int, error)
 	Delete(ctx context.Context, messageIDs []string) (int, error)
 	ProviderName() string

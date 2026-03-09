@@ -294,9 +294,17 @@ func (c *ExchangeClient) GetMessage(ctx context.Context, messageID string) (Mess
 	return message, nil
 }
 
-func (c *ExchangeClient) ArchiveMessage(ctx context.Context, messageID string) error {
-	body := map[string]string{"destinationId": "archive"}
+func (c *ExchangeClient) MoveMessage(ctx context.Context, messageID, destinationID string) error {
+	body := map[string]string{"destinationId": strings.TrimSpace(destinationID)}
 	return c.doJSON(ctx, http.MethodPost, "/v1.0/me/messages/"+url.PathEscape(strings.TrimSpace(messageID))+"/move", nil, body, nil)
+}
+
+func (c *ExchangeClient) ArchiveMessage(ctx context.Context, messageID string) error {
+	return c.MoveMessage(ctx, messageID, "archive")
+}
+
+func (c *ExchangeClient) MoveMessageToInbox(ctx context.Context, messageID string) error {
+	return c.MoveMessage(ctx, messageID, "inbox")
 }
 
 func (c *ExchangeClient) DeleteMessage(ctx context.Context, messageID string) error {

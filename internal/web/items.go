@@ -411,6 +411,12 @@ func (a *App) handleItemStateUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if item.State != strings.TrimSpace(req.State) {
+		if err := a.syncRemoteEmailItemState(r.Context(), item, req.State); err != nil {
+			writeAPIError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+	}
 	if err := a.store.UpdateItemState(itemID, req.State); err != nil {
 		writeItemStoreError(w, err)
 		return
@@ -555,6 +561,12 @@ func (a *App) handleItemTriage(w http.ResponseWriter, r *http.Request) {
 		}
 		if todoistBackedItem(item) && item.State != store.ItemStateDone {
 			if err := a.syncTodoistItemCompletion(item); err != nil {
+				writeAPIError(w, http.StatusBadGateway, err.Error())
+				return
+			}
+		}
+		if item.State != store.ItemStateDone {
+			if err := a.syncRemoteEmailItemState(r.Context(), item, store.ItemStateDone); err != nil {
 				writeAPIError(w, http.StatusBadGateway, err.Error())
 				return
 			}

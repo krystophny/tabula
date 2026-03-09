@@ -637,8 +637,8 @@ func TestDomainCRUDRoundTrip(t *testing.T) {
 	if err := s.UpdateItemState(inboxItem.ID, ItemStateDone); err != nil {
 		t.Fatalf("UpdateItemState(done) error: %v", err)
 	}
-	if err := s.UpdateItemState(inboxItem.ID, ItemStateInbox); err == nil {
-		t.Fatal("expected invalid done -> inbox transition error")
+	if err := s.UpdateItemState(inboxItem.ID, ItemStateInbox); err != nil {
+		t.Fatalf("UpdateItemState(inbox from done) error: %v", err)
 	}
 	if err := s.UpdateItemState(inboxItem.ID, "paused"); err == nil {
 		t.Fatal("expected invalid item state error")
@@ -655,14 +655,14 @@ func TestDomainCRUDRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListItemsByState(done) error: %v", err)
 	}
-	if len(doneItems) != 3 {
-		t.Fatalf("ListItemsByState(done) len = %d, want 3", len(doneItems))
+	if len(doneItems) != 2 {
+		t.Fatalf("ListItemsByState(done) len = %d, want 2", len(doneItems))
 	}
 	doneIDs := map[int64]bool{}
 	for _, item := range doneItems {
 		doneIDs[item.ID] = true
 	}
-	for _, id := range []int64{artifactItem.ID, sourceItem.ID, inboxItem.ID} {
+	for _, id := range []int64{artifactItem.ID, sourceItem.ID} {
 		if !doneIDs[id] {
 			t.Fatalf("ListItemsByState(done) missing item %d: %+v", id, doneItems)
 		}

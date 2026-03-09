@@ -444,7 +444,7 @@ func validateItemTransition(current, next string) error {
 	if next == "" {
 		return errors.New("item state is required")
 	}
-	if current == ItemStateDone && next != ItemStateDone {
+	if current == ItemStateDone && next != ItemStateDone && next != ItemStateInbox {
 		return fmt.Errorf("cannot transition item from %s to %s", current, next)
 	}
 	return nil
