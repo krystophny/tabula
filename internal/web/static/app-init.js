@@ -62,12 +62,12 @@ const resetInkDraftState = (...args) => refs.resetInkDraftState(...args);
 const getEdgeTapSizePx = (...args) => refs.getEdgeTapSizePx(...args);
 const getTopEdgeTapSizePx = (...args) => refs.getTopEdgeTapSizePx(...args);
 const prefersTextComposer = (...args) => refs.prefersTextComposer(...args);
-const isPromptTool = (...args) => refs.isPromptTool(...args);
 const selectInteractionTool = (...args) => refs.selectInteractionTool(...args);
 const submitInkDraft = (...args) => refs.submitInkDraft(...args);
 const shouldStopInUiClick = (...args) => refs.shouldStopInUiClick(...args);
 const hideItemSidebarMenu = (...args) => refs.hideItemSidebarMenu(...args);
 const stepPrReviewFile = (...args) => refs.stepPrReviewFile(...args);
+const maybeApplySelectionHighlight = (...args) => refs.maybeApplySelectionHighlight(...args);
 
 let bootstrapStarted = false;
 let bootstrapErrorShown = false;
@@ -359,7 +359,7 @@ export function bindUi() {
         openComposerAt(x, y, anchor);
         return;
       }
-      if (isPromptTool()) {
+      if (state.interaction.conversation === 'push_to_talk') {
         void beginVoiceCaptureFromPoint(x, y);
       }
     };
@@ -550,18 +550,18 @@ export function bindUi() {
   const chatHistory = document.getElementById('chat-history');
   if (chatHistory) {
     chatHistory.addEventListener('click', (ev) => {
-      if (prefersTextComposer()) return;
       if (ev.button !== 0) return;
       if (ev.target instanceof Element && ev.target.closest('a,button,input,textarea,select,[contenteditable="true"]')) return;
       if (isInEdgeZone(ev.clientX, ev.clientY)) return;
       const edgeR = chatHistory.closest('.edge-panel');
       if (edgeR && !edgeR.classList.contains('edge-pinned')) return;
+      if (isUiStopGestureActive()) { void handleStopAction(); return; }
+      if (prefersTextComposer()) return;
       if (isLiveSessionListenActive()) {
         cancelLiveSessionListen();
         void beginVoiceCaptureFromPoint(ev.clientX, ev.clientY);
         return;
       }
-      if (shouldStopInUiClick()) { void handleStopAction(); return; }
       if (isRecording()) { void stopVoiceCaptureAndSend(); return; }
       void beginVoiceCaptureFromPoint(ev.clientX, ev.clientY);
     });
@@ -797,6 +797,13 @@ export function bindUi() {
       }
     });
   }
+  const applySelectionHighlightSoon = () => {
+    window.setTimeout(() => {
+      maybeApplySelectionHighlight();
+    }, 0);
+  };
+  document.addEventListener('mouseup', applySelectionHighlightSoon, true);
+  document.addEventListener('touchend', applySelectionHighlightSoon, true);
 
   initEdgePanels();
 }

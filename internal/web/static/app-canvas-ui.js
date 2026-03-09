@@ -3,6 +3,7 @@ import * as context from './app-context.js';
 
 const {
   clearLineHighlight,
+  getActiveArtifactTitle,
   getUiState,
   setUiMode,
   showIndicatorMode,
@@ -51,6 +52,18 @@ export function showCanvasColumn(paneId) {
     }
   }
   state.hasArtifact = true;
+  const artifactKind = paneId === 'canvas-image'
+    ? 'image_artifact'
+    : (paneId === 'canvas-pdf' ? 'pdf_artifact' : 'text_artifact');
+  const artifactTitle = String(getActiveArtifactTitle() || '').trim();
+  const currentArtifact = state.currentCanvasArtifact || {};
+  state.currentCanvasArtifact = {
+    kind: artifactKind,
+    title: artifactTitle,
+    surfaceDefault: currentArtifact.kind === artifactKind && currentArtifact.title === artifactTitle
+      ? String(currentArtifact.surfaceDefault || '')
+      : '',
+  };
   applyInteractionDefaultsForPane(paneId);
   setUiMode('artifact');
   persistLastView({ mode: 'artifact' });
@@ -69,6 +82,11 @@ export function hideCanvasColumn() {
   clearInkDraft();
   state.hasArtifact = false;
   state.interaction.surface = 'annotate';
+  state.currentCanvasArtifact = {
+    kind: '',
+    title: '',
+    surfaceDefault: '',
+  };
   state.workspaceOpenFilePath = '';
   state.workspaceStepInFlight = false;
   setUiMode('rasa');

@@ -62,11 +62,11 @@ func ideaNoteString(value *string) string {
 	return strings.TrimSpace(*value)
 }
 
-func ideaArtifactMeta(title, transcript, inputMode, workspaceName string, capturedAt time.Time) (*string, error) {
+func ideaArtifactMeta(title, transcript, captureMode, workspaceName string, capturedAt time.Time) (*string, error) {
 	meta := ideaNoteMeta{
 		Title:       strings.TrimSpace(title),
 		Transcript:  normalizeIdeaText(transcript),
-		CaptureMode: normalizeChatInputMode(inputMode),
+		CaptureMode: normalizeChatCaptureMode(captureMode),
 		CapturedAt:  capturedAt.UTC().Format(time.RFC3339),
 		Workspace:   strings.TrimSpace(workspaceName),
 	}
@@ -98,7 +98,7 @@ func parseIdeaNoteMeta(metaJSON *string, fallbackTitle string) ideaNoteMeta {
 	}
 	meta.Title = strings.TrimSpace(meta.Title)
 	meta.Transcript = normalizeIdeaText(meta.Transcript)
-	meta.CaptureMode = normalizeChatInputMode(meta.CaptureMode)
+	meta.CaptureMode = normalizeChatCaptureMode(meta.CaptureMode)
 	meta.Workspace = strings.TrimSpace(meta.Workspace)
 	meta.CapturedAt = strings.TrimSpace(meta.CapturedAt)
 	meta.Notes = normalizeIdeaNoteLines(meta.Notes)

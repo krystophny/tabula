@@ -135,11 +135,8 @@ func TestRuntimePreferenceUpdateRejectsInvalidSphere(t *testing.T) {
 	}
 }
 
-func TestRuntimeMigratesLegacyInteractionModeToTool(t *testing.T) {
+func TestRuntimeDoesNotReadDeletedLegacyInteractionMode(t *testing.T) {
 	app := newAuthedTestApp(t)
-	if err := app.store.SetAppState(appStateLegacyToolKey, "voice"); err != nil {
-		t.Fatalf("seed legacy voice interaction mode: %v", err)
-	}
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime", nil)
 	if rr.Code != http.StatusOK {
@@ -149,12 +146,7 @@ func TestRuntimeMigratesLegacyInteractionModeToTool(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode runtime response: %v", err)
 	}
-	if got := strFromAny(payload["tool"]); got != "prompt" {
-		t.Fatalf("tool = %q, want %q", got, "prompt")
-	}
-	if got, err := app.store.AppState(appStateToolKey); err != nil {
-		t.Fatalf("read migrated tool: %v", err)
-	} else if got != "prompt" {
-		t.Fatalf("stored tool = %q, want %q", got, "prompt")
+	if got := strFromAny(payload["tool"]); got != "pointer" {
+		t.Fatalf("tool = %q, want %q", got, "pointer")
 	}
 }

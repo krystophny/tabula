@@ -183,6 +183,13 @@
 }
 
 #canvas-text pre code .hl-diff-ctx { color: #3B3B3B; }
+#canvas-text mark.canvas-user-highlight {
+  background: #fde68a;
+  color: inherit;
+  padding: 0 0.08rem;
+  border-radius: 0.2rem;
+}
+
 #canvas-text mjx-container {
   max-width: 100%;
 }

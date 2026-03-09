@@ -42,7 +42,7 @@ func seedActiveIdeaNote(
 	metaJSON, err := encodeIdeaNoteMeta(ideaNoteMeta{
 		Title:       title,
 		Transcript:  strings.Join(notes, " "),
-		CaptureMode: chatInputModeText,
+		CaptureMode: chatCaptureModeText,
 		CapturedAt:  "2026-03-08T09:40:00Z",
 		Workspace:   workspaceName,
 		Notes:       notes,

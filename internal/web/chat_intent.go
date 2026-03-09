@@ -451,8 +451,8 @@ func normalizeSystemActionForExecution(action *SystemAction, fallbackText string
 		if strings.TrimSpace(systemActionStringParam(action.Params, "text")) == "" {
 			action.Params["text"] = strings.TrimSpace(fallbackText)
 		}
-		if strings.TrimSpace(systemActionStringParam(action.Params, "input_mode")) == "" {
-			action.Params["input_mode"] = chatInputModeText
+		if strings.TrimSpace(systemActionStringParam(action.Params, "capture_mode")) == "" {
+			action.Params["capture_mode"] = chatCaptureModeText
 		}
 	}
 	if strings.EqualFold(strings.TrimSpace(action.Action), "refine_idea_note") {
@@ -750,7 +750,7 @@ func (a *App) classifyAndExecuteSystemAction(ctx context.Context, sessionID stri
 		}
 	}
 
-	inputMode := a.chatInputModes.consume(sessionID)
+	captureMode := a.chatCaptureModes.consume(sessionID)
 	if inlineTodoistAction := parseInlineTodoistIntent(trimmedText); inlineTodoistAction != nil {
 		enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{inlineTodoistAction})
 		if len(enforced) == 0 {
@@ -795,7 +795,7 @@ func (a *App) classifyAndExecuteSystemAction(ctx context.Context, sessionID stri
 		}
 		return message, payloads, true
 	}
-	if inlineItemAction := parseInlineItemIntentWithInputMode(trimmedText, time.Now().UTC(), inputMode); inlineItemAction != nil {
+	if inlineItemAction := parseInlineItemIntentWithCaptureMode(trimmedText, time.Now().UTC(), captureMode); inlineItemAction != nil {
 		enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{inlineItemAction})
 		if len(enforced) == 0 {
 			return "", nil, false
@@ -859,8 +859,8 @@ func (a *App) classifyAndExecuteSystemAction(ctx context.Context, sessionID stri
 	localAction, localConfidence, localErr := a.classifyIntentLocally(ctx, trimmedText)
 	if localErr == nil && localAction != nil && localConfidence >= intentClassifierMinConfidence {
 		if normalized := normalizeSystemActionForExecution(localAction, trimmedText); normalized != nil {
-			if isItemSystemAction(normalized.Action) && strings.TrimSpace(systemActionStringParam(normalized.Params, "input_mode")) == "" {
-				normalized.Params["input_mode"] = inputMode
+			if isItemSystemAction(normalized.Action) && strings.TrimSpace(systemActionStringParam(normalized.Params, "capture_mode")) == "" {
+				normalized.Params["capture_mode"] = captureMode
 			}
 			if isItemSystemAction(normalized.Action) {
 				enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{normalized})

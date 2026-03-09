@@ -71,36 +71,18 @@ func (a *App) silentModeEnabled() bool {
 	return parseBoolString(value, false)
 }
 
-func legacyRuntimeTool(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "keyboard", "typing", "type", "text":
-		return "text_note"
-	case "pen", "ink", "draw", "handwrite":
-		return "ink"
-	case "voice", "talk", "mic", "audio":
-		return "prompt"
-	default:
-		return "pointer"
-	}
-}
-
 func (a *App) runtimeTool() string {
 	if a == nil || a.store == nil {
 		return "pointer"
 	}
 	value, err := a.store.AppState(appStateToolKey)
-	if err == nil && strings.TrimSpace(value) != "" {
-		return normalizeRuntimeTool(value)
-	}
-	legacyValue, err := a.store.AppState(appStateLegacyToolKey)
 	if err != nil {
 		return "pointer"
 	}
-	tool := legacyRuntimeTool(legacyValue)
-	if err := a.store.SetAppState(appStateToolKey, tool); err != nil {
-		return tool
+	if strings.TrimSpace(value) == "" {
+		return "pointer"
 	}
-	return tool
+	return normalizeRuntimeTool(value)
 }
 
 func (a *App) runtimeStartupBehavior() string {

@@ -785,12 +785,15 @@ export function buildSidebarItemFallbackText(item, artifact = null) {
 
 export async function openSidebarArtifactItem(item) {
   const artifactID = Number(item?.artifact_id || 0);
+  const fallbackArtifactKind = String(item?.artifact_kind || '').trim().toLowerCase();
+  const fallbackSurfaceDefault = fallbackArtifactKind === 'email' ? 'annotate' : '';
   if (artifactID <= 0) {
     applyCanvasArtifactEvent({
       kind: 'text_artifact',
       event_id: `sidebar-item-${Number(item?.id || 0)}-${Date.now()}`,
       title: String(item?.title || 'Item'),
       text: buildSidebarItemFallbackText(item),
+      meta: fallbackSurfaceDefault ? { surface_default: fallbackSurfaceDefault } : undefined,
     });
     return true;
   }
@@ -828,6 +831,7 @@ export async function openSidebarArtifactItem(item) {
     event_id: `sidebar-item-${artifactID}-${Date.now()}`,
     title: String(artifact?.title || item?.artifact_title || item?.title || 'Item'),
     text: buildSidebarItemFallbackText(item, artifact),
+    meta: artifactKind === 'email' ? { surface_default: 'annotate' } : undefined,
   });
   return true;
 }

@@ -42,6 +42,7 @@ export const ACTIVE_PROJECT_STORAGE_KEY = 'tabura.activeProjectId';
 export const ACTIVE_SPHERE_STORAGE_KEY = 'tabura.activeSphere';
 export const LAST_VIEW_STORAGE_KEY = 'tabura.lastView';
 export const RUNTIME_RELOAD_CONTEXT_STORAGE_KEY = 'tabura.runtimeReloadContext';
+export const TOOL_PALETTE_POSITION_STORAGE_KEY = 'tabura.toolPalettePosition';
 export const SIDEBAR_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico', '.avif']);
 export const PANEL_MOTION_WATCH_QUERIES = [
   '(prefers-reduced-motion: reduce)',
@@ -183,7 +184,13 @@ export const state = {
   workspaceBrowserError: '',
   workspaceOpenFilePath: '',
   workspaceStepInFlight: false,
+  currentCanvasArtifact: {
+    kind: '',
+    title: '',
+    surfaceDefault: '',
+  },
   sidebarEdgeTapAt: 0,
+  toolPalettePosition: null,
   itemSidebarView: 'inbox',
   itemSidebarFilters: { source: '', workspace_id: null, project_id: '', workspace_unassigned: false },
   itemSidebarItems: [],
