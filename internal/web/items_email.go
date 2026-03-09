@@ -447,15 +447,6 @@ func (a *App) persistEmailMessage(ctx context.Context, sink tabsync.Sink, accoun
 	if !followUp {
 		return persisted, nil
 	}
-	if existingBinding.ItemID != nil {
-		item, err := a.store.GetItem(*existingBinding.ItemID)
-		if err != nil {
-			return emailPersistedMessage{}, err
-		}
-		if item.State == store.ItemStateDone {
-			return persisted, nil
-		}
-	}
 
 	source := account.Provider
 	sourceRef := "message:" + strings.TrimSpace(message.ID)
@@ -484,6 +475,35 @@ func (a *App) persistEmailMessage(ctx context.Context, sink tabsync.Sink, accoun
 	return persisted, nil
 }
 
+func (a *App) reconcileEmailFollowUpBindings(account store.ExternalAccount, followUpIDs map[string]struct{}) error {
+	bindings, err := a.store.ListBindingsByAccount(account.ID, account.Provider, emailBindingObjectType)
+	if err != nil {
+		return err
+	}
+	for _, binding := range bindings {
+		if binding.ItemID == nil {
+			continue
+		}
+		if hasEmailMessageID(followUpIDs, binding.RemoteID) {
+			continue
+		}
+		item, err := a.store.GetItem(*binding.ItemID)
+		if err != nil {
+			if errorsIsNoRows(err) {
+				continue
+			}
+			return err
+		}
+		if item.State == store.ItemStateDone {
+			continue
+		}
+		if err := a.store.UpdateItemState(item.ID, store.ItemStateDone); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (a *App) syncEmailAccountWithProvider(ctx context.Context, account store.ExternalAccount, provider emailSyncProvider) (emailSyncResult, error) {
 	cfg, err := decodeEmailSyncAccountConfig(account)
 	if err != nil {
@@ -500,6 +520,9 @@ func (a *App) syncEmailAccountWithProvider(ctx context.Context, account store.Ex
 	}
 	followUpIDs, err := emailFollowUpMessageIDs(ctx, provider, cfg)
 	if err != nil {
+		return emailSyncResult{}, err
+	}
+	if err := a.reconcileEmailFollowUpBindings(account, followUpIDs); err != nil {
 		return emailSyncResult{}, err
 	}
 	messageIDs := make(map[string]struct{}, len(followUpIDs))

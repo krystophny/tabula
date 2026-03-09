@@ -137,7 +137,7 @@ func (a *App) executeSomedayAction(session store.ChatSession, action *SystemActi
 			"type":    "item_state_changed",
 			"item_id": updated.ID,
 			"state":   updated.State,
-			"view":    store.ItemStateSomeday,
+			"view":    store.ItemStateInbox,
 		}, nil
 	default:
 		return "", nil, fmt.Errorf("unsupported someday action %q", action.Action)

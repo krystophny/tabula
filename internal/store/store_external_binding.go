@@ -164,6 +164,30 @@ func (s *Store) GetBindingsByArtifact(artifactID int64) ([]ExternalBinding, erro
 	return scanExternalBindingRows(rows)
 }
 
+func (s *Store) ListBindingsByAccount(accountID int64, provider, objectType string) ([]ExternalBinding, error) {
+	if _, err := s.validateExternalBindingAccount(accountID, provider); err != nil {
+		return nil, err
+	}
+	cleanObjectType := normalizeExternalBindingObjectType(objectType)
+	if cleanObjectType == "" {
+		return nil, errors.New("external binding object_type is required")
+	}
+	rows, err := s.db.Query(
+		`SELECT id, account_id, provider, object_type, remote_id, item_id, artifact_id, container_ref, remote_updated_at, last_synced_at
+		 FROM external_bindings
+		 WHERE account_id = ? AND provider = ? AND object_type = ?
+		 ORDER BY remote_id, id`,
+		accountID,
+		normalizeExternalAccountProvider(provider),
+		cleanObjectType,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanExternalBindingRows(rows)
+}
+
 func (s *Store) LatestBindingRemoteUpdatedAt(accountID int64, provider, objectType string) (*string, error) {
 	if _, err := s.validateExternalBindingAccount(accountID, provider); err != nil {
 		return nil, err

@@ -203,6 +203,7 @@ func (s *Store) UpdateItem(id int64, updates ItemUpdate) error {
 	artifactUpdated := false
 	var artifactID *int64
 	targetWorkspaceID := item.WorkspaceID
+	reopenToInbox := false
 
 	if updates.Title != nil {
 		title := strings.TrimSpace(*updates.Title)
@@ -217,6 +218,7 @@ func (s *Store) UpdateItem(id int64, updates ItemUpdate) error {
 		if err := validateItemTransition(item.State, next); err != nil {
 			return err
 		}
+		reopenToInbox = next == ItemStateInbox && item.State != ItemStateInbox
 		parts = append(parts, "state = ?")
 		args = append(args, next)
 	}
@@ -297,6 +299,14 @@ func (s *Store) UpdateItem(id int64, updates ItemUpdate) error {
 		parts = append(parts, "sphere = ?")
 		args = append(args, workspaceSphere)
 	}
+	if reopenToInbox {
+		if updates.VisibleAfter == nil {
+			parts = append(parts, "visible_after = NULL")
+		}
+		if updates.FollowUpAt == nil {
+			parts = append(parts, "follow_up_at = NULL")
+		}
+	}
 	if len(parts) == 0 && !artifactUpdated {
 		return nil
 	}
@@ -371,14 +381,16 @@ func (s *Store) SyncItemStateBySource(source, sourceRef, state string) error {
 	if cleanState == "" {
 		return errors.New("invalid item state")
 	}
-	res, err := s.db.Exec(
-		`UPDATE items
-		 SET state = ?, updated_at = datetime('now')
-		 WHERE source = ? AND source_ref = ?`,
-		cleanState,
-		cleanSource,
-		cleanSourceRef,
-	)
+	query := `UPDATE items
+		 SET state = ?, updated_at = datetime('now')`
+	args := []any{cleanState}
+	if cleanState == ItemStateInbox {
+		query += `, visible_after = NULL, follow_up_at = NULL`
+	}
+	query += `
+		 WHERE source = ? AND source_ref = ?`
+	args = append(args, cleanSource, cleanSourceRef)
+	res, err := s.db.Exec(query, args...)
 	if err != nil {
 		return err
 	}
@@ -401,11 +413,14 @@ func (s *Store) UpdateItemState(id int64, state string) error {
 	if err := validateItemTransition(item.State, next); err != nil {
 		return err
 	}
-	res, err := s.db.Exec(
-		`UPDATE items SET state = ?, updated_at = datetime('now') WHERE id = ?`,
-		next,
-		id,
-	)
+	query := `UPDATE items SET state = ?, updated_at = datetime('now')`
+	args := []any{next}
+	if next == ItemStateInbox {
+		query += `, visible_after = NULL, follow_up_at = NULL`
+	}
+	query += ` WHERE id = ?`
+	args = append(args, id)
+	res, err := s.db.Exec(query, args...)
 	if err != nil {
 		return err
 	}
@@ -595,7 +610,7 @@ func (s *Store) UnassignItem(id int64) error {
 	}
 	res, err := s.db.Exec(
 		`UPDATE items
-		 SET actor_id = NULL, state = ?, updated_at = datetime('now')
+		 SET actor_id = NULL, state = ?, visible_after = NULL, follow_up_at = NULL, updated_at = datetime('now')
 		 WHERE id = ?`,
 		ItemStateInbox,
 		id,
@@ -657,7 +672,7 @@ func (s *Store) ReturnItemToInbox(id int64) error {
 	}
 	res, err := s.db.Exec(
 		`UPDATE items
-		 SET state = ?, updated_at = datetime('now')
+		 SET state = ?, visible_after = NULL, follow_up_at = NULL, updated_at = datetime('now')
 		 WHERE id = ?`,
 		ItemStateInbox,
 		id,

@@ -548,7 +548,7 @@ func TestSyncEmailAccountUsesMappedNonPrimaryLabelForAssignment(t *testing.T) {
 	}
 }
 
-func TestSyncEmailAccountLeavesDoneItemsClosed(t *testing.T) {
+func TestSyncEmailAccountRemoteInboxReopensDoneItems(t *testing.T) {
 	app := newAuthedTestApp(t)
 
 	account, err := app.store.CreateExternalAccount(store.SphereWork, store.ExternalProviderGmail, "Done Gmail", nil)
@@ -603,8 +603,76 @@ func TestSyncEmailAccountLeavesDoneItemsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetItem(second) error: %v", err)
 	}
+	if item.State != store.ItemStateInbox {
+		t.Fatalf("item state after resync = %q, want inbox", item.State)
+	}
+}
+
+func TestSyncEmailAccountRemoteArchiveClosesInboxItems(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	account, err := app.store.CreateExternalAccount(store.SphereWork, store.ExternalProviderGmail, "Archive Gmail", nil)
+	if err != nil {
+		t.Fatalf("CreateExternalAccount() error: %v", err)
+	}
+
+	inInbox := true
+	provider := &fakeEmailSyncProvider{
+		listFunc: func(opts email.SearchOptions) ([]string, error) {
+			switch {
+			case opts.Folder == "INBOX":
+				if inInbox {
+					return []string{"gmail-remote-archive"}, nil
+				}
+				return nil, nil
+			case opts.IsFlagged != nil && *opts.IsFlagged:
+				return nil, nil
+			case !opts.Since.IsZero():
+				if inInbox {
+					return []string{"gmail-remote-archive"}, nil
+				}
+				return nil, nil
+			default:
+				return nil, nil
+			}
+		},
+		messages: map[string]*providerdata.EmailMessage{
+			"gmail-remote-archive": {
+				ID:         "gmail-remote-archive",
+				ThreadID:   "thread-remote-archive",
+				Subject:    "Archive me elsewhere",
+				Sender:     "Ops <ops@example.com>",
+				Recipients: []string{"team@example.com"},
+				Date:       time.Date(2026, time.March, 9, 9, 30, 0, 0, time.UTC),
+				Labels:     []string{"INBOX"},
+			},
+		},
+	}
+	app.newEmailSyncProvider = func(context.Context, store.ExternalAccount) (emailSyncProvider, error) {
+		return provider, nil
+	}
+
+	if _, err := app.syncEmailAccount(context.Background(), account); err != nil {
+		t.Fatalf("first syncEmailAccount() error: %v", err)
+	}
+	item, err := app.store.GetItemBySource(store.ExternalProviderGmail, "message:gmail-remote-archive")
+	if err != nil {
+		t.Fatalf("GetItemBySource(first) error: %v", err)
+	}
+	if item.State != store.ItemStateInbox {
+		t.Fatalf("item state after first sync = %q, want inbox", item.State)
+	}
+
+	inInbox = false
+	if _, err := app.syncEmailAccount(context.Background(), account); err != nil {
+		t.Fatalf("second syncEmailAccount() error: %v", err)
+	}
+	item, err = app.store.GetItem(item.ID)
+	if err != nil {
+		t.Fatalf("GetItem(second) error: %v", err)
+	}
 	if item.State != store.ItemStateDone {
-		t.Fatalf("item state after resync = %q, want done", item.State)
+		t.Fatalf("item state after remote archive = %q, want done", item.State)
 	}
 }
 

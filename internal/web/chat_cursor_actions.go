@@ -239,6 +239,7 @@ func (a *App) executeCursorAction(ctx context.Context, session store.ChatSession
 			if err := a.store.UpdateItemState(item.ID, store.ItemStateInbox); err != nil {
 				return "", nil, err
 			}
+			payload["view"] = store.ItemStateInbox
 			return fmt.Sprintf("Moved item %q back to inbox.", item.Title), payload, nil
 		case "delete":
 			if err := a.store.DeleteItem(item.ID); err != nil {
@@ -316,6 +317,7 @@ func (a *App) executeTitledItemAction(ctx context.Context, session store.ChatSes
 			if err := a.store.UpdateItemState(item.ID, store.ItemStateInbox); err != nil {
 				return "", nil, err
 			}
+			payload["view"] = store.ItemStateInbox
 			return fmt.Sprintf("Moved item %q back to inbox.", item.Title), payload, nil
 		default:
 			return "", nil, fmt.Errorf("unsupported titled item triage action: %s", triageAction)

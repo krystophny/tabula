@@ -449,7 +449,11 @@ export async function performItemSidebarStateUpdate(item, nextState) {
       throw new Error(detail);
     }
     state.itemSidebarActiveItemID = itemID;
-    await loadItemSidebarView(state.itemSidebarView);
+    const targetView = normalizedState === 'inbox'
+      ? 'inbox'
+      : state.itemSidebarView;
+    state.itemSidebarView = targetView;
+    await loadItemSidebarView(targetView);
     showStatus(itemSidebarStatusText(normalizedState, item));
     return true;
   } catch (err) {
