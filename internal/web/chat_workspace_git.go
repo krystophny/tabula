@@ -195,7 +195,7 @@ func (a *App) createWorkspaceFromGit(repoURL, targetPath string) (store.Workspac
 	if err != nil {
 		return store.Workspace{}, "", err
 	}
-	if err := a.store.SetActiveWorkspace(workspace.ID); err != nil {
+	if err := a.setActiveWorkspaceTracked(workspace.ID, "workspace_switch"); err != nil {
 		return store.Workspace{}, "", err
 	}
 	workspace, err = a.store.GetWorkspace(workspace.ID)

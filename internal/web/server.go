@@ -403,6 +403,10 @@ func (a *App) Router() http.Handler {
 	r.Get("/api/workspaces/{workspace_id}", a.handleWorkspaceGet)
 	r.Put("/api/workspaces/{workspace_id}", a.handleWorkspaceUpdate)
 	r.Delete("/api/workspaces/{workspace_id}", a.handleWorkspaceDelete)
+	r.Get("/api/time-entries", a.handleTimeEntryList)
+	r.Get("/api/time-entries/summary", a.handleTimeEntrySummary)
+	r.Post("/api/time-entries/stamp-in", a.handleTimeEntryStampIn)
+	r.Post("/api/time-entries/stamp-out", a.handleTimeEntryStampOut)
 	r.Get("/api/spheres/{sphere}/accounts", a.handleExternalAccountList)
 	r.Post("/api/spheres/{sphere}/accounts", a.handleExternalAccountCreate)
 	r.Delete("/api/spheres/{sphere}/accounts/{account_id}", a.handleExternalAccountDelete)
@@ -980,9 +984,18 @@ func (a *App) Shutdown(ctx context.Context) error {
 	waitErr := a.waitForAssistantWorkers(ctx)
 	a.closeAllAppSessions()
 	a.tunnels.shutdown(ctx)
+	timeErr := error(nil)
+	if a.store != nil {
+		if _, err := a.store.StopActiveTimeEntries(time.Now().UTC()); err != nil {
+			timeErr = err
+		}
+	}
 	storeErr := a.store.Close()
 	if waitErr != nil {
 		return waitErr
+	}
+	if timeErr != nil {
+		return timeErr
 	}
 	return storeErr
 }

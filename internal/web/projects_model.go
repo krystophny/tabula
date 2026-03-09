@@ -253,6 +253,9 @@ func (a *App) activateProject(projectID string) (store.Project, error) {
 	if err := a.markProjectSeen(project); err != nil {
 		return store.Project{}, err
 	}
+	if _, _, err := a.syncTimeTrackingContext("project_switch"); err != nil {
+		return store.Project{}, err
+	}
 	return a.store.GetProject(project.ID)
 }
 

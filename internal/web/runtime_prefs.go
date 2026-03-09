@@ -1,7 +1,6 @@
 package web
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 
@@ -139,11 +138,7 @@ func (a *App) setRuntimeActiveSphere(sphere string) error {
 	if a == nil || a.store == nil {
 		return nil
 	}
-	cleanSphere := normalizeRuntimeActiveSphere(sphere)
-	if cleanSphere == "" {
-		return errors.New("active sphere must be work or private")
-	}
-	return a.store.SetActiveSphere(cleanSphere)
+	return a.setActiveSphereTracked(sphere, "sphere_switch")
 }
 
 func (a *App) handleRuntimePreferencesUpdate(w http.ResponseWriter, r *http.Request) {

@@ -211,7 +211,7 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 		if err != nil {
 			return "", nil, err
 		}
-		if err := a.store.SetActiveWorkspace(workspace.ID); err != nil {
+		if err := a.setActiveWorkspaceTracked(workspace.ID, "workspace_switch"); err != nil {
 			return "", nil, err
 		}
 		return fmt.Sprintf("Switched to workspace %s.", workspace.Name), map[string]interface{}{

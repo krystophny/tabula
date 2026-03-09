@@ -51,7 +51,7 @@ func (a *App) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.IsActive {
-		if err := a.store.SetActiveWorkspace(workspace.ID); err != nil {
+		if err := a.setActiveWorkspaceTracked(workspace.ID, "workspace_switch"); err != nil {
 			writeDomainStoreError(w, err)
 			return
 		}
@@ -108,7 +108,7 @@ func (a *App) handleWorkspaceUpdate(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, http.StatusBadRequest, "is_active=false is not supported")
 			return
 		}
-		if err := a.store.SetActiveWorkspace(workspaceID); err != nil {
+		if err := a.setActiveWorkspaceTracked(workspaceID, "workspace_switch"); err != nil {
 			writeDomainStoreError(w, err)
 			return
 		}

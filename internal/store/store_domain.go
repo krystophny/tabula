@@ -109,6 +109,9 @@ CREATE INDEX IF NOT EXISTS idx_external_bindings_stale
 	if _, err := s.db.Exec(itemsTableSchema); err != nil {
 		return err
 	}
+	if _, err := s.db.Exec(timeEntriesTableSchema); err != nil {
+		return err
+	}
 	if err := s.migrateItemTableStateSupport(); err != nil {
 		return err
 	}

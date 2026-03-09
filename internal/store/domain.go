@@ -1,5 +1,7 @@
 package store
 
+import "time"
+
 type ArtifactKind string
 
 const (
@@ -196,4 +198,33 @@ type ItemSummary struct {
 	ArtifactTitle *string       `json:"artifact_title,omitempty"`
 	ArtifactKind  *ArtifactKind `json:"artifact_kind,omitempty"`
 	ActorName     *string       `json:"actor_name,omitempty"`
+}
+
+type TimeEntry struct {
+	ID          int64   `json:"id"`
+	WorkspaceID *int64  `json:"workspace_id,omitempty"`
+	ProjectID   *string `json:"project_id,omitempty"`
+	Sphere      string  `json:"sphere"`
+	StartedAt   string  `json:"started_at"`
+	EndedAt     *string `json:"ended_at,omitempty"`
+	Activity    string  `json:"activity,omitempty"`
+	Notes       *string `json:"notes,omitempty"`
+}
+
+type TimeEntryListFilter struct {
+	Sphere     string     `json:"sphere,omitempty"`
+	From       *time.Time `json:"from,omitempty"`
+	To         *time.Time `json:"to,omitempty"`
+	ActiveOnly bool       `json:"active_only,omitempty"`
+}
+
+type TimeEntrySummary struct {
+	Key         string  `json:"key"`
+	Label       string  `json:"label"`
+	Seconds     int64   `json:"seconds"`
+	Duration    string  `json:"duration"`
+	EntryCount  int     `json:"entry_count"`
+	WorkspaceID *int64  `json:"workspace_id,omitempty"`
+	ProjectID   *string `json:"project_id,omitempty"`
+	Sphere      string  `json:"sphere,omitempty"`
 }

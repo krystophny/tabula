@@ -464,7 +464,7 @@ func (a *App) createWorkspaceFromDialogIntent(projectKey string, action *SystemA
 	if err != nil {
 		return store.Workspace{}, false, err
 	}
-	if err := a.store.SetActiveWorkspace(workspace.ID); err != nil {
+	if err := a.setActiveWorkspaceTracked(workspace.ID, "workspace_switch"); err != nil {
 		return store.Workspace{}, false, err
 	}
 	workspace, err = a.store.GetWorkspace(workspace.ID)
