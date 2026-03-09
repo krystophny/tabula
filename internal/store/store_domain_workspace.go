@@ -24,7 +24,11 @@ func (s *Store) CreateWorkspace(name, dirPath string, sphere ...string) (Workspa
 	if cleanSphere == "" {
 		return Workspace{}, errors.New("workspace sphere must be work or private")
 	}
-	res, err := s.db.Exec(`INSERT INTO workspaces (name, dir_path, sphere) VALUES (?, ?, ?)`, cleanName, cleanPath, cleanSphere)
+	projectID, err := s.inferProjectIDForWorkspacePath(cleanPath)
+	if err != nil {
+		return Workspace{}, err
+	}
+	res, err := s.db.Exec(`INSERT INTO workspaces (name, dir_path, project_id, sphere) VALUES (?, ?, ?, ?)`, cleanName, cleanPath, normalizeOptionalProjectID(projectID), cleanSphere)
 	if err != nil {
 		return Workspace{}, err
 	}
@@ -37,7 +41,7 @@ func (s *Store) CreateWorkspace(name, dirPath string, sphere ...string) (Workspa
 
 func (s *Store) GetWorkspace(id int64) (Workspace, error) {
 	return scanWorkspace(s.db.QueryRow(
-		`SELECT id, name, dir_path, sphere, is_active, created_at, updated_at
+		`SELECT id, name, dir_path, project_id, sphere, is_active, created_at, updated_at
 		 FROM workspaces
 		 WHERE id = ?`,
 		id,
@@ -46,7 +50,7 @@ func (s *Store) GetWorkspace(id int64) (Workspace, error) {
 
 func (s *Store) GetWorkspaceByPath(dirPath string) (Workspace, error) {
 	return scanWorkspace(s.db.QueryRow(
-		`SELECT id, name, dir_path, sphere, is_active, created_at, updated_at
+		`SELECT id, name, dir_path, project_id, sphere, is_active, created_at, updated_at
 		 FROM workspaces
 		 WHERE dir_path = ?`,
 		normalizeWorkspacePath(dirPath),
@@ -62,7 +66,7 @@ func (s *Store) ListWorkspacesForSphere(sphere string) ([]Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
-	query := `SELECT id, name, dir_path, sphere, is_active, created_at, updated_at
+	query := `SELECT id, name, dir_path, project_id, sphere, is_active, created_at, updated_at
 		 FROM workspaces`
 	args := []any{}
 	if cleanSphere != "" {
@@ -95,6 +99,33 @@ func (s *Store) ListWorkspacesForSphere(sphere string) ([]Workspace, error) {
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
 	return out, nil
+}
+
+func (s *Store) ListWorkspacesForProject(projectID string) ([]Workspace, error) {
+	cleanProjectID := strings.TrimSpace(projectID)
+	if cleanProjectID == "" {
+		return nil, errors.New("project id is required")
+	}
+	rows, err := s.db.Query(
+		`SELECT id, name, dir_path, project_id, sphere, is_active, created_at, updated_at
+		 FROM workspaces
+		 WHERE project_id = ?
+		 ORDER BY is_active DESC, lower(name) ASC, id ASC`,
+		cleanProjectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Workspace
+	for rows.Next() {
+		workspace, err := scanWorkspace(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, workspace)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) FindWorkspaceContainingPath(filePath string) (*int64, error) {
@@ -257,6 +288,30 @@ func (s *Store) SetWorkspaceSphere(id int64, sphere string) (Workspace, error) {
 	}
 	if err := tx.Commit(); err != nil {
 		return Workspace{}, err
+	}
+	return s.GetWorkspace(id)
+}
+
+func (s *Store) SetWorkspaceProject(id int64, projectID *string) (Workspace, error) {
+	if normalized := normalizeOptionalProjectID(projectID); normalized != nil {
+		if _, err := s.GetProject(normalized.(string)); err != nil {
+			return Workspace{}, err
+		}
+	}
+	res, err := s.db.Exec(
+		`UPDATE workspaces SET project_id = ?, updated_at = datetime('now') WHERE id = ?`,
+		normalizeOptionalProjectID(projectID),
+		id,
+	)
+	if err != nil {
+		return Workspace{}, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return Workspace{}, err
+	}
+	if affected == 0 {
+		return Workspace{}, sql.ErrNoRows
 	}
 	return s.GetWorkspace(id)
 }

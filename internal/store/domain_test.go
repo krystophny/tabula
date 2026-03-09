@@ -31,7 +31,7 @@ func TestStoreMigratesDomainTablesOnFreshDatabase(t *testing.T) {
 		t.Fatalf("TableColumns() error: %v", err)
 	}
 	for table, want := range map[string][]string{
-		"workspaces":                  {"id", "name", "dir_path", "sphere", "is_active", "created_at", "updated_at"},
+		"workspaces":                  {"id", "name", "dir_path", "project_id", "sphere", "is_active", "created_at", "updated_at"},
 		"actors":                      {"id", "name", "kind", "created_at"},
 		"artifacts":                   {"id", "kind", "ref_path", "ref_url", "title", "meta_json", "created_at", "updated_at"},
 		"external_accounts":           {"id", "sphere", "provider", "label", "config_json", "enabled", "created_at", "updated_at"},

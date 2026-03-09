@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -27,6 +28,8 @@ var itemFilterSourceCommands = map[string]string{
 	"show github items":       "github",
 	"show manual items":       "manual",
 }
+
+var projectItemFilterPattern = regexp.MustCompile(`(?i)^(?:show|open|zeige)\s+(.+?)\s+items$`)
 
 func parseInlineItemFilterIntent(text string) *SystemAction {
 	normalized := normalizeItemCommandText(text)
@@ -74,6 +77,24 @@ func parseInlineItemFilterIntent(text string) *SystemAction {
 					"all_spheres": allSpheres,
 				},
 			},
+		}
+	}
+	if match := projectItemFilterPattern.FindStringSubmatch(strings.TrimSpace(text)); len(match) == 2 {
+		projectRef := cleanWorkspaceReference(match[1])
+		if allSpheres && strings.HasPrefix(strings.ToLower(projectRef), "all ") {
+			projectRef = cleanWorkspaceReference(strings.TrimSpace(projectRef[4:]))
+		}
+		if projectRef != "" && !strings.EqualFold(projectRef, "unassigned") {
+			return &SystemAction{
+				Action: "show_filtered_items",
+				Params: map[string]interface{}{
+					"view": store.ItemStateInbox,
+					"filters": map[string]interface{}{
+						"project":     projectRef,
+						"all_spheres": allSpheres,
+					},
+				},
+			}
 		}
 	}
 	return nil
@@ -207,6 +228,19 @@ func (a *App) executeFilteredItemViewAction(action *SystemAction) (string, map[s
 	filter, err := itemFilterFromActionParams(action.Params)
 	if err != nil {
 		return "", nil, err
+	}
+	if filter.ProjectID == nil {
+		filterParams := systemActionNestedParams(action.Params, "filters")
+		if filterParams == nil {
+			filterParams = action.Params
+		}
+		if projectRef := systemActionProjectRef(filterParams); projectRef != "" {
+			project, err := a.resolveProjectReference(projectRef)
+			if err != nil {
+				return "", nil, err
+			}
+			filter.ProjectID = &project.ID
+		}
 	}
 	allSpheres := systemActionAllSpheresParam(action.Params)
 	if !allSpheres {

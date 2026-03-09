@@ -17,13 +17,21 @@ func normalizeOptionalProjectID(value *string) any {
 }
 
 func (s *Store) SetItemWorkspace(id int64, workspaceID *int64) error {
-	res, err := s.db.Exec(
-		`UPDATE items
+	args := []any{nullablePositiveID(valueOrZeroInt64(workspaceID)), id}
+	query := `UPDATE items
 		 SET workspace_id = ?, updated_at = datetime('now')
-		 WHERE id = ?`,
-		nullablePositiveID(valueOrZeroInt64(workspaceID)),
-		id,
-	)
+		 WHERE id = ?`
+	if workspaceID != nil && *workspaceID > 0 {
+		workspace, err := s.GetWorkspace(*workspaceID)
+		if err != nil {
+			return err
+		}
+		query = `UPDATE items
+		 SET workspace_id = ?, project_id = COALESCE(project_id, ?), updated_at = datetime('now')
+		 WHERE id = ?`
+		args = []any{*workspaceID, normalizeOptionalProjectID(workspace.ProjectID), id}
+	}
+	res, err := s.db.Exec(query, args...)
 	if err != nil {
 		return err
 	}

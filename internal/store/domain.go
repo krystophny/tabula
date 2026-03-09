@@ -86,13 +86,14 @@ type ItemListFilter struct {
 }
 
 type Workspace struct {
-	ID        int64  `json:"id"`
-	Name      string `json:"name"`
-	DirPath   string `json:"dir_path"`
-	Sphere    string `json:"sphere"`
-	IsActive  bool   `json:"is_active"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID        int64   `json:"id"`
+	Name      string  `json:"name"`
+	DirPath   string  `json:"dir_path"`
+	ProjectID *string `json:"project_id,omitempty"`
+	Sphere    string  `json:"sphere"`
+	IsActive  bool    `json:"is_active"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at"`
 }
 
 type ExternalAccount struct {

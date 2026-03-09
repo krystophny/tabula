@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
   dir_path TEXT NOT NULL UNIQUE,
+  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
   sphere TEXT NOT NULL DEFAULT 'private' CHECK (sphere IN ('work', 'private')),
   is_active INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -114,6 +115,9 @@ CREATE INDEX IF NOT EXISTS idx_external_bindings_stale
 		return err
 	}
 	if err := s.migrateItemProjectColumnSupport(); err != nil {
+		return err
+	}
+	if err := s.migrateWorkspaceProjectSupport(); err != nil {
 		return err
 	}
 	if err := s.migrateWorkspaceSphereSupport(); err != nil {
@@ -234,6 +238,9 @@ func appendItemFilterClauses(parts []string, args []any, filter ItemListFilter, 
 	column := func(name string) string {
 		return alias + name
 	}
+	workspaceProjectColumn := func() string {
+		return `(SELECT project_id FROM workspaces WHERE id = ` + column("workspace_id") + `)`
+	}
 	if filter.Sphere != "" {
 		parts = append(parts, column("sphere")+" = ?")
 		args = append(args, filter.Sphere)
@@ -250,7 +257,7 @@ func appendItemFilterClauses(parts []string, args []any, filter ItemListFilter, 
 		parts = append(parts, column("workspace_id")+" IS NULL")
 	}
 	if filter.ProjectID != nil {
-		parts = append(parts, column("project_id")+" = ?")
+		parts = append(parts, `COALESCE(`+column("project_id")+`, `+workspaceProjectColumn()+`) = ?`)
 		args = append(args, *filter.ProjectID)
 	}
 	return parts, args
@@ -369,6 +376,18 @@ func (s *Store) migrateWorkspaceSphereSupport() error {
 	return err
 }
 
+func (s *Store) migrateWorkspaceProjectSupport() error {
+	tableColumns, err := s.tableColumnSet("workspaces")
+	if err != nil {
+		return err
+	}
+	if tableColumns["workspaces"]["project_id"] {
+		return nil
+	}
+	_, err = s.db.Exec(`ALTER TABLE workspaces ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL`)
+	return err
+}
+
 func (s *Store) migrateItemSphereSupport() error {
 	tableColumns, err := s.tableColumnSet("items")
 	if err != nil {
@@ -388,12 +407,14 @@ func scanWorkspace(
 ) (Workspace, error) {
 	var out Workspace
 	var isActive int
-	err := row.Scan(&out.ID, &out.Name, &out.DirPath, &out.Sphere, &isActive, &out.CreatedAt, &out.UpdatedAt)
+	var projectID sql.NullString
+	err := row.Scan(&out.ID, &out.Name, &out.DirPath, &projectID, &out.Sphere, &isActive, &out.CreatedAt, &out.UpdatedAt)
 	if err != nil {
 		return Workspace{}, err
 	}
 	out.Name = normalizeWorkspaceName(out.Name)
 	out.DirPath = normalizeWorkspacePath(out.DirPath)
+	out.ProjectID = nullStringPointer(projectID)
 	out.Sphere = normalizeSphere(out.Sphere)
 	out.IsActive = isActive != 0
 	return out, nil

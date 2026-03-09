@@ -28,6 +28,16 @@ func (s *Store) CreateItem(title string, opts ItemOptions) (Item, error) {
 		}
 		opts.WorkspaceID = inferredWorkspaceID
 	}
+	if opts.ProjectID == nil && opts.WorkspaceID != nil && *opts.WorkspaceID > 0 {
+		workspace, err := s.GetWorkspace(*opts.WorkspaceID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return Item{}, errors.New("foreign key constraint failed: workspace_id")
+			}
+			return Item{}, err
+		}
+		opts.ProjectID = workspace.ProjectID
+	}
 	itemSphere, err := s.resolveItemSphere(opts.WorkspaceID, opts.Sphere)
 	if err != nil {
 		return Item{}, err
