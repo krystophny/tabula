@@ -49,6 +49,9 @@ func parseInlineItemIntent(text string, now time.Time) *SystemAction {
 
 func parseInlineItemIntentWithInputMode(text string, now time.Time, inputMode string) *SystemAction {
 	normalized := normalizeItemCommandText(text)
+	if filterAction := parseInlineItemFilterIntent(text); filterAction != nil {
+		return filterAction
+	}
 	if somedayAction := parseInlineSomedayIntent(text); somedayAction != nil {
 		return somedayAction
 	}
@@ -233,7 +236,7 @@ func parseItemSplitCount(raw string) (int, bool) {
 
 func isItemSystemAction(action string) bool {
 	switch strings.ToLower(strings.TrimSpace(action)) {
-	case "make_item", "delegate_item", "snooze_item", "split_items", "reassign_workspace", "reassign_project", "clear_workspace", "clear_project", "capture_idea", "refine_idea_note", "promote_idea", "apply_idea_promotion", "create_github_issue", "create_github_issue_split", "print_item", "review_someday", "triage_someday", "promote_someday", "toggle_someday_review_nudge":
+	case "make_item", "delegate_item", "snooze_item", "split_items", "reassign_workspace", "reassign_project", "clear_workspace", "clear_project", "capture_idea", "refine_idea_note", "promote_idea", "apply_idea_promotion", "create_github_issue", "create_github_issue_split", "print_item", "review_someday", "triage_someday", "promote_someday", "toggle_someday_review_nudge", "show_filtered_items":
 		return true
 	default:
 		return false
@@ -256,6 +259,8 @@ func itemActionFailurePrefix(action string) string {
 		return "I couldn't prepare the print view: "
 	case "review_someday":
 		return "I couldn't open the someday list: "
+	case "show_filtered_items":
+		return "I couldn't open the filtered item list: "
 	case "toggle_someday_review_nudge":
 		return "I couldn't update the someday reminder setting: "
 	}

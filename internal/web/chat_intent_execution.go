@@ -316,6 +316,8 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 		return a.listLinkedArtifacts(session, action)
 	case "review_someday", "triage_someday", "promote_someday", "toggle_someday_review_nudge":
 		return a.executeSomedayAction(session, action)
+	case "show_filtered_items":
+		return a.executeFilteredItemViewAction(action)
 	case "create_github_issue", "create_github_issue_split":
 		return a.createGitHubIssueFromConversation(sessionID, session, action)
 	case "shell":

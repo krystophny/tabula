@@ -1077,6 +1077,90 @@ func TestItemStateSummariesAndCounts(t *testing.T) {
 	}
 }
 
+func TestItemSummaryFilters(t *testing.T) {
+	s := newTestStore(t)
+
+	now := time.Date(2026, time.March, 8, 10, 0, 0, 0, time.UTC)
+	past := now.Add(-1 * time.Hour).Format(time.RFC3339)
+	workspace, err := s.CreateWorkspace("Alpha", filepath.Join(t.TempDir(), "alpha"))
+	if err != nil {
+		t.Fatalf("CreateWorkspace() error: %v", err)
+	}
+	project, err := s.CreateProject("Alpha Project", "alpha-project", filepath.Join(t.TempDir(), "project"), "managed", "", "canvas-alpha", false)
+	if err != nil {
+		t.Fatalf("CreateProject() error: %v", err)
+	}
+	projectID := project.ID
+	sourceTodoist := ExternalProviderTodoist
+	sourceExchange := ExternalProviderExchange
+
+	unassignedItem, err := s.CreateItem("Unassigned todoist item", ItemOptions{
+		State:        ItemStateInbox,
+		VisibleAfter: &past,
+		Source:       &sourceTodoist,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(unassigned) error: %v", err)
+	}
+	if _, err := s.CreateItem("Workspace todoist item", ItemOptions{
+		State:        ItemStateInbox,
+		WorkspaceID:  &workspace.ID,
+		ProjectID:    &projectID,
+		VisibleAfter: &past,
+		Source:       &sourceTodoist,
+	}); err != nil {
+		t.Fatalf("CreateItem(workspace todoist) error: %v", err)
+	}
+	if _, err := s.CreateItem("Workspace exchange item", ItemOptions{
+		State:        ItemStateInbox,
+		WorkspaceID:  &workspace.ID,
+		VisibleAfter: &past,
+		Source:       &sourceExchange,
+	}); err != nil {
+		t.Fatalf("CreateItem(workspace exchange) error: %v", err)
+	}
+
+	todoistItems, err := s.ListInboxItemsFiltered(now, ItemListFilter{Source: ExternalProviderTodoist})
+	if err != nil {
+		t.Fatalf("ListInboxItemsFiltered(todoist) error: %v", err)
+	}
+	if len(todoistItems) != 2 {
+		t.Fatalf("ListInboxItemsFiltered(todoist) len = %d, want 2", len(todoistItems))
+	}
+
+	unassignedItems, err := s.ListInboxItemsFiltered(now, ItemListFilter{WorkspaceUnassigned: true})
+	if err != nil {
+		t.Fatalf("ListInboxItemsFiltered(unassigned) error: %v", err)
+	}
+	if len(unassignedItems) != 1 || unassignedItems[0].ID != unassignedItem.ID {
+		t.Fatalf("ListInboxItemsFiltered(unassigned) = %+v, want only item %d", unassignedItems, unassignedItem.ID)
+	}
+
+	workspaceItems, err := s.ListInboxItemsFiltered(now, ItemListFilter{WorkspaceID: &workspace.ID})
+	if err != nil {
+		t.Fatalf("ListInboxItemsFiltered(workspace) error: %v", err)
+	}
+	if len(workspaceItems) != 2 {
+		t.Fatalf("ListInboxItemsFiltered(workspace) len = %d, want 2", len(workspaceItems))
+	}
+
+	projectItems, err := s.ListInboxItemsFiltered(now, ItemListFilter{ProjectID: &projectID})
+	if err != nil {
+		t.Fatalf("ListInboxItemsFiltered(project) error: %v", err)
+	}
+	if len(projectItems) != 1 {
+		t.Fatalf("ListInboxItemsFiltered(project) len = %d, want 1", len(projectItems))
+	}
+
+	counts, err := s.CountItemsByStateFiltered(now, ItemListFilter{Source: ExternalProviderTodoist})
+	if err != nil {
+		t.Fatalf("CountItemsByStateFiltered(todoist) error: %v", err)
+	}
+	if got := counts[ItemStateInbox]; got != 2 {
+		t.Fatalf("CountItemsByStateFiltered(todoist)[inbox] = %d, want 2", got)
+	}
+}
+
 func TestFindWorkspaceContainingPathPrefersDeepestMatch(t *testing.T) {
 	s := newTestStore(t)
 

@@ -9,6 +9,7 @@ const refreshWorkspaceBrowser = (...args) => refs.refreshWorkspaceBrowser(...arg
 const setPrReviewDrawerOpen = (...args) => refs.setPrReviewDrawerOpen(...args);
 const renderPrReviewFileList = (...args) => refs.renderPrReviewFileList(...args);
 const normalizeItemSidebarView = (...args) => refs.normalizeItemSidebarView(...args);
+const normalizeItemSidebarFilters = (...args) => refs.normalizeItemSidebarFilters(...args);
 const showItemSidebarActionMenu = (...args) => refs.showItemSidebarActionMenu(...args);
 const defaultItemSidebarCounts = (...args) => refs.defaultItemSidebarCounts(...args);
 const closeEdgePanels = (...args) => refs.closeEdgePanels(...args);
@@ -30,13 +31,13 @@ const parentWorkspaceBrowserPath = (...args) => refs.parentWorkspaceBrowserPath(
 const workspaceCompanionEntries = (...args) => refs.workspaceCompanionEntries(...args);
 const openWorkspaceSidebarFile = (...args) => refs.openWorkspaceSidebarFile(...args);
 
-export async function openItemSidebarView(view = state.itemSidebarView) {
+export async function openItemSidebarView(view = state.itemSidebarView, filters = null) {
   state.fileSidebarMode = 'items';
   if (!state.prReviewDrawerOpen) {
     setPrReviewDrawerOpen(true);
   }
   renderPrReviewFileList();
-  return loadItemSidebarView(view);
+  return loadItemSidebarView(view, filters);
 }
 
 export function activeItemSidebarShortcutTarget() {
@@ -50,13 +51,15 @@ export function activeItemSidebarShortcutTarget() {
   return items.find((item) => Number(item?.id || 0) === activeID) || items[0];
 }
 
-export async function loadItemSidebarView(view = state.itemSidebarView) {
+export async function loadItemSidebarView(view = state.itemSidebarView, filters = null) {
   const normalizedView = normalizeItemSidebarView(view);
+  const normalizedFilters = normalizeItemSidebarFilters(filters === null ? state.itemSidebarFilters : filters);
   const projectID = String(state.activeProjectId || '').trim();
   const loadSeq = Number(state.itemSidebarLoadSeq || 0) + 1;
   state.itemSidebarLoadSeq = loadSeq;
   hideItemSidebarMenu();
   state.itemSidebarView = normalizedView;
+  state.itemSidebarFilters = normalizedFilters;
   state.itemSidebarLoading = true;
   state.itemSidebarError = '';
   if (!state.prReviewMode) {
@@ -72,8 +75,8 @@ export async function loadItemSidebarView(view = state.itemSidebarView) {
   }
   try {
     const [itemsResp, countsResp] = await Promise.all([
-      fetch(apiURL(itemSidebarEndpoint(normalizedView)), { cache: 'no-store' }),
-      fetch(apiURL(itemSidebarCountsEndpoint()), { cache: 'no-store' }),
+      fetch(apiURL(itemSidebarEndpoint(normalizedView, normalizedFilters)), { cache: 'no-store' }),
+      fetch(apiURL(itemSidebarCountsEndpoint(normalizedFilters)), { cache: 'no-store' }),
     ]);
     if (!itemsResp.ok) {
       const detail = (await itemsResp.text()).trim() || `HTTP ${itemsResp.status}`;

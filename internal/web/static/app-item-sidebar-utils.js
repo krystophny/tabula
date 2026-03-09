@@ -34,14 +34,50 @@ export function normalizeItemSidebarView(rawView) {
   return 'inbox';
 }
 
-export function itemSidebarEndpoint(view) {
-  const normalized = normalizeItemSidebarView(view);
-  if (normalized === 'done') return appendSphereQuery(`items/${normalized}?limit=50`);
-  return appendSphereQuery(`items/${normalized}`);
+export function normalizeItemSidebarFilters(rawFilters = null) {
+  const filters = rawFilters && typeof rawFilters === 'object' ? rawFilters : {};
+  const source = String(filters.source || '').trim().toLowerCase();
+  const projectID = String(filters.project_id || '').trim();
+  const workspaceRaw = filters.workspace_id;
+  const workspaceUnassigned = String(workspaceRaw || '').trim().toLowerCase() === 'null'
+    || filters.workspace_unassigned === true;
+  let workspaceID = null;
+  if (!workspaceUnassigned && Number.isFinite(Number(workspaceRaw)) && Number(workspaceRaw) > 0) {
+    workspaceID = Math.trunc(Number(workspaceRaw));
+  }
+  return {
+    source,
+    workspace_id: workspaceID,
+    project_id: projectID,
+    workspace_unassigned: workspaceUnassigned,
+  };
 }
 
-export function itemSidebarCountsEndpoint() {
-  return appendSphereQuery('items/counts');
+function appendItemSidebarFilterQuery(path, filters = state.itemSidebarFilters) {
+  const normalized = normalizeItemSidebarFilters(filters);
+  let nextPath = String(path || '');
+  if (normalized.source) {
+    nextPath = `${nextPath}${nextPath.includes('?') ? '&' : '?'}source=${encodeURIComponent(normalized.source)}`;
+  }
+  if (normalized.workspace_unassigned) {
+    nextPath = `${nextPath}${nextPath.includes('?') ? '&' : '?'}workspace_id=null`;
+  } else if (Number.isFinite(normalized.workspace_id) && normalized.workspace_id > 0) {
+    nextPath = `${nextPath}${nextPath.includes('?') ? '&' : '?'}workspace_id=${encodeURIComponent(String(normalized.workspace_id))}`;
+  }
+  if (normalized.project_id) {
+    nextPath = `${nextPath}${nextPath.includes('?') ? '&' : '?'}project_id=${encodeURIComponent(normalized.project_id)}`;
+  }
+  return nextPath;
+}
+
+export function itemSidebarEndpoint(view, filters = state.itemSidebarFilters) {
+  const normalized = normalizeItemSidebarView(view);
+  if (normalized === 'done') return appendItemSidebarFilterQuery(appendSphereQuery(`items/${normalized}?limit=50`), filters);
+  return appendItemSidebarFilterQuery(appendSphereQuery(`items/${normalized}`), filters);
+}
+
+export function itemSidebarCountsEndpoint(filters = state.itemSidebarFilters) {
+  return appendItemSidebarFilterQuery(appendSphereQuery('items/counts'), filters);
 }
 
 export function normalizeItemSidebarCounts(rawCounts) {

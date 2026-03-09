@@ -79,6 +79,31 @@ func writeItemStoreError(w http.ResponseWriter, err error) {
 	writeAPIError(w, itemResponseErrorStatus(err), err.Error())
 }
 
+func parseItemListFilterQuery(r *http.Request) (store.ItemListFilter, error) {
+	filter := store.ItemListFilter{
+		Sphere: strings.TrimSpace(r.URL.Query().Get("sphere")),
+		Source: strings.TrimSpace(r.URL.Query().Get("source")),
+	}
+	if rawWorkspaceID := strings.TrimSpace(r.URL.Query().Get("workspace_id")); rawWorkspaceID != "" {
+		if strings.EqualFold(rawWorkspaceID, "null") {
+			filter.WorkspaceUnassigned = true
+		} else {
+			workspaceID, err := strconv.ParseInt(rawWorkspaceID, 10, 64)
+			if err != nil || workspaceID <= 0 {
+				return store.ItemListFilter{}, errors.New("workspace_id must be a positive integer or null")
+			}
+			filter.WorkspaceID = &workspaceID
+		}
+	}
+	if rawProjectID := strings.TrimSpace(r.URL.Query().Get("project_id")); rawProjectID != "" {
+		if strings.EqualFold(rawProjectID, "null") {
+			return store.ItemListFilter{}, errors.New("project_id must not be null")
+		}
+		filter.ProjectID = &rawProjectID
+	}
+	return filter, nil
+}
+
 func (a *App) ensureActorExists(actorID int64) error {
 	if actorID <= 0 {
 		return errItemActorRequired
@@ -97,15 +122,18 @@ func (a *App) handleItemList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state := strings.TrimSpace(r.URL.Query().Get("state"))
-	sphere := strings.TrimSpace(r.URL.Query().Get("sphere"))
+	filter, err := parseItemListFilterQuery(r)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	var (
 		items []store.Item
-		err   error
 	)
 	if state != "" {
-		items, err = a.store.ListItemsByStateForSphere(state, sphere)
+		items, err = a.store.ListItemsByStateFiltered(state, filter)
 	} else {
-		items, err = a.store.ListItems()
+		items, err = a.store.ListItemsFiltered(filter)
 	}
 	if err != nil {
 		writeItemStoreError(w, err)
@@ -126,7 +154,12 @@ func (a *App) handleItemInbox(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
-	items, err := a.store.ListInboxItemsForSphere(time.Now(), strings.TrimSpace(r.URL.Query().Get("sphere")))
+	filter, err := parseItemListFilterQuery(r)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	items, err := a.store.ListInboxItemsFiltered(time.Now(), filter)
 	if err != nil {
 		writeItemStoreError(w, err)
 		return
@@ -138,7 +171,12 @@ func (a *App) handleItemWaiting(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
-	items, err := a.store.ListWaitingItemsForSphere(strings.TrimSpace(r.URL.Query().Get("sphere")))
+	filter, err := parseItemListFilterQuery(r)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	items, err := a.store.ListWaitingItemsFiltered(filter)
 	if err != nil {
 		writeItemStoreError(w, err)
 		return
@@ -150,7 +188,12 @@ func (a *App) handleItemSomeday(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
-	items, err := a.store.ListSomedayItemsForSphere(strings.TrimSpace(r.URL.Query().Get("sphere")))
+	filter, err := parseItemListFilterQuery(r)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	items, err := a.store.ListSomedayItemsFiltered(filter)
 	if err != nil {
 		writeItemStoreError(w, err)
 		return
@@ -162,6 +205,11 @@ func (a *App) handleItemDone(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
+	filter, err := parseItemListFilterQuery(r)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	limit := 50
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
 		value, err := strconv.Atoi(raw)
@@ -171,7 +219,7 @@ func (a *App) handleItemDone(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = value
 	}
-	items, err := a.store.ListDoneItemsForSphere(limit, strings.TrimSpace(r.URL.Query().Get("sphere")))
+	items, err := a.store.ListDoneItemsFiltered(limit, filter)
 	if err != nil {
 		writeItemStoreError(w, err)
 		return
@@ -183,7 +231,12 @@ func (a *App) handleItemCounts(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
-	counts, err := a.store.CountItemsByStateForSphere(time.Now(), strings.TrimSpace(r.URL.Query().Get("sphere")))
+	filter, err := parseItemListFilterQuery(r)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	counts, err := a.store.CountItemsByStateFiltered(time.Now(), filter)
 	if err != nil {
 		writeItemStoreError(w, err)
 		return

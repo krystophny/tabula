@@ -440,6 +440,110 @@ func TestItemStateViewAPIFiltersBySphere(t *testing.T) {
 	}
 }
 
+func TestItemStateViewAPIFiltersBySourceWorkspaceAndProject(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	workspace, err := app.store.CreateWorkspace("Inbox Workspace", filepath.Join(t.TempDir(), "workspace"))
+	if err != nil {
+		t.Fatalf("CreateWorkspace() error: %v", err)
+	}
+	project, err := app.store.CreateProject("Inbox Project", "inbox-project", filepath.Join(t.TempDir(), "project"), "managed", "", "canvas-inbox", false)
+	if err != nil {
+		t.Fatalf("CreateProject() error: %v", err)
+	}
+	projectID := project.ID
+	past := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
+	sourceTodoist := store.ExternalProviderTodoist
+	sourceExchange := store.ExternalProviderExchange
+
+	if _, err := app.store.CreateItem("Unassigned todoist", store.ItemOptions{
+		State:        store.ItemStateInbox,
+		VisibleAfter: &past,
+		Source:       &sourceTodoist,
+	}); err != nil {
+		t.Fatalf("CreateItem(unassigned todoist) error: %v", err)
+	}
+	if _, err := app.store.CreateItem("Workspace todoist", store.ItemOptions{
+		State:        store.ItemStateInbox,
+		WorkspaceID:  &workspace.ID,
+		ProjectID:    &projectID,
+		VisibleAfter: &past,
+		Source:       &sourceTodoist,
+	}); err != nil {
+		t.Fatalf("CreateItem(workspace todoist) error: %v", err)
+	}
+	if _, err := app.store.CreateItem("Workspace exchange", store.ItemOptions{
+		State:        store.ItemStateInbox,
+		WorkspaceID:  &workspace.ID,
+		VisibleAfter: &past,
+		Source:       &sourceExchange,
+	}); err != nil {
+		t.Fatalf("CreateItem(workspace exchange) error: %v", err)
+	}
+
+	rrSource := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/inbox?source=todoist", nil)
+	if rrSource.Code != http.StatusOK {
+		t.Fatalf("todoist inbox status = %d, want 200: %s", rrSource.Code, rrSource.Body.String())
+	}
+	sourceItems, ok := decodeJSONResponse(t, rrSource)["items"].([]any)
+	if !ok || len(sourceItems) != 2 {
+		t.Fatalf("todoist inbox payload = %#v", decodeJSONResponse(t, rrSource))
+	}
+
+	rrUnassigned := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/inbox?workspace_id=null", nil)
+	if rrUnassigned.Code != http.StatusOK {
+		t.Fatalf("unassigned inbox status = %d, want 200: %s", rrUnassigned.Code, rrUnassigned.Body.String())
+	}
+	unassignedItems, ok := decodeJSONResponse(t, rrUnassigned)["items"].([]any)
+	if !ok || len(unassignedItems) != 1 {
+		t.Fatalf("unassigned inbox payload = %#v", decodeJSONResponse(t, rrUnassigned))
+	}
+	if got := strFromAny(unassignedItems[0].(map[string]any)["title"]); got != "Unassigned todoist" {
+		t.Fatalf("unassigned title = %q, want %q", got, "Unassigned todoist")
+	}
+
+	rrProject := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/inbox?project_id="+projectID, nil)
+	if rrProject.Code != http.StatusOK {
+		t.Fatalf("project inbox status = %d, want 200: %s", rrProject.Code, rrProject.Body.String())
+	}
+	projectItems, ok := decodeJSONResponse(t, rrProject)["items"].([]any)
+	if !ok || len(projectItems) != 1 {
+		t.Fatalf("project inbox payload = %#v", decodeJSONResponse(t, rrProject))
+	}
+	if got := strFromAny(projectItems[0].(map[string]any)["title"]); got != "Workspace todoist" {
+		t.Fatalf("project title = %q, want %q", got, "Workspace todoist")
+	}
+
+	rrCounts := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/counts?source=todoist", nil)
+	if rrCounts.Code != http.StatusOK {
+		t.Fatalf("todoist counts status = %d, want 200: %s", rrCounts.Code, rrCounts.Body.String())
+	}
+	counts, ok := decodeJSONResponse(t, rrCounts)["counts"].(map[string]any)
+	if !ok {
+		t.Fatalf("todoist counts payload = %#v", decodeJSONResponse(t, rrCounts))
+	}
+	if got := int(counts[store.ItemStateInbox].(float64)); got != 2 {
+		t.Fatalf("todoist counts[inbox] = %d, want 2", got)
+	}
+
+	rrList := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items?state=inbox&source=exchange&workspace_id="+itoa(workspace.ID), nil)
+	if rrList.Code != http.StatusOK {
+		t.Fatalf("filtered item list status = %d, want 200: %s", rrList.Code, rrList.Body.String())
+	}
+	listItems, ok := decodeJSONDataResponse(t, rrList)["items"].([]any)
+	if !ok || len(listItems) != 1 {
+		t.Fatalf("filtered item list payload = %#v", decodeJSONDataResponse(t, rrList))
+	}
+	if got := strFromAny(listItems[0].(map[string]any)["title"]); got != "Workspace exchange" {
+		t.Fatalf("filtered item list title = %q, want %q", got, "Workspace exchange")
+	}
+
+	rrBadWorkspace := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/inbox?workspace_id=bad", nil)
+	if rrBadWorkspace.Code != http.StatusBadRequest {
+		t.Fatalf("bad workspace filter status = %d, want 400: %s", rrBadWorkspace.Code, rrBadWorkspace.Body.String())
+	}
+}
+
 func TestItemDomainAPIRejectsConflictAndInvalidState(t *testing.T) {
 	app := newAuthedTestApp(t)
 

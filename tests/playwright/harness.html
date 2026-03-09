@@ -826,6 +826,37 @@
       } catch (_) {}
       return '';
     }
+    function requestedItemFilters(url) {
+      try {
+        const parsed = new URL(url, window.location.origin);
+        const source = String(parsed.searchParams.get('source') || '').trim().toLowerCase();
+        const workspaceRaw = String(parsed.searchParams.get('workspace_id') || '').trim().toLowerCase();
+        const projectID = String(parsed.searchParams.get('project_id') || '').trim();
+        return {
+          source,
+          workspace_id: workspaceRaw === 'null' || workspaceRaw === '' ? workspaceRaw : Number(workspaceRaw),
+          project_id: projectID,
+        };
+      } catch (_) {
+        return { source: '', workspace_id: '', project_id: '' };
+      }
+    }
+    function matchesItemFilters(item, sphere, filters) {
+      const itemSphere = String(item?.sphere || '').trim().toLowerCase();
+      if (sphere && itemSphere !== sphere) return false;
+      const itemSource = String(item?.source || '').trim().toLowerCase();
+      if (filters?.source && itemSource !== filters.source) return false;
+      if (filters?.workspace_id === 'null') {
+        return item?.workspace_id == null;
+      }
+      if (Number.isFinite(Number(filters?.workspace_id)) && Number(filters.workspace_id) > 0) {
+        return Number(item?.workspace_id || 0) === Number(filters.workspace_id);
+      }
+      if (filters?.project_id) {
+        return String(item?.project_id || '').trim() === filters.project_id;
+      }
+      return true;
+    }
     const nextHarnessProjectId = (kind) => {
       const cleanKind = String(kind || 'project').trim().toLowerCase() || 'project';
       let suffix = 1;
@@ -1274,11 +1305,12 @@
       if (u.includes('/api/items/counts')) {
         const itemData = window.__itemSidebarData || defaultItemSidebarData();
         const sphere = requestedSphere(u);
+        const filters = requestedItemFilters(u);
         const counts = {
-          inbox: Array.isArray(itemData.inbox) ? itemData.inbox.filter((item) => !sphere || String(item?.sphere || '').trim().toLowerCase() === sphere).length : 0,
-          waiting: Array.isArray(itemData.waiting) ? itemData.waiting.filter((item) => !sphere || String(item?.sphere || '').trim().toLowerCase() === sphere).length : 0,
-          someday: Array.isArray(itemData.someday) ? itemData.someday.filter((item) => !sphere || String(item?.sphere || '').trim().toLowerCase() === sphere).length : 0,
-          done: Array.isArray(itemData.done) ? itemData.done.filter((item) => !sphere || String(item?.sphere || '').trim().toLowerCase() === sphere).length : 0,
+          inbox: Array.isArray(itemData.inbox) ? itemData.inbox.filter((item) => matchesItemFilters(item, sphere, filters)).length : 0,
+          waiting: Array.isArray(itemData.waiting) ? itemData.waiting.filter((item) => matchesItemFilters(item, sphere, filters)).length : 0,
+          someday: Array.isArray(itemData.someday) ? itemData.someday.filter((item) => matchesItemFilters(item, sphere, filters)).length : 0,
+          done: Array.isArray(itemData.done) ? itemData.done.filter((item) => matchesItemFilters(item, sphere, filters)).length : 0,
         };
         const delayMs = nextItemSidebarResponseDelay('counts');
         if (delayMs > 0) await sleep(delayMs);
@@ -1450,8 +1482,9 @@
         if (u.includes('/api/items/someday')) key = 'someday';
         if (u.includes('/api/items/done')) key = 'done';
         const sphere = requestedSphere(u);
+        const filters = requestedItemFilters(u);
         const items = cloneItemSidebarEntries(itemData[key])
-          .filter((item) => !sphere || String(item?.sphere || '').trim().toLowerCase() === sphere);
+          .filter((item) => matchesItemFilters(item, sphere, filters));
         const delayMs = nextItemSidebarResponseDelay(key);
         window.__harnessLog.push({
           type: 'api_fetch',

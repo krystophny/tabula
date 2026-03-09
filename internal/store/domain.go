@@ -70,6 +70,14 @@ type ItemOptions struct {
 	SourceRef    *string `json:"source_ref,omitempty"`
 }
 
+type ItemListFilter struct {
+	Sphere              string  `json:"sphere,omitempty"`
+	Source              string  `json:"source,omitempty"`
+	WorkspaceID         *int64  `json:"workspace_id,omitempty"`
+	WorkspaceUnassigned bool    `json:"workspace_unassigned,omitempty"`
+	ProjectID           *string `json:"project_id,omitempty"`
+}
+
 type Workspace struct {
 	ID        int64  `json:"id"`
 	Name      string `json:"name"`

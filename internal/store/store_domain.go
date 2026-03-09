@@ -196,6 +196,65 @@ func normalizeOptionalString(v *string) any {
 	return clean
 }
 
+func normalizeOptionalSourceFilter(raw string) string {
+	return strings.ToLower(strings.TrimSpace(raw))
+}
+
+func normalizeItemListFilter(filter ItemListFilter) (ItemListFilter, error) {
+	normalized := ItemListFilter{
+		Source:              normalizeOptionalSourceFilter(filter.Source),
+		WorkspaceUnassigned: filter.WorkspaceUnassigned,
+	}
+	sphere, err := normalizeOptionalSphereFilter(filter.Sphere)
+	if err != nil {
+		return ItemListFilter{}, err
+	}
+	normalized.Sphere = sphere
+	if filter.WorkspaceID != nil {
+		if *filter.WorkspaceID <= 0 {
+			return ItemListFilter{}, errors.New("workspace_id must be a positive integer")
+		}
+		value := *filter.WorkspaceID
+		normalized.WorkspaceID = &value
+	}
+	if normalized.WorkspaceID != nil && normalized.WorkspaceUnassigned {
+		return ItemListFilter{}, errors.New("workspace_id cannot be combined with workspace_id=null")
+	}
+	if filter.ProjectID != nil {
+		projectID := strings.TrimSpace(*filter.ProjectID)
+		if projectID != "" {
+			normalized.ProjectID = &projectID
+		}
+	}
+	return normalized, nil
+}
+
+func appendItemFilterClauses(parts []string, args []any, filter ItemListFilter, alias string) ([]string, []any) {
+	column := func(name string) string {
+		return alias + name
+	}
+	if filter.Sphere != "" {
+		parts = append(parts, column("sphere")+" = ?")
+		args = append(args, filter.Sphere)
+	}
+	if filter.Source != "" {
+		parts = append(parts, "lower(trim("+column("source")+")) = ?")
+		args = append(args, filter.Source)
+	}
+	if filter.WorkspaceID != nil {
+		parts = append(parts, column("workspace_id")+" = ?")
+		args = append(args, *filter.WorkspaceID)
+	}
+	if filter.WorkspaceUnassigned {
+		parts = append(parts, column("workspace_id")+" IS NULL")
+	}
+	if filter.ProjectID != nil {
+		parts = append(parts, column("project_id")+" = ?")
+		args = append(args, *filter.ProjectID)
+	}
+	return parts, args
+}
+
 func normalizeArtifactKind(kind ArtifactKind) ArtifactKind {
 	return ArtifactKind(strings.TrimSpace(string(kind)))
 }
@@ -1941,26 +2000,28 @@ func (s *Store) DeleteItem(id int64) error {
 }
 
 func (s *Store) ListItemsByState(state string) ([]Item, error) {
-	return s.ListItemsByStateForSphere(state, "")
+	return s.ListItemsByStateFiltered(state, ItemListFilter{})
 }
 
 func (s *Store) ListItemsByStateForSphere(state, sphere string) ([]Item, error) {
+	return s.ListItemsByStateFiltered(state, ItemListFilter{Sphere: sphere})
+}
+
+func (s *Store) ListItemsByStateFiltered(state string, filter ItemListFilter) ([]Item, error) {
 	cleanState := normalizeItemState(state)
 	if cleanState == "" {
 		return nil, errors.New("invalid item state")
 	}
-	cleanSphere, err := normalizeOptionalSphereFilter(sphere)
+	normalizedFilter, err := normalizeItemListFilter(filter)
 	if err != nil {
 		return nil, err
 	}
+	parts := []string{"state = ?"}
+	args := []any{cleanState}
+	parts, args = appendItemFilterClauses(parts, args, normalizedFilter, "")
 	query := `SELECT id, title, state, workspace_id, project_id, sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, created_at, updated_at
 		 FROM items
-		 WHERE state = ?`
-	args := []any{cleanState}
-	if cleanSphere != "" {
-		query += ` AND sphere = ?`
-		args = append(args, cleanSphere)
-	}
+		 WHERE ` + stringsJoin(parts, " AND ")
 	rows, err := s.db.Query(
 		query,
 		args...,
@@ -2042,105 +2103,119 @@ func (s *Store) listItemSummaries(query string, args ...any) ([]ItemSummary, err
 }
 
 func (s *Store) ListInboxItems(now time.Time) ([]ItemSummary, error) {
-	return s.ListInboxItemsForSphere(now, "")
+	return s.ListInboxItemsFiltered(now, ItemListFilter{})
 }
 
 func (s *Store) ListInboxItemsForSphere(now time.Time, sphere string) ([]ItemSummary, error) {
-	cleanSphere, err := normalizeOptionalSphereFilter(sphere)
+	return s.ListInboxItemsFiltered(now, ItemListFilter{Sphere: sphere})
+}
+
+func (s *Store) ListInboxItemsFiltered(now time.Time, filter ItemListFilter) ([]ItemSummary, error) {
+	normalizedFilter, err := normalizeItemListFilter(filter)
 	if err != nil {
 		return nil, err
 	}
 	cutoff := now.UTC().Format(time.RFC3339Nano)
-	query := itemSummarySelect + `
- WHERE i.state = ?
-   AND (
-     i.visible_after IS NULL
-     OR trim(i.visible_after) = ''
-     OR datetime(i.visible_after) <= datetime(?)
-   )
-`
-	args := []any{ItemStateInbox, cutoff}
-	if cleanSphere != "" {
-		query += `   AND i.sphere = ?` + "\n"
-		args = append(args, cleanSphere)
+	parts := []string{
+		`i.state = ?`,
+		`(
+	     i.visible_after IS NULL
+	     OR trim(i.visible_after) = ''
+	     OR datetime(i.visible_after) <= datetime(?)
+	   )`,
 	}
-	query += ` ORDER BY i.updated_at DESC, i.id ASC`
+	args := []any{ItemStateInbox, cutoff}
+	parts, args = appendItemFilterClauses(parts, args, normalizedFilter, "i.")
+	query := itemSummarySelect + `
+ WHERE ` + stringsJoin(parts, `
+   AND `) + `
+ ORDER BY i.updated_at DESC, i.id ASC`
 	return s.listItemSummaries(query, args...)
 }
 
 func (s *Store) ListWaitingItems() ([]ItemSummary, error) {
-	return s.ListWaitingItemsForSphere("")
+	return s.ListWaitingItemsFiltered(ItemListFilter{})
 }
 
 func (s *Store) ListWaitingItemsForSphere(sphere string) ([]ItemSummary, error) {
-	cleanSphere, err := normalizeOptionalSphereFilter(sphere)
+	return s.ListWaitingItemsFiltered(ItemListFilter{Sphere: sphere})
+}
+
+func (s *Store) ListWaitingItemsFiltered(filter ItemListFilter) ([]ItemSummary, error) {
+	normalizedFilter, err := normalizeItemListFilter(filter)
 	if err != nil {
 		return nil, err
 	}
-	query := itemSummarySelect + ` WHERE i.state = ?`
+	parts := []string{"i.state = ?"}
 	args := []any{ItemStateWaiting}
-	if cleanSphere != "" {
-		query += ` AND i.sphere = ?`
-		args = append(args, cleanSphere)
-	}
+	parts, args = appendItemFilterClauses(parts, args, normalizedFilter, "i.")
+	query := itemSummarySelect + ` WHERE ` + stringsJoin(parts, ` AND `)
 	query += ` ORDER BY i.updated_at DESC, i.id ASC`
 	return s.listItemSummaries(query, args...)
 }
 
 func (s *Store) ListSomedayItems() ([]ItemSummary, error) {
-	return s.ListSomedayItemsForSphere("")
+	return s.ListSomedayItemsFiltered(ItemListFilter{})
 }
 
 func (s *Store) ListSomedayItemsForSphere(sphere string) ([]ItemSummary, error) {
-	cleanSphere, err := normalizeOptionalSphereFilter(sphere)
+	return s.ListSomedayItemsFiltered(ItemListFilter{Sphere: sphere})
+}
+
+func (s *Store) ListSomedayItemsFiltered(filter ItemListFilter) ([]ItemSummary, error) {
+	normalizedFilter, err := normalizeItemListFilter(filter)
 	if err != nil {
 		return nil, err
 	}
-	query := itemSummarySelect + ` WHERE i.state = ?`
+	parts := []string{"i.state = ?"}
 	args := []any{ItemStateSomeday}
-	if cleanSphere != "" {
-		query += ` AND i.sphere = ?`
-		args = append(args, cleanSphere)
-	}
+	parts, args = appendItemFilterClauses(parts, args, normalizedFilter, "i.")
+	query := itemSummarySelect + ` WHERE ` + stringsJoin(parts, ` AND `)
 	query += ` ORDER BY i.updated_at DESC, i.id ASC`
 	return s.listItemSummaries(query, args...)
 }
 
 func (s *Store) ListDoneItems(limit int) ([]ItemSummary, error) {
-	return s.ListDoneItemsForSphere(limit, "")
+	return s.ListDoneItemsFiltered(limit, ItemListFilter{})
 }
 
 func (s *Store) ListDoneItemsForSphere(limit int, sphere string) ([]ItemSummary, error) {
+	return s.ListDoneItemsFiltered(limit, ItemListFilter{Sphere: sphere})
+}
+
+func (s *Store) ListDoneItemsFiltered(limit int, filter ItemListFilter) ([]ItemSummary, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	cleanSphere, err := normalizeOptionalSphereFilter(sphere)
+	normalizedFilter, err := normalizeItemListFilter(filter)
 	if err != nil {
 		return nil, err
 	}
-	query := itemSummarySelect + ` WHERE i.state = ?`
+	parts := []string{"i.state = ?"}
 	args := []any{ItemStateDone}
-	if cleanSphere != "" {
-		query += ` AND i.sphere = ?`
-		args = append(args, cleanSphere)
-	}
+	parts, args = appendItemFilterClauses(parts, args, normalizedFilter, "i.")
+	query := itemSummarySelect + ` WHERE ` + stringsJoin(parts, ` AND `)
 	query += ` ORDER BY i.updated_at DESC, i.id ASC LIMIT ?`
 	args = append(args, limit)
 	return s.listItemSummaries(query, args...)
 }
 
 func (s *Store) CountItemsByState(now time.Time) (map[string]int, error) {
-	return s.CountItemsByStateForSphere(now, "")
+	return s.CountItemsByStateFiltered(now, ItemListFilter{})
 }
 
 func (s *Store) CountItemsByStateForSphere(now time.Time, sphere string) (map[string]int, error) {
+	return s.CountItemsByStateFiltered(now, ItemListFilter{Sphere: sphere})
+}
+
+func (s *Store) CountItemsByStateFiltered(now time.Time, filter ItemListFilter) (map[string]int, error) {
 	counts := map[string]int{
 		ItemStateInbox:   0,
 		ItemStateWaiting: 0,
 		ItemStateSomeday: 0,
 		ItemStateDone:    0,
 	}
-	cleanSphere, err := normalizeOptionalSphereFilter(sphere)
+	normalizedFilter, err := normalizeItemListFilter(filter)
 	if err != nil {
 		return nil, err
 	}
@@ -2168,9 +2243,10 @@ FROM items
 		ItemStateSomeday,
 		ItemStateDone,
 	}
-	if cleanSphere != "" {
-		query += ` WHERE sphere = ?`
-		args = append(args, cleanSphere)
+	parts := []string{}
+	parts, args = appendItemFilterClauses(parts, args, normalizedFilter, "")
+	if len(parts) > 0 {
+		query += ` WHERE ` + stringsJoin(parts, ` AND `)
 	}
 	if err := s.db.QueryRow(query, args...).Scan(&inbox, &waiting, &someday, &done); err != nil {
 		return nil, err
@@ -2183,9 +2259,25 @@ FROM items
 }
 
 func (s *Store) ListItems() ([]Item, error) {
+	return s.ListItemsFiltered(ItemListFilter{})
+}
+
+func (s *Store) ListItemsFiltered(filter ItemListFilter) ([]Item, error) {
+	normalizedFilter, err := normalizeItemListFilter(filter)
+	if err != nil {
+		return nil, err
+	}
+	query := `SELECT id, title, state, workspace_id, project_id, sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, created_at, updated_at
+		 FROM items`
+	args := []any{}
+	parts := []string{}
+	parts, args = appendItemFilterClauses(parts, args, normalizedFilter, "")
+	if len(parts) > 0 {
+		query += ` WHERE ` + stringsJoin(parts, ` AND `)
+	}
 	rows, err := s.db.Query(
-		`SELECT id, title, state, workspace_id, project_id, sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, created_at, updated_at
-		 FROM items`,
+		query,
+		args...,
 	)
 	if err != nil {
 		return nil, err

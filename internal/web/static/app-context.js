@@ -171,6 +171,7 @@ export const state = {
   workspaceStepInFlight: false,
   sidebarEdgeTapAt: 0,
   itemSidebarView: 'inbox',
+  itemSidebarFilters: { source: '', workspace_id: null, project_id: '', workspace_unassigned: false },
   itemSidebarItems: [],
   itemSidebarCounts: { inbox: 0, waiting: 0, someday: 0, done: 0 },
   itemSidebarLoading: false,

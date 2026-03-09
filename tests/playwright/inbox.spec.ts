@@ -11,6 +11,21 @@ async function waitReady(page: Page) {
   }, null, { timeout: 8_000 });
 }
 
+async function injectChatEvent(page: Page, payload: Record<string, unknown>) {
+  await page.evaluate((p) => {
+    const app = (window as any)._taburaApp;
+    const activeChatWs = app?.getState?.().chatWs;
+    if (activeChatWs && typeof activeChatWs.injectEvent === 'function') {
+      activeChatWs.injectEvent(p);
+      return;
+    }
+    const sessions = (window as any).__mockWsSessions || [];
+    const candidates = sessions.filter((ws: any) => ws.url && ws.url.includes('/ws/chat/'));
+    const chatWs = candidates[candidates.length - 1];
+    if (chatWs && typeof chatWs.injectEvent === 'function') chatWs.injectEvent(p);
+  }, payload);
+}
+
 test.describe('item inbox sidebar', () => {
   test('renders inbox metadata and exposes inbox count on the trigger', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -84,5 +99,61 @@ test.describe('item inbox sidebar', () => {
 
     const log = await page.evaluate(() => (window as any).__harnessLog || []);
     expect(log.some((entry: any) => entry?.type === 'command_sent' && entry?.command === '/pr 144')).toBe(true);
+  });
+
+  test('system actions can open provider-filtered and unassigned inbox views', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await waitReady(page);
+
+    await page.evaluate(() => {
+      (window as any).__setItemSidebarData({
+        inbox: [
+          {
+            id: 301,
+            title: 'Todoist follow-up',
+            state: 'inbox',
+            sphere: 'private',
+            source: 'todoist',
+            workspace_id: null,
+            artifact_kind: 'plan_note',
+            updated_at: '2026-03-08 10:05:00',
+          },
+          {
+            id: 302,
+            title: 'Exchange triage',
+            state: 'inbox',
+            sphere: 'private',
+            source: 'exchange',
+            workspace_id: 9,
+            artifact_kind: 'email',
+            updated_at: '2026-03-08 10:06:00',
+          },
+        ],
+      });
+    });
+
+    await injectChatEvent(page, {
+      type: 'system_action',
+      action: {
+        type: 'show_item_sidebar_view',
+        view: 'inbox',
+        filters: { source: 'todoist' },
+      },
+    });
+    await expect(page.locator('#pr-file-pane')).toHaveClass(/is-open/);
+    await expect(page.locator('#pr-file-list')).toContainText('Todoist follow-up');
+    await expect(page.locator('#pr-file-list')).not.toContainText('Exchange triage');
+    await expect(page.locator('#edge-left-tap')).toHaveAttribute('data-inbox-count', '1');
+
+    await injectChatEvent(page, {
+      type: 'system_action',
+      action: {
+        type: 'show_item_sidebar_view',
+        view: 'inbox',
+        filters: { workspace_id: 'null' },
+      },
+    });
+    await expect(page.locator('#pr-file-list')).toContainText('Todoist follow-up');
+    await expect(page.locator('#pr-file-list')).not.toContainText('Exchange triage');
   });
 });
