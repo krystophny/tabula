@@ -29,30 +29,29 @@ import (
 )
 
 const (
-	DefaultHost                  = "127.0.0.1"
-	DefaultPort                  = 8420
-	DefaultAppServerURL          = "ws://127.0.0.1:8787"
-	DefaultSTTURL                = "http://127.0.0.1:8427"
-	DefaultSTTAllowedLanguages   = "en,de"
-	DefaultSTTFallbackLanguage   = "en"
-	DefaultSTTPreVADThresholdDB  = -58.0
-	DefaultSTTPreVADMinSpeechMS  = 120
-	SessionCookie                = "tabura_session"
-	cookieMaxAgeSec              = 60 * 60 * 24 * 365
-	DaemonPort                   = 9420
-	LocalSessionID               = "local"
-	DefaultSparkReasoningEffort  = "low"
-	SparkModel                   = modelprofile.ModelSpark
-	mcpToolsCallTimeout          = 45 * time.Second
-	appStateDefaultChatModelKey  = "default_chat_model"
-	appStateYoloModeKey          = "safety.yolo_mode"
-	appStateDisclaimerAckKey     = "safety.disclaimer_ack.version"
-	appStateDisclaimerAckAtKey   = "safety.disclaimer_ack.timestamp"
-	appStateSilentModeKey        = "runtime.silent_mode"
-	appStateInputModeKey         = "runtime.input_mode"
-	appStateInputModeExplicitKey = "runtime.input_mode.explicit"
-	appStateStartupBehaviorKey   = "runtime.startup_behavior"
-	disclaimerVersionCurrent     = "2026-03-03-v1"
+	DefaultHost                 = "127.0.0.1"
+	DefaultPort                 = 8420
+	DefaultAppServerURL         = "ws://127.0.0.1:8787"
+	DefaultSTTURL               = "http://127.0.0.1:8427"
+	DefaultSTTAllowedLanguages  = "en,de"
+	DefaultSTTFallbackLanguage  = "en"
+	DefaultSTTPreVADThresholdDB = -58.0
+	DefaultSTTPreVADMinSpeechMS = 120
+	SessionCookie               = "tabura_session"
+	cookieMaxAgeSec             = 60 * 60 * 24 * 365
+	DaemonPort                  = 9420
+	LocalSessionID              = "local"
+	DefaultSparkReasoningEffort = "low"
+	SparkModel                  = modelprofile.ModelSpark
+	mcpToolsCallTimeout         = 45 * time.Second
+	appStateDefaultChatModelKey = "default_chat_model"
+	appStateYoloModeKey         = "safety.yolo_mode"
+	appStateDisclaimerAckKey    = "safety.disclaimer_ack.version"
+	appStateDisclaimerAckAtKey  = "safety.disclaimer_ack.timestamp"
+	appStateSilentModeKey       = "runtime.silent_mode"
+	appStateToolKey             = "runtime.tool"
+	appStateStartupBehaviorKey  = "runtime.startup_behavior"
+	disclaimerVersionCurrent    = "2026-03-03-v1"
 )
 
 //go:embed static/* static/vendor/*
@@ -99,7 +98,7 @@ type App struct {
 	turns                *chatTurnTracker
 	companionTurns       *companionPendingTurnTracker
 	companionRuntime     *companionRuntimeTracker
-	chatInputModes       *chatInputModeTracker
+	chatCaptureModes     *chatCaptureModeTracker
 	projectAttention     *projectAttentionTracker
 	tunnels              *tunnelRegistry
 	chatAppSessions      map[string]*appserver.Session
@@ -276,7 +275,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		turns:                         newChatTurnTracker(),
 		companionTurns:                newCompanionPendingTurnTracker(),
 		companionRuntime:              newCompanionRuntimeTracker(),
-		chatInputModes:                newChatInputModeTracker(),
+		chatCaptureModes:              newChatCaptureModeTracker(),
 		projectAttention:              newProjectAttentionTracker(),
 		tunnels:                       newTunnelRegistry(),
 		chatAppSessions:               map[string]*appserver.Session{},
@@ -724,7 +723,7 @@ func (a *App) handleRuntime(w http.ResponseWriter, r *http.Request) {
 		"stt_url":                     a.sttURL,
 		"tts_enabled":                 a.ttsURL != "",
 		"silent_mode":                 a.silentModeEnabled(),
-		"input_mode":                  a.runtimeInputMode(),
+		"tool":                        a.runtimeTool(),
 		"startup_behavior":            a.runtimeStartupBehavior(),
 		"active_sphere":               a.runtimeActiveSphere(),
 		"safety_yolo_mode":            a.yoloModeEnabled(),

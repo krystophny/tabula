@@ -34,7 +34,7 @@ const fetchProjects = (...args) => refs.fetchProjects(...args);
 const startRuntimeReloadWatcher = (...args) => refs.startRuntimeReloadWatcher(...args);
 const startAssistantActivityWatcher = (...args) => refs.startAssistantActivityWatcher(...args);
 const closeEdgePanels = (...args) => refs.closeEdgePanels(...args);
-const syncInputModeBodyState = (...args) => refs.syncInputModeBodyState(...args);
+const syncInteractionBodyState = (...args) => refs.syncInteractionBodyState(...args);
 const settleKeyboardAfterSubmit = (...args) => refs.settleKeyboardAfterSubmit(...args);
 const ensureArtifactEditor = (...args) => refs.ensureArtifactEditor(...args);
 const exitArtifactEditMode = (...args) => refs.exitArtifactEditMode(...args);
@@ -50,7 +50,7 @@ const beginVoiceCapture = (...args) => refs.beginVoiceCapture(...args);
 const openComposerAt = (...args) => refs.openComposerAt(...args);
 const suppressSyntheticClick = (...args) => refs.suppressSyntheticClick(...args);
 const isSuppressedClick = (...args) => refs.isSuppressedClick(...args);
-const isPenInputMode = (...args) => refs.isPenInputMode(...args);
+const isInkTool = (...args) => refs.isInkTool(...args);
 const isEditableTarget = (...args) => refs.isEditableTarget(...args);
 const isUiStopGestureActive = (...args) => refs.isUiStopGestureActive(...args);
 const isLikelyIOS = (...args) => refs.isLikelyIOS(...args);
@@ -61,11 +61,13 @@ const extendInkStroke = (...args) => refs.extendInkStroke(...args);
 const resetInkDraftState = (...args) => refs.resetInkDraftState(...args);
 const getEdgeTapSizePx = (...args) => refs.getEdgeTapSizePx(...args);
 const getTopEdgeTapSizePx = (...args) => refs.getTopEdgeTapSizePx(...args);
-const isKeyboardInputMode = (...args) => refs.isKeyboardInputMode(...args);
+const prefersTextComposer = (...args) => refs.prefersTextComposer(...args);
+const selectInteractionTool = (...args) => refs.selectInteractionTool(...args);
 const submitInkDraft = (...args) => refs.submitInkDraft(...args);
 const shouldStopInUiClick = (...args) => refs.shouldStopInUiClick(...args);
 const hideItemSidebarMenu = (...args) => refs.hideItemSidebarMenu(...args);
 const stepPrReviewFile = (...args) => refs.stepPrReviewFile(...args);
+const maybeApplySelectionHighlight = (...args) => refs.maybeApplySelectionHighlight(...args);
 
 let bootstrapStarted = false;
 let bootstrapErrorShown = false;
@@ -265,7 +267,7 @@ export function bindUi() {
       horizontalWheelLastAt = now;
     }, { passive: false });
     canvasViewport.addEventListener('pointerdown', (ev) => {
-      if (!isPenInputMode()) return;
+      if (!isInkTool()) return;
       if (ev.pointerType !== 'pen') return;
       if (isEditableTarget(ev.target)) return;
       if (ev.target instanceof Element && ev.target.closest('.edge-panel,#pr-file-pane,#pr-file-drawer-backdrop')) return;
@@ -277,7 +279,7 @@ export function bindUi() {
       }
     }, true);
     canvasViewport.addEventListener('pointermove', (ev) => {
-      if (!isPenInputMode()) return;
+      if (!isInkTool()) return;
       if (state.inkDraft.activePointerId !== ev.pointerId) return;
       if (extendInkStroke(ev)) {
         ev.preventDefault();
@@ -294,7 +296,7 @@ export function bindUi() {
     canvasViewport.addEventListener('pointerup', finishInkPointer, true);
     canvasViewport.addEventListener('pointercancel', finishInkPointer, true);
     canvasViewport.addEventListener('selectstart', (ev) => {
-      if (!isPenInputMode()) return;
+      if (!isInkTool()) return;
       ev.preventDefault();
     }, true);
   }
@@ -332,7 +334,7 @@ export function bindUi() {
       if (isLiveSessionListenActive()) {
         if (isVoiceInteractionTarget(target, x, y)) return;
         cancelLiveSessionListen();
-        if (isKeyboardInputMode()) {
+        if (prefersTextComposer()) {
           const anchor = state.hasArtifact && canvasText ? getAnchorFromPoint(x, y) : null;
           openComposerAt(x, y, anchor);
         } else {
@@ -352,12 +354,14 @@ export function bindUi() {
         void stopVoiceCaptureAndSend();
         return;
       }
-      if (isKeyboardInputMode()) {
+      if (prefersTextComposer()) {
         const anchor = state.hasArtifact && canvasText ? getAnchorFromPoint(x, y) : null;
         openComposerAt(x, y, anchor);
         return;
       }
-      void beginVoiceCaptureFromPoint(x, y);
+      if (state.interaction.conversation === 'push_to_talk') {
+        void beginVoiceCaptureFromPoint(x, y);
+      }
     };
 
     clickTarget.addEventListener('touchstart', (ev) => {
@@ -546,18 +550,18 @@ export function bindUi() {
   const chatHistory = document.getElementById('chat-history');
   if (chatHistory) {
     chatHistory.addEventListener('click', (ev) => {
-      if (isKeyboardInputMode()) return;
       if (ev.button !== 0) return;
       if (ev.target instanceof Element && ev.target.closest('a,button,input,textarea,select,[contenteditable="true"]')) return;
       if (isInEdgeZone(ev.clientX, ev.clientY)) return;
       const edgeR = chatHistory.closest('.edge-panel');
       if (edgeR && !edgeR.classList.contains('edge-pinned')) return;
+      if (isUiStopGestureActive()) { void handleStopAction(); return; }
+      if (prefersTextComposer()) return;
       if (isLiveSessionListenActive()) {
         cancelLiveSessionListen();
         void beginVoiceCaptureFromPoint(ev.clientX, ev.clientY);
         return;
       }
-      if (shouldStopInUiClick()) { void handleStopAction(); return; }
       if (isRecording()) { void stopVoiceCaptureAndSend(); return; }
       void beginVoiceCaptureFromPoint(ev.clientX, ev.clientY);
     });
@@ -637,7 +641,7 @@ export function bindUi() {
       void stopVoiceCaptureAndSend();
       return;
     }
-    if (ev.key === 'Enter' && isPenInputMode() && state.inkDraft.dirty) {
+    if (ev.key === 'Enter' && isInkTool() && state.inkDraft.dirty) {
       ev.preventDefault();
       void submitInkDraft();
       return;
@@ -700,9 +704,8 @@ export function bindUi() {
       }
     }
 
-    // Auto-activate text input on printable key
+    // Route printable keys into an active composer before treating them as tool shortcuts.
     if (ev.key.length === 1 && !isTextInputVisible()) {
-      // Route to chat pane input when chat pane is open (desktop only)
       const edgeR = document.getElementById('edge-right');
       const cpInput = document.getElementById('chat-pane-input');
       const chatPaneOpen = edgeR && (edgeR.classList.contains('edge-active') || edgeR.classList.contains('edge-pinned'));
@@ -716,14 +719,37 @@ export function bindUi() {
         ev.preventDefault();
         return;
       }
-      if (!isKeyboardInputMode()) {
+      if (prefersTextComposer()) {
+        const cx = window.innerWidth / 2 - 130;
+        const cy = window.innerHeight / 2;
+        cancelLiveSessionListen();
+        openComposerAt(cx, cy, null, ev.key);
+        ev.preventDefault();
         return;
       }
-      const cx = window.innerWidth / 2 - 130;
-      const cy = window.innerHeight / 2;
-      cancelLiveSessionListen();
-      openComposerAt(cx, cy, null, ev.key);
+    }
+
+    const toolByKey = {
+      '1': 'pointer',
+      '2': 'highlight',
+      '3': 'ink',
+      '4': 'text_note',
+      '5': 'prompt',
+      p: 'pointer',
+      P: 'pointer',
+      h: 'highlight',
+      H: 'highlight',
+      i: 'ink',
+      I: 'ink',
+      t: 'text_note',
+      T: 'text_note',
+      q: 'prompt',
+      Q: 'prompt',
+    };
+    const shortcutTool = toolByKey[ev.key];
+    if (shortcutTool) {
       ev.preventDefault();
+      void selectInteractionTool(shortcutTool);
       return;
     }
 
@@ -769,6 +795,13 @@ export function bindUi() {
       }
     });
   }
+  const applySelectionHighlightSoon = () => {
+    window.setTimeout(() => {
+      maybeApplySelectionHighlight();
+    }, 0);
+  };
+  document.addEventListener('mouseup', applySelectionHighlightSoon, true);
+  document.addEventListener('touchend', applySelectionHighlightSoon, true);
 
   initEdgePanels();
 }
@@ -798,7 +831,7 @@ export async function init() {
   bindUi();
   syncInkLayerSize();
   renderInkControls();
-  syncInputModeBodyState();
+  syncInteractionBodyState();
   updateAssistantActivityIndicator();
   startRuntimeReloadWatcher();
   startAssistantActivityWatcher();

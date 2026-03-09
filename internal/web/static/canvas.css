@@ -183,6 +183,13 @@
 }
 
 #canvas-text pre code .hl-diff-ctx { color: #3B3B3B; }
+#canvas-text mark.canvas-user-highlight {
+  background: #fde68a;
+  color: inherit;
+  padding: 0 0.08rem;
+  border-radius: 0.2rem;
+}
+
 #canvas-text mjx-container {
   max-width: 100%;
 }
@@ -309,9 +316,9 @@
   background: transparent;
 }
 
-body.pen-input-mode #canvas-text,
-body.pen-input-mode .canvas-pdf-page .textLayer,
-body.pen-input-mode .canvas-pdf-page .textLayer :is(span, br) {
+body.tool-ink #canvas-text,
+body.tool-ink .canvas-pdf-page .textLayer,
+body.tool-ink .canvas-pdf-page .textLayer :is(span, br) {
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;

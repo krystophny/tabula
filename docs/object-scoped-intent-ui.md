@@ -18,7 +18,7 @@ Tap (left-click) anywhere on the canvas toggles voice recording. A recording dot
 Desktop equivalents: tap to toggle voice capture, or hold `Ctrl` (300ms) for push-to-talk.
 Right-click opens a floating text input at the cursor position.
 Keyboard typing (when nothing is focused) auto-activates text input.
-Pen mode is a first-class input mode for direct ink capture on the canvas; dirty ink shows explicit submit/clear controls and saves artifacts under `.tabura/artifacts/ink/`.
+Direct ink is available as an annotate-surface tool; dirty ink shows explicit submit/clear controls and saves artifacts under `.tabura/artifacts/ink/`.
 
 On artifact: tap or right-click captures line context prepended to the message.
 

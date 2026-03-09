@@ -26,6 +26,11 @@ export function applyCanvasArtifactEvent(payload) {
   }
   const kind = String(payload?.kind || '').trim().toLowerCase();
   if (kind === 'clear_canvas') {
+    state.currentCanvasArtifact = {
+      kind: '',
+      title: '',
+      surfaceDefault: '',
+    };
     state.prReviewAwaitingArtifact = false;
     state.workspaceOpenFilePath = '';
     state.workspaceStepInFlight = false;
@@ -57,6 +62,16 @@ export function applyCanvasArtifactEvent(payload) {
   if (!handledByPrReview) {
     renderCanvas(payload);
   }
+
+  const meta = payload?.meta && typeof payload.meta === 'object' ? payload.meta : {};
+  const hintedSurface = String(
+    meta?.surface_default ?? payload?.surface_default ?? '',
+  ).trim().toLowerCase();
+  state.currentCanvasArtifact = {
+    kind,
+    title: String(payload?.title || '').trim(),
+    surfaceDefault: hintedSurface === 'editor' ? 'editor' : (hintedSurface === 'annotate' ? 'annotate' : ''),
+  };
 
   if (kind) {
     state.indicatorSuppressedByCanvasUpdate = true;

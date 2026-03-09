@@ -36,8 +36,8 @@ func TestRuntimeIncludesSafetyPreferences(t *testing.T) {
 	if got := boolFromAny(payload["silent_mode"]); got {
 		t.Fatalf("silent_mode = %v, want false", got)
 	}
-	if got := strFromAny(payload["input_mode"]); got != "pen" {
-		t.Fatalf("input_mode = %q, want %q", got, "pen")
+	if got := strFromAny(payload["tool"]); got != "pointer" {
+		t.Fatalf("tool = %q, want %q", got, "pointer")
 	}
 	if got := strFromAny(payload["startup_behavior"]); got != "hub_first" {
 		t.Fatalf("startup_behavior = %q, want %q", got, "hub_first")
@@ -95,7 +95,7 @@ func TestRuntimePreferenceUpdatePersists(t *testing.T) {
 	app := newAuthedTestApp(t)
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPatch, "/api/runtime/preferences", map[string]any{
 		"silent_mode":      true,
-		"input_mode":       "keyboard",
+		"tool":             "text_note",
 		"startup_behavior": "hub_first",
 		"active_sphere":    "work",
 	})
@@ -114,8 +114,8 @@ func TestRuntimePreferenceUpdatePersists(t *testing.T) {
 	if got := boolFromAny(payload["silent_mode"]); !got {
 		t.Fatalf("silent_mode = %v, want true", got)
 	}
-	if got := strFromAny(payload["input_mode"]); got != "keyboard" {
-		t.Fatalf("input_mode = %q, want %q", got, "keyboard")
+	if got := strFromAny(payload["tool"]); got != "text_note" {
+		t.Fatalf("tool = %q, want %q", got, "text_note")
 	}
 	if got := strFromAny(payload["startup_behavior"]); got != "hub_first" {
 		t.Fatalf("startup_behavior = %q, want %q", got, "hub_first")
@@ -135,11 +135,8 @@ func TestRuntimePreferenceUpdateRejectsInvalidSphere(t *testing.T) {
 	}
 }
 
-func TestRuntimeMigratesLegacyImplicitVoiceModeToPen(t *testing.T) {
+func TestRuntimeDoesNotReadDeletedLegacyInteractionMode(t *testing.T) {
 	app := newAuthedTestApp(t)
-	if err := app.store.SetAppState(appStateInputModeKey, "voice"); err != nil {
-		t.Fatalf("seed legacy voice input mode: %v", err)
-	}
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime", nil)
 	if rr.Code != http.StatusOK {
@@ -149,34 +146,7 @@ func TestRuntimeMigratesLegacyImplicitVoiceModeToPen(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode runtime response: %v", err)
 	}
-	if got := strFromAny(payload["input_mode"]); got != "pen" {
-		t.Fatalf("input_mode = %q, want %q", got, "pen")
-	}
-	if got, err := app.store.AppState(appStateInputModeKey); err != nil {
-		t.Fatalf("read migrated input mode: %v", err)
-	} else if got != "pen" {
-		t.Fatalf("stored input_mode = %q, want %q", got, "pen")
-	}
-}
-
-func TestRuntimeKeepsExplicitVoiceMode(t *testing.T) {
-	app := newAuthedTestApp(t)
-	if err := app.store.SetAppState(appStateInputModeKey, "voice"); err != nil {
-		t.Fatalf("seed explicit voice input mode: %v", err)
-	}
-	if err := app.store.SetAppState(appStateInputModeExplicitKey, "true"); err != nil {
-		t.Fatalf("seed explicit input mode flag: %v", err)
-	}
-
-	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime", nil)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("runtime status=%d body=%s", rr.Code, rr.Body.String())
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
-		t.Fatalf("decode runtime response: %v", err)
-	}
-	if got := strFromAny(payload["input_mode"]); got != "voice" {
-		t.Fatalf("input_mode = %q, want %q", got, "voice")
+	if got := strFromAny(payload["tool"]); got != "pointer" {
+		t.Fatalf("tool = %q, want %q", got, "pointer")
 	}
 }

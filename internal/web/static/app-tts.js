@@ -14,6 +14,7 @@ const syncVoiceLifecycle = (...args) => refs.syncVoiceLifecycle(...args);
 const parseOptionalBoolean = (...args) => refs.parseOptionalBoolean(...args);
 const normalizeCompanionRuntimeState = (...args) => refs.normalizeCompanionRuntimeState(...args);
 const getTTSAudioContext = (...args) => refs.getTTSAudioContext(...args);
+const interactionConversationMode = (...args) => refs.interactionConversationMode(...args);
 
 // --- Block stripping & TTS infrastructure ---
 
@@ -478,6 +479,7 @@ export function applyLiveSessionStateSnapshot(snapshot = null) {
     : getLiveSessionSnapshot();
   state.liveSessionActive = Boolean(nextSnapshot.liveSessionActive);
   state.liveSessionMode = String(nextSnapshot.liveSessionMode || '').trim().toLowerCase();
+  state.interaction.conversation = interactionConversationMode();
   state.liveSessionHotword = String(nextSnapshot.liveSessionHotword || LIVE_SESSION_HOTWORD_DEFAULT).trim() || LIVE_SESSION_HOTWORD_DEFAULT;
   state.liveSessionDialogueListenActive = Boolean(nextSnapshot.liveSessionDialogueListenActive);
   state.liveSessionDialogueListenTimer = nextSnapshot.liveSessionDialogueListenTimer ?? null;

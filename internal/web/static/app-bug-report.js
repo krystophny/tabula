@@ -260,7 +260,9 @@ function buildCanvasState() {
     artifact_event_id: safeText(getActiveTextEventId()),
     chat_mode: safeText(state.chatMode),
     active_sphere: safeText(state.activeSphere),
-    input_mode: safeText(state.inputMode),
+    interaction_conversation: safeText(state.interaction?.conversation),
+    interaction_surface: safeText(state.interaction?.surface),
+    interaction_tool: safeText(state.interaction?.tool),
     overlay_visible: Boolean(isOverlayVisible()),
     text_input_visible: Boolean(isTextInputVisible()),
     pr_review_mode: Boolean(state.prReviewMode),
@@ -371,7 +373,7 @@ function buildFallbackScreenshotDataURL() {
   [
     `time: ${formatNow()}`,
     `artifact: ${safeText(getActiveArtifactTitle()) || 'none'}`,
-    `mode: ${safeText(state.inputMode) || 'unknown'}`,
+    `tool: ${safeText(state.interaction?.tool) || 'unknown'}`,
     `project: ${safeText(state.activeProjectId) || 'none'}`,
   ].forEach((line, index) => {
     ctx.fillText(line, 48, 132 + (index * 36));
@@ -545,7 +547,7 @@ function snapshotBugReportContext(trigger, runtime) {
     version: safeText(runtime?.version),
     bootID: safeText(runtime?.boot_id),
     startedAt: safeText(runtime?.started_at),
-    activeMode: safeText(state.inputMode),
+    activeMode: safeText(state.interaction?.tool),
     canvasState: buildCanvasState(),
     recentEvents: recentEvents.slice(),
     browserLogs: browserLogs.slice(),

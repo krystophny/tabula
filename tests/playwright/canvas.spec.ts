@@ -85,12 +85,12 @@ async function injectCanvasEvent(page: Page, payload: Record<string, unknown>) {
   }, payload);
 }
 
-async function setInputMode(page: Page, inputMode: 'typing' | 'voice' | 'pen' | 'keyboard') {
+async function setInteractionTool(page: Page, tool: 'pointer' | 'highlight' | 'ink' | 'text_note' | 'prompt') {
   await page.evaluate((mode) => {
-    (window as any).__setRuntimeState?.({ input_mode: mode });
+    (window as any).__setRuntimeState?.({ tool: mode });
     const app = (window as any)._taburaApp;
-    if (app?.getState) app.getState().inputMode = mode;
-  }, inputMode);
+    if (app?.getState) app.getState().interaction.tool = mode;
+  }, tool);
 }
 
 async function dispatchPrintableKey(page: Page, key: string) {
@@ -183,7 +183,7 @@ test.describe('canvas - tabula rasa', () => {
   });
 
   test('keyboard typing activates text input, Enter sends, text cleared', async ({ page }) => {
-    await setInputMode(page, 'typing');
+    await setInteractionTool(page, 'text_note');
 
     // Type a character - should auto-open floating-input
     await dispatchPrintableKey(page, 'h');
@@ -211,7 +211,7 @@ test.describe('canvas - tabula rasa', () => {
 
   test('click starts recording, stop indicator stays visible after stop', async ({ page }) => {
     await clearLog(page);
-    await setInputMode(page, 'voice');
+    await setInteractionTool(page, 'prompt');
 
     // Click on canvas area
     await page.mouse.click(400, 400);
@@ -255,7 +255,7 @@ test.describe('canvas - tabula rasa', () => {
 
   test('pen stroke shows submit controls and submits ink artifact flow', async ({ page }) => {
     await clearLog(page);
-    await setInputMode(page, 'pen');
+    await setInteractionTool(page, 'ink');
 
     await dispatchPenStroke(page, [
       { x: 220, y: 220, pressure: 0.55 },
@@ -778,7 +778,7 @@ test.describe('canvas - edge panels', () => {
   test('chat log appears in right edge panel', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
     await injectCanvasModuleRef(page);
-    await setInputMode(page, 'typing');
+    await setInteractionTool(page, 'text_note');
 
     // Send a message
     await dispatchPrintableKey(page, 't');

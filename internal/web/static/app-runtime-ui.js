@@ -27,7 +27,12 @@ const canSpeakTTS = (...args) => refs.canSpeakTTS(...args);
 const canStartLiveDialogueListen = (...args) => refs.canStartLiveDialogueListen(...args);
 const requestHotwordSync = (...args) => refs.requestHotwordSync(...args);
 const applyLiveSessionStateSnapshot = (...args) => refs.applyLiveSessionStateSnapshot(...args);
-const syncInputModeBodyState = (...args) => refs.syncInputModeBodyState(...args);
+const syncInteractionBodyState = (...args) => refs.syncInteractionBodyState(...args);
+const normalizeInteractionTool = (...args) => refs.normalizeInteractionTool(...args);
+const interactionConversationMode = (...args) => refs.interactionConversationMode(...args);
+const renderInteractionSurfaceToggle = (...args) => refs.renderInteractionSurfaceToggle(...args);
+const renderToolPalette = (...args) => refs.renderToolPalette(...args);
+const setInteractionSurface = (...args) => refs.setInteractionSurface(...args);
 const renderEdgeTopProjects = (...args) => refs.renderEdgeTopProjects(...args);
 const isLikelyIOS = (...args) => refs.isLikelyIOS(...args);
 const shouldStopInUiClick = (...args) => refs.shouldStopInUiClick(...args);
@@ -216,11 +221,20 @@ export function unlockAudioContext() {
 
 export function initRuntimeUi() {
   state.activeSphere = readPersistedActiveSphere();
+  const surfaceToggle = document.getElementById('surface-toggle');
+  if (surfaceToggle instanceof HTMLButtonElement) {
+    surfaceToggle.addEventListener('click', () => {
+      setInteractionSurface(state.interaction.surface === 'editor' ? 'annotate' : 'editor');
+    });
+  }
   configureLiveSession({
     canStartDialogueListen: canStartLiveDialogueListen,
     onStateChange: (snapshot) => {
       applyLiveSessionStateSnapshot(snapshot);
+      state.interaction.conversation = interactionConversationMode();
       renderEdgeTopModelButtons();
+      renderInteractionSurfaceToggle();
+      renderToolPalette();
       updateAssistantActivityIndicator();
     },
     onDialogueListenTimeout: () => {
@@ -241,6 +255,7 @@ export function initRuntimeUi() {
     acquireMicStream,
   });
   applyLiveSessionStateSnapshot();
+  state.interaction.conversation = interactionConversationMode();
 }
 
 const renderer = new marked.Renderer();
@@ -414,13 +429,6 @@ export function forceUiHardReload(reason = 'deployment') {
   window.location.replace(url.toString());
 }
 
-export function normalizeInputMode(modeRaw) {
-  const mode = String(modeRaw || '').trim().toLowerCase();
-  if (mode === 'voice') return 'voice';
-  if (mode === 'keyboard' || mode === 'typing' || mode === 'text') return 'keyboard';
-  return 'pen';
-}
-
 export function normalizeActiveSphere(raw) {
   return String(raw || '').trim().toLowerCase() === 'work' ? 'work' : 'private';
 }
@@ -437,49 +445,6 @@ export function persistActiveSpherePreference(sphere) {
   try {
     window.localStorage.setItem(ACTIVE_SPHERE_STORAGE_KEY, normalizeActiveSphere(sphere));
   } catch (_) {}
-}
-
-export function isPenInputMode() {
-  return state.inputMode === 'pen';
-}
-
-export function isKeyboardInputMode() {
-  return state.inputMode === 'keyboard' || state.inputMode === 'typing';
-}
-
-export function renderToolPalette() {
-  const host = document.getElementById('tool-palette');
-  if (!(host instanceof HTMLElement)) return;
-  host.replaceChildren();
-  const disabled = state.projectSwitchInFlight || state.projectModelSwitchInFlight;
-  for (const mode of TOOL_PALETTE_MODES) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'tool-palette-btn';
-    button.dataset.mode = mode.id;
-    button.setAttribute('aria-label', mode.label);
-    button.setAttribute('title', mode.label);
-    button.setAttribute('aria-pressed', state.inputMode === mode.id ? 'true' : 'false');
-    if (state.inputMode === mode.id) {
-      button.classList.add('is-active');
-    }
-    button.disabled = disabled;
-    button.innerHTML = mode.icon;
-    button.addEventListener('click', () => {
-      updateRuntimePreferences({ input_mode: mode.id })
-        .then(() => {
-          if (mode.id !== 'pen') {
-            clearInkDraft();
-          }
-          renderInkControls();
-          showStatus(`${mode.id} mode on`);
-        })
-        .catch((err) => {
-          showStatus(`input mode failed: ${String(err?.message || err || 'unknown error')}`);
-        });
-    });
-    host.appendChild(button);
-  }
 }
 
 export async function fetchRuntimeMeta() {
@@ -502,11 +467,13 @@ export function applyRuntimePreferences(runtime) {
   }
   const runtimeSilent = parseOptionalBoolean(runtime?.silent_mode);
   state.ttsSilent = runtimeSilent === true;
-  state.inputMode = normalizeInputMode(runtime?.input_mode || 'pen');
+  state.interaction.tool = normalizeInteractionTool(runtime?.tool || 'pointer');
+  state.interaction.conversation = interactionConversationMode();
   state.activeSphere = normalizeActiveSphere(runtime?.active_sphere || state.activeSphere || readPersistedActiveSphere());
   persistActiveSpherePreference(state.activeSphere);
-  syncInputModeBodyState();
+  syncInteractionBodyState();
   renderEdgeTopProjects();
+  renderInteractionSurfaceToggle();
   renderToolPalette();
   state.startupBehavior = String(runtime?.startup_behavior || 'hub_first').trim().toLowerCase() || 'hub_first';
   state.disclaimerVersion = String(runtime?.disclaimer_version || '').trim();
@@ -528,11 +495,13 @@ export async function updateRuntimePreferences(patch) {
   if (silent !== null) {
     state.ttsSilent = silent;
   }
-  state.inputMode = normalizeInputMode(payload?.input_mode || state.inputMode || 'pen');
+  state.interaction.tool = normalizeInteractionTool(payload?.tool || state.interaction.tool || 'pointer');
+  state.interaction.conversation = interactionConversationMode();
   state.activeSphere = normalizeActiveSphere(payload?.active_sphere || state.activeSphere || readPersistedActiveSphere());
   persistActiveSpherePreference(state.activeSphere);
-  syncInputModeBodyState();
+  syncInteractionBodyState();
   renderEdgeTopProjects();
+  renderInteractionSurfaceToggle();
   renderToolPalette();
   state.startupBehavior = String(payload?.startup_behavior || state.startupBehavior || 'hub_first').trim().toLowerCase() || 'hub_first';
   renderEdgeTopModelButtons();

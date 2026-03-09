@@ -57,12 +57,12 @@ async function injectCanvasEvent(page: Page, payload: Record<string, unknown>) {
   }, payload);
 }
 
-async function setInputMode(page: Page, inputMode: 'typing' | 'voice' | 'pen' | 'keyboard') {
+async function setInteractionTool(page: Page, tool: 'pointer' | 'highlight' | 'ink' | 'text_note' | 'prompt') {
   await page.evaluate((mode) => {
-    (window as any).__setRuntimeState?.({ input_mode: mode });
+    (window as any).__setRuntimeState?.({ tool: mode });
     const app = (window as any)._taburaApp;
-    if (app?.getState) app.getState().inputMode = mode;
-  }, inputMode);
+    if (app?.getState) app.getState().interaction.tool = mode;
+  }, tool);
 }
 
 async function dispatchPrintableKey(page: Page, key: string) {
@@ -70,6 +70,43 @@ async function dispatchPrintableKey(page: Page, key: string) {
     document.dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true }));
     document.dispatchEvent(new KeyboardEvent('keyup', { key: value, bubbles: true }));
   }, key);
+}
+
+async function dragToolPalette(page: Page, dx: number, dy: number) {
+  return page.locator('#tool-palette').evaluate((el, delta) => {
+    const rect = el.getBoundingClientRect();
+    const startX = rect.left + 8;
+    const startY = rect.top + 8;
+    const endX = startX + Number(delta.dx || 0);
+    const endY = startY + Number(delta.dy || 0);
+    el.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true,
+      pointerId: 41,
+      button: 0,
+      clientX: startX,
+      clientY: startY,
+    }));
+    el.dispatchEvent(new PointerEvent('pointermove', {
+      bubbles: true,
+      pointerId: 41,
+      buttons: 1,
+      clientX: endX,
+      clientY: endY,
+    }));
+    el.dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true,
+      pointerId: 41,
+      button: 0,
+      clientX: endX,
+      clientY: endY,
+    }));
+    const style = window.getComputedStyle(el);
+    return {
+      left: style.left,
+      top: style.top,
+      stored: window.localStorage.getItem('tabura.toolPalettePosition'),
+    };
+  }, { dx, dy });
 }
 
 async function waitForLogEntry(page: Page, type: string, action?: string) {
@@ -263,11 +300,10 @@ test.describe('floating tool palette', () => {
       };
     });
 
-    expect(snapshot.paletteButtons.map((button) => button.mode)).toEqual(['voice', 'pen', 'keyboard']);
+    expect(snapshot.paletteButtons.map((button) => button.mode)).toEqual(['pointer', 'highlight', 'ink', 'text_note', 'prompt']);
     expect(snapshot.paletteButtons.every((button) => button.text === '')).toBe(true);
-    expect(snapshot.topButtonTexts).not.toContain('voice');
-    expect(snapshot.topButtonTexts).not.toContain('pen');
-    expect(snapshot.topButtonTexts).not.toContain('kbd');
+    expect(snapshot.topButtonTexts).not.toContain('pointer');
+    expect(snapshot.topButtonTexts).not.toContain('ink');
     expect(snapshot.dialogueButtons).toBe(1);
     expect(snapshot.topOverflows).toBe(false);
   });
@@ -275,17 +311,184 @@ test.describe('floating tool palette', () => {
   test('palette clicks switch the active interaction mode', async ({ page }) => {
     await clearLog(page);
 
-    const keyboardButton = page.locator('#tool-palette .tool-palette-btn[data-mode="keyboard"]');
-    const penButton = page.locator('#tool-palette .tool-palette-btn[data-mode="pen"]');
+    const textNoteButton = page.locator('#tool-palette .tool-palette-btn[data-mode="text_note"]');
+    const pointerButton = page.locator('#tool-palette .tool-palette-btn[data-mode="pointer"]');
 
-    await keyboardButton.click();
+    await textNoteButton.click();
     await waitForLogEntry(page, 'api_fetch', 'runtime_preferences');
 
-    await expect(keyboardButton).toHaveAttribute('aria-pressed', 'true');
-    await expect(penButton).toHaveAttribute('aria-pressed', 'false');
+    await expect(textNoteButton).toHaveAttribute('aria-pressed', 'true');
+    await expect(pointerButton).toHaveAttribute('aria-pressed', 'false');
 
-    const inputMode = await page.evaluate(() => (window as any)._taburaApp?.getState?.().inputMode);
-    expect(inputMode).toBe('keyboard');
+    const tool = await page.evaluate(() => (window as any)._taburaApp?.getState?.().interaction.tool);
+    expect(tool).toBe('text_note');
+  });
+
+  test('keyboard shortcuts switch tools without using the top panel', async ({ page }) => {
+    await clearLog(page);
+    await page.keyboard.press('i');
+    await waitForLogEntry(page, 'api_fetch', 'runtime_preferences');
+    await expect(page.locator('#tool-palette .tool-palette-btn[data-mode="ink"]')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('palette position persists after dragging', async ({ page }) => {
+    const first = await dragToolPalette(page, -140, -90);
+    expect(first.left).not.toBe('auto');
+    expect(first.top).not.toBe('auto');
+    const stored = JSON.parse(String(first.stored || 'null'));
+    expect(typeof stored?.x).toBe('number');
+    expect(typeof stored?.y).toBe('number');
+
+    await waitReady(page);
+
+    const second = await page.locator('#tool-palette').evaluate((el) => {
+      const style = window.getComputedStyle(el);
+      return {
+        left: style.left,
+        top: style.top,
+        stored: window.localStorage.getItem('tabura.toolPalettePosition'),
+      };
+    });
+    expect(second.left).toBe(first.left);
+    expect(second.top).toBe(first.top);
+    expect(second.stored).toBe(first.stored);
+  });
+
+  test('highlight tool marks selected text without entering editor mode', async ({ page }) => {
+    await injectCanvasEvent(page, {
+      kind: 'text_artifact',
+      event_id: 'art-highlight-1',
+      title: 'notes.md',
+      text: 'Alpha beta gamma',
+    });
+    await expect(page.locator('#canvas-text')).toBeVisible();
+    await page.locator('#surface-toggle').click();
+
+    await clearLog(page);
+    await page.keyboard.press('h');
+    await waitForLogEntry(page, 'api_fetch', 'runtime_preferences');
+
+    await page.evaluate(() => {
+      const textNode = document.querySelector('#canvas-text p')?.firstChild;
+      if (!(textNode instanceof Text)) {
+        throw new Error('text node unavailable for highlight test');
+      }
+      const range = document.createRange();
+      range.setStart(textNode, 0);
+      range.setEnd(textNode, 5);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }));
+    });
+
+    await expect(page.locator('#canvas-text mark.canvas-user-highlight')).toContainText('Alpha');
+    const interaction = await page.evaluate(() => {
+      const state = (window as any)._taburaApp?.getState?.();
+      return {
+        conversation: state?.interaction?.conversation,
+        artifactEditMode: document.body.classList.contains('artifact-edit-mode'),
+      };
+    });
+    expect(interaction).toEqual({
+      conversation: 'idle',
+      artifactEditMode: false,
+    });
+  });
+
+  test('email artifacts opened from the sidebar default to annotate surface', async ({ page }) => {
+    await page.evaluate(() => {
+      (window as any).__setItemSidebarData({
+        inbox: [{
+          id: 902,
+          title: 'Answer triage email',
+          state: 'inbox',
+          artifact_id: 502,
+          artifact_kind: 'email',
+          artifact_title: 'Re: triage follow-up',
+          updated_at: '2026-03-08 10:06:00',
+        }],
+      });
+    });
+
+    await page.locator('#edge-left-tap').click();
+    await page.locator('.sidebar-tab', { hasText: 'Inbox' }).click();
+    await page.locator('#pr-file-list .pr-file-item').first().click();
+
+    await expect(page.locator('#canvas-text')).toContainText('Need a response before tomorrow morning.');
+    await expect(page.locator('#tool-palette')).toBeVisible();
+    await expect.poll(async () => {
+      return page.evaluate(() => (window as any)._taburaApp?.getState?.().interaction.surface);
+    }).toBe('annotate');
+  });
+
+  test('text artifacts default to editor mode and can switch back to annotate', async ({ page }) => {
+    await injectCanvasEvent(page, {
+      kind: 'text_artifact',
+      event_id: 'art-surface-1',
+      title: 'notes.md',
+      text: 'Editor first\nThen annotate',
+    });
+    await expect(page.locator('#canvas-text')).toBeVisible();
+
+    await expect(page.locator('#surface-toggle')).toBeVisible();
+    await expect(page.locator('#surface-toggle')).toHaveAttribute('aria-label', 'Switch to annotate');
+    await expect(page.locator('#tool-palette')).toBeHidden();
+    await expect.poll(async () => {
+      return page.evaluate(() => (window as any)._taburaApp?.getState?.().interaction.surface);
+    }).toBe('editor');
+
+    await page.locator('#surface-toggle').click();
+
+    await expect(page.locator('#surface-toggle')).toHaveAttribute('aria-label', 'Switch to editor');
+    await expect(page.locator('#tool-palette')).toBeVisible();
+    await expect.poll(async () => {
+      return page.evaluate(() => (window as any)._taburaApp?.getState?.().interaction.surface);
+    }).toBe('annotate');
+  });
+
+  test('switching tools during live dialogue keeps continuous dialogue active', async ({ page }) => {
+    await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll('#edge-top-projects .edge-project-btn'));
+      const button = buttons.find((node) => node.textContent?.trim().toLowerCase() === 'test');
+      if (button instanceof HTMLButtonElement) {
+        button.click();
+      }
+    });
+    await expect.poll(async () => page.evaluate(() => {
+      const app = (window as any)._taburaApp;
+      const state = app?.getState?.();
+      const wsOpen = (window as any).WebSocket.OPEN;
+      if (String(state?.activeProjectId || '') !== 'test') return '';
+      return state?.chatWs?.readyState === wsOpen ? 'ready' : 'waiting';
+    })).toBe('ready');
+
+    await injectChatEvent(page, {
+      type: 'system_action',
+      action: { type: 'toggle_live_dialogue' },
+    });
+    await expect(page.locator('#edge-top-models .edge-live-status')).toContainText('Dialogue');
+
+    await clearLog(page);
+    await page.keyboard.press('i');
+    await waitForLogEntry(page, 'api_fetch', 'runtime_preferences');
+
+    await expect(page.locator('#edge-top-models .edge-live-status')).toContainText('Dialogue');
+    const interaction = await page.evaluate(() => {
+      const state = (window as any)._taburaApp?.getState?.();
+      return {
+        tool: state?.interaction?.tool,
+        conversation: state?.interaction?.conversation,
+        liveSessionActive: state?.liveSessionActive,
+        liveSessionMode: state?.liveSessionMode,
+      };
+    });
+    expect(interaction).toEqual({
+      tool: 'ink',
+      conversation: 'continuous_dialogue',
+      liveSessionActive: true,
+      liveSessionMode: 'dialogue',
+    });
   });
 });
 
@@ -719,7 +922,7 @@ test.describe('keyboard auto-routing', () => {
   });
 
   test('typing on blank canvas opens floating input', async ({ page }) => {
-    await setInputMode(page, 'typing');
+    await setInteractionTool(page, 'text_note');
 
     await dispatchPrintableKey(page, 'a');
     await page.waitForTimeout(100);
@@ -1028,7 +1231,7 @@ test.describe('mobile viewport', () => {
     await page.setViewportSize({ width: 375, height: 667 });
     await waitReady(page);
     await injectCanvasModuleRef(page);
-    await setInputMode(page, 'voice');
+    await setInteractionTool(page, 'prompt');
   });
 
   test('canvas fills mobile viewport', async ({ page }) => {
@@ -1195,7 +1398,7 @@ test.describe('voice-to-message flow', () => {
   test.beforeEach(async ({ page }) => {
     await waitReady(page);
     await injectCanvasModuleRef(page);
-    await setInputMode(page, 'voice');
+    await setInteractionTool(page, 'prompt');
   });
 
   test('voice capture -> STT result -> message sent', async ({ page }) => {
@@ -1253,11 +1456,11 @@ test.describe('full assistant turn flow', () => {
   test.beforeEach(async ({ page }) => {
     await waitReady(page);
     await injectCanvasModuleRef(page);
-    await setInputMode(page, 'voice');
+    await setInteractionTool(page, 'prompt');
   });
 
   test('text input -> turn started -> streaming -> final output -> dismiss', async ({ page }) => {
-    await setInputMode(page, 'typing');
+    await setInteractionTool(page, 'text_note');
 
     // Submit message
     await dispatchPrintableKey(page, 'e');

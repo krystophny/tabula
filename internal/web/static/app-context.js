@@ -42,6 +42,7 @@ export const ACTIVE_PROJECT_STORAGE_KEY = 'tabura.activeProjectId';
 export const ACTIVE_SPHERE_STORAGE_KEY = 'tabura.activeSphere';
 export const LAST_VIEW_STORAGE_KEY = 'tabura.lastView';
 export const RUNTIME_RELOAD_CONTEXT_STORAGE_KEY = 'tabura.runtimeReloadContext';
+export const TOOL_PALETTE_POSITION_STORAGE_KEY = 'tabura.toolPalettePosition';
 export const SIDEBAR_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico', '.avif']);
 export const PANEL_MOTION_WATCH_QUERIES = [
   '(prefers-reduced-motion: reduce)',
@@ -70,19 +71,29 @@ export const COMPANION_RUNTIME_STATES = Object.freeze({
 });
 export const TOOL_PALETTE_MODES = [
   {
-    id: 'voice',
-    label: 'Voice mode',
-    icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v8"/><path d="M8.5 8.5a3.5 3.5 0 0 1 7 0V12a3.5 3.5 0 0 1-7 0Z"/><path d="M6 11.5a6 6 0 0 0 12 0"/><path d="M12 17.5V21"/><path d="M9 21h6"/></svg>',
+    id: 'pointer',
+    label: 'Pointer tool',
+    icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 4 11 8-4.5 1.2L16 20l-2.4 1-3.5-6.9L6 17Z"/></svg>',
   },
   {
-    id: 'pen',
-    label: 'Pen mode',
+    id: 'highlight',
+    label: 'Highlight tool',
+    icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 15 4 4"/><path d="m8 18 8.5-8.5a2.1 2.1 0 0 0-3-3L5 15v4h4Z"/><path d="M13 7l4 4"/><path d="M4 21h16"/></svg>',
+  },
+  {
+    id: 'ink',
+    label: 'Ink tool',
     icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 4.5-1 9-9a2.1 2.1 0 0 0-3-3l-9 9Z"/><path d="m13 7 4 4"/><path d="M4 20h5"/></svg>',
   },
   {
-    id: 'keyboard',
-    label: 'Keyboard mode',
+    id: 'text_note',
+    label: 'Text note tool',
     icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M6 10h.01"/><path d="M9 10h.01"/><path d="M12 10h.01"/><path d="M15 10h.01"/><path d="M18 10h.01"/><path d="M6 14h12"/></svg>',
+  },
+  {
+    id: 'prompt',
+    label: 'Prompt tool',
+    icon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v8"/><path d="M8.5 8.5a3.5 3.5 0 0 1 7 0V12a3.5 3.5 0 0 1-7 0Z"/><path d="M6 11.5a6 6 0 0 0 12 0"/><path d="M12 17.5V21"/><path d="M9 21h6"/></svg>',
   },
 ];
 
@@ -109,7 +120,11 @@ export const state = {
   projectsOpen: false,
   projectSwitchInFlight: false,
   projectModelSwitchInFlight: false,
-  inputMode: 'pen',
+  interaction: {
+    conversation: 'push_to_talk',
+    surface: 'annotate',
+    tool: 'pointer',
+  },
   startupBehavior: 'hub_first',
   ttsEnabled: false,
   ttsSilent: false,
@@ -169,7 +184,13 @@ export const state = {
   workspaceBrowserError: '',
   workspaceOpenFilePath: '',
   workspaceStepInFlight: false,
+  currentCanvasArtifact: {
+    kind: '',
+    title: '',
+    surfaceDefault: '',
+  },
   sidebarEdgeTapAt: 0,
+  toolPalettePosition: null,
   itemSidebarView: 'inbox',
   itemSidebarFilters: { source: '', workspace_id: null, project_id: '', workspace_unassigned: false },
   itemSidebarItems: [],

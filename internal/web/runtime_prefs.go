@@ -18,21 +18,25 @@ type runtimeDisclaimerAckRequest struct {
 
 type runtimePreferencesRequest struct {
 	SilentMode      *bool  `json:"silent_mode"`
-	InputMode       string `json:"input_mode"`
+	Tool            string `json:"tool"`
 	StartupBehavior string `json:"startup_behavior"`
 	ActiveSphere    string `json:"active_sphere"`
 }
 
-func normalizeRuntimeInputMode(raw string) string {
+func normalizeRuntimeTool(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "keyboard", "typing", "type", "text":
-		return "keyboard"
-	case "pen", "ink", "draw", "handwrite":
-		return "pen"
-	case "voice", "talk", "mic", "audio":
-		return "voice"
+	case "highlight", "select":
+		return "highlight"
+	case "ink", "draw", "pen", "handwrite":
+		return "ink"
+	case "text_note", "text-note", "text", "note", "keyboard", "typing", "type":
+		return "text_note"
+	case "prompt", "voice", "talk", "mic", "audio":
+		return "prompt"
+	case "pointer", "point":
+		return "pointer"
 	default:
-		return "pen"
+		return "pointer"
 	}
 }
 
@@ -67,38 +71,18 @@ func (a *App) silentModeEnabled() bool {
 	return parseBoolString(value, false)
 }
 
-func (a *App) runtimeInputMode() string {
+func (a *App) runtimeTool() string {
 	if a == nil || a.store == nil {
-		return "pen"
+		return "pointer"
 	}
-	value, err := a.store.AppState(appStateInputModeKey)
+	value, err := a.store.AppState(appStateToolKey)
 	if err != nil {
-		return "pen"
+		return "pointer"
 	}
-	mode := normalizeRuntimeInputMode(value)
-	if mode == "" {
-		return "pen"
+	if strings.TrimSpace(value) == "" {
+		return "pointer"
 	}
-	explicit, err := a.store.AppState(appStateInputModeExplicitKey)
-	if err != nil {
-		return mode
-	}
-	if parseBoolString(explicit, false) {
-		return mode
-	}
-	if mode != "voice" {
-		return mode
-	}
-	// Legacy installs persisted voice as the default. Migrate that
-	// implicit value to the new pen-first default, but keep explicit
-	// user selections intact via runtime.input_mode.explicit.
-	if err := a.store.SetAppState(appStateInputModeKey, "pen"); err != nil {
-		return "pen"
-	}
-	if err := a.store.SetAppState(appStateInputModeExplicitKey, "false"); err != nil {
-		return "pen"
-	}
-	return "pen"
+	return normalizeRuntimeTool(value)
 }
 
 func (a *App) runtimeStartupBehavior() string {
@@ -137,14 +121,11 @@ func (a *App) setSilentModeEnabled(enabled bool) error {
 	return a.store.SetAppState(appStateSilentModeKey, "false")
 }
 
-func (a *App) setRuntimeInputMode(mode string) error {
+func (a *App) setRuntimeTool(tool string) error {
 	if a == nil || a.store == nil {
 		return nil
 	}
-	if err := a.store.SetAppState(appStateInputModeKey, normalizeRuntimeInputMode(mode)); err != nil {
-		return err
-	}
-	return a.store.SetAppState(appStateInputModeExplicitKey, "true")
+	return a.store.SetAppState(appStateToolKey, normalizeRuntimeTool(tool))
 }
 
 func (a *App) setRuntimeStartupBehavior(behavior string) error {
@@ -180,8 +161,8 @@ func (a *App) handleRuntimePreferencesUpdate(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
-	if strings.TrimSpace(req.InputMode) != "" {
-		if err := a.setRuntimeInputMode(req.InputMode); err != nil {
+	if strings.TrimSpace(req.Tool) != "" {
+		if err := a.setRuntimeTool(req.Tool); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -201,7 +182,7 @@ func (a *App) handleRuntimePreferencesUpdate(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, map[string]interface{}{
 		"ok":               true,
 		"silent_mode":      a.silentModeEnabled(),
-		"input_mode":       a.runtimeInputMode(),
+		"tool":             a.runtimeTool(),
 		"startup_behavior": a.runtimeStartupBehavior(),
 		"active_sphere":    a.runtimeActiveSphere(),
 	})

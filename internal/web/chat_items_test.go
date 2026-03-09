@@ -272,7 +272,7 @@ func TestClassifyAndExecuteSystemActionCaptureIdeaCreatesInboxItemFromUserInput(
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
-	app.chatInputModes.set(session.ID, chatInputModeVoice)
+	app.chatCaptureModes.set(session.ID, chatCaptureModeVoice)
 
 	message, payloads, handled := app.classifyAndExecuteSystemAction(
 		context.Background(),
@@ -289,7 +289,7 @@ func TestClassifyAndExecuteSystemActionCaptureIdeaCreatesInboxItemFromUserInput(
 	if len(payloads) != 1 || strFromAny(payloads[0]["type"]) != "item_created" {
 		t.Fatalf("payloads = %#v", payloads)
 	}
-	if strFromAny(payloads[0]["capture_mode"]) != chatInputModeVoice {
+	if strFromAny(payloads[0]["capture_mode"]) != chatCaptureModeVoice {
 		t.Fatalf("capture_mode payload = %#v", payloads[0])
 	}
 
@@ -317,8 +317,8 @@ func TestClassifyAndExecuteSystemActionCaptureIdeaCreatesInboxItemFromUserInput(
 		t.Fatalf("artifact meta_json = %v", artifact.MetaJSON)
 	}
 	meta := parseIdeaNoteMeta(artifact.MetaJSON, ideaNoteString(artifact.Title))
-	if meta.CaptureMode != chatInputModeVoice {
-		t.Fatalf("capture_mode = %q, want %q", meta.CaptureMode, chatInputModeVoice)
+	if meta.CaptureMode != chatCaptureModeVoice {
+		t.Fatalf("capture_mode = %q, want %q", meta.CaptureMode, chatCaptureModeVoice)
 	}
 	if meta.Transcript != "better swipe triage for waiting items. Capture the blockers too." {
 		t.Fatalf("transcript = %q", meta.Transcript)
@@ -353,7 +353,7 @@ func TestRunAssistantTurnCaptureIdeaPersistsAssistantConfirmation(t *testing.T) 
 	if _, err := app.store.AddChatMessage(session.ID, "user", "idea: support batched inbox review", "idea: support batched inbox review", "text"); err != nil {
 		t.Fatalf("add user message: %v", err)
 	}
-	app.chatInputModes.set(session.ID, chatInputModeText)
+	app.chatCaptureModes.set(session.ID, chatCaptureModeText)
 
 	app.runAssistantTurn(session.ID, turnOutputModeVoice, false)
 

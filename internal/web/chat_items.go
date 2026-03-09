@@ -55,10 +55,10 @@ func normalizeItemCommandText(raw string) string {
 }
 
 func parseInlineItemIntent(text string, now time.Time) *SystemAction {
-	return parseInlineItemIntentWithInputMode(text, now, chatInputModeText)
+	return parseInlineItemIntentWithCaptureMode(text, now, chatCaptureModeText)
 }
 
-func parseInlineItemIntentWithInputMode(text string, now time.Time, inputMode string) *SystemAction {
+func parseInlineItemIntentWithCaptureMode(text string, now time.Time, captureMode string) *SystemAction {
 	normalized := normalizeItemCommandText(text)
 	if filterAction := parseInlineItemFilterIntent(text); filterAction != nil {
 		return filterAction
@@ -70,9 +70,9 @@ func parseInlineItemIntentWithInputMode(text string, now time.Time, inputMode st
 		return &SystemAction{
 			Action: "capture_idea",
 			Params: map[string]interface{}{
-				"text":       text,
-				"idea_text":  ideaText,
-				"input_mode": normalizeChatInputMode(inputMode),
+				"text":         text,
+				"idea_text":    ideaText,
+				"capture_mode": normalizeChatCaptureMode(captureMode),
 			},
 		}
 	}
@@ -715,7 +715,7 @@ func (a *App) captureIdeaItem(session store.ChatSession, action *SystemAction) (
 	if err != nil {
 		return "", nil, err
 	}
-	inputMode := normalizeChatInputMode(systemActionStringParam(action.Params, "input_mode"))
+	captureMode := normalizeChatCaptureMode(systemActionStringParam(action.Params, "capture_mode"))
 	capturedAt := time.Now().UTC()
 	workspaceName := ""
 	if workspaceID != nil {
@@ -723,7 +723,7 @@ func (a *App) captureIdeaItem(session store.ChatSession, action *SystemAction) (
 			workspaceName = workspace.Name
 		}
 	}
-	metaJSON, err := ideaArtifactMeta(title, ideaText, inputMode, workspaceName, capturedAt)
+	metaJSON, err := ideaArtifactMeta(title, ideaText, captureMode, workspaceName, capturedAt)
 	if err != nil {
 		return "", nil, err
 	}
@@ -747,7 +747,7 @@ func (a *App) captureIdeaItem(session store.ChatSession, action *SystemAction) (
 		"title":        item.Title,
 		"artifact_id":  artifact.ID,
 		"source":       source,
-		"capture_mode": inputMode,
+		"capture_mode": captureMode,
 	}
 	return ideaCaptureConfirmation(item.Title), payload, nil
 }

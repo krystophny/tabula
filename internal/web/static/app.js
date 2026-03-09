@@ -1,5 +1,6 @@
 import { getState, setAppRefs } from './app-context.js';
 import * as ttsModule from './app-tts.js';
+import * as interactionModule from './app-interaction.js';
 import * as runtimeUiModule from './app-runtime-ui.js';
 import * as voiceModule from './app-voice.js';
 import * as itemSidebarUtilsModule from './app-item-sidebar-utils.js';
@@ -19,6 +20,7 @@ import * as initModule from './app-init.js';
 
 setAppRefs({
   ...ttsModule,
+  ...interactionModule,
   ...runtimeUiModule,
   ...voiceModule,
   ...itemSidebarUtilsModule,

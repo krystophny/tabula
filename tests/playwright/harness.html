@@ -64,6 +64,7 @@
       </div>
 
       <div id="tool-palette" class="tool-palette" aria-label="Interaction tools"></div>
+      <button id="surface-toggle" type="button" class="surface-toggle" aria-label="Switch interaction surface" style="display:none"></button>
 
       <button id="edge-left-tap" type="button" class="edge-left-tap" aria-label="Toggle file sidebar"></button>
       <button id="edge-right-tap" type="button" class="edge-right-tap" aria-label="Open chat panel"></button>
@@ -195,7 +196,7 @@
       started_at: '2026-03-08T14:00:00Z',
       tts_enabled: true,
       silent_mode: false,
-      input_mode: 'pen',
+      tool: 'pointer',
       startup_behavior: 'hub_first',
       active_sphere: 'private',
     };
@@ -216,11 +217,11 @@
       if (Object.prototype.hasOwnProperty.call(next, 'silent_mode')) {
         runtimeState.silent_mode = Boolean(next.silent_mode);
       }
-      if (Object.prototype.hasOwnProperty.call(next, 'input_mode')) {
-        const normalized = String(next.input_mode || '').trim().toLowerCase();
-        runtimeState.input_mode = normalized === 'voice'
-          ? 'voice'
-          : (normalized === 'keyboard' || normalized === 'typing' ? 'keyboard' : 'pen');
+      if (Object.prototype.hasOwnProperty.call(next, 'tool')) {
+        const normalized = String(next.tool || '').trim().toLowerCase();
+        runtimeState.tool = ['pointer', 'highlight', 'ink', 'text_note', 'prompt'].includes(normalized)
+          ? normalized
+          : 'pointer';
       }
       if (Object.prototype.hasOwnProperty.call(next, 'startup_behavior')) {
         runtimeState.startup_behavior = 'hub_first';
@@ -883,11 +884,11 @@
         if (Object.prototype.hasOwnProperty.call(body, 'silent_mode')) {
           runtimeState.silent_mode = Boolean(body.silent_mode);
         }
-        if (typeof body?.input_mode === 'string') {
-          const normalized = String(body.input_mode).trim().toLowerCase();
-          runtimeState.input_mode = normalized === 'voice'
-            ? 'voice'
-            : (normalized === 'keyboard' || normalized === 'typing' ? 'keyboard' : 'pen');
+        if (typeof body?.tool === 'string') {
+          const normalized = String(body.tool).trim().toLowerCase();
+          runtimeState.tool = ['pointer', 'highlight', 'ink', 'text_note', 'prompt'].includes(normalized)
+            ? normalized
+            : 'pointer';
         }
         if (typeof body?.startup_behavior === 'string') {
           runtimeState.startup_behavior = 'hub_first';
@@ -905,7 +906,7 @@
         return new Response(JSON.stringify({
           ok: true,
           silent_mode: runtimeState.silent_mode,
-          input_mode: runtimeState.input_mode,
+          tool: runtimeState.tool,
           startup_behavior: runtimeState.startup_behavior,
           active_sphere: runtimeState.active_sphere,
         }), { status: 200 });
