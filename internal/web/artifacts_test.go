@@ -1,9 +1,11 @@
 package web
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/krystophny/tabura/internal/store"
@@ -151,5 +153,132 @@ func TestArtifactListAPIIncludesLinkedArtifactsForWorkspace(t *testing.T) {
 	sourceLinkedArtifacts, ok := sourceLinkedPayload["artifacts"].([]any)
 	if !ok || len(sourceLinkedArtifacts) != 0 {
 		t.Fatalf("source linked artifacts payload = %#v", sourceLinkedPayload)
+	}
+}
+
+func TestArtifactFigureExtractAPIProducesImageArtifactsAndLinksOutputs(t *testing.T) {
+	app := newAuthedTestApp(t)
+	binDir := t.TempDir()
+	writeTestExecutable(t, filepath.Join(binDir, "pdfimages"), `#!/bin/sh
+set -eu
+if [ "$1" = "-list" ]; then
+cat <<'EOF'
+page   num  type   width height color comp bpc  enc interp  object ID x-ppi y-ppi size ratio
+--------------------------------------------------------------------------------------------
+   2     0 image     640   480  rgb    3   8  image  no         7  0    72    72  12K 1.3%
+EOF
+exit 0
+fi
+if [ "$1" = "-png" ]; then
+prefix="$3"
+printf 'PNGDATA' > "${prefix}-000.png"
+exit 0
+fi
+echo "unexpected args: $*" >&2
+exit 1
+`)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	workspaceDir := filepath.Join(t.TempDir(), "paper-workspace")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workspaceDir) error: %v", err)
+	}
+	workspace, err := app.store.CreateWorkspace("Paper Workspace", workspaceDir, store.SphereWork)
+	if err != nil {
+		t.Fatalf("CreateWorkspace() error: %v", err)
+	}
+	pdfPath := filepath.Join(workspaceDir, "paper.pdf")
+	if err := os.WriteFile(pdfPath, []byte("%PDF-1.7"), 0o644); err != nil {
+		t.Fatalf("WriteFile(paper.pdf) error: %v", err)
+	}
+	title := "paper.pdf"
+	sourceArtifact, err := app.store.CreateArtifact(store.ArtifactKindPDF, &pdfPath, nil, &title, nil)
+	if err != nil {
+		t.Fatalf("CreateArtifact(source) error: %v", err)
+	}
+	item, err := app.store.CreateItem("Review extracted figures", store.ItemOptions{WorkspaceID: &workspace.ID, ArtifactID: &sourceArtifact.ID})
+	if err != nil {
+		t.Fatalf("CreateItem() error: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/artifacts/"+itoa(sourceArtifact.ID)+"/extract-figures", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("extract figures status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	payload := decodeJSONDataResponse(t, rr)
+	artifacts, ok := payload["artifacts"].([]any)
+	if !ok || len(artifacts) != 1 {
+		t.Fatalf("extract artifacts payload = %#v", payload)
+	}
+	artifactPayload, ok := artifacts[0].(map[string]any)
+	if !ok {
+		t.Fatalf("artifact payload = %#v", artifacts[0])
+	}
+	if got := strFromAny(artifactPayload["kind"]); got != string(store.ArtifactKindImage) {
+		t.Fatalf("artifact kind = %q, want %q", got, store.ArtifactKindImage)
+	}
+	refPath := strFromAny(artifactPayload["ref_path"])
+	if !strings.HasPrefix(filepath.ToSlash(refPath), filepath.ToSlash(filepath.Join(workspaceDir, ".tabura", "artifacts", "figures"))+"/") {
+		t.Fatalf("ref_path = %q, want workspace figures artifact path", refPath)
+	}
+	var meta map[string]any
+	if err := json.Unmarshal([]byte(strFromAny(artifactPayload["meta_json"])), &meta); err != nil {
+		t.Fatalf("artifact meta_json error: %v", err)
+	}
+	if got := intFromAny(meta["source_artifact_id"], 0); got != int(sourceArtifact.ID) {
+		t.Fatalf("source_artifact_id = %d, want %d", got, sourceArtifact.ID)
+	}
+	if got := intFromAny(meta["page"], 0); got != 2 {
+		t.Fatalf("page = %d, want 2", got)
+	}
+	if got := strFromAny(meta["type"]); got != "figure" {
+		t.Fatalf("meta type = %q, want figure", got)
+	}
+
+	figureArtifactID := int64(artifactPayload["id"].(float64))
+	linkedItems, err := app.store.ListArtifactItems(figureArtifactID)
+	if err != nil {
+		t.Fatalf("ListArtifactItems() error: %v", err)
+	}
+	if len(linkedItems) != 1 || linkedItems[0].ID != item.ID {
+		t.Fatalf("ListArtifactItems() = %+v, want only item %d", linkedItems, item.ID)
+	}
+	itemArtifacts, err := app.store.ListItemArtifacts(item.ID)
+	if err != nil {
+		t.Fatalf("ListItemArtifacts() error: %v", err)
+	}
+	foundOutput := false
+	for _, entry := range itemArtifacts {
+		if entry.ArtifactID == figureArtifactID && entry.Role == "output" {
+			foundOutput = true
+			break
+		}
+	}
+	if !foundOutput {
+		t.Fatalf("item artifact links = %+v, want output link to artifact %d", itemArtifacts, figureArtifactID)
+	}
+}
+
+func TestArtifactFigureExtractAPIRejectsNonPDFArtifacts(t *testing.T) {
+	app := newAuthedTestApp(t)
+	title := "notes.md"
+	artifact, err := app.store.CreateArtifact(store.ArtifactKindMarkdown, nil, nil, &title, nil)
+	if err != nil {
+		t.Fatalf("CreateArtifact() error: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/artifacts/"+itoa(artifact.ID)+"/extract-figures", nil)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("extract figures status = %d, want 400: %s", rr.Code, rr.Body.String())
+	}
+	if got := decodeJSONResponse(t, rr)["error"]; got != "artifact must be a pdf" {
+		t.Fatalf("extract figures error = %#v, want artifact must be a pdf", got)
+	}
+}
+
+func writeTestExecutable(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		t.Fatalf("WriteFile(%s) error: %v", path, err)
 	}
 }
