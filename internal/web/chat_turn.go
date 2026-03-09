@@ -24,6 +24,7 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string, localOnly bo
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": err.Error()})
 		return
 	}
+	cursorCtx := a.chatCursorContexts.consume(sessionID)
 	userText := latestUserMessage(messages)
 	if project, projectErr := a.store.GetProjectByProjectKey(session.ProjectKey); projectErr == nil && isHubProject(project) {
 		a.runHubTurn(sessionID, session, messages, outputMode, localOnly)
@@ -52,7 +53,7 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string, localOnly bo
 	profile = a.appServerProfileForChatSession(session, profile)
 	appSess, resumed, sessErr := a.getOrCreateAppSession(sessionID, cwd, profile)
 	if sessErr != nil {
-		a.runAssistantTurnLegacy(sessionID, session, messages, outputMode, profile)
+		a.runAssistantTurnLegacy(sessionID, session, messages, cursorCtx, outputMode, profile)
 		return
 	}
 
@@ -65,6 +66,7 @@ func (a *App) runAssistantTurn(sessionID string, outputMode string, localOnly bo
 		prompt = buildPromptFromHistoryForSessionWithCompanion(session.Mode, sessionID, messages, canvasCtx, companionCtx, outputMode, profile.Alias)
 		_ = a.store.UpdateChatSessionThread(sessionID, appSess.ThreadID())
 	}
+	prompt = appendChatCursorPrompt(prompt, cursorCtx)
 	if strings.TrimSpace(prompt) == "" {
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
 		return
@@ -328,10 +330,11 @@ func (a *App) tryRunLocalSystemActionTurn(sessionID string, session store.ChatSe
 
 // runAssistantTurnLegacy is the single-shot fallback when persistent session
 // fails to connect. Each call creates a new WS + thread.
-func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession, messages []store.ChatMessage, outputMode string, profile appServerModelProfile) {
+func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession, messages []store.ChatMessage, cursorCtx *chatCursorContext, outputMode string, profile appServerModelProfile) {
 	profile = a.appServerProfileForChatSession(session, profile)
 	canvasCtx := a.resolveCanvasContext(session.ProjectKey)
 	prompt := buildPromptFromHistoryForSession(session.Mode, sessionID, messages, canvasCtx, outputMode, profile.Alias)
+	prompt = appendChatCursorPrompt(prompt, cursorCtx)
 	if strings.TrimSpace(prompt) == "" {
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
 		return

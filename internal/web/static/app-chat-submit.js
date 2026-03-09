@@ -33,6 +33,28 @@ const maybeHandleInlineBugReport = (...args) => refs.maybeHandleInlineBugReport(
 const STOP_REQUEST_TIMEOUT_MS = 3500;
 const VOICE_TRANSCRIPT_SUBMIT_GUARD_MS = 220;
 
+function buildCursorPayload(anchor) {
+  if (!anchor || typeof anchor !== 'object') return null;
+  const payload = {
+    title: String(anchor.title || '').trim(),
+    page: Number.parseInt(String(anchor.page || ''), 10) || 0,
+    line: Number.parseInt(String(anchor.line || ''), 10) || 0,
+    relative_x: Number(anchor.relativeX),
+    relative_y: Number(anchor.relativeY),
+    selected_text: String(anchor.selectedText || '').trim(),
+    surrounding_text: String(anchor.surroundingText || '').trim(),
+  };
+  if (!Number.isFinite(payload.relative_x)) delete payload.relative_x;
+  if (!Number.isFinite(payload.relative_y)) delete payload.relative_y;
+  if (!payload.title) delete payload.title;
+  if (!payload.page) delete payload.page;
+  if (!payload.line) delete payload.line;
+  if (!payload.selected_text) delete payload.selected_text;
+  if (!payload.surrounding_text) delete payload.surrounding_text;
+  if (Object.keys(payload).length === 0) return null;
+  return payload;
+}
+
 export function setPendingSubmit(controller, kind = '') {
   state.pendingSubmitController = controller || null;
   state.pendingSubmitKind = String(kind || '').trim();
@@ -138,6 +160,10 @@ export async function submitMessage(text, options = {}) {
     output_mode: state.ttsSilent ? 'silent' : 'voice',
     capture_mode: submitKind === 'voice_transcript' ? 'voice' : 'text',
   };
+  const cursorPayload = buildCursorPayload(anchor);
+  if (cursorPayload) {
+    body.cursor = cursorPayload;
+  }
   try {
     if (submitKind === 'voice_transcript' && submitController) {
       await waitWithAbort(VOICE_TRANSCRIPT_SUBMIT_GUARD_MS, submitController.signal);

@@ -181,8 +181,15 @@ test('dialogue tap pins a cursor dot and scopes the next voice message without s
   await submitVoiceStyleMessage(page, 'fix this');
   await expect.poll(async () => {
     const nextLog = await getLog(page);
-    return nextLog.find((entry) => entry.type === 'message_sent')?.text || '';
-  }).toBe('[Line 3 of "test.txt"] fix this');
+    return nextLog.find((entry) => entry.type === 'message_sent') || null;
+  }).not.toBeNull();
+  const sentEntry = (await getLog(page)).find((entry) => entry.type === 'message_sent');
+
+  expect(sentEntry?.text).toBe('[Line 3 of "test.txt"] fix this');
+  expect(sentEntry?.cursor).toMatchObject({
+    title: 'test.txt',
+    line: 3,
+  });
 });
 
 test('meeting taps move the pinned cursor without starting a new recording', async ({ page }) => {

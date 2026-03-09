@@ -1654,7 +1654,7 @@
         }
         try {
           const body = JSON.parse(opts.body);
-          window.__harnessLog.push({ type: 'message_sent', text: body.text });
+          window.__harnessLog.push({ type: 'message_sent', text: body.text, cursor: body.cursor || null });
         } catch (_) {}
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }

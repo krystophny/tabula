@@ -914,6 +914,28 @@ function lineFromOffset(lines, charOffset) {
   return Math.max(1, lines.length);
 }
 
+function compactAnchorText(raw, maxChars = 240) {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  const collapsed = text.replace(/\s+/g, ' ').trim();
+  if (collapsed.length <= maxChars) return collapsed;
+  return `${collapsed.slice(0, maxChars)}...`;
+}
+
+function surroundingTextForLine(lines, line) {
+  const lineNumber = Number.parseInt(String(line || ''), 10);
+  if (!Array.isArray(lines) || lines.length === 0 || !Number.isFinite(lineNumber) || lineNumber <= 0) {
+    return '';
+  }
+  const start = Math.max(0, lineNumber - 2);
+  const end = Math.min(lines.length, lineNumber + 1);
+  return lines
+    .slice(start, end)
+    .map((entry, index) => `${start + index + 1}: ${String(entry || '')}`)
+    .join('\n')
+    .trim();
+}
+
 function textRangeFromClientPoint(clientX, clientY) {
   if (typeof document.caretRangeFromPoint === 'function') {
     return document.caretRangeFromPoint(clientX, clientY);
@@ -1126,6 +1148,7 @@ function getDiffAnchorContext(node) {
   return {
     line: resolvedLine,
     title: path || getActiveArtifactTitle(),
+    surroundingText: compactAnchorText(lineEl.textContent || ''),
   };
 }
 
@@ -1140,6 +1163,7 @@ function getMarkdownSourceAnchorContext(node) {
   return {
     line,
     title: getActiveArtifactTitle(),
+    surroundingText: compactAnchorText(sourceEl.textContent || ''),
   };
 }
 
@@ -1159,7 +1183,7 @@ export function getLocationFromPoint(clientX, clientY) {
       const lines = (e.text.textContent || '').split('\n');
       const line = lineFromOffset(lines, offset);
       const title = getActiveArtifactTitle();
-      return { line, title };
+      return { line, title, surroundingText: surroundingTextForLine(lines, line) };
     } catch (_) {
       return null;
     }
@@ -1169,7 +1193,12 @@ export function getLocationFromPoint(clientX, clientY) {
     if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
       const estimate = estimateTextLineAtPoint(e.text, clientY);
       if (estimate) {
-        return { line: estimate.line, title: getActiveArtifactTitle() };
+        const lines = (e.text.textContent || '').split('\n');
+        return {
+          line: estimate.line,
+          title: getActiveArtifactTitle(),
+          surroundingText: surroundingTextForLine(lines, estimate.line),
+        };
       }
     }
   }
@@ -1200,7 +1229,12 @@ function getTextSelectionLocation(e, selection, selectedText) {
   const lines = (e.text.textContent || '').split('\n');
   const line = lineFromOffset(lines, startOffset);
   const title = getActiveArtifactTitle();
-  return { line, selectedText, title };
+  return {
+    line,
+    selectedText,
+    title,
+    surroundingText: surroundingTextForLine(lines, line),
+  };
 }
 
 export function getLocationFromSelection() {
