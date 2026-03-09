@@ -105,6 +105,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_external_bindings_identity
   ON external_bindings(account_id, provider, object_type, remote_id);
 CREATE INDEX IF NOT EXISTS idx_external_bindings_stale
   ON external_bindings(provider, last_synced_at);
+CREATE TABLE IF NOT EXISTS batch_runs (
+  id INTEGER PRIMARY KEY,
+  workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  started_at TEXT NOT NULL DEFAULT (datetime('now')),
+  finished_at TEXT,
+  config_json TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'running'
+);
+CREATE INDEX IF NOT EXISTS idx_batch_runs_workspace_started
+  ON batch_runs(workspace_id, datetime(started_at) DESC, id DESC);
+CREATE TABLE IF NOT EXISTS batch_run_items (
+  batch_id INTEGER NOT NULL REFERENCES batch_runs(id) ON DELETE CASCADE,
+  item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending',
+  pr_number INTEGER,
+  pr_url TEXT,
+  error_msg TEXT,
+  started_at TEXT,
+  finished_at TEXT,
+  PRIMARY KEY (batch_id, item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_batch_run_items_batch_status
+  ON batch_run_items(batch_id, status, item_id);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return err
@@ -284,6 +307,21 @@ func normalizeOptionalString(v *string) any {
 
 func normalizeOptionalSourceFilter(raw string) string {
 	return strings.ToLower(strings.TrimSpace(raw))
+}
+
+func normalizeBatchStatus(raw string) string {
+	return strings.ToLower(strings.TrimSpace(raw))
+}
+
+func normalizeBatchConfigJSON(raw string) (string, error) {
+	clean := strings.TrimSpace(raw)
+	if clean == "" {
+		return "{}", nil
+	}
+	if !json.Valid([]byte(clean)) {
+		return "", errors.New("config_json must be valid JSON")
+	}
+	return clean, nil
 }
 
 func normalizeItemListFilter(filter ItemListFilter) (ItemListFilter, error) {
@@ -651,6 +689,50 @@ func scanItemSummary(
 		out.ArtifactKind = &normalized
 	}
 	out.ActorName = nullStringPointer(actorName)
+	return out, nil
+}
+
+func scanBatchRun(
+	row interface {
+		Scan(dest ...any) error
+	},
+) (BatchRun, error) {
+	var (
+		out        BatchRun
+		finishedAt sql.NullString
+	)
+	err := row.Scan(&out.ID, &out.WorkspaceID, &out.StartedAt, &finishedAt, &out.ConfigJSON, &out.Status)
+	if err != nil {
+		return BatchRun{}, err
+	}
+	out.FinishedAt = nullStringPointer(finishedAt)
+	out.ConfigJSON = strings.TrimSpace(out.ConfigJSON)
+	out.Status = normalizeBatchStatus(out.Status)
+	return out, nil
+}
+
+func scanBatchRunItem(
+	row interface {
+		Scan(dest ...any) error
+	},
+) (BatchRunItem, error) {
+	var (
+		out                        BatchRunItem
+		itemTitle, prURL, errorMsg sql.NullString
+		prNumber                   sql.NullInt64
+		startedAt, finishedAt      sql.NullString
+	)
+	err := row.Scan(&out.BatchID, &out.ItemID, &itemTitle, &out.Status, &prNumber, &prURL, &errorMsg, &startedAt, &finishedAt)
+	if err != nil {
+		return BatchRunItem{}, err
+	}
+	out.ItemTitle = nullStringPointer(itemTitle)
+	out.Status = normalizeBatchStatus(out.Status)
+	out.PRNumber = nullInt64Pointer(prNumber)
+	out.PRURL = nullStringPointer(prURL)
+	out.ErrorMsg = nullStringPointer(errorMsg)
+	out.StartedAt = nullStringPointer(startedAt)
+	out.FinishedAt = nullStringPointer(finishedAt)
 	return out, nil
 }
 

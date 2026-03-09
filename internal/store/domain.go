@@ -241,3 +241,33 @@ type TimeEntrySummary struct {
 	ProjectID   *string `json:"project_id,omitempty"`
 	Sphere      string  `json:"sphere,omitempty"`
 }
+
+type BatchRun struct {
+	ID          int64   `json:"id"`
+	WorkspaceID int64   `json:"workspace_id"`
+	StartedAt   string  `json:"started_at"`
+	FinishedAt  *string `json:"finished_at,omitempty"`
+	ConfigJSON  string  `json:"config_json"`
+	Status      string  `json:"status"`
+}
+
+type BatchRunItem struct {
+	BatchID    int64   `json:"batch_id"`
+	ItemID     int64   `json:"item_id"`
+	ItemTitle  *string `json:"item_title,omitempty"`
+	Status     string  `json:"status"`
+	PRNumber   *int64  `json:"pr_number,omitempty"`
+	PRURL      *string `json:"pr_url,omitempty"`
+	ErrorMsg   *string `json:"error_msg,omitempty"`
+	StartedAt  *string `json:"started_at,omitempty"`
+	FinishedAt *string `json:"finished_at,omitempty"`
+}
+
+type BatchRunItemUpdate struct {
+	Status     string  `json:"status"`
+	PRNumber   *int64  `json:"pr_number,omitempty"`
+	PRURL      *string `json:"pr_url,omitempty"`
+	ErrorMsg   *string `json:"error_msg,omitempty"`
+	StartedAt  *string `json:"started_at,omitempty"`
+	FinishedAt *string `json:"finished_at,omitempty"`
+}

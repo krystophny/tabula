@@ -98,6 +98,9 @@ Domain model API:
 - `POST /api/artifacts/{artifact_id}/extract-figures`
 - `GET /api/artifacts/{artifact_id}/items`
 - `DELETE /api/artifacts/{artifact_id}`
+- `GET /api/batches`
+- `GET /api/batches/{batch_id}`
+- `GET /api/batches/{batch_id}/artifact`
 - `GET /api/items`
 - `POST /api/items`
 - `GET /api/items/inbox`
