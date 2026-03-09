@@ -309,9 +309,9 @@
   background: transparent;
 }
 
-body.pen-input-mode #canvas-text,
-body.pen-input-mode .canvas-pdf-page .textLayer,
-body.pen-input-mode .canvas-pdf-page .textLayer :is(span, br) {
+body.tool-ink #canvas-text,
+body.tool-ink .canvas-pdf-page .textLayer,
+body.tool-ink .canvas-pdf-page .textLayer :is(span, br) {
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;

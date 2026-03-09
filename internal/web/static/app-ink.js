@@ -10,7 +10,7 @@ const renderEdgeTopProjects = (...args) => refs.renderEdgeTopProjects(...args);
 const openWorkspaceSidebarFile = (...args) => refs.openWorkspaceSidebarFile(...args);
 const activeProject = (...args) => refs.activeProject(...args);
 const normalizeProjectRunState = (...args) => refs.normalizeProjectRunState(...args);
-const isPenInputMode = (...args) => refs.isPenInputMode(...args);
+const isInkTool = (...args) => refs.isInkTool(...args);
 
 export function activeArtifactKindForInk() {
   const activePane = document.querySelector('#canvas-viewport .canvas-pane.is-active');
@@ -34,7 +34,7 @@ export function inkLayerEl() {
 export function renderInkControls() {
   const controls = document.getElementById('ink-controls');
   if (!(controls instanceof HTMLElement)) return;
-  const visible = isPenInputMode() && state.inkDraft.dirty;
+  const visible = state.interaction.surface === 'annotate' && isInkTool() && state.inkDraft.dirty;
   controls.style.display = visible ? '' : 'none';
   document.body.classList.toggle('ink-controls-visible', visible);
   const submit = document.getElementById('ink-submit');
@@ -43,8 +43,10 @@ export function renderInkControls() {
   if (clear instanceof HTMLButtonElement) clear.disabled = state.inkSubmitInFlight;
 }
 
-export function syncInputModeBodyState() {
-  document.body.classList.toggle('pen-input-mode', isPenInputMode());
+export function syncInteractionBodyState() {
+  document.body.classList.toggle('tool-ink', isInkTool() && state.interaction.surface === 'annotate');
+  document.body.classList.toggle('surface-editor', state.interaction.surface === 'editor');
+  document.body.classList.toggle('surface-annotate', state.interaction.surface === 'annotate');
 }
 
 export function setPenInkingState(active) {

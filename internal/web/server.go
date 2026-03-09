@@ -49,8 +49,8 @@ const (
 	appStateDisclaimerAckKey     = "safety.disclaimer_ack.version"
 	appStateDisclaimerAckAtKey   = "safety.disclaimer_ack.timestamp"
 	appStateSilentModeKey        = "runtime.silent_mode"
-	appStateInputModeKey         = "runtime.input_mode"
-	appStateInputModeExplicitKey = "runtime.input_mode.explicit"
+	appStateToolKey              = "runtime.tool"
+	appStateLegacyToolKey        = "runtime.input_mode"
 	appStateStartupBehaviorKey   = "runtime.startup_behavior"
 	disclaimerVersionCurrent     = "2026-03-03-v1"
 )
@@ -724,7 +724,7 @@ func (a *App) handleRuntime(w http.ResponseWriter, r *http.Request) {
 		"stt_url":                     a.sttURL,
 		"tts_enabled":                 a.ttsURL != "",
 		"silent_mode":                 a.silentModeEnabled(),
-		"input_mode":                  a.runtimeInputMode(),
+		"tool":                        a.runtimeTool(),
 		"startup_behavior":            a.runtimeStartupBehavior(),
 		"active_sphere":               a.runtimeActiveSphere(),
 		"safety_yolo_mode":            a.yoloModeEnabled(),

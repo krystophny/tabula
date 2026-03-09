@@ -26,6 +26,8 @@ const requestHotwordSync = (...args) => refs.requestHotwordSync(...args);
 const canSpeakTTS = (...args) => refs.canSpeakTTS(...args);
 const isDialogueLiveSession = (...args) => refs.isDialogueLiveSession(...args);
 const beginVoiceCapture = (...args) => refs.beginVoiceCapture(...args);
+const applyInteractionDefaultsForPane = (...args) => refs.applyInteractionDefaultsForPane(...args);
+const renderInteractionSurfaceToggle = (...args) => refs.renderInteractionSurfaceToggle(...args);
 
 export function showCanvasColumn(paneId) {
   const col = document.getElementById('canvas-column');
@@ -49,12 +51,14 @@ export function showCanvasColumn(paneId) {
     }
   }
   state.hasArtifact = true;
+  applyInteractionDefaultsForPane(paneId);
   setUiMode('artifact');
   persistLastView({ mode: 'artifact' });
   if (!isVoiceTurn() && isDirectAssistantWorking()) {
     hideOverlay();
   }
   updateAssistantActivityIndicator();
+  renderInteractionSurfaceToggle();
 }
 
 export function hideCanvasColumn() {
@@ -64,6 +68,7 @@ export function hideCanvasColumn() {
   exitPrReviewMode();
   clearInkDraft();
   state.hasArtifact = false;
+  state.interaction.surface = 'annotate';
   state.workspaceOpenFilePath = '';
   state.workspaceStepInFlight = false;
   setUiMode('rasa');
@@ -77,6 +82,7 @@ export function hideCanvasColumn() {
     });
   }
   updateAssistantActivityIndicator();
+  renderInteractionSurfaceToggle();
 }
 
 export function chatHistoryEl() {

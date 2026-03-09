@@ -57,12 +57,12 @@ async function injectCanvasEvent(page: Page, payload: Record<string, unknown>) {
   }, payload);
 }
 
-async function setInputMode(page: Page, inputMode: 'typing' | 'voice' | 'pen' | 'keyboard') {
+async function setInteractionTool(page: Page, tool: 'pointer' | 'highlight' | 'ink' | 'text_note' | 'prompt') {
   await page.evaluate((mode) => {
-    (window as any).__setRuntimeState?.({ input_mode: mode });
+    (window as any).__setRuntimeState?.({ tool: mode });
     const app = (window as any)._taburaApp;
-    if (app?.getState) app.getState().inputMode = mode;
-  }, inputMode);
+    if (app?.getState) app.getState().interaction.tool = mode;
+  }, tool);
 }
 
 async function dispatchPrintableKey(page: Page, key: string) {
@@ -263,11 +263,10 @@ test.describe('floating tool palette', () => {
       };
     });
 
-    expect(snapshot.paletteButtons.map((button) => button.mode)).toEqual(['voice', 'pen', 'keyboard']);
+    expect(snapshot.paletteButtons.map((button) => button.mode)).toEqual(['pointer', 'highlight', 'ink', 'text_note', 'prompt']);
     expect(snapshot.paletteButtons.every((button) => button.text === '')).toBe(true);
-    expect(snapshot.topButtonTexts).not.toContain('voice');
-    expect(snapshot.topButtonTexts).not.toContain('pen');
-    expect(snapshot.topButtonTexts).not.toContain('kbd');
+    expect(snapshot.topButtonTexts).not.toContain('pointer');
+    expect(snapshot.topButtonTexts).not.toContain('ink');
     expect(snapshot.dialogueButtons).toBe(1);
     expect(snapshot.topOverflows).toBe(false);
   });
@@ -275,17 +274,24 @@ test.describe('floating tool palette', () => {
   test('palette clicks switch the active interaction mode', async ({ page }) => {
     await clearLog(page);
 
-    const keyboardButton = page.locator('#tool-palette .tool-palette-btn[data-mode="keyboard"]');
-    const penButton = page.locator('#tool-palette .tool-palette-btn[data-mode="pen"]');
+    const textNoteButton = page.locator('#tool-palette .tool-palette-btn[data-mode="text_note"]');
+    const pointerButton = page.locator('#tool-palette .tool-palette-btn[data-mode="pointer"]');
 
-    await keyboardButton.click();
+    await textNoteButton.click();
     await waitForLogEntry(page, 'api_fetch', 'runtime_preferences');
 
-    await expect(keyboardButton).toHaveAttribute('aria-pressed', 'true');
-    await expect(penButton).toHaveAttribute('aria-pressed', 'false');
+    await expect(textNoteButton).toHaveAttribute('aria-pressed', 'true');
+    await expect(pointerButton).toHaveAttribute('aria-pressed', 'false');
 
-    const inputMode = await page.evaluate(() => (window as any)._taburaApp?.getState?.().inputMode);
-    expect(inputMode).toBe('keyboard');
+    const tool = await page.evaluate(() => (window as any)._taburaApp?.getState?.().interaction.tool);
+    expect(tool).toBe('text_note');
+  });
+
+  test('keyboard shortcuts switch tools without using the top panel', async ({ page }) => {
+    await clearLog(page);
+    await page.keyboard.press('i');
+    await waitForLogEntry(page, 'api_fetch', 'runtime_preferences');
+    await expect(page.locator('#tool-palette .tool-palette-btn[data-mode="ink"]')).toHaveAttribute('aria-pressed', 'true');
   });
 });
 
@@ -719,7 +725,7 @@ test.describe('keyboard auto-routing', () => {
   });
 
   test('typing on blank canvas opens floating input', async ({ page }) => {
-    await setInputMode(page, 'typing');
+    await setInteractionTool(page, 'text_note');
 
     await dispatchPrintableKey(page, 'a');
     await page.waitForTimeout(100);
@@ -1028,7 +1034,7 @@ test.describe('mobile viewport', () => {
     await page.setViewportSize({ width: 375, height: 667 });
     await waitReady(page);
     await injectCanvasModuleRef(page);
-    await setInputMode(page, 'voice');
+    await setInteractionTool(page, 'prompt');
   });
 
   test('canvas fills mobile viewport', async ({ page }) => {
@@ -1195,7 +1201,7 @@ test.describe('voice-to-message flow', () => {
   test.beforeEach(async ({ page }) => {
     await waitReady(page);
     await injectCanvasModuleRef(page);
-    await setInputMode(page, 'voice');
+    await setInteractionTool(page, 'prompt');
   });
 
   test('voice capture -> STT result -> message sent', async ({ page }) => {
@@ -1253,11 +1259,11 @@ test.describe('full assistant turn flow', () => {
   test.beforeEach(async ({ page }) => {
     await waitReady(page);
     await injectCanvasModuleRef(page);
-    await setInputMode(page, 'voice');
+    await setInteractionTool(page, 'prompt');
   });
 
   test('text input -> turn started -> streaming -> final output -> dismiss', async ({ page }) => {
-    await setInputMode(page, 'typing');
+    await setInteractionTool(page, 'text_note');
 
     // Submit message
     await dispatchPrintableKey(page, 'e');

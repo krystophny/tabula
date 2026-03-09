@@ -57,7 +57,6 @@ type projectWelcomeAction struct {
 	Type          string `json:"type"`
 	ProjectID     string `json:"project_id,omitempty"`
 	Path          string `json:"path,omitempty"`
-	InputMode     string `json:"input_mode,omitempty"`
 	SilentMode    *bool  `json:"silent_mode,omitempty"`
 	StartupTarget string `json:"startup_behavior,omitempty"`
 }

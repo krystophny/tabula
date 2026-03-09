@@ -54,6 +54,20 @@
   backdrop-filter: blur(10px);
 }
 
+.surface-toggle {
+  position: fixed;
+  right: calc(1rem + var(--safe-area-right));
+  bottom: calc(1rem + var(--safe-area-bottom));
+  z-index: 396;
+  min-height: 40px;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid rgba(17, 24, 39, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #0f172a;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
+}
+
 .tool-palette-btn {
   width: 44px;
   height: 44px;

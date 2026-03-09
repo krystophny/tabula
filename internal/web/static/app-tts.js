@@ -478,6 +478,7 @@ export function applyLiveSessionStateSnapshot(snapshot = null) {
     : getLiveSessionSnapshot();
   state.liveSessionActive = Boolean(nextSnapshot.liveSessionActive);
   state.liveSessionMode = String(nextSnapshot.liveSessionMode || '').trim().toLowerCase();
+  state.interaction.conversation = state.liveSessionActive ? 'continuous_dialogue' : 'push_to_talk';
   state.liveSessionHotword = String(nextSnapshot.liveSessionHotword || LIVE_SESSION_HOTWORD_DEFAULT).trim() || LIVE_SESSION_HOTWORD_DEFAULT;
   state.liveSessionDialogueListenActive = Boolean(nextSnapshot.liveSessionDialogueListenActive);
   state.liveSessionDialogueListenTimer = nextSnapshot.liveSessionDialogueListenTimer ?? null;

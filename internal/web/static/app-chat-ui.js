@@ -17,7 +17,6 @@ const setTTSSilentMode = (...args) => refs.setTTSSilentMode(...args);
 const sendChatWsJSON = (...args) => refs.sendChatWsJSON(...args);
 const parseOptionalBoolean = (...args) => refs.parseOptionalBoolean(...args);
 const updateRuntimePreferences = (...args) => refs.updateRuntimePreferences(...args);
-const normalizeInputMode = (...args) => refs.normalizeInputMode(...args);
 
 const MATH_SEGMENT_TOKEN_PREFIX = '@@TABURA_CHAT_MATH_SEGMENT_';
 let localMessageSeq = 0;
@@ -491,11 +490,6 @@ export async function handleWelcomeAction(action) {
       await updateRuntimePreferences({ silent_mode: next });
       setTTSSilentMode(next, { persist: false });
     }
-    return;
-  }
-  if (type === 'set_input_mode') {
-    const next = normalizeInputMode(action?.input_mode || 'pen');
-    await updateRuntimePreferences({ input_mode: next });
     return;
   }
   if (type === 'set_startup_behavior') {
