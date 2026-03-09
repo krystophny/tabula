@@ -661,7 +661,7 @@ func firstDefined(values map[string]any, keys ...string) any {
 }
 
 var (
-	bibEntryRE = regexp.MustCompile(`(?s)@[\w]+\s*\{\s*([^,\s]+)\s*,(.*?)\}`)
+	bibEntryRE = regexp.MustCompile(`(?ms)@[\w]+\s*\{\s*([^,\s]+)\s*,(.*?)^\s*\}`)
 	bibFieldRE = regexp.MustCompile(`(?im)([A-Za-z][A-Za-z0-9_]*)\s*=\s*[\{\"]([^\"\}]+)[\}\"]`)
 )
 

@@ -35,6 +35,25 @@ func TestFindDefaultDatabaseUsesProfilesINI(t *testing.T) {
 	}
 }
 
+func TestFindDefaultDatabaseUsesMacPathFallback(t *testing.T) {
+	home := t.TempDir()
+	dbPath := filepath.Join(home, "Zotero", "zotero.sqlite")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(Zotero): %v", err)
+	}
+	if err := os.WriteFile(dbPath, []byte("sqlite"), 0o644); err != nil {
+		t.Fatalf("WriteFile(zotero.sqlite): %v", err)
+	}
+
+	got, err := FindDefaultDatabase(home)
+	if err != nil {
+		t.Fatalf("FindDefaultDatabase() error: %v", err)
+	}
+	if got != dbPath {
+		t.Fatalf("FindDefaultDatabase() = %q, want %q", got, dbPath)
+	}
+}
+
 func TestReaderListsLocalLibraryObjectsAndCitationKeys(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "zotero.sqlite")
@@ -105,6 +124,31 @@ func TestReaderListsLocalLibraryObjectsAndCitationKeys(t *testing.T) {
 	}
 
 	citationKeys, err := reader.ResolveCitationKeys()
+	if err != nil {
+		t.Fatalf("ResolveCitationKeys() error: %v", err)
+	}
+	if got := citationKeys["ITEM-1"]; got != "lovelace2026" {
+		t.Fatalf("citationKeys[ITEM-1] = %q, want lovelace2026", got)
+	}
+}
+
+func TestResolveCitationKeysFromBib(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "zotero.sqlite")
+	buildTestLibrary(t, dbPath)
+	exportPath := filepath.Join(root, "library.bib")
+	exportBib := "@article{lovelace2026,\n  title={Pragmatic Testing},\n  doi={10.1000/example}\n}\n"
+	if err := os.WriteFile(exportPath, []byte(exportBib), 0o644); err != nil {
+		t.Fatalf("WriteFile(library.bib): %v", err)
+	}
+
+	reader, err := OpenReader(dbPath)
+	if err != nil {
+		t.Fatalf("OpenReader() error: %v", err)
+	}
+	t.Cleanup(func() { _ = reader.Close() })
+
+	citationKeys, err := reader.ResolveCitationKeys(exportPath)
 	if err != nil {
 		t.Fatalf("ResolveCitationKeys() error: %v", err)
 	}
