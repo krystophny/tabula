@@ -158,6 +158,7 @@ func TestParseSystemAction(t *testing.T) {
 		{name: "show status", raw: `{"action":"show_status"}`, wantAction: "show_status"},
 		{name: "shell", raw: `{"action":"shell","command":"ls -1"}`, wantAction: "shell"},
 		{name: "open file canvas", raw: `{"action":"open_file_canvas","path":"README.md"}`, wantAction: "open_file_canvas"},
+		{name: "show calendar", raw: `{"action":"show_calendar","view":"week"}`, wantAction: "show_calendar"},
 		{name: "multi action array", raw: `{"actions":[{"action":"shell","command":"ls -1"},{"action":"open_file_canvas","path":"README.md"}]}`, wantAction: "shell"},
 	}
 	for _, tc := range cases {

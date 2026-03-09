@@ -509,6 +509,8 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 			"path":       canvasTitle,
 			"project_id": targetProject.ID,
 		}, nil
+	case "show_calendar":
+		return a.executeCalendarAction(session, action)
 	case "print_item":
 		return a.executePrintItemAction(sessionID, session, action)
 	default:

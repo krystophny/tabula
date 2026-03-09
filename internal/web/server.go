@@ -18,7 +18,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
 	"github.com/krystophny/tabura/internal/appserver"
+	tabcalendar "github.com/krystophny/tabura/internal/calendar"
 	"github.com/krystophny/tabura/internal/extensions"
+	"github.com/krystophny/tabura/internal/ics"
 	"github.com/krystophny/tabura/internal/modelprofile"
 	"github.com/krystophny/tabura/internal/plugins"
 	"github.com/krystophny/tabura/internal/serve"
@@ -84,7 +86,10 @@ type App struct {
 	store      *store.Store
 	sourceSync sourceSyncRunner
 
-	appServerClient *appserver.Client
+	appServerClient         *appserver.Client
+	calendarNow             func() time.Time
+	newGoogleCalendarReader func(context.Context) (googleCalendarReader, error)
+	newICSCalendarReader    func() (icsCalendarReader, error)
 
 	upgrader websocket.Upgrader
 
@@ -270,24 +275,31 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		store:                         s,
 		sourceSync:                    nil,
 		appServerClient:               appServerClient,
-		upgrader:                      websocket.Upgrader{CheckOrigin: checkWSOrigin},
-		hub:                           newWSHub(),
-		turns:                         newChatTurnTracker(),
-		companionTurns:                newCompanionPendingTurnTracker(),
-		companionRuntime:              newCompanionRuntimeTracker(),
-		chatCaptureModes:              newChatCaptureModeTracker(),
-		chatCursorContexts:            newChatCursorContextTracker(),
-		projectAttention:              newProjectAttentionTracker(),
-		tunnels:                       newTunnelRegistry(),
-		chatAppSessions:               map[string]*appserver.Session{},
-		pendingDanger:                 map[string]*pendingDangerousAction{},
-		pendingApprovals:              map[string]map[string]*pendingAppServerApproval{},
-		ghCommandRunner:               runGitHubCLI,
-		presentationRenderer:          renderPresentationToPDF,
-		shutdownCtx:                   shutdownCtx,
-		shutdownCancel:                shutdownCancel,
-		bootID:                        strconv.FormatInt(time.Now().UnixNano(), 16),
-		startedAt:                     time.Now().UTC().Format(time.RFC3339Nano),
+		calendarNow:                   time.Now,
+		newGoogleCalendarReader: func(ctx context.Context) (googleCalendarReader, error) {
+			return tabcalendar.New(ctx)
+		},
+		newICSCalendarReader: func() (icsCalendarReader, error) {
+			return ics.New()
+		},
+		upgrader:             websocket.Upgrader{CheckOrigin: checkWSOrigin},
+		hub:                  newWSHub(),
+		turns:                newChatTurnTracker(),
+		companionTurns:       newCompanionPendingTurnTracker(),
+		companionRuntime:     newCompanionRuntimeTracker(),
+		chatCaptureModes:     newChatCaptureModeTracker(),
+		chatCursorContexts:   newChatCursorContextTracker(),
+		projectAttention:     newProjectAttentionTracker(),
+		tunnels:              newTunnelRegistry(),
+		chatAppSessions:      map[string]*appserver.Session{},
+		pendingDanger:        map[string]*pendingDangerousAction{},
+		pendingApprovals:     map[string]map[string]*pendingAppServerApproval{},
+		ghCommandRunner:      runGitHubCLI,
+		presentationRenderer: renderPresentationToPDF,
+		shutdownCtx:          shutdownCtx,
+		shutdownCancel:       shutdownCancel,
+		bootID:               strconv.FormatInt(time.Now().UnixNano(), 16),
+		startedAt:            time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	if _, err := app.ensureDefaultProjectRecord(); err != nil {
 		_ = s.Close()
