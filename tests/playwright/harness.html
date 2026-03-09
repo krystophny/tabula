@@ -533,7 +533,7 @@
           id: 102,
           title: 'Answer triage email',
           state: 'inbox',
-          sphere: 'work',
+          sphere: 'private',
           artifact_id: 502,
           source: 'exchange',
           source_ref: 'msg-102',
@@ -549,6 +549,7 @@
           id: 201,
           title: 'Await review feedback',
           state: 'waiting',
+          sphere: 'private',
           artifact_id: 0,
           source: 'github',
           source_ref: 'owner/repo#144',
@@ -580,7 +581,7 @@
           id: 401,
           title: 'Ship capture flow',
           state: 'done',
-          sphere: 'work',
+          sphere: 'private',
           artifact_id: 504,
           source: 'github',
           source_ref: 'owner/repo#90',
@@ -627,11 +628,32 @@
       done: [],
       counts: [],
     };
+    function normalizeHarnessSphere(value) {
+      const sphere = String(value || '').trim().toLowerCase();
+      if (sphere === 'work' || sphere === 'private') return sphere;
+      return String(runtimeState.active_sphere || 'private').trim().toLowerCase() === 'work' ? 'work' : 'private';
+    }
+    function normalizeHarnessItemSidebarEntry(entry) {
+      if (!entry || typeof entry !== 'object') return {};
+      return {
+        ...entry,
+        sphere: normalizeHarnessSphere(entry.sphere),
+      };
+    }
+    function normalizeHarnessItemSidebarEntries(entries) {
+      return Array.isArray(entries) ? entries.map((entry) => normalizeHarnessItemSidebarEntry(entry)) : [];
+    }
     window.__setItemSidebarData = (next) => {
       const incoming = next && typeof next === 'object' ? next : {};
-      window.__itemSidebarData = {
+      const data = {
         ...defaultItemSidebarData(),
         ...incoming,
+      };
+      window.__itemSidebarData = {
+        inbox: normalizeHarnessItemSidebarEntries(data.inbox),
+        waiting: normalizeHarnessItemSidebarEntries(data.waiting),
+        someday: normalizeHarnessItemSidebarEntries(data.someday),
+        done: normalizeHarnessItemSidebarEntries(data.done),
       };
     };
     window.__setItemSidebarActors = (next) => {
@@ -667,7 +689,7 @@
       window.__itemSidebarResponseDelays = queue;
     };
     function cloneItemSidebarEntry(entry) {
-      return entry && typeof entry === 'object' ? { ...entry } : {};
+      return normalizeHarnessItemSidebarEntry(entry);
     }
     function cloneItemSidebarEntries(entries) {
       return Array.isArray(entries) ? entries.map((entry) => cloneItemSidebarEntry(entry)) : [];
@@ -705,9 +727,9 @@
         updated_at: '2026-03-08 15:00:00',
       };
       if (!Array.isArray(data[nextState])) data[nextState] = [];
-      data[nextState] = [updated].concat(data[nextState]);
+      data[nextState] = [normalizeHarnessItemSidebarEntry(updated)].concat(data[nextState]);
       window.__itemSidebarData = data;
-      return updated;
+      return normalizeHarnessItemSidebarEntry(updated);
     }
     function deleteItemSidebarEntry(itemID) {
       const data = window.__itemSidebarData || defaultItemSidebarData();
@@ -738,18 +760,18 @@
           ...patch,
           updated_at: '2026-03-08 15:00:00',
         };
-        rows[index] = updated;
+        rows[index] = normalizeHarnessItemSidebarEntry(updated);
         data[stateKey] = rows;
       });
       window.__itemSidebarData = data;
-      return updated;
+      return updated ? normalizeHarnessItemSidebarEntry(updated) : null;
     }
     function prependInboxItem(entry) {
       const data = window.__itemSidebarData || defaultItemSidebarData();
       const inbox = Array.isArray(data.inbox) ? data.inbox : [];
       data.inbox = [cloneItemSidebarEntry(entry)].concat(inbox);
       window.__itemSidebarData = data;
-      return entry;
+      return cloneItemSidebarEntry(entry);
     }
     window.__participantConfig = {
       companion_enabled: false,

@@ -17,6 +17,7 @@ const itemSidebarActionLabel = (...args) => refs.itemSidebarActionLabel(...args)
 const hideItemSidebarMenu = (...args) => refs.hideItemSidebarMenu(...args);
 const applyItemSidebarCounts = (...args) => refs.applyItemSidebarCounts(...args);
 const itemSidebarEndpoint = (...args) => refs.itemSidebarEndpoint(...args);
+const itemSidebarCountsEndpoint = (...args) => refs.itemSidebarCountsEndpoint(...args);
 const openSidebarArtifactItem = (...args) => refs.openSidebarArtifactItem(...args);
 const isMobileViewport = (...args) => refs.isMobileViewport(...args);
 const suppressSyntheticClick = (...args) => refs.suppressSyntheticClick(...args);
@@ -72,7 +73,7 @@ export async function loadItemSidebarView(view = state.itemSidebarView) {
   try {
     const [itemsResp, countsResp] = await Promise.all([
       fetch(apiURL(itemSidebarEndpoint(normalizedView)), { cache: 'no-store' }),
-      fetch(apiURL('items/counts'), { cache: 'no-store' }),
+      fetch(apiURL(itemSidebarCountsEndpoint()), { cache: 'no-store' }),
     ]);
     if (!itemsResp.ok) {
       const detail = (await itemsResp.text()).trim() || `HTTP ${itemsResp.status}`;

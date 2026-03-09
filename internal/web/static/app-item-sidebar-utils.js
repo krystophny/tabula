@@ -40,6 +40,10 @@ export function itemSidebarEndpoint(view) {
   return appendSphereQuery(`items/${normalized}`);
 }
 
+export function itemSidebarCountsEndpoint() {
+  return appendSphereQuery('items/counts');
+}
+
 export function normalizeItemSidebarCounts(rawCounts) {
   const counts = defaultItemSidebarCounts();
   if (!rawCounts || typeof rawCounts !== 'object') return counts;

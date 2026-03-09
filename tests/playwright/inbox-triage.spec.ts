@@ -276,6 +276,7 @@ test.describe('inbox triage interactions', () => {
     await expect.poll(() => projectButtonTexts(page)).toEqual(['Work Tracker', 'Hub']);
     await expect(page.locator('#edge-left-tap')).toHaveAttribute('data-inbox-count', '1');
     await openInbox(page);
+    await expect(page.locator('.sidebar-tab', { hasText: 'Inbox' }).first()).toContainText('1');
     await expect(page.locator('#pr-file-list')).toContainText('Work inbox item');
     await expect(page.locator('#pr-file-list')).not.toContainText('Private inbox item');
     await expect.poll(async () => {
