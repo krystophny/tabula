@@ -4,6 +4,7 @@ import { resolve } from 'path';
 import WebSocket from 'ws';
 
 const DEFAULT_SERVER_URL = 'http://127.0.0.1:8420';
+const DEFAULT_MANAGED_SERVER_PASSWORD = 'tabura-test-password';
 const configuredServerURL = String(process.env.E2E_BASE_URL || process.env.TABURA_TEST_SERVER_URL || DEFAULT_SERVER_URL).trim();
 
 export const SERVER_URL = configuredServerURL || DEFAULT_SERVER_URL;
@@ -14,12 +15,16 @@ export const WS_URL = (() => {
 })();
 const SESSION_COOKIE_NAME = 'tabura_session';
 
+function usesManagedServer(): boolean {
+  return process.env.E2E_MANAGED_SERVER === '1'
+    || (!process.env.E2E_BASE_URL && !process.env.TABURA_TEST_SERVER_URL);
+}
+
 // ---------------------------------------------------------------------------
 // .env password loading
 // ---------------------------------------------------------------------------
 
-function loadEnvPassword(): string {
-  if (process.env.TABURA_TEST_PASSWORD) return process.env.TABURA_TEST_PASSWORD;
+function loadDotEnvPassword(): string {
   try {
     const envPath = resolve(__dirname, '../../.env');
     const lines = readFileSync(envPath, 'utf-8').split('\n');
@@ -36,7 +41,13 @@ function loadEnvPassword(): string {
   return '';
 }
 
-const testPassword = loadEnvPassword();
+function loadTestPassword(): string {
+  if (process.env.TABURA_TEST_PASSWORD) return process.env.TABURA_TEST_PASSWORD;
+  if (usesManagedServer()) return DEFAULT_MANAGED_SERVER_PASSWORD;
+  return loadDotEnvPassword();
+}
+
+const testPassword = loadTestPassword();
 
 // ---------------------------------------------------------------------------
 // Authentication
