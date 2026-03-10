@@ -19,6 +19,7 @@ func TestParseInlineBatchIntent(t *testing.T) {
 		wantAction  string
 		wantWorker  string
 		wantReview  string
+		wantPolicy  string
 		wantLimit   int
 		wantLabel   string
 		wantNumbers []int
@@ -27,6 +28,7 @@ func TestParseInlineBatchIntent(t *testing.T) {
 		{text: "work through P0 issues", wantAction: "batch_work", wantLabel: "p0"},
 		{text: "work through 166-170", wantAction: "batch_work", wantNumbers: []int{166, 167, 168, 169, 170}},
 		{text: "use claude for work, codex for review", wantAction: "batch_configure", wantWorker: "claude", wantReview: "codex"},
+		{text: "set review policy to agent then human", wantAction: "review_policy", wantPolicy: reviewPolicyAgentThenHuman},
 		{text: "stop after 3", wantAction: "batch_limit", wantLimit: 3},
 		{text: "show me progress", wantAction: "batch_status"},
 	}
@@ -48,6 +50,9 @@ func TestParseInlineBatchIntent(t *testing.T) {
 			}
 			if got := optionalStringParam(action.Params, "reviewer"); got != tc.wantReview {
 				t.Fatalf("reviewer = %q, want %q", got, tc.wantReview)
+			}
+			if got := optionalStringParam(action.Params, "review_policy"); got != tc.wantPolicy {
+				t.Fatalf("review_policy = %q, want %q", got, tc.wantPolicy)
 			}
 			if got := systemActionIntParam(action.Params, "limit"); got != tc.wantLimit {
 				t.Fatalf("limit = %d, want %d", got, tc.wantLimit)
@@ -111,6 +116,17 @@ func TestClassifyAndExecuteSystemActionBatchConfigPersistsWorkspaceSettings(t *t
 		t.Fatalf("payloads = %#v", payloads)
 	}
 
+	message, payloads, handled = app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "set review policy to agent then human")
+	if !handled {
+		t.Fatal("expected review policy command to be handled")
+	}
+	if message != "Review policy for workspace Batch set to agent then human." {
+		t.Fatalf("message = %q", message)
+	}
+	if len(payloads) != 1 || strFromAny(payloads[0]["type"]) != "batch_status" {
+		t.Fatalf("payloads = %#v", payloads)
+	}
+
 	watch, err := app.store.GetWorkspaceWatch(workspace.ID)
 	if err != nil {
 		t.Fatalf("GetWorkspaceWatch() error: %v", err)
@@ -124,6 +140,9 @@ func TestClassifyAndExecuteSystemActionBatchConfigPersistsWorkspaceSettings(t *t
 	}
 	if cfg.Limit != 3 {
 		t.Fatalf("config limit = %d, want 3", cfg.Limit)
+	}
+	if cfg.ReviewPolicy != reviewPolicyAgentThenHuman {
+		t.Fatalf("config review policy = %q, want %q", cfg.ReviewPolicy, reviewPolicyAgentThenHuman)
 	}
 	if batchConfigMode(cfg) != batchModeRun {
 		t.Fatalf("config mode = %q, want %q", batchConfigMode(cfg), batchModeRun)

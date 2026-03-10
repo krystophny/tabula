@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
 	"sort"
 	"time"
@@ -26,7 +27,7 @@ func (s *Store) ListItemsByStateFiltered(state string, filter ItemListFilter) ([
 	parts := []string{"state = ?"}
 	args := []any{cleanState}
 	parts, args = appendItemFilterClauses(parts, args, normalizedFilter, "")
-	query := `SELECT id, title, state, workspace_id, project_id, sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, created_at, updated_at
+	query := `SELECT id, title, state, workspace_id, project_id, sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 		 FROM items
 		 WHERE ` + stringsJoin(parts, " AND ")
 	rows, err := s.db.Query(
@@ -70,6 +71,9 @@ const itemSummarySelect = `SELECT
  i.follow_up_at,
  i.source,
  i.source_ref,
+ i.review_target,
+ i.reviewer,
+ i.reviewed_at,
  i.created_at,
  i.updated_at,
  a.title,
@@ -86,6 +90,19 @@ func sortItemSummaries(items []ItemSummary) {
 		}
 		return items[i].UpdatedAt > items[j].UpdatedAt
 	})
+}
+
+func (s *Store) GetItemSummary(id int64) (ItemSummary, error) {
+	query := itemSummarySelect + `
+ WHERE i.id = ?`
+	items, err := s.listItemSummaries(query, id)
+	if err != nil {
+		return ItemSummary{}, err
+	}
+	if len(items) == 0 {
+		return ItemSummary{}, sql.ErrNoRows
+	}
+	return items[0], nil
 }
 
 func (s *Store) listItemSummaries(query string, args ...any) ([]ItemSummary, error) {
@@ -274,7 +291,7 @@ func (s *Store) ListItemsFiltered(filter ItemListFilter) ([]Item, error) {
 	if err != nil {
 		return nil, err
 	}
-	query := `SELECT id, title, state, workspace_id, project_id, sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, created_at, updated_at
+	query := `SELECT id, title, state, workspace_id, project_id, sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 		 FROM items`
 	args := []any{}
 	parts := []string{}

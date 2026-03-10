@@ -50,8 +50,8 @@ func (s *Store) CreateItem(title string, opts ItemOptions) (Item, error) {
 
 	res, err := tx.Exec(
 		`INSERT INTO items (
-			title, state, workspace_id, project_id, sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			title, state, workspace_id, project_id, sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		cleanTitle,
 		cleanState,
 		opts.WorkspaceID,
@@ -63,6 +63,9 @@ func (s *Store) CreateItem(title string, opts ItemOptions) (Item, error) {
 		normalizeOptionalString(opts.FollowUpAt),
 		normalizeOptionalString(opts.Source),
 		normalizeOptionalString(opts.SourceRef),
+		normalizeOptionalString(normalizedReviewTargetPointer(opts.ReviewTarget)),
+		normalizeOptionalString(normalizedReviewerPointer(opts.Reviewer)),
+		normalizeOptionalString(reviewTimestampPointer(opts.ReviewTarget, opts.Reviewer)),
 	)
 	if err != nil {
 		return Item{}, err
@@ -82,7 +85,7 @@ func (s *Store) CreateItem(title string, opts ItemOptions) (Item, error) {
 
 func (s *Store) GetItem(id int64) (Item, error) {
 	return scanItem(s.db.QueryRow(
-		`SELECT id, title, state, workspace_id, project_id, sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, created_at, updated_at
+		`SELECT id, title, state, workspace_id, project_id, sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 		 FROM items
 		 WHERE id = ?`,
 		id,
@@ -96,7 +99,7 @@ func (s *Store) GetItemBySource(source, sourceRef string) (Item, error) {
 		return Item{}, errors.New("item source and source_ref are required")
 	}
 	return scanItem(s.db.QueryRow(
-		`SELECT id, title, state, workspace_id, project_id, sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, created_at, updated_at
+		`SELECT id, title, state, workspace_id, project_id, sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 		 FROM items
 		 WHERE source = ? AND source_ref = ?`,
 		cleanSource,
@@ -177,6 +180,80 @@ func (s *Store) UpdateItemSource(id int64, source, sourceRef string) error {
 		 WHERE id = ?`,
 		cleanSource,
 		cleanSourceRef,
+		id,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func normalizedReviewTargetPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	clean := normalizeItemReviewTarget(*value)
+	if clean == "" {
+		return nil
+	}
+	return &clean
+}
+
+func validateReviewTargetPointer(value *string) error {
+	if value == nil {
+		return nil
+	}
+	if strings.TrimSpace(*value) == "" {
+		return nil
+	}
+	if normalizedReviewTargetPointer(value) == nil {
+		return errors.New("review target must be agent, github, or email")
+	}
+	return nil
+}
+
+func normalizedReviewerPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	clean := strings.TrimSpace(*value)
+	if clean == "" {
+		return nil
+	}
+	return &clean
+}
+
+func reviewTimestampPointer(target, reviewer *string) *string {
+	if normalizedReviewTargetPointer(target) == nil && normalizedReviewerPointer(reviewer) == nil {
+		return nil
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	return &now
+}
+
+func (s *Store) UpdateItemReviewDispatch(id int64, target, reviewer *string) error {
+	if err := validateReviewTargetPointer(target); err != nil {
+		return err
+	}
+	cleanTarget := normalizedReviewTargetPointer(target)
+	cleanReviewer := normalizedReviewerPointer(reviewer)
+	if cleanTarget == nil && cleanReviewer != nil {
+		return errors.New("review target is required when reviewer is set")
+	}
+	res, err := s.db.Exec(
+		`UPDATE items
+		 SET review_target = ?, reviewer = ?, reviewed_at = ?, updated_at = datetime('now')
+		 WHERE id = ?`,
+		normalizeOptionalString(cleanTarget),
+		normalizeOptionalString(cleanReviewer),
+		normalizeOptionalString(reviewTimestampPointer(target, reviewer)),
 		id,
 	)
 	if err != nil {
@@ -290,6 +367,22 @@ func (s *Store) UpdateItem(id int64, updates ItemUpdate) error {
 			parts = append(parts, "source = ?", "source_ref = ?")
 			args = append(args, nil, nil)
 		}
+	}
+	if updates.ReviewTarget != nil || updates.Reviewer != nil {
+		if err := validateReviewTargetPointer(updates.ReviewTarget); err != nil {
+			return err
+		}
+		cleanTarget := normalizedReviewTargetPointer(updates.ReviewTarget)
+		cleanReviewer := normalizedReviewerPointer(updates.Reviewer)
+		if cleanTarget == nil && cleanReviewer != nil {
+			return errors.New("review target is required when reviewer is set")
+		}
+		parts = append(parts, "review_target = ?", "reviewer = ?", "reviewed_at = ?")
+		args = append(args,
+			normalizeOptionalString(cleanTarget),
+			normalizeOptionalString(cleanReviewer),
+			normalizeOptionalString(reviewTimestampPointer(updates.ReviewTarget, updates.Reviewer)),
+		)
 	}
 	if targetWorkspaceID != nil {
 		workspaceSphere, err := s.workspaceSphere(*targetWorkspaceID)

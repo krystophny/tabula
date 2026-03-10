@@ -1392,6 +1392,40 @@
         }
         return new Response(JSON.stringify({ ok: true, item }), { status: 200 });
       }
+      if (/\/api\/items\/\d+\/dispatch-review(?:\?|$)/.test(u) && opts?.method === 'POST') {
+        let body = {};
+        try { body = JSON.parse(String(opts?.body || '{}')); } catch (_) { body = {}; }
+        const match = u.match(/\/api\/items\/(\d+)\/dispatch-review(?:\?|$)/);
+        const itemID = Number(match?.[1] || 0);
+        const target = String(body.target || '').trim().toLowerCase();
+        const reviewer = String(body.reviewer || '').trim();
+        const email = String(body.email || '').trim();
+        if (!['agent', 'github', 'email'].includes(target)) {
+          return new Response('invalid review target', { status: 400 });
+        }
+        if (target === 'github' && !reviewer) {
+          return new Response('reviewer is required', { status: 400 });
+        }
+        if (target === 'email' && !email) {
+          return new Response('email is required', { status: 400 });
+        }
+        const item = moveItemSidebarEntry(itemID, 'waiting', {
+          review_target: target,
+          reviewer: target === 'github' ? reviewer : (target === 'email' ? email : ''),
+          reviewed_at: '2026-03-10T10:15:00Z',
+        });
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'dispatch_review',
+          method: opts?.method || 'POST',
+          url: u,
+          payload: body,
+        });
+        if (!item) {
+          return new Response('item not found', { status: 404 });
+        }
+        return new Response(JSON.stringify({ ok: true, item }), { status: 200 });
+      }
       if (/\/api\/items\/\d+\/workspace(?:\?|$)/.test(u) && opts?.method === 'PUT') {
         let body = {};
         try { body = JSON.parse(String(opts?.body || '{}')); } catch (_) { body = {}; }

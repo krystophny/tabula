@@ -24,6 +24,9 @@ const itemsTableSchema = `CREATE TABLE IF NOT EXISTS items (
   follow_up_at TEXT,
   source TEXT,
   source_ref TEXT,
+  review_target TEXT CHECK (review_target IN ('agent', 'github', 'email')),
+  reviewer TEXT,
+  reviewed_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );`
@@ -165,7 +168,47 @@ CREATE TABLE IF NOT EXISTS workspace_watches (
 	if err := s.migrateActorContactSupport(); err != nil {
 		return err
 	}
+	if err := s.migrateItemReviewDispatchSupport(); err != nil {
+		return err
+	}
 	return s.migrateItemArtifactLinkSupport()
+}
+
+func normalizeItemReviewTarget(target string) string {
+	switch strings.ToLower(strings.TrimSpace(target)) {
+	case ItemReviewTargetAgent:
+		return ItemReviewTargetAgent
+	case ItemReviewTargetGitHub:
+		return ItemReviewTargetGitHub
+	case ItemReviewTargetEmail:
+		return ItemReviewTargetEmail
+	default:
+		return ""
+	}
+}
+
+func (s *Store) migrateItemReviewDispatchSupport() error {
+	tableColumns, err := s.tableColumnSet("items")
+	if err != nil {
+		return err
+	}
+	changes := []struct {
+		column string
+		sql    string
+	}{
+		{column: "review_target", sql: `ALTER TABLE items ADD COLUMN review_target TEXT CHECK (review_target IN ('agent', 'github', 'email'))`},
+		{column: "reviewer", sql: `ALTER TABLE items ADD COLUMN reviewer TEXT`},
+		{column: "reviewed_at", sql: `ALTER TABLE items ADD COLUMN reviewed_at TEXT`},
+	}
+	for _, change := range changes {
+		if tableColumns["items"][change.column] {
+			continue
+		}
+		if _, err := s.db.Exec(change.sql); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func normalizeWorkspaceName(name string) string {
@@ -619,6 +662,7 @@ func scanItem(
 		projectID, visibleAfter, followUpAt sql.NullString
 		sphere                              string
 		source, sourceRef                   sql.NullString
+		reviewTarget, reviewer, reviewedAt  sql.NullString
 	)
 	err := row.Scan(
 		&out.ID,
@@ -633,6 +677,9 @@ func scanItem(
 		&followUpAt,
 		&source,
 		&sourceRef,
+		&reviewTarget,
+		&reviewer,
+		&reviewedAt,
 		&out.CreatedAt,
 		&out.UpdatedAt,
 	)
@@ -650,6 +697,15 @@ func scanItem(
 	out.FollowUpAt = nullStringPointer(followUpAt)
 	out.Source = nullStringPointer(source)
 	out.SourceRef = nullStringPointer(sourceRef)
+	out.ReviewTarget = nullStringPointer(reviewTarget)
+	if out.ReviewTarget != nil {
+		*out.ReviewTarget = normalizeItemReviewTarget(*out.ReviewTarget)
+		if *out.ReviewTarget == "" {
+			out.ReviewTarget = nil
+		}
+	}
+	out.Reviewer = nullStringPointer(reviewer)
+	out.ReviewedAt = nullStringPointer(reviewedAt)
 	return out, nil
 }
 
@@ -664,6 +720,7 @@ func scanItemSummary(
 		projectID, visibleAfter, followUpAt    sql.NullString
 		sphere                                 string
 		source, sourceRef                      sql.NullString
+		reviewTarget, reviewer, reviewedAt     sql.NullString
 		artifactTitle, artifactKind, actorName sql.NullString
 	)
 	err := row.Scan(
@@ -679,6 +736,9 @@ func scanItemSummary(
 		&followUpAt,
 		&source,
 		&sourceRef,
+		&reviewTarget,
+		&reviewer,
+		&reviewedAt,
 		&out.CreatedAt,
 		&out.UpdatedAt,
 		&artifactTitle,
@@ -699,6 +759,15 @@ func scanItemSummary(
 	out.FollowUpAt = nullStringPointer(followUpAt)
 	out.Source = nullStringPointer(source)
 	out.SourceRef = nullStringPointer(sourceRef)
+	out.ReviewTarget = nullStringPointer(reviewTarget)
+	if out.ReviewTarget != nil {
+		*out.ReviewTarget = normalizeItemReviewTarget(*out.ReviewTarget)
+		if *out.ReviewTarget == "" {
+			out.ReviewTarget = nil
+		}
+	}
+	out.Reviewer = nullStringPointer(reviewer)
+	out.ReviewedAt = nullStringPointer(reviewedAt)
 	out.ArtifactTitle = nullStringPointer(artifactTitle)
 	if artifactKind.Valid {
 		normalized := normalizeArtifactKind(ArtifactKind(artifactKind.String))

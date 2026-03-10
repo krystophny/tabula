@@ -107,6 +107,7 @@ type App struct {
 	chatCursorContexts      *chatCursorContextTracker
 	chatCanvasPositions     *chatCanvasPositionTracker
 	workspaceWatches        *workspaceWatchTracker
+	reviewDispatches        *reviewDispatchTracker
 	projectAttention        *projectAttentionTracker
 	tunnels                 *tunnelRegistry
 	chatAppSessions         map[string]*appserver.Session
@@ -114,6 +115,7 @@ type App struct {
 	pendingApprovals        map[string]map[string]*pendingAppServerApproval
 	ghCommandRunner         ghCommandRunner
 	workspaceWatchProcessor workspaceWatchProcessorFunc
+	reviewEmailSender       reviewDispatchEmailSender
 	presentationRenderer    presentationRenderFunc
 
 	shutdownCtx    context.Context
@@ -296,6 +298,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		chatCursorContexts:      newChatCursorContextTracker(),
 		chatCanvasPositions:     newChatCanvasPositionTracker(),
 		workspaceWatches:        newWorkspaceWatchTracker(),
+		reviewDispatches:        newReviewDispatchTracker(),
 		projectAttention:        newProjectAttentionTracker(),
 		tunnels:                 newTunnelRegistry(),
 		chatAppSessions:         map[string]*appserver.Session{},
@@ -303,6 +306,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		pendingApprovals:        map[string]map[string]*pendingAppServerApproval{},
 		ghCommandRunner:         runGitHubCLI,
 		workspaceWatchProcessor: nil,
+		reviewEmailSender:       sendReviewDispatchEmail,
 		presentationRenderer:    renderPresentationToPDF,
 		shutdownCtx:             shutdownCtx,
 		shutdownCancel:          shutdownCancel,

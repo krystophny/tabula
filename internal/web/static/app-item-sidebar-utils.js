@@ -158,6 +158,10 @@ export function isEmailSidebarItem(item) {
   return String(item?.artifact_kind || '').trim().toLowerCase() === 'email';
 }
 
+export function isGitHubPRSidebarItem(item) {
+  return String(item?.artifact_kind || '').trim().toLowerCase() === 'github_pr';
+}
+
 export function itemSidebarActionLabel(action, item = null) {
   const normalized = String(action || '').trim().toLowerCase();
   if (normalized === 'done') {
@@ -346,6 +350,43 @@ export async function performItemSidebarSphereUpdate(item, nextSphere) {
     return true;
   } catch (err) {
     showStatus(`sphere move failed: ${String(err?.message || err || 'unknown error')}`);
+    return false;
+  }
+}
+
+export async function performItemSidebarReviewDispatch(item, target, value = '') {
+  const itemID = Number(item?.id || 0);
+  const cleanTarget = String(target || '').trim().toLowerCase();
+  if (itemID <= 0 || !cleanTarget) return false;
+  const body = { target: cleanTarget };
+  let label = cleanTarget;
+  if (cleanTarget === 'github') {
+    const reviewer = String(value || window.prompt('GitHub reviewer', '') || '').trim();
+    if (!reviewer) return false;
+    body.reviewer = reviewer;
+    label = `github:${reviewer}`;
+  } else if (cleanTarget === 'email') {
+    const email = String(value || window.prompt('Reviewer email', '') || '').trim();
+    if (!email) return false;
+    body.email = email;
+    label = `email:${email}`;
+  }
+  try {
+    const resp = await fetch(apiURL(`items/${encodeURIComponent(String(itemID))}/dispatch-review`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
+      throw new Error(detail);
+    }
+    state.itemSidebarActiveItemID = itemID;
+    await loadItemSidebarView(state.itemSidebarView);
+    showStatus(`review dispatched: ${label}`);
+    return true;
+  } catch (err) {
+    showStatus(`review dispatch failed: ${String(err?.message || err || 'unknown error')}`);
     return false;
   }
 }
@@ -556,8 +597,40 @@ export async function showItemSidebarProjectMenu(item, x, y) {
   }
 }
 
+export function showItemSidebarReviewMenu(item, x, y) {
+  if (!isGitHubPRSidebarItem(item)) {
+    showStatus('review dispatch only works for PR items');
+    return false;
+  }
+  showItemSidebarMenu([
+    {
+      label: 'Agent Review',
+      action: 'review_agent',
+      onClick: () => performItemSidebarReviewDispatch(item, 'agent'),
+    },
+    {
+      label: 'GitHub Reviewer...',
+      action: 'review_github',
+      onClick: () => performItemSidebarReviewDispatch(item, 'github'),
+    },
+    {
+      label: 'Email Reviewer...',
+      action: 'review_email',
+      onClick: () => performItemSidebarReviewDispatch(item, 'email'),
+    },
+  ], x, y);
+  return true;
+}
+
 export function showItemSidebarActionMenu(item, x, y) {
   const itemState = normalizeItemSidebarView(item?.state || state.itemSidebarView);
+  const reviewEntry = isGitHubPRSidebarItem(item)
+    ? [{
+        label: 'Review...',
+        action: 'review_dispatch',
+        onClick: () => showItemSidebarReviewMenu(item, x, y),
+      }]
+    : [];
   const nextSphere = normalizeActiveSphere(item?.sphere) === 'work' ? 'private' : 'work';
   const sphereEntry = Number(item?.workspace_id || 0) > 0
     ? []
@@ -574,6 +647,7 @@ export function showItemSidebarActionMenu(item, x, y) {
   const entries = itemState === 'done'
     ? [
       reopenEntry,
+      ...reviewEntry,
       {
         label: 'Workspace...',
         action: 'workspace',
@@ -594,6 +668,7 @@ export function showItemSidebarActionMenu(item, x, y) {
     : itemState === 'someday'
     ? [
       reopenEntry,
+      ...reviewEntry,
       {
         label: itemSidebarActionLabel('done', item),
         action: 'done',
@@ -619,6 +694,7 @@ export function showItemSidebarActionMenu(item, x, y) {
     : itemState === 'waiting'
     ? [
       reopenEntry,
+      ...reviewEntry,
       {
         label: itemSidebarActionLabel('done', item),
         action: 'done',
@@ -647,6 +723,7 @@ export function showItemSidebarActionMenu(item, x, y) {
       },
     ]
     : [
+      ...reviewEntry,
       {
         label: itemSidebarActionLabel('done', item),
         action: 'done',

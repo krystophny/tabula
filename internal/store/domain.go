@@ -41,6 +41,10 @@ const (
 	ItemStateWaiting = "waiting"
 	ItemStateSomeday = "someday"
 	ItemStateDone    = "done"
+
+	ItemReviewTargetAgent  = "agent"
+	ItemReviewTargetGitHub = "github"
+	ItemReviewTargetEmail  = "email"
 )
 
 type ArtifactUpdate struct {
@@ -63,6 +67,8 @@ type ItemUpdate struct {
 	FollowUpAt   *string `json:"follow_up_at,omitempty"`
 	Source       *string `json:"source,omitempty"`
 	SourceRef    *string `json:"source_ref,omitempty"`
+	ReviewTarget *string `json:"review_target,omitempty"`
+	Reviewer     *string `json:"reviewer,omitempty"`
 }
 
 type ItemOptions struct {
@@ -76,6 +82,8 @@ type ItemOptions struct {
 	FollowUpAt   *string `json:"follow_up_at,omitempty"`
 	Source       *string `json:"source,omitempty"`
 	SourceRef    *string `json:"source_ref,omitempty"`
+	ReviewTarget *string `json:"review_target,omitempty"`
+	Reviewer     *string `json:"reviewer,omitempty"`
 }
 
 type ItemListFilter struct {
@@ -202,6 +210,9 @@ type Item struct {
 	FollowUpAt   *string `json:"follow_up_at,omitempty"`
 	Source       *string `json:"source,omitempty"`
 	SourceRef    *string `json:"source_ref,omitempty"`
+	ReviewTarget *string `json:"review_target,omitempty"`
+	Reviewer     *string `json:"reviewer,omitempty"`
+	ReviewedAt   *string `json:"reviewed_at,omitempty"`
 	CreatedAt    string  `json:"created_at"`
 	UpdatedAt    string  `json:"updated_at"`
 }

@@ -24,6 +24,7 @@ var (
 	batchWorkLabelPattern  = regexp.MustCompile(`(?i)^work through ([pP][0-3]) issues$`)
 	batchWorkRangePattern  = regexp.MustCompile(`(?i)^work through (?:issues )?(\d+)\s*-\s*(\d+)$`)
 	batchConfigPattern     = regexp.MustCompile(`(?i)^use ([a-z0-9._-]+) for work(?:,| and)\s*([a-z0-9._-]+) for review$`)
+	batchReviewPolicyRegex = regexp.MustCompile(`(?i)^set review policy to (always agent|agent then human|always human)$`)
 	batchLimitPattern      = regexp.MustCompile(`(?i)^stop after (\d+)(?: items?)?$`)
 	batchIssueNumberRegexp = regexp.MustCompile(`#(\d+)$`)
 )
@@ -32,6 +33,7 @@ type batchWorkConfig struct {
 	Mode         string `json:"mode,omitempty"`
 	Worker       string `json:"worker,omitempty"`
 	Reviewer     string `json:"reviewer,omitempty"`
+	ReviewPolicy string `json:"review_policy,omitempty"`
 	LabelFilter  string `json:"label_filter,omitempty"`
 	Limit        int    `json:"limit,omitempty"`
 	IssueNumbers []int  `json:"issue_numbers,omitempty"`
@@ -60,6 +62,15 @@ func parseInlineBatchIntent(text string) *SystemAction {
 				"worker":   strings.TrimSpace(match[1]),
 				"reviewer": strings.TrimSpace(match[2]),
 			},
+		}
+	}
+	if match := batchReviewPolicyRegex.FindStringSubmatch(trimmed); len(match) == 2 {
+		policy := normalizeReviewDispatchPolicy(strings.ReplaceAll(strings.ToLower(strings.TrimSpace(match[1])), " ", "_"))
+		if policy != "" {
+			return &SystemAction{
+				Action: "review_policy",
+				Params: map[string]interface{}{"review_policy": policy},
+			}
 		}
 	}
 	if match := batchLimitPattern.FindStringSubmatch(trimmed); len(match) == 2 {
@@ -104,6 +115,7 @@ func normalizeBatchWorkConfig(cfg batchWorkConfig) batchWorkConfig {
 	}
 	cfg.Worker = strings.TrimSpace(cfg.Worker)
 	cfg.Reviewer = strings.TrimSpace(cfg.Reviewer)
+	cfg.ReviewPolicy = normalizeReviewDispatchPolicy(cfg.ReviewPolicy)
 	cfg.LabelFilter = normalizeBatchLabelFilter(cfg.LabelFilter)
 	if cfg.Limit < 0 {
 		cfg.Limit = 0
@@ -166,6 +178,9 @@ func batchConfigPayload(cfg batchWorkConfig) map[string]interface{} {
 	}
 	if cfg.Reviewer != "" {
 		payload["reviewer"] = cfg.Reviewer
+	}
+	if cfg.ReviewPolicy != "" {
+		payload["review_policy"] = cfg.ReviewPolicy
 	}
 	if cfg.LabelFilter != "" {
 		payload["label_filter"] = cfg.LabelFilter
@@ -512,6 +527,33 @@ func (a *App) executeBatchAction(session store.ChatSession, action *SystemAction
 			a.reconcileWorkspaceWatches()
 		}
 		return fmt.Sprintf("Batch config for workspace %s set to worker %s and reviewer %s.", workspace.Name, worker, reviewer), map[string]interface{}{
+			"type":         "batch_status",
+			"workspace_id": workspace.ID,
+			"watch":        updatedWatch,
+			"config":       batchConfigPayload(cfg),
+		}, nil
+	case "review_policy":
+		reviewPolicy := normalizeReviewDispatchPolicy(systemActionStringParam(action.Params, "review_policy"))
+		if reviewPolicy == "" {
+			return "", nil, errors.New("review policy must be always_agent, agent_then_human, or always_human")
+		}
+		cfg.ReviewPolicy = reviewPolicy
+		pollInterval := 300
+		enabled := false
+		var currentBatchID *int64
+		if watch != nil {
+			pollInterval = watch.PollIntervalSeconds
+			enabled = watch.Enabled
+			currentBatchID = watch.CurrentBatchID
+		}
+		updatedWatch, err := a.saveWorkspaceBatchConfig(workspace.ID, cfg, enabled, pollInterval, currentBatchID)
+		if err != nil {
+			return "", nil, err
+		}
+		if enabled {
+			a.reconcileWorkspaceWatches()
+		}
+		return fmt.Sprintf("Review policy for workspace %s set to %s.", workspace.Name, reviewDispatchPolicyLabel(reviewPolicy)), map[string]interface{}{
 			"type":         "batch_status",
 			"workspace_id": workspace.ID,
 			"watch":        updatedWatch,
