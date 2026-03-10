@@ -294,17 +294,20 @@ func (a *App) createGitHubIssueInWorkspace(cwd, title, body string, labels, assi
 
 func conversationItemCandidateScore(item store.Item, ctx conversationItemContext) int {
 	score := 0
+	matched := false
 	if ctx.ArtifactID != nil && item.ArtifactID != nil && *ctx.ArtifactID == *item.ArtifactID {
 		score += 100
+		matched = true
 	}
 	if strings.EqualFold(strings.TrimSpace(item.Title), strings.TrimSpace(ctx.Title)) {
 		score += 40
+		matched = true
+	}
+	if !matched {
+		return -1
 	}
 	if ctx.WorkspaceID != nil && item.WorkspaceID != nil && *ctx.WorkspaceID == *item.WorkspaceID {
 		score += 20
-	}
-	if score == 0 {
-		return -1
 	}
 	return score
 }
@@ -330,8 +333,10 @@ func stringFromPointer(value *string) string {
 }
 
 func (a *App) findConversationPromotionItem(ctx conversationItemContext) (*store.Item, error) {
-	var best *store.Item
-	bestScore := -1
+	var bestLinked *store.Item
+	bestLinkedScore := -1
+	var bestUnlinked *store.Item
+	bestUnlinkedScore := -1
 	for _, state := range []string{
 		store.ItemStateInbox,
 		store.ItemStateWaiting,
@@ -347,20 +352,31 @@ func (a *App) findConversationPromotionItem(ctx conversationItemContext) (*store
 			if score < 0 {
 				continue
 			}
-			if best == nil || score > bestScore || (score == bestScore && item.ID > best.ID) {
+			source := linkedItemSourceDescription(item)
+			if source != "" {
+				if bestLinked == nil || score > bestLinkedScore || (score == bestLinkedScore && item.ID > bestLinked.ID) {
+					candidate := item
+					bestLinked = &candidate
+					bestLinkedScore = score
+				}
+				continue
+			}
+			if bestUnlinked == nil || score > bestUnlinkedScore || (score == bestUnlinkedScore && item.ID > bestUnlinked.ID) {
 				candidate := item
-				best = &candidate
-				bestScore = score
+				bestUnlinked = &candidate
+				bestUnlinkedScore = score
 			}
 		}
 	}
-	if best == nil {
+	if bestLinked != nil && bestLinkedScore >= bestUnlinkedScore {
+		if source := linkedItemSourceDescription(*bestLinked); source != "" {
+			return nil, fmt.Errorf("item is already linked to %s", source)
+		}
+	}
+	if bestUnlinked == nil {
 		return nil, nil
 	}
-	if source := linkedItemSourceDescription(*best); source != "" {
-		return nil, fmt.Errorf("item is already linked to %s", source)
-	}
-	return best, nil
+	return bestUnlinked, nil
 }
 
 func (a *App) createGitHubIssueFromConversation(sessionID string, session store.ChatSession, action *SystemAction) (string, map[string]interface{}, error) {

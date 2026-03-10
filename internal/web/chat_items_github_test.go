@@ -331,3 +331,87 @@ func TestClassifyAndExecuteSystemActionCreateGitHubIssueSurfacesCreateFailure(t 
 		t.Fatalf("message = %q", message)
 	}
 }
+
+func TestClassifyAndExecuteSystemActionCreateGitHubIssueRejectsDuplicateLinkedItem(t *testing.T) {
+	app := newAuthedTestApp(t)
+	app.intentLLMURL = ""
+	app.intentClassifierURL = ""
+
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensure default project: %v", err)
+	}
+	initGitHubWorkspaceRepo(t, project.RootPath, "https://github.com/owner/tabula.git")
+	workspace, err := app.store.CreateWorkspace("Default", project.RootPath)
+	if err != nil {
+		t.Fatalf("CreateWorkspace() error: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("chat session: %v", err)
+	}
+	assistantText := "Parser panic when config file is missing\n\n1. Reproduce with an empty config.\n2. Observe the nil pointer panic."
+	if _, err := app.store.AddChatMessage(session.ID, "assistant", assistantText, assistantText, "markdown"); err != nil {
+		t.Fatalf("add assistant message: %v", err)
+	}
+
+	source := "github"
+	sourceRef := "owner/tabula#77"
+	linkedItem, err := app.store.CreateItem("Parser panic when config file is missing", store.ItemOptions{
+		WorkspaceID: &workspace.ID,
+		Source:      &source,
+		SourceRef:   &sourceRef,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(linked) error: %v", err)
+	}
+	duplicateItem, err := app.store.CreateItem("Parser panic when config file is missing", store.ItemOptions{
+		WorkspaceID: &workspace.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(duplicate) error: %v", err)
+	}
+
+	ghCalls := 0
+	app.ghCommandRunner = func(_ context.Context, _ string, args ...string) (string, error) {
+		ghCalls++
+		t.Fatalf("unexpected gh invocation: %v", args)
+		return "", nil
+	}
+
+	message, payloads, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "create a GitHub issue from this")
+	if !handled {
+		t.Fatal("expected duplicate command to be handled")
+	}
+	if ghCalls != 0 {
+		t.Fatalf("gh call count = %d, want 0", ghCalls)
+	}
+	if len(payloads) != 0 {
+		t.Fatalf("payloads = %#v, want none", payloads)
+	}
+	if message != "I couldn't create the GitHub issue: item is already linked to github owner/tabula#77" {
+		t.Fatalf("message = %q", message)
+	}
+
+	gotLinked, err := app.store.GetItem(linkedItem.ID)
+	if err != nil {
+		t.Fatalf("GetItem(linked) error: %v", err)
+	}
+	if gotLinked.SourceRef == nil || *gotLinked.SourceRef != sourceRef {
+		t.Fatalf("linked source_ref = %v, want %q", gotLinked.SourceRef, sourceRef)
+	}
+	gotDuplicate, err := app.store.GetItem(duplicateItem.ID)
+	if err != nil {
+		t.Fatalf("GetItem(duplicate) error: %v", err)
+	}
+	if gotDuplicate.SourceRef != nil {
+		t.Fatalf("duplicate source_ref = %v, want nil", gotDuplicate.SourceRef)
+	}
+	items, err := app.store.ListItemsByState(store.ItemStateInbox)
+	if err != nil {
+		t.Fatalf("ListItemsByState(inbox) error: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("ListItemsByState(inbox) len = %d, want 2", len(items))
+	}
+}
