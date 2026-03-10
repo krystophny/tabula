@@ -236,6 +236,10 @@ func parseGitHubIssueNumberFromURL(raw string) (int, error) {
 }
 
 func (a *App) createGitHubIssueInWorkspace(cwd, title, body string, labels, assignees []string) (ghIssueListItem, error) {
+	return a.createGitHubIssueInWorkspaceWithRepo(cwd, "", title, body, labels, assignees)
+}
+
+func (a *App) createGitHubIssueInWorkspaceWithRepo(cwd, repo, title, body string, labels, assignees []string) (ghIssueListItem, error) {
 	runner := a.ghCommandRunner
 	if runner == nil {
 		runner = runGitHubCLI
@@ -251,7 +255,12 @@ func (a *App) createGitHubIssueInWorkspace(cwd, title, body string, labels, assi
 	if cleanBody == "" {
 		cleanBody = cleanTitle
 	}
-	args := []string{"issue", "create", "--title", cleanTitle, "--body", cleanBody}
+	cleanRepo := strings.TrimSpace(repo)
+	args := []string{"issue", "create"}
+	if cleanRepo != "" {
+		args = append(args, "--repo", cleanRepo)
+	}
+	args = append(args, "--title", cleanTitle, "--body", cleanBody)
 	for _, label := range labels {
 		if clean := strings.TrimSpace(label); clean != "" {
 			args = append(args, "--label", clean)
@@ -270,12 +279,12 @@ func (a *App) createGitHubIssueInWorkspace(cwd, title, body string, labels, assi
 	if err != nil {
 		return ghIssueListItem{}, err
 	}
-	viewRaw, err := runner(
-		ctx,
-		cwd,
-		"issue", "view", strconv.Itoa(number),
-		"--json", "number,title,url,state,labels,assignees",
-	)
+	viewArgs := []string{"issue", "view", strconv.Itoa(number)}
+	if cleanRepo != "" {
+		viewArgs = append(viewArgs, "--repo", cleanRepo)
+	}
+	viewArgs = append(viewArgs, "--json", "number,title,url,state,labels,assignees")
+	viewRaw, err := runner(ctx, cwd, viewArgs...)
 	if err != nil {
 		return ghIssueListItem{}, err
 	}

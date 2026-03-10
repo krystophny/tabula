@@ -64,6 +64,7 @@ type bugReportBundle struct {
 	WorkspaceDirPath string          `json:"workspace_dir_path,omitempty"`
 	GitHubIssueURL   string          `json:"github_issue_url,omitempty"`
 	GitHubIssueNo    int             `json:"github_issue_number,omitempty"`
+	GitHubIssueError string          `json:"github_issue_error,omitempty"`
 	ItemID           int64           `json:"item_id,omitempty"`
 	IssueLabels      []string        `json:"issue_labels,omitempty"`
 }
@@ -160,24 +161,22 @@ func (a *App) handleBugReportCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "write bundle failed", http.StatusInternalServerError)
 		return
 	}
-	issue, itemID, err := a.createGitHubIssueFromBugReport(workspace, bundlePath, bundle)
-	if err != nil {
-		http.Error(
-			w,
-			fmt.Sprintf("bug bundle saved but GitHub issue creation failed: %v", err),
-			http.StatusBadGateway,
-		)
-		return
+	issueTitle := bugReportIssueTitle(bundle)
+	issue, itemID, issueErr := a.createGitHubIssueFromBugReport(workspace, bundlePath, bundle)
+	if issueErr != nil {
+		bundle.GitHubIssueError = strings.TrimSpace(issueErr.Error())
+	} else {
+		bundle.GitHubIssueURL = strings.TrimSpace(issue.URL)
+		bundle.GitHubIssueNo = issue.Number
+		bundle.ItemID = itemID
+		bundle.IssueLabels = []string{"bug", "p0"}
+		issueTitle = strings.TrimSpace(issue.Title)
 	}
-	bundle.GitHubIssueURL = strings.TrimSpace(issue.URL)
-	bundle.GitHubIssueNo = issue.Number
-	bundle.ItemID = itemID
-	bundle.IssueLabels = []string{"bug", "p0"}
 	if err := writeBugReportBundle(bundlePath, bundle); err != nil {
 		http.Error(w, "update bundle failed", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{
+	payload := map[string]any{
 		"ok":              true,
 		"report_id":       reportID,
 		"bundle_path":     toBugReportRelativePath(workspace.DirPath, bundlePath),
@@ -185,11 +184,19 @@ func (a *App) handleBugReportCreate(w http.ResponseWriter, r *http.Request) {
 		"annotated_path":  bundle.AnnotatedPath,
 		"workspace":       workspace.Name,
 		"git_sha":         bundle.GitSHA,
-		"issue_number":    issue.Number,
-		"issue_url":       strings.TrimSpace(issue.URL),
-		"issue_title":     strings.TrimSpace(issue.Title),
-		"item_id":         itemID,
-	})
+		"issue_title":     issueTitle,
+	}
+	if bundle.GitHubIssueNo > 0 {
+		payload["issue_number"] = bundle.GitHubIssueNo
+		payload["issue_url"] = bundle.GitHubIssueURL
+	}
+	if bundle.ItemID > 0 {
+		payload["item_id"] = bundle.ItemID
+	}
+	if bundle.GitHubIssueError != "" {
+		payload["issue_error"] = bundle.GitHubIssueError
+	}
+	writeJSON(w, payload)
 }
 
 func writeBugReportBundle(path string, bundle bugReportBundle) error {
@@ -226,7 +233,8 @@ func (a *App) createGitHubIssueFromBugReport(workspace bugReportWorkspace, bundl
 	if err != nil {
 		return ghIssueListItem{}, 0, err
 	}
-	if err := a.ensureGitHubLabels(workspace.DirPath, map[string]struct {
+	ownerRepo := a.resolveBugReportGitHubRepo(workspace, workspaceID)
+	if err := a.ensureGitHubLabels(workspace.DirPath, ownerRepo, map[string]struct {
 		Color       string
 		Description string
 	}{
@@ -235,8 +243,9 @@ func (a *App) createGitHubIssueFromBugReport(workspace bugReportWorkspace, bundl
 	}); err != nil {
 		return ghIssueListItem{}, 0, err
 	}
-	issue, err := a.createGitHubIssueInWorkspace(
+	issue, err := a.createGitHubIssueInWorkspaceWithRepo(
 		workspace.DirPath,
+		ownerRepo,
 		bugReportIssueTitle(bundle),
 		bugReportIssueBody(bundle, toBugReportRelativePath(workspace.DirPath, bundlePath)),
 		[]string{"bug", "p0"},
@@ -244,10 +253,6 @@ func (a *App) createGitHubIssueFromBugReport(workspace bugReportWorkspace, bundl
 	)
 	if err != nil {
 		return ghIssueListItem{}, 0, err
-	}
-	ownerRepo := ""
-	if workspaceID != nil {
-		ownerRepo, _ = a.store.GitHubRepoForWorkspace(*workspaceID)
 	}
 	if ownerRepo == "" {
 		ownerRepo = bugReportOwnerRepoFromIssueURL(issue.URL)
@@ -272,6 +277,26 @@ func (a *App) createGitHubIssueFromBugReport(workspace bugReportWorkspace, bundl
 		}
 	}
 	return issue, item.ID, nil
+}
+
+func (a *App) resolveBugReportGitHubRepo(workspace bugReportWorkspace, workspaceID *int64) string {
+	if workspaceID != nil && *workspaceID > 0 {
+		if ownerRepo, err := a.store.GitHubRepoForWorkspace(*workspaceID); err == nil {
+			ownerRepo = strings.TrimSpace(ownerRepo)
+			if ownerRepo != "" {
+				return ownerRepo
+			}
+		}
+	}
+	if ownerRepo := bugReportGitRemoteOwnerRepo(workspace.DirPath); ownerRepo != "" {
+		return ownerRepo
+	}
+	if root := strings.TrimSpace(a.localProjectDir); root != "" {
+		if ownerRepo := bugReportGitRemoteOwnerRepo(root); ownerRepo != "" {
+			return ownerRepo
+		}
+	}
+	return ""
 }
 
 func (a *App) ensureBugReportWorkspaceID(workspace bugReportWorkspace) (*int64, error) {
@@ -314,7 +339,7 @@ func normalizeBugReportSphere(raw string) string {
 	}
 }
 
-func (a *App) ensureGitHubLabels(cwd string, wanted map[string]struct {
+func (a *App) ensureGitHubLabels(cwd, ownerRepo string, wanted map[string]struct {
 	Color       string
 	Description string
 }) error {
@@ -324,7 +349,8 @@ func (a *App) ensureGitHubLabels(cwd string, wanted map[string]struct {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), githubIssueListTimeout)
 	defer cancel()
-	raw, err := runner(ctx, cwd, "label", "list", "--json", "name", "--limit", "200")
+	listArgs := withGitHubRepoArg([]string{"label", "list", "--json", "name", "--limit", "200"}, ownerRepo)
+	raw, err := runner(ctx, cwd, listArgs...)
 	if err != nil {
 		return err
 	}
@@ -342,18 +368,25 @@ func (a *App) ensureGitHubLabels(cwd string, wanted map[string]struct {
 		if _, ok := existing[strings.ToLower(strings.TrimSpace(name))]; ok {
 			continue
 		}
-		_, err := runner(
-			ctx,
-			cwd,
-			"label", "create", name,
-			"--color", spec.Color,
-			"--description", spec.Description,
-		)
+		createArgs := withGitHubRepoArg([]string{"label", "create", name}, ownerRepo)
+		createArgs = append(createArgs, "--color", spec.Color, "--description", spec.Description)
+		_, err := runner(ctx, cwd, createArgs...)
 		if err != nil && !strings.Contains(strings.ToLower(err.Error()), "already exists") {
 			return err
 		}
 	}
 	return nil
+}
+
+func withGitHubRepoArg(args []string, ownerRepo string) []string {
+	clean := normalizeBugReportGitHubOwnerRepo(ownerRepo)
+	if clean == "" {
+		return args
+	}
+	out := make([]string, 0, len(args)+2)
+	out = append(out, args...)
+	out = append(out, "--repo", clean)
+	return out
 }
 
 func bugReportIssueTitle(bundle bugReportBundle) string {
@@ -389,11 +422,47 @@ func bugReportOwnerRepoFromIssueURL(raw string) string {
 	if err != nil || !strings.EqualFold(parsed.Host, "github.com") {
 		return ""
 	}
-	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	return normalizeBugReportGitHubOwnerRepo(parsed.Path)
+}
+
+func bugReportGitRemoteOwnerRepo(dirPath string) string {
+	clean := strings.TrimSpace(dirPath)
+	if clean == "" {
+		return ""
+	}
+	cmd := exec.Command("git", "-C", clean, "remote", "get-url", "origin")
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return normalizeBugReportGitHubOwnerRepo(string(output))
+}
+
+func normalizeBugReportGitHubOwnerRepo(raw string) string {
+	clean := strings.TrimSpace(strings.ToLower(raw))
+	if clean == "" {
+		return ""
+	}
+	clean = strings.TrimSuffix(clean, ".git")
+	if idx := strings.Index(clean, "#"); idx >= 0 {
+		clean = clean[:idx]
+	}
+	clean = strings.Trim(clean, "/")
+	switch {
+	case strings.HasPrefix(clean, "git@github.com:"):
+		clean = strings.TrimPrefix(clean, "git@github.com:")
+	case strings.HasPrefix(clean, "ssh://git@github.com/"):
+		clean = strings.TrimPrefix(clean, "ssh://git@github.com/")
+	case strings.HasPrefix(clean, "https://github.com/"):
+		clean = strings.TrimPrefix(clean, "https://github.com/")
+	case strings.HasPrefix(clean, "http://github.com/"):
+		clean = strings.TrimPrefix(clean, "http://github.com/")
+	}
+	parts := strings.Split(clean, "/")
 	if len(parts) < 2 {
 		return ""
 	}
-	return strings.ToLower(parts[0] + "/" + parts[1])
+	return parts[0] + "/" + parts[1]
 }
 
 func firstSentence(raw string) string {

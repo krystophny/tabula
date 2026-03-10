@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -320,6 +321,62 @@ func TestHandleBugReportCreateUsesLocalProjectFallback(t *testing.T) {
 	}
 	if item.WorkspaceID == nil || *item.WorkspaceID != workspace.ID {
 		t.Fatalf("item.WorkspaceID = %v, want %d", item.WorkspaceID, workspace.ID)
+	}
+}
+
+func TestHandleBugReportCreateSucceedsWhenIssueCreationFails(t *testing.T) {
+	app := newAuthedTestApp(t)
+	workspaceDir := t.TempDir()
+	workspace, err := app.store.CreateWorkspace("Hub", workspaceDir, store.SpherePrivate)
+	if err != nil {
+		t.Fatalf("CreateWorkspace() error: %v", err)
+	}
+	if err := app.store.SetActiveWorkspace(workspace.ID); err != nil {
+		t.Fatalf("SetActiveWorkspace() error: %v", err)
+	}
+	app.ghCommandRunner = func(_ context.Context, _ string, args ...string) (string, error) {
+		if len(args) >= 2 && args[0] == "label" && args[1] == "list" {
+			return "", errors.New("gh label list failed: fatal: not a git repository (or any of the parent directories): .git")
+		}
+		t.Fatalf("unexpected gh invocation: %v", args)
+		return "", nil
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), "POST", "/api/bugs/report", map[string]any{
+		"note":                "Submission should not fail when workspace is not a git repo.",
+		"screenshot_data_url": testPNGDataURL,
+	})
+	if rr.Code != 200 {
+		t.Fatalf("POST /api/bugs/report status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	payload := decodeJSONResponse(t, rr)
+	bundlePath := strFromAny(payload["bundle_path"])
+	if bundlePath == "" {
+		t.Fatalf("bundle_path missing in payload: %#v", payload)
+	}
+	if got := strFromAny(payload["issue_url"]); got != "" {
+		t.Fatalf("issue_url = %q, want empty on github failure", got)
+	}
+	if got := intFromAny(payload["issue_number"], 0); got != 0 {
+		t.Fatalf("issue_number = %d, want 0 on github failure", got)
+	}
+	issueErr := strFromAny(payload["issue_error"])
+	if !strings.Contains(strings.ToLower(issueErr), "not a git repository") {
+		t.Fatalf("issue_error = %q, want git repository error", issueErr)
+	}
+	bundleBytes, err := os.ReadFile(filepath.Join(workspaceDir, filepath.FromSlash(bundlePath)))
+	if err != nil {
+		t.Fatalf("read bundle: %v", err)
+	}
+	var bundle map[string]any
+	if err := json.Unmarshal(bundleBytes, &bundle); err != nil {
+		t.Fatalf("decode bundle: %v", err)
+	}
+	if got := strFromAny(bundle["github_issue_error"]); got == "" {
+		t.Fatalf("github_issue_error missing in bundle: %#v", bundle)
+	}
+	if got := strFromAny(bundle["github_issue_url"]); got != "" {
+		t.Fatalf("github_issue_url = %q, want empty on github failure", got)
 	}
 }
 

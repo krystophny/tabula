@@ -65,12 +65,16 @@ function stringifyConsoleArg(value) {
 function bugReportIssueCanvasMarkdown(payload) {
   const issueNumber = Number(payload?.issue_number || 0);
   const issueURL = safeText(payload?.issue_url);
+  const issueError = safeText(payload?.issue_error);
   const bundlePath = safeText(payload?.bundle_path);
   const lines = ['# Bug report filed', ''];
   if (issueNumber > 0 && issueURL) {
     lines.push(`- Issue: [#${issueNumber}](${issueURL})`);
   } else if (issueURL) {
     lines.push(`- Issue: ${issueURL}`);
+  }
+  if (issueError) {
+    lines.push(`- Issue filing error: ${issueError}`);
   }
   if (bundlePath) {
     lines.push(`- Bundle: \`${bundlePath}\``);
@@ -798,7 +802,14 @@ async function saveBugReport() {
     } catch (refreshErr) {
       console.warn('bug report inbox refresh failed', refreshErr);
     }
-    showStatus(issueNumber > 0 ? `bug report filed: #${issueNumber}` : `bug bundle saved: ${safeText(payload?.bundle_path) || 'ok'}`);
+    const issueError = safeText(payload?.issue_error);
+    if (issueNumber > 0) {
+      showStatus(`bug report filed: #${issueNumber}`);
+    } else if (issueError) {
+      showStatus(`bug bundle saved (issue filing failed): ${safeText(payload?.bundle_path) || 'ok'}`);
+    } else {
+      showStatus(`bug bundle saved: ${safeText(payload?.bundle_path) || 'ok'}`);
+    }
   } catch (err) {
     showStatus(`bug bundle failed: ${safeText(err?.message || err) || 'unknown error'}`);
   } finally {

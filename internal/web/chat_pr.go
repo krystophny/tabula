@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -31,8 +33,8 @@ type ghPRReview struct {
 
 func runGitHubCLI(ctx context.Context, cwd string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "gh", args...)
-	if strings.TrimSpace(cwd) != "" {
-		cmd.Dir = cwd
+	if commandDir := resolveGitHubCommandDir(cwd); commandDir != "" {
+		cmd.Dir = commandDir
 	}
 	out, err := cmd.CombinedOutput()
 	text := strings.TrimSpace(string(out))
@@ -46,6 +48,45 @@ func runGitHubCLI(ctx context.Context, cwd string, args ...string) (string, erro
 		return "", fmt.Errorf("gh %s failed: %s", strings.Join(args, " "), text)
 	}
 	return string(out), nil
+}
+
+func resolveGitHubCommandDir(cwd string) string {
+	clean := strings.TrimSpace(cwd)
+	candidates := []string{}
+	if clean != "" {
+		candidates = append(candidates, clean)
+		dir := filepath.Clean(clean)
+		for {
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break
+			}
+			candidates = append(candidates, parent)
+			dir = parent
+		}
+	}
+	if wd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, wd, filepath.Clean(filepath.Dir(wd)))
+	}
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		candidates = append(candidates, exeDir, filepath.Clean(filepath.Dir(exeDir)))
+	}
+	for _, candidate := range candidates {
+		if looksLikeGitRepo(candidate) {
+			return candidate
+		}
+	}
+	return clean
+}
+
+func looksLikeGitRepo(dir string) bool {
+	command := exec.Command("git", "-C", dir, "rev-parse", "--is-inside-work-tree")
+	out, err := command.Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "true"
 }
 
 func countUnifiedDiffFiles(diff string) int {
