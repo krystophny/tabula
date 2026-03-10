@@ -197,8 +197,9 @@ func (a *App) handleRuntimeYoloModeUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, map[string]interface{}{
-		"ok":      true,
-		"enabled": req.Enabled,
+		"ok":               true,
+		"enabled":          req.Enabled,
+		"execution_policy": executionPolicyForSession("chat", req.Enabled).Name,
 	})
 }
 

@@ -341,10 +341,10 @@ export function toggleYoloMode() {
   const next = !Boolean(state.yoloMode);
   setYoloMode(next)
     .then(() => {
-      showStatus(next ? 'yolo mode on' : 'yolo mode off');
+      showStatus(next ? 'autonomous policy on' : 'autonomous policy off');
     })
     .catch((err) => {
-      showStatus(`yolo update failed: ${String(err?.message || err || 'unknown error')}`);
+      showStatus(`autonomous policy update failed: ${String(err?.message || err || 'unknown error')}`);
       renderEdgeTopModelButtons();
     });
 }

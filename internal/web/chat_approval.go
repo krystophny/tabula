@@ -18,14 +18,8 @@ type pendingAppServerApproval struct {
 }
 
 func approvalPolicyForSession(mode string, yoloMode bool) string {
-	if yoloMode {
-		return appserver.ApprovalPolicyNever
-	}
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "plan", "review":
-		return appserver.ApprovalPolicyUnlessTrusted
-	}
-	return appserver.ApprovalPolicyOnRequest
+	policy := executionPolicyForSession(mode, yoloMode)
+	return appserver.NormalizeApprovalPolicy(policy.ApprovalPolicy)
 }
 
 func mergeApprovalPolicyThreadParams(threadParams map[string]interface{}, mode string, yoloMode bool) map[string]interface{} {

@@ -153,7 +153,6 @@ func TestParseSystemAction(t *testing.T) {
 		{name: "switch model", raw: `{"action":"switch_model","alias":"gpt","effort":"high"}`, wantAction: "switch_model"},
 		{name: "toggle silent", raw: `{"action":"toggle_silent"}`, wantAction: "toggle_silent"},
 		{name: "toggle live dialogue", raw: `{"action":"toggle_live_dialogue"}`, wantAction: "toggle_live_dialogue"},
-		{name: "toggle conversation alias", raw: `{"action":"toggle_conversation"}`, wantAction: "toggle_live_dialogue"},
 		{name: "cancel work", raw: `{"action":"cancel_work"}`, wantAction: "cancel_work"},
 		{name: "show status", raw: `{"action":"show_status"}`, wantAction: "show_status"},
 		{name: "shell", raw: `{"action":"shell","command":"ls -1"}`, wantAction: "shell"},

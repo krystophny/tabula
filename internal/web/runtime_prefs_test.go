@@ -30,6 +30,9 @@ func TestRuntimeIncludesSafetyPreferences(t *testing.T) {
 	if got := boolFromAny(payload["safety_yolo_mode"]); got {
 		t.Fatalf("safety_yolo_mode = %v, want false", got)
 	}
+	if got := strFromAny(payload["execution_policy"]); got != executionPolicyDefault {
+		t.Fatalf("execution_policy = %q, want %q", got, executionPolicyDefault)
+	}
 	if got := boolFromAny(payload["disclaimer_ack_required"]); !got {
 		t.Fatalf("disclaimer_ack_required = %v, want true", got)
 	}
@@ -56,6 +59,13 @@ func TestRuntimeYoloModeUpdatePersists(t *testing.T) {
 	if setRR.Code != http.StatusOK {
 		t.Fatalf("set yolo status=%d body=%s", setRR.Code, setRR.Body.String())
 	}
+	var setPayload map[string]any
+	if err := json.Unmarshal(setRR.Body.Bytes(), &setPayload); err != nil {
+		t.Fatalf("decode yolo response: %v", err)
+	}
+	if got := strFromAny(setPayload["execution_policy"]); got != executionPolicyAutonomous {
+		t.Fatalf("execution_policy = %q, want %q", got, executionPolicyAutonomous)
+	}
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("runtime status=%d body=%s", rr.Code, rr.Body.String())
@@ -66,6 +76,9 @@ func TestRuntimeYoloModeUpdatePersists(t *testing.T) {
 	}
 	if got := boolFromAny(payload["safety_yolo_mode"]); !got {
 		t.Fatalf("safety_yolo_mode = %v, want true", got)
+	}
+	if got := strFromAny(payload["execution_policy"]); got != executionPolicyAutonomous {
+		t.Fatalf("execution_policy = %q, want %q", got, executionPolicyAutonomous)
 	}
 }
 

@@ -114,10 +114,18 @@ func buildPromptFromHistoryForModeWithCompanion(mode string, messages []store.Ch
 }
 
 func buildPromptFromHistoryForSession(mode, sessionID string, messages []store.ChatMessage, canvas *canvasContext, outputMode string, modelAlias string) string {
-	return buildPromptFromHistoryForSessionWithCompanion(mode, sessionID, messages, canvas, nil, outputMode, modelAlias)
+	return buildPromptFromHistoryForSessionWithPolicy(mode, false, sessionID, messages, canvas, outputMode, modelAlias)
 }
 
 func buildPromptFromHistoryForSessionWithCompanion(mode, sessionID string, messages []store.ChatMessage, canvas *canvasContext, companion *companionPromptContext, outputMode string, modelAlias string) string {
+	return buildPromptFromHistoryForSessionWithCompanionPolicy(mode, false, sessionID, messages, canvas, companion, outputMode, modelAlias)
+}
+
+func buildPromptFromHistoryForSessionWithPolicy(mode string, autonomous bool, sessionID string, messages []store.ChatMessage, canvas *canvasContext, outputMode string, modelAlias string) string {
+	return buildPromptFromHistoryForSessionWithCompanionPolicy(mode, autonomous, sessionID, messages, canvas, nil, outputMode, modelAlias)
+}
+
+func buildPromptFromHistoryForSessionWithCompanionPolicy(mode string, autonomous bool, sessionID string, messages []store.ChatMessage, canvas *canvasContext, companion *companionPromptContext, outputMode string, modelAlias string) string {
 	isVoiceMode := isVoiceOutputMode(outputMode)
 	const maxHistory = 80
 	if len(messages) > maxHistory {
@@ -138,16 +146,11 @@ func buildPromptFromHistoryForSessionWithCompanion(mode, sessionID string, messa
 	}
 
 	_ = modelAlias
+	appendExecutionPolicyPrompt(&b, mode, autonomous)
 
 	if isVoiceMode && canvas != nil && canvas.HasArtifact {
 		b.WriteString("## Current Artifact\n")
 		fmt.Fprintf(&b, "- Active artifact tab: %q (kind: %s)\n\n", canvas.ArtifactTitle, canvas.ArtifactKind)
-	}
-
-	if strings.EqualFold(strings.TrimSpace(mode), "plan") {
-		b.WriteString("You are in plan mode. Propose actions step by step and wait for approval before executing risky or tool-driven work.\n")
-		b.WriteString("Explain what you intend to do and why, then continue once the approval decision is available.\n")
-		b.WriteString("For research tasks, propose each retrieval step clearly and present findings as artifacts or concise chat updates.\n\n")
 	}
 	appendResearchArtifactPrompt(&b, outputMode, userText, researchArtifactRoot(sessionID))
 
@@ -174,6 +177,21 @@ func buildPromptFromHistoryForSessionWithCompanion(mode, sessionID string, messa
 		b.WriteString("Reply as ASSISTANT.")
 	}
 	return b.String()
+}
+
+func appendExecutionPolicyPrompt(b *strings.Builder, mode string, autonomous bool) {
+	if b == nil {
+		return
+	}
+	switch executionPolicyForSession(mode, autonomous).Name {
+	case executionPolicyReviewed:
+		b.WriteString("Execution policy is reviewed. Propose actions step by step and wait for approval before executing risky or tool-driven work.\n")
+		b.WriteString("Explain what you intend to do and why, then continue once the approval decision is available.\n")
+		b.WriteString("For research tasks, propose each retrieval step clearly and present findings as artifacts or concise chat updates.\n\n")
+	case executionPolicyAutonomous:
+		b.WriteString("Execution policy is autonomous. Do not stall for approval unless the platform explicitly blocks the action.\n")
+		b.WriteString("Keep using the normal canvas/artifact flow for proposed changes, findings, and status updates.\n\n")
+	}
 }
 
 // buildTurnPrompt constructs a prompt for a resumed thread: only the latest

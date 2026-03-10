@@ -527,6 +527,7 @@ func (a *App) handleRuntime(w http.ResponseWriter, r *http.Request) {
 		"startup_behavior":            a.runtimeStartupBehavior(),
 		"active_sphere":               a.runtimeActiveSphere(),
 		"safety_yolo_mode":            a.yoloModeEnabled(),
+		"execution_policy":            executionPolicyForSession("chat", a.yoloModeEnabled()).Name,
 		"disclaimer_version":          disclaimerVersionCurrent,
 		"disclaimer_ack_required":     a.disclaimerAckRequired(),
 		"disclaimer_ack_version":      a.disclaimerAckVersion(),

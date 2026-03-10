@@ -190,11 +190,34 @@ func TestBuildPromptFromHistory_IncludesSystemPrompt(t *testing.T) {
 
 func TestBuildPromptFromHistory_PlanMode(t *testing.T) {
 	prompt := buildPromptFromHistory("plan", nil, nil)
-	if !strings.Contains(prompt, "plan mode") {
-		t.Error("prompt should mention plan mode")
+	if !strings.Contains(prompt, "Execution policy is reviewed.") {
+		t.Error("prompt should mention reviewed execution policy")
 	}
 	if !strings.Contains(prompt, "wait for approval") {
-		t.Error("prompt should require approval in plan mode")
+		t.Error("prompt should require approval in reviewed policy")
+	}
+}
+
+func TestBuildPromptFromHistory_ReviewModeUsesReviewedPolicy(t *testing.T) {
+	prompt := buildPromptFromHistory("review", nil, nil)
+	if !strings.Contains(prompt, "Execution policy is reviewed.") {
+		t.Error("review prompt should mention reviewed execution policy")
+	}
+	if !strings.Contains(prompt, "wait for approval") {
+		t.Error("review prompt should require approval")
+	}
+}
+
+func TestBuildPromptFromHistoryForSession_AutonomousPolicy(t *testing.T) {
+	prompt := buildPromptFromHistoryForSessionWithPolicy("chat", true, "session-42", []store.ChatMessage{{
+		Role:         "user",
+		ContentPlain: "apply the fix",
+	}}, nil, turnOutputModeVoice, "")
+	if !strings.Contains(prompt, "Execution policy is autonomous.") {
+		t.Fatal("autonomous prompt should mention autonomous execution policy")
+	}
+	if strings.Contains(prompt, "wait for approval") {
+		t.Fatal("autonomous prompt should not wait for approval")
 	}
 }
 

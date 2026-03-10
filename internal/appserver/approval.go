@@ -49,6 +49,10 @@ func normalizeApprovalPolicy(raw string) string {
 	}
 }
 
+func NormalizeApprovalPolicy(raw string) string {
+	return normalizeApprovalPolicy(raw)
+}
+
 func parseApprovalRequest(msg map[string]interface{}) (*ApprovalRequest, bool) {
 	method := strings.TrimSpace(stringifyItemValue(msg["method"]))
 	switch method {

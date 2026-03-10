@@ -84,6 +84,13 @@ function visibleProjectsForSphere(sphere = state.activeSphere) {
   return state.projects.filter((project) => projectMatchesSphere(project, sphere));
 }
 
+function currentExecutionPolicy(project = activeProject()) {
+  if (state.yoloMode) return 'autonomous';
+  const mode = String(project?.chat_mode || 'chat').trim().toLowerCase();
+  if (mode === 'plan' || mode === 'review') return 'reviewed';
+  return 'default';
+}
+
 async function ensureVisibleActiveProject() {
   const current = activeProject();
   if (!current || projectMatchesSphere(current, state.activeSphere)) {
@@ -486,7 +493,9 @@ export function renderEdgeTopModelButtons() {
   const yoloButton = document.createElement('button');
   yoloButton.type = 'button';
   yoloButton.className = 'edge-project-btn edge-model-btn edge-yolo-btn';
-  yoloButton.textContent = 'yolo';
+  yoloButton.textContent = 'Auto';
+  yoloButton.title = `Execution policy: ${currentExecutionPolicy(project)}`;
+  yoloButton.setAttribute('aria-label', 'Autonomous execution policy');
   yoloButton.setAttribute('aria-pressed', state.yoloMode ? 'true' : 'false');
   if (state.yoloMode) {
     yoloButton.classList.add('is-active');

@@ -379,7 +379,19 @@ export function handleChatEvent(payload) {
   }
 
   if (type === 'mode_changed') {
-    setChatMode(payload.mode || 'chat');
+    const nextMode = String(payload.mode || 'chat').trim().toLowerCase();
+    setChatMode(nextMode);
+    const activeProjectID = String(state.activeProjectId || '').trim();
+    if (activeProjectID) {
+      const existing = state.projects.find((item) => item.id === activeProjectID);
+      if (existing) {
+        upsertProject({
+          ...existing,
+          chat_mode: nextMode,
+        });
+      }
+    }
+    renderEdgeTopModelButtons();
     const message = String(payload.message || '').trim();
     if (message) appendPlainMessage('system', message);
     return;
@@ -476,7 +488,7 @@ export function handleChatEvent(payload) {
       openPrintView(String(action?.url || '').trim());
     } else if (actionType === 'batch_status') {
       applyBatchStatus(action);
-    } else if (actionType === 'toggle_live_dialogue' || actionType === 'toggle_conversation') {
+    } else if (actionType === 'toggle_live_dialogue') {
       const next = state.liveSessionActive ? '' : LIVE_SESSION_MODE_DIALOGUE;
       const action = next
         ? activateLiveSession(next)

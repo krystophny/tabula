@@ -960,6 +960,18 @@ test.describe('mode_changed event', () => {
     const text = await chatHistory.textContent();
     expect(text).toContain('Entering plan mode.');
   });
+
+  test('execution policy control stays explicit when mode changes', async ({ page }) => {
+    const autoButton = page.locator('#edge-top-models .edge-yolo-btn');
+    await expect(autoButton).toHaveText('Auto');
+    await expect(autoButton).toHaveAttribute('title', /Execution policy: default/);
+
+    await injectChatEvent(page, { type: 'mode_changed', mode: 'review' });
+    await page.waitForTimeout(100);
+
+    await expect(autoButton).toHaveAttribute('title', /Execution policy: reviewed/);
+    await expect(page.locator('#edge-top-models')).not.toContainText('yolo');
+  });
 });
 
 test.describe('approval_request event', () => {

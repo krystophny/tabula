@@ -64,7 +64,7 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 	if resumed {
 		prompt = buildTurnPromptForSessionWithCompanion(sessionID, messages, canvasCtx, companionCtx, turn.outputMode, profile.Alias)
 	} else {
-		prompt = buildPromptFromHistoryForSessionWithCompanion(session.Mode, sessionID, messages, canvasCtx, companionCtx, turn.outputMode, profile.Alias)
+		prompt = buildPromptFromHistoryForSessionWithCompanionPolicy(session.Mode, a.yoloModeEnabled(), sessionID, messages, canvasCtx, companionCtx, turn.outputMode, profile.Alias)
 		_ = a.store.UpdateChatSessionThread(sessionID, appSess.ThreadID())
 	}
 	prompt = appendChatCursorPrompt(prompt, cursorCtx)
@@ -334,7 +334,7 @@ func (a *App) tryRunLocalSystemActionTurn(sessionID string, session store.ChatSe
 func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession, messages []store.ChatMessage, cursorCtx *chatCursorContext, positionCtx []*chatCanvasPositionEvent, outputMode string, profile appServerModelProfile) {
 	profile = a.appServerProfileForChatSession(session, profile)
 	canvasCtx := a.resolveCanvasContext(session.ProjectKey)
-	prompt := buildPromptFromHistoryForSession(session.Mode, sessionID, messages, canvasCtx, outputMode, profile.Alias)
+	prompt := buildPromptFromHistoryForSessionWithPolicy(session.Mode, a.yoloModeEnabled(), sessionID, messages, canvasCtx, outputMode, profile.Alias)
 	prompt = appendChatCursorPrompt(prompt, cursorCtx)
 	prompt = appendCanvasPositionPrompt(prompt, positionCtx)
 	if strings.TrimSpace(prompt) == "" {
