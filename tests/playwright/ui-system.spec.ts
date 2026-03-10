@@ -997,8 +997,11 @@ test.describe('approval_request event', () => {
     const card = page.locator('.chat-approval-request').last();
     await expect(card.locator('.chat-approval-title')).toHaveText('Allow command execution: run git status');
     await expect(card.locator('.chat-approval-detail')).toHaveText('run git status');
+    await expect(page.locator('#canvas-text')).toHaveClass(/is-active/);
+    await expect(page.locator('#canvas-text')).toContainText('Approval required');
+    await expect(page.locator('#canvas-text .canvas-approval-actions')).toBeVisible();
 
-    await card.getByRole('button', { name: 'Approve' }).click();
+    await page.locator('#canvas-text').getByRole('button', { name: 'Approve' }).click();
 
     await expect.poll(async () => {
       return page.evaluate(() => (window as any).__approvalMessages || []);
@@ -1012,6 +1015,7 @@ test.describe('approval_request event', () => {
 
     await injectChatEvent(page, { type: 'approval_resolved', request_id: 'approval-1', decision: 'accept' });
     await expect(card.locator('.chat-approval-status')).toHaveText('Approved');
+    await expect(page.locator('#canvas-text .canvas-approval-status')).toHaveText('Approved');
   });
 });
 

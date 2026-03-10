@@ -17,11 +17,12 @@ Current runtime baseline:
 Read in this order:
 
 1. `object-scoped-intent-ui.md`
-2. `interfaces.md`
-3. `architecture.md`
-4. `companion-mode-whitepaper.md`
-5. `meeting-notes-privacy.md`
-6. `codex-app-server-pivot.md`
+2. `approval-execution-policy.md`
+3. `interfaces.md`
+4. `architecture.md`
+5. `companion-mode-whitepaper.md`
+6. `meeting-notes-privacy.md`
+7. `codex-app-server-pivot.md`
 
 Integrated protocol reference:
 

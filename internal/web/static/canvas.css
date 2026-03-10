@@ -93,6 +93,26 @@
   padding: 1.2rem;
 }
 
+.canvas-approval-request {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+.canvas-approval-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.canvas-approval-status {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .welcome-surface-root {
   display: flex;
   flex-direction: column;

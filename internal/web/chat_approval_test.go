@@ -17,6 +17,7 @@ func TestApprovalPolicyForSession(t *testing.T) {
 	}{
 		{name: "yolo", mode: "chat", yolo: true, want: appserver.ApprovalPolicyNever},
 		{name: "plan", mode: "plan", yolo: false, want: appserver.ApprovalPolicyUnlessTrusted},
+		{name: "review", mode: "review", yolo: false, want: appserver.ApprovalPolicyUnlessTrusted},
 		{name: "default", mode: "chat", yolo: false, want: appserver.ApprovalPolicyOnRequest},
 	}
 	for _, tc := range tests {

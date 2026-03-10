@@ -1,6 +1,6 @@
 import { AnnotationLayer, GlobalWorkerOptions, TextLayer, getDocument } from './vendor/pdf.mjs';
 import { apiURL } from './paths.js';
-import { state } from './app-context.js';
+import { refs, state } from './app-context.js';
 import { renderTextArtifact, sanitizeHtml } from './canvas-content.js';
 import { launchNewMailAuthoring, launchReplyAuthoring, launchReplyAllAuthoring, launchForwardAuthoring, openMailDraftArtifact, renderMailDraftArtifact } from './app-mail-drafts.js';
 import { buildEmailThreadHTML } from './app-item-sidebar-artifacts.js';
@@ -115,6 +115,72 @@ function renderCanvasMailActions(root, event) {
   actions.appendChild(forwardButton);
 
   root.append(actions);
+}
+
+function approvalDecisionLabel(decision) {
+  const value = String(decision || '').trim().toLowerCase();
+  if (value === 'accept' || value === 'approve') return 'Approved';
+  if (value === 'decline' || value === 'reject') return 'Rejected';
+  return 'Cancelled';
+}
+
+function setCanvasApprovalButtonsDisabled(root, disabled) {
+  if (!(root instanceof HTMLElement)) return;
+  root.querySelectorAll('.canvas-approval-actions button[data-approval-decision]').forEach((button) => {
+    if (button instanceof HTMLButtonElement) {
+      button.disabled = disabled;
+    }
+  });
+}
+
+function showCanvasApprovalStatus(root, decision) {
+  if (!(root instanceof HTMLElement)) return;
+  let status = root.querySelector('.canvas-approval-status');
+  if (!(status instanceof HTMLElement)) {
+    status = document.createElement('div');
+    status.className = 'canvas-approval-status';
+    root.appendChild(status);
+  }
+  status.textContent = approvalDecisionLabel(decision);
+}
+
+function renderCanvasApprovalActions(root, event) {
+  if (!(root instanceof HTMLElement)) return;
+  const meta = event?.meta && typeof event.meta === 'object' ? event.meta : null;
+  if (!meta || meta.approval_request !== true) return;
+  const requestID = String(meta.request_id || '').trim();
+  if (!requestID) return;
+
+  root.dataset.approvalRequestId = requestID;
+  const panel = document.createElement('div');
+  panel.className = 'canvas-approval-request';
+  panel.dataset.approvalRequestId = requestID;
+
+  const actions = document.createElement('div');
+  actions.className = 'canvas-approval-actions';
+  [
+    ['Approve', 'accept'],
+    ['Reject', 'decline'],
+    ['Cancel', 'cancel'],
+  ].forEach(([label, decision]) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'chat-approval-btn';
+    button.dataset.approvalDecision = decision;
+    button.textContent = label;
+    button.addEventListener('click', () => {
+      setCanvasApprovalButtonsDisabled(panel, true);
+      if (typeof refs.sendChatWsJSON !== 'function' || !refs.sendChatWsJSON({ type: 'approval_response', request_id: requestID, decision })) {
+        setCanvasApprovalButtonsDisabled(panel, false);
+        if (typeof refs.showStatus === 'function') {
+          refs.showStatus('approval send failed');
+        }
+      }
+    });
+    actions.appendChild(button);
+  });
+  panel.appendChild(actions);
+  root.appendChild(panel);
 }
 
 export function getEls() {
@@ -904,6 +970,7 @@ export function renderCanvas(event) {
     e.text.style.display = '';
     e.text.classList.add('is-active');
     e.text.classList.remove('mail-draft-canvas');
+    delete e.text.dataset.approvalRequestId;
     clearTextInteractionHandlers();
     activeTextEventId = event.event_id;
     activePdfEvent = null;
@@ -933,6 +1000,7 @@ export function renderCanvas(event) {
       previousArtifactTitle = nextState.previousArtifactTitle;
     }
     renderCanvasMailActions(e.text, event);
+    renderCanvasApprovalActions(e.text, event);
     dispatchCanvasRendered(event);
   } else if (event.kind === 'email_draft') {
     hideAll();
@@ -982,6 +1050,7 @@ export function clearCanvas() {
   hideAll();
   const e = getEls();
   if (e.text) e.text.classList.remove('mail-draft-canvas');
+  if (e.text) delete e.text.dataset.approvalRequestId;
   cancelPdfRender({ destroyDocument: true });
   activeTextEventId = null;
   activeArtifactTitle = '';
@@ -990,6 +1059,15 @@ export function clearCanvas() {
   previousBlockTexts = [];
   previousArtifactTitle = '';
   dispatchCanvasCleared();
+}
+
+export function resolveCanvasApprovalRequest(requestID, decision) {
+  const key = String(requestID || '').trim();
+  if (!key) return;
+  const root = document.querySelector(`#canvas-text .canvas-approval-request[data-approval-request-id="${CSS.escape(key)}"]`);
+  if (!(root instanceof HTMLElement)) return;
+  setCanvasApprovalButtonsDisabled(root, true);
+  showCanvasApprovalStatus(root, decision);
 }
 
 export function getPreviousArtifactText() {

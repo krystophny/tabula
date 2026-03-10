@@ -3,6 +3,7 @@ export { apiURL, wsURL } from './paths.js';
 export {
   renderCanvas,
   clearCanvas,
+  resolveCanvasApprovalRequest,
   getLocationFromSelection,
   clearLineHighlight,
   escapeHtml,

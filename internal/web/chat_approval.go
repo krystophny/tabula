@@ -21,7 +21,8 @@ func approvalPolicyForSession(mode string, yoloMode bool) string {
 	if yoloMode {
 		return appserver.ApprovalPolicyNever
 	}
-	if strings.EqualFold(strings.TrimSpace(mode), "plan") {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "plan", "review":
 		return appserver.ApprovalPolicyUnlessTrusted
 	}
 	return appserver.ApprovalPolicyOnRequest
