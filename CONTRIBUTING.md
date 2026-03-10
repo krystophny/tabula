@@ -19,6 +19,20 @@ not for speculative compatibility.
 - Historical docs and release notes may remain as records, but they must not
   steer new design if they conflict with the current direction.
 
+## Domain Replacement Policy
+
+- The Workspace/Artifact/Item/Actor model replaces the older
+  project/session/message model. Treat coexistence as a migration step, not a
+  target architecture.
+- When the new model covers an old table, handler, route, or UI flow, delete
+  the old path instead of preserving both.
+- Do not add bridges, adapters, compatibility shims, or dual-write paths just
+  to keep legacy code alive. Those require explicit, concrete justification.
+- The final schema and API surface should get smaller and clearer over time, not
+  accumulate parallel legacy and replacement shapes.
+- Reviewer default: ask whether the old thing can be deleted now. If the answer
+  is yes, delete it instead of layering more compatibility around it.
+
 ## Primary Criteria
 
 The only standing criteria for change are:
