@@ -63,6 +63,8 @@ export function showCanvasColumn(paneId) {
     artifactKind: String(currentArtifact.artifactKind || ''),
     title: artifactTitle,
     surfaceDefault: String(currentArtifact.surfaceDefault || ''),
+    itemID: Number(currentArtifact.itemID || 0),
+    artifactID: Number(currentArtifact.artifactID || 0),
   };
   applyInteractionDefaultsForPane(paneId);
   setUiMode('artifact');
@@ -87,6 +89,8 @@ export function hideCanvasColumn() {
     artifactKind: '',
     title: '',
     surfaceDefault: '',
+    itemID: 0,
+    artifactID: 0,
   };
   state.workspaceOpenFilePath = '';
   state.workspaceStepInFlight = false;

@@ -1,4 +1,6 @@
 import { refs, state } from './app-context.js';
+import { executeCurrentCanonicalAction, currentCanonicalActionContext, currentCanonicalActions } from './app-canonical-actions.js';
+import { canonicalActionLabel } from './artifact-taxonomy.js';
 
 const openItemSidebarView = (...args) => refs.openItemSidebarView(...args);
 const launchNewMailAuthoring = (...args) => refs.launchNewMailAuthoring(...args);
@@ -10,6 +12,7 @@ const selectInteractionTool = (...args) => refs.selectInteractionTool(...args);
 const COMMAND_CENTER_ID = 'command-center';
 const COMMAND_CENTER_INPUT_ID = 'command-center-input';
 const COMMAND_CENTER_LIST_ID = 'command-center-list';
+const COMMAND_CENTER_HINT_ID = 'command-center-hint';
 const COMMAND_CENTER_COMMANDS: Array<{ id: string; title: string; detail: string; shortcut: string; keywords: string; run: () => any; disabled?: boolean }> = [
   {
     id: 'view-inbox',
@@ -97,6 +100,9 @@ const commandCenterState = {
   query: '',
   commands: [],
   selectedIndex: 0,
+  canonicalActions: [],
+  canonicalOnly: false,
+  hint: '',
 };
 
 function commandCenterRoot() {
@@ -113,6 +119,10 @@ function commandCenterInput() {
 
 function commandCenterList() {
   return document.getElementById(COMMAND_CENTER_LIST_ID);
+}
+
+function commandCenterHint() {
+  return document.getElementById(COMMAND_CENTER_HINT_ID);
 }
 
 function isEmailSidebarItem(item) {
@@ -143,6 +153,9 @@ export function hideCommandCenter() {
   if (!(root instanceof HTMLElement)) return;
   root.hidden = true;
   document.body.classList.remove('command-center-open');
+  commandCenterState.canonicalActions = [];
+  commandCenterState.canonicalOnly = false;
+  commandCenterState.hint = '';
 }
 
 function commandMatchesQuery(command, query) {
@@ -161,8 +174,33 @@ function commandMatchesQuery(command, query) {
 
 function availableCommandCenterCommands() {
   const commands = COMMAND_CENTER_COMMANDS.map((command) => ({ ...command }));
+  const currentContext = currentCanonicalActionContext();
+  const currentActions = currentCanonicalActions().filter((action) => {
+    if (commandCenterState.canonicalActions.length === 0) return true;
+    return commandCenterState.canonicalActions.includes(action);
+  });
+  const canonicalCommands = currentActions.map((action) => {
+    const label = canonicalActionLabel(action) || action;
+    const title = String(currentContext?.title || '').trim();
+    return {
+      id: `canonical-${action}`,
+      title: `${label} Current Artifact`,
+      detail: title
+        ? `${label} ${title}.`
+        : `${label} the current artifact or item.`,
+      shortcut: 'Current',
+      keywords: `current artifact item canonical ${action} ${label.toLowerCase()} ${title.toLowerCase()}`,
+      run: () => executeCurrentCanonicalAction(action),
+    };
+  });
+  if (commandCenterState.canonicalOnly) {
+    return canonicalCommands;
+  }
+  commands.unshift(...canonicalCommands);
   const replyItem = activeReplySidebarItem();
-  commands.splice(5, 0, {
+  const composeIndex = commands.findIndex((command) => command.id === 'compose-mail');
+  const replyInsertAt = composeIndex >= 0 ? composeIndex + 1 : commands.length;
+  commands.splice(replyInsertAt, 0, {
     id: 'reply-mail',
     title: 'Reply To Selected Email',
     detail: replyItem
@@ -174,7 +212,7 @@ function availableCommandCenterCommands() {
     run: () => (replyItem ? launchReplyAuthoring(replyItem) : false),
   });
   const replyAllItem = activeReplySidebarItem();
-  commands.splice(6, 0, {
+  commands.splice(replyInsertAt + 1, 0, {
     id: 'reply-all-mail',
     title: 'Reply All To Selected Email',
     detail: replyAllItem
@@ -186,7 +224,7 @@ function availableCommandCenterCommands() {
     run: () => (replyAllItem ? launchReplyAllAuthoring(replyAllItem) : false),
   });
   const forwardItem = activeReplySidebarItem();
-  commands.splice(7, 0, {
+  commands.splice(replyInsertAt + 2, 0, {
     id: 'forward-mail',
     title: 'Forward Selected Email',
     detail: forwardItem
@@ -198,6 +236,12 @@ function availableCommandCenterCommands() {
     run: () => (forwardItem ? launchForwardAuthoring(forwardItem) : false),
   });
   return commands;
+}
+
+function updateCommandCenterCopy() {
+  const hint = commandCenterHint();
+  if (!(hint instanceof HTMLElement)) return;
+  hint.textContent = commandCenterState.hint || 'Search commands, mail actions, and tool switches.';
 }
 
 function renderCommandCenter() {
@@ -284,6 +328,7 @@ export function ensureCommandCenter() {
   title.id = 'command-center-title';
   title.textContent = 'Command Center';
   const hint = document.createElement('p');
+  hint.id = COMMAND_CENTER_HINT_ID;
   hint.textContent = 'Search commands, mail actions, and tool switches.';
   titleGroup.append(title, hint);
 
@@ -322,15 +367,22 @@ export function ensureCommandCenter() {
   return root;
 }
 
-function openCommandCenter(deps) {
-  deps.hideTextInput();
-  deps.hideOverlay();
-  deps.cancelLiveSessionListen();
+function openCommandCenter(deps = null, options: Record<string, any> = {}) {
+  const canonicalActions = Array.isArray(options?.canonicalActions)
+    ? options.canonicalActions.map((value) => String(value || '').trim()).filter(Boolean)
+    : [];
+  commandCenterState.canonicalActions = canonicalActions;
+  commandCenterState.canonicalOnly = options?.canonicalOnly === true;
+  commandCenterState.hint = String(options?.hint || '').trim();
+  (deps?.hideTextInput || refs.hideTextInput)?.();
+  (deps?.hideOverlay || refs.hideOverlay)?.();
+  (deps?.cancelLiveSessionListen || refs.cancelLiveSessionListen)?.();
   const root = ensureCommandCenter();
   root.hidden = false;
   document.body.classList.add('command-center-open');
   commandCenterState.query = '';
   commandCenterState.selectedIndex = 0;
+  updateCommandCenterCopy();
   const input = commandCenterInput();
   if (input instanceof HTMLInputElement) {
     input.value = '';
@@ -338,6 +390,14 @@ function openCommandCenter(deps) {
     input.select();
   }
   renderCommandCenter();
+}
+
+export function openCanonicalActionCommandCenter(actions: string[] = [], options: Record<string, any> = {}) {
+  openCommandCenter(null, {
+    canonicalActions: actions,
+    canonicalOnly: options?.canonicalOnly !== false,
+    hint: String(options?.hint || 'Choose a current-artifact action.').trim(),
+  });
 }
 
 function moveCommandCenterSelection(delta) {
