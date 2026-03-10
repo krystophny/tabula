@@ -615,6 +615,12 @@ export function artifactEditorEl() {
   return el instanceof HTMLTextAreaElement ? el : null;
 }
 
+export function isArtifactEditorActive() {
+  const editor = artifactEditorEl();
+  if (!editor) return false;
+  return window.getComputedStyle(editor).display !== 'none';
+}
+
 export function ensureArtifactEditor() {
   const existing = artifactEditorEl();
   if (existing) return existing;
@@ -717,13 +723,12 @@ export function applyArtifactEditorText(text) {
 export function exitArtifactEditMode(options = {}) {
   const applyChanges = options.applyChanges !== false;
   const editor = artifactEditorEl();
-  if (!editor || !state.artifactEditMode) return false;
+  if (!editor || !isArtifactEditorActive()) return false;
   const nextText = editor.value;
   editor.style.display = 'none';
   if (document.activeElement === editor) {
     try { editor.blur(); } catch (_) {}
   }
-  state.artifactEditMode = false;
   document.body.classList.remove('artifact-edit-mode');
   if (applyChanges) {
     applyArtifactEditorText(nextText);
@@ -740,7 +745,6 @@ export function enterArtifactEditMode(clientX, clientY) {
   hideTextInput();
   editor.value = String(getPreviousArtifactText() || '');
   editor.style.display = '';
-  state.artifactEditMode = true;
   document.body.classList.add('artifact-edit-mode');
   editor.focus();
   placeArtifactEditorCaretFromPoint(editor, clientX, clientY);

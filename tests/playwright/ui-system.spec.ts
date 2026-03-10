@@ -479,12 +479,14 @@ test.describe('floating tool palette', () => {
       const state = (window as any)._taburaApp?.getState?.();
       return {
         conversation: state?.interaction?.conversation,
-        artifactEditMode: document.body.classList.contains('artifact-edit-mode'),
+        hasLegacyArtifactEditFlag: Object.prototype.hasOwnProperty.call(state || {}, 'artifactEditMode'),
+        artifactEditorActive: document.body.classList.contains('artifact-edit-mode'),
       };
     });
     expect(interaction).toEqual({
       conversation: 'idle',
-      artifactEditMode: false,
+      hasLegacyArtifactEditFlag: false,
+      artifactEditorActive: false,
     });
   });
 

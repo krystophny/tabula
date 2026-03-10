@@ -28,12 +28,13 @@ const canSpeakTTS = (...args) => refs.canSpeakTTS(...args);
 const isDialogueLiveSession = (...args) => refs.isDialogueLiveSession(...args);
 const beginVoiceCapture = (...args) => refs.beginVoiceCapture(...args);
 const applyInteractionDefaultsForPane = (...args) => refs.applyInteractionDefaultsForPane(...args);
+const isArtifactEditorActive = (...args) => refs.isArtifactEditorActive(...args);
 const renderInteractionSurfaceToggle = (...args) => refs.renderInteractionSurfaceToggle(...args);
 
 export function showCanvasColumn(paneId) {
   const col = document.getElementById('canvas-column');
   if (!col) return;
-  if (paneId !== 'canvas-text' && state.artifactEditMode) {
+  if (paneId !== 'canvas-text' && isArtifactEditorActive()) {
     exitArtifactEditMode({ applyChanges: true });
   }
   if (paneId !== 'canvas-text') {
@@ -75,7 +76,7 @@ export function showCanvasColumn(paneId) {
 }
 
 export function hideCanvasColumn() {
-  if (state.artifactEditMode) {
+  if (isArtifactEditorActive()) {
     exitArtifactEditMode({ applyChanges: true });
   }
   exitPrReviewMode();

@@ -17,12 +17,13 @@ const showCanvasColumn = (...args) => refs.showCanvasColumn(...args);
 const hideCanvasColumn = (...args) => refs.hideCanvasColumn(...args);
 const isMobileSilent = (...args) => refs.isMobileSilent(...args);
 const exitArtifactEditMode = (...args) => refs.exitArtifactEditMode(...args);
+const isArtifactEditorActive = (...args) => refs.isArtifactEditorActive(...args);
 const resetMailDraftState = (...args) => refs.resetMailDraftState(...args);
 
 export function applyCanvasArtifactEvent(payload) {
   clearWelcomeSurface();
   clearInkDraft();
-  if (state.artifactEditMode) {
+  if (isArtifactEditorActive()) {
     exitArtifactEditMode({ applyChanges: false });
   }
   const kind = String(payload?.kind || '').trim().toLowerCase();

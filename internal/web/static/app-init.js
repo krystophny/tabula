@@ -58,6 +58,7 @@ const beginVoiceCapture = (...args) => refs.beginVoiceCapture(...args);
 const openComposerAt = (...args) => refs.openComposerAt(...args);
 const suppressSyntheticClick = (...args) => refs.suppressSyntheticClick(...args);
 const isSuppressedClick = (...args) => refs.isSuppressedClick(...args);
+const isArtifactEditorActive = (...args) => refs.isArtifactEditorActive(...args);
 const isInkTool = (...args) => refs.isInkTool(...args);
 const isEditableTarget = (...args) => refs.isEditableTarget(...args);
 const isUiStopGestureActive = (...args) => refs.isUiStopGestureActive(...args);
@@ -517,7 +518,7 @@ export function bindUi() {
   // Right-click -> artifact editor (text artifacts) or floating text input
   if (clickTarget) {
     clickTarget.addEventListener('contextmenu', (ev) => {
-      if (state.artifactEditMode) {
+      if (isArtifactEditorActive()) {
         ev.preventDefault();
         return;
       }
@@ -670,7 +671,7 @@ export function bindUi() {
     }
     // Escape handling
     if (ev.key === 'Escape' && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
-      if (state.artifactEditMode) {
+      if (isArtifactEditorActive()) {
         ev.preventDefault();
         exitArtifactEditMode({ applyChanges: true });
         return;
@@ -752,7 +753,7 @@ export function bindUi() {
     if (isCommandCenterVisible()) return;
     if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
     if (isEditableTarget(ev.target)) return;
-    if (state.artifactEditMode) return;
+    if (isArtifactEditorActive()) return;
     if (handleItemSidebarKeyboardShortcut(ev)) return;
     if (handleMailShortcut(ev)) return;
 

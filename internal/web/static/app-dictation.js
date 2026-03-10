@@ -6,6 +6,7 @@ const { refs, state } = context;
 
 const showStatus = (...args) => refs.showStatus(...args);
 const applyCanvasArtifactEvent = (...args) => refs.applyCanvasArtifactEvent(...args);
+const isArtifactEditorActive = (...args) => refs.isArtifactEditorActive(...args);
 const submitMessage = (...args) => refs.submitMessage(...args);
 
 const DICTATION_ACTIONS_ID = 'dictation-actions';
@@ -46,7 +47,7 @@ function applyDictationState(next) {
 
 function activeDraftText() {
   const editor = document.getElementById('artifact-editor');
-  if (state.artifactEditMode && editor instanceof HTMLTextAreaElement) {
+  if (isArtifactEditorActive() && editor instanceof HTMLTextAreaElement) {
     return String(editor.value || '').trim();
   }
   return String(getPreviousArtifactText() || dictationState().draftText || '').trim();

@@ -224,7 +224,6 @@ export const state = {
   itemSidebarMenuOpen: false,
   somedayReviewNudgeEnabled: true,
   prReviewAwaitingArtifact: false,
-  artifactEditMode: false,
   inkDraft: {
     strokes: [],
     activePointerId: null,

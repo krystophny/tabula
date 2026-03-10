@@ -9,6 +9,7 @@ const {
 
 const clearInkDraft = (...args) => refs.clearInkDraft(...args);
 const createSelectionAnnotation = (...args) => refs.createSelectionAnnotation(...args);
+const isArtifactEditorActive = (...args) => refs.isArtifactEditorActive(...args);
 const renderInkControls = (...args) => refs.renderInkControls(...args);
 const updateRuntimePreferences = (...args) => refs.updateRuntimePreferences(...args);
 const syncInteractionBodyState = (...args) => refs.syncInteractionBodyState(...args);
@@ -304,7 +305,7 @@ export function renderToolPalette() {
 }
 
 export function maybeApplySelectionHighlight() {
-  if (state.artifactEditMode) return false;
+  if (isArtifactEditorActive()) return false;
   if (state.interaction.surface !== 'annotate' || state.interaction.tool !== 'highlight') return false;
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
