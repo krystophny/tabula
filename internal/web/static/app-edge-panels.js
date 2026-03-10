@@ -358,12 +358,9 @@ export function initEdgePanels() {
     const preserveCanvasHorizontalSwipe = Boolean(state.hasArtifact && startsInCanvasViewport);
     const topOpen = Boolean(edgeTop && (edgeTop.classList.contains('edge-active') || edgeTop.classList.contains('edge-pinned')));
     const rightOpen = Boolean(edgeRight && (edgeRight.classList.contains('edge-active') || edgeRight.classList.contains('edge-pinned')));
-    const leftOpen = Boolean(state.prReviewDrawerOpen);
-    if (leftOpen && target && target.closest('#pr-file-pane')) {
-      edgeTouchStart = { x: t.clientX, y: t.clientY, edge: 'left-open' };
-    } else if (rightOpen && target && target.closest('#edge-right')) {
+    if (rightOpen && target && target.closest('#edge-right')) {
       edgeTouchStart = { x: t.clientX, y: t.clientY, edge: 'right-open' };
-    } else if (topOpen && target && target.closest('#edge-top')) {
+    } else if (topOpen && t.clientY < topEdgeTapSize && target && target.closest('#edge-top')) {
       edgeTouchStart = { x: t.clientX, y: t.clientY, edge: 'top-open' };
     } else if (!preserveCanvasHorizontalSwipe && isLeftEdgeTapCoordinate(t.clientX)) {
       edgeTouchStart = { x: t.clientX, y: t.clientY, edge: 'left' };
@@ -391,14 +388,8 @@ export function initEdgePanels() {
     } else if (edgeTouchStart.edge === 'top' && dy > 30 && absDy > absDx * 1.1 && edgeTop) {
       edgeTop.classList.add('edge-active');
       edgeTouchHandled = true;
-    } else if (edgeTouchStart.edge === 'left-open' && dx < -30 && absDx > absDy * 1.1 && state.prReviewDrawerOpen) {
-      setPrReviewDrawerOpen(false);
-      edgeTouchHandled = true;
     } else if (edgeTouchStart.edge === 'right-open' && dx > 30 && absDx > absDy * 1.1 && edgeRight) {
       edgeRight.classList.remove('edge-active', 'edge-pinned');
-      edgeTouchHandled = true;
-    } else if (edgeTouchStart.edge === 'top-open' && dy < -30 && absDy > absDx * 1.1 && edgeTop) {
-      edgeTop.classList.remove('edge-active', 'edge-pinned');
       edgeTouchHandled = true;
     }
   }, { passive: true });
@@ -431,6 +422,12 @@ export function initEdgePanels() {
           case 'top':
             if (edgeTop) {
               edgeTop.classList.add('edge-pinned');
+              handledTapAction = true;
+            }
+            break;
+          case 'top-open':
+            if (edgeTop) {
+              edgeTop.classList.remove('edge-active', 'edge-pinned');
               handledTapAction = true;
             }
             break;
