@@ -21,7 +21,9 @@ export default defineConfig({
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
     {
-      name: 'firefox-bug-report',
+      // Playwright applies grep against a string that includes the project name.
+      // Keep the project name distinct from the test tag/title we use to filter.
+      name: 'firefox-regression',
       use: { ...devices['Desktop Firefox'] },
       grep: /firefox-bug-report/,
     },
