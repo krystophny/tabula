@@ -54,6 +54,43 @@ export function activeItemSidebarShortcutTarget() {
   return items.find((item) => Number(item?.id || 0) === activeID) || items[0];
 }
 
+function activeCanvasSidebarItemIndex() {
+  if (!state.hasArtifact || state.prReviewMode || state.fileSidebarMode !== 'items') {
+    return -1;
+  }
+  const items = Array.isArray(state.itemSidebarItems) ? state.itemSidebarItems : [];
+  if (items.length <= 1) return -1;
+  const activeID = Number(state.itemSidebarActiveItemID || 0);
+  if (activeID <= 0) return -1;
+  const activeIndex = items.findIndex((item) => Number(item?.id || 0) === activeID);
+  if (activeIndex < 0) return -1;
+  const activeItem = items[activeIndex];
+  const currentTitle = String(state.currentCanvasArtifact?.title || '').trim();
+  if (!currentTitle) return -1;
+  const expectedTitles = [
+    String(activeItem?.artifact_title || '').trim(),
+    String(activeItem?.title || '').trim(),
+  ].filter(Boolean);
+  return expectedTitles.includes(currentTitle) ? activeIndex : -1;
+}
+
+export function stepItemSidebarItem(delta) {
+  const shift = Number(delta);
+  if (!Number.isFinite(shift) || shift === 0) return false;
+  const items = Array.isArray(state.itemSidebarItems) ? state.itemSidebarItems : [];
+  if (items.length <= 1) return false;
+  const currentIndex = activeCanvasSidebarItemIndex();
+  if (currentIndex < 0) return false;
+  const nextIndex = ((currentIndex + Math.trunc(shift)) % items.length + items.length) % items.length;
+  if (nextIndex === currentIndex) return false;
+  const nextItem = items[nextIndex];
+  if (!nextItem) return false;
+  state.itemSidebarActiveItemID = Number(nextItem?.id || 0);
+  renderPrReviewFileList();
+  void openSidebarItem(nextItem);
+  return true;
+}
+
 export async function loadItemSidebarView(view = state.itemSidebarView, filters = null) {
   const normalizedView = normalizeItemSidebarView(view);
   const normalizedFilters = normalizeItemSidebarFilters(filters === null ? state.itemSidebarFilters : filters);

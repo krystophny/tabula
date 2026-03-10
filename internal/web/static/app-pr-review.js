@@ -14,6 +14,7 @@ const renderSidebarTabs = (...args) => refs.renderSidebarTabs(...args);
 const renderSidebarRow = (...args) => refs.renderSidebarRow(...args);
 const renderWorkspaceFileList = (...args) => refs.renderWorkspaceFileList(...args);
 const clearWelcomeSurface = (...args) => refs.clearWelcomeSurface(...args);
+const stepItemSidebarItem = (...args) => refs.stepItemSidebarItem(...args);
 
 export function isMobileViewport() {
   return window.matchMedia('(max-width: 767px)').matches;
@@ -711,6 +712,9 @@ export function stepPrReviewFile(delta) {
 export function stepCanvasFile(delta) {
   if (state.prReviewMode) {
     return stepPrReviewFile(delta);
+  }
+  if (stepItemSidebarItem(delta)) {
+    return true;
   }
   return stepWorkspaceFile(delta);
 }

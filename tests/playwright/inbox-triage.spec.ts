@@ -183,6 +183,50 @@ async function queueSidebarResponseDelay(
   }, { nextView: view, nextDelayMs: delayMs });
 }
 
+async function swipeCanvas(page: Page, dx: number, dy = 0) {
+  await page.locator('#canvas-viewport').evaluate((el, payload) => {
+    const target = el as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    const startX = rect.left + rect.width / 2;
+    const startY = rect.top + rect.height / 2;
+    const endX = startX + Number(payload.dx || 0);
+    const endY = startY + Number(payload.dy || 0);
+    const makeTouch = (clientX: number, clientY: number) => new Touch({
+      identifier: 1,
+      target,
+      clientX,
+      clientY,
+      pageX: clientX,
+      pageY: clientY,
+      screenX: clientX,
+      screenY: clientY,
+    });
+    const startTouch = makeTouch(startX, startY);
+    const endTouch = makeTouch(endX, endY);
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true,
+      cancelable: true,
+      touches: [startTouch],
+      changedTouches: [startTouch],
+      targetTouches: [startTouch],
+    }));
+    target.dispatchEvent(new TouchEvent('touchmove', {
+      bubbles: true,
+      cancelable: true,
+      touches: [endTouch],
+      changedTouches: [endTouch],
+      targetTouches: [endTouch],
+    }));
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true,
+      cancelable: true,
+      touches: [],
+      changedTouches: [endTouch],
+      targetTouches: [],
+    }));
+  }, { dx, dy });
+}
+
 async function touchPhase(page: Page, selector: string, phase: 'start' | 'move' | 'end', dx = 0, dy = 0) {
   await page.locator(selector).evaluate((el, payload) => {
     const target = el as HTMLElement;
@@ -411,6 +455,24 @@ test.describe('inbox triage interactions', () => {
     await expect(page.locator('#canvas-text')).toContainText('create these idea items');
     await expect(page.locator('#canvas-text')).toContainText('Draft the rollout checklist');
     await expect(page.locator('#canvas-text')).toContainText('Add regression coverage');
+  });
+
+  test('mobile canvas swipe flips between inbox items', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await waitReady(page);
+    await openInbox(page);
+
+    await page.locator('#pr-file-list .pr-file-item[data-item-id="101"]').click();
+    await expect(page.locator('#canvas-text')).toContainText('Break parser cleanup into a small refactor');
+    await expect(page.locator('#pr-file-list .pr-file-item.is-active[data-item-id="101"]')).toHaveCount(1);
+
+    await swipeCanvas(page, -160, 0);
+    await expect(page.locator('#canvas-text')).toContainText('Need a response before tomorrow morning');
+    await expect(page.locator('#pr-file-list .pr-file-item.is-active[data-item-id="102"]')).toHaveCount(1);
+
+    await swipeCanvas(page, 160, 0);
+    await expect(page.locator('#canvas-text')).toContainText('Break parser cleanup into a small refactor');
+    await expect(page.locator('#pr-file-list .pr-file-item.is-active[data-item-id="101"]')).toHaveCount(1);
   });
 
   test('touch gestures expose feedback and commit done, delete, delegate, and later', async ({ page }) => {
