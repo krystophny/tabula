@@ -316,11 +316,24 @@ export function typesetMath(root, attempt = 0) {
     .catch(() => {});
 }
 
+let statusBarTimer = null;
+
 export function showStatus(text) {
   const el = document.getElementById('status-text');
   if (el) el.textContent = text;
   const statusEl = document.getElementById('status-label');
   if (statusEl) statusEl.textContent = text;
+  const bar = document.getElementById('status-bar');
+  if (bar) {
+    bar.style.display = '';
+    bar.classList.add('is-visible');
+    if (statusBarTimer) window.clearTimeout(statusBarTimer);
+    statusBarTimer = window.setTimeout(() => {
+      statusBarTimer = null;
+      bar.classList.remove('is-visible');
+      window.setTimeout(() => { bar.style.display = 'none'; }, 350);
+    }, 4000);
+  }
 }
 
 export function suppressSyntheticClick() {

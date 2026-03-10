@@ -283,6 +283,7 @@ func (a *App) handleMailDraftSend(w http.ResponseWriter, r *http.Request) {
 		writeDomainStoreError(w, err)
 		return
 	}
+	a.appendSentMessageToThread(ctx)
 	if ctx.item != nil {
 		_ = a.store.TriageItemDone(ctx.item.ID)
 	}
@@ -542,7 +543,14 @@ func (a *App) projectForArtifact(item *store.Item, artifact store.Artifact) (sto
 	return a.activeMailDraftProject()
 }
 
-func (a *App) replyDraftSeed(ctx context.Context, item store.Item) (store.ExternalAccount, emailSyncAccountConfig, string, email.DraftInput, error) {
+type mailItemSeedContext struct {
+	account         store.ExternalAccount
+	config          emailSyncAccountConfig
+	artifact        *store.Artifact
+	remoteMessageID string
+}
+
+func (a *App) resolveMailItemSeedContext(item store.Item) (mailItemSeedContext, error) {
 	var artifact *store.Artifact
 	if item.ArtifactID != nil && *item.ArtifactID > 0 {
 		loadedArtifact, artifactErr := a.store.GetArtifact(*item.ArtifactID)
@@ -552,7 +560,7 @@ func (a *App) replyDraftSeed(ctx context.Context, item store.Item) (store.Extern
 	}
 	bindings, err := a.store.GetBindingsByItem(item.ID)
 	if err != nil {
-		return store.ExternalAccount{}, emailSyncAccountConfig{}, "", email.DraftInput{}, err
+		return mailItemSeedContext{}, err
 	}
 	if artifact != nil {
 		artifactBindings, artifactErr := a.store.GetBindingsByArtifact(artifact.ID)
@@ -562,22 +570,35 @@ func (a *App) replyDraftSeed(ctx context.Context, item store.Item) (store.Extern
 	}
 	binding := mailReplyBindingForItem(bindings, item)
 	if binding == nil {
-		return store.ExternalAccount{}, emailSyncAccountConfig{}, "", email.DraftInput{}, errors.New("item is not linked to a remote mail message or thread")
+		return mailItemSeedContext{}, errors.New("item is not linked to a remote mail message or thread")
 	}
 	account, err := a.store.GetExternalAccount(binding.AccountID)
 	if err != nil {
-		return store.ExternalAccount{}, emailSyncAccountConfig{}, "", email.DraftInput{}, err
+		return mailItemSeedContext{}, err
 	}
 	cfg, err := decodeEmailSyncAccountConfig(account)
+	if err != nil {
+		return mailItemSeedContext{}, err
+	}
+	return mailItemSeedContext{
+		account:         account,
+		config:          cfg,
+		artifact:        artifact,
+		remoteMessageID: strings.TrimSpace(binding.RemoteID),
+	}, nil
+}
+
+func (a *App) replyDraftSeed(ctx context.Context, item store.Item) (store.ExternalAccount, emailSyncAccountConfig, string, email.DraftInput, error) {
+	seed, err := a.resolveMailItemSeedContext(item)
 	if err != nil {
 		return store.ExternalAccount{}, emailSyncAccountConfig{}, "", email.DraftInput{}, err
 	}
 	input := email.DraftInput{
-		From: firstNonEmpty(cfg.FromAddress, cfg.SMTPUsername, cfg.Username),
+		From: firstNonEmpty(seed.config.FromAddress, seed.config.SMTPUsername, seed.config.Username),
 	}
-	remoteMessageID := strings.TrimSpace(binding.RemoteID)
-	if artifact != nil {
-		meta := parseSidebarArtifactMeta(stringFromPointer(artifact.MetaJSON))
+	remoteMessageID := seed.remoteMessageID
+	if seed.artifact != nil {
+		meta := parseSidebarArtifactMeta(stringFromPointer(seed.artifact.MetaJSON))
 		if sender, messageID := replySeedFromArtifactMeta(meta); sender != "" || messageID != "" {
 			if sender != "" {
 				input.To = []string{sender}
@@ -597,7 +618,7 @@ func (a *App) replyDraftSeed(ctx context.Context, item store.Item) (store.Extern
 		return store.ExternalAccount{}, emailSyncAccountConfig{}, "", email.DraftInput{}, errors.New("item is not linked to a remote mail message")
 	}
 	if len(input.To) == 0 || strings.TrimSpace(input.Subject) == "" {
-		provider, err := a.emailProviderForAccount(ctx, account, cfg)
+		provider, err := a.emailProviderForAccount(ctx, seed.account, seed.config)
 		if err == nil {
 			defer provider.Close()
 			if message, getErr := provider.GetMessage(ctx, remoteMessageID, "full"); getErr == nil && message != nil {
@@ -613,7 +634,7 @@ func (a *App) replyDraftSeed(ctx context.Context, item store.Item) (store.Extern
 			}
 		}
 	}
-	return account, cfg, remoteMessageID, input, nil
+	return seed.account, seed.config, remoteMessageID, input, nil
 }
 
 func decodeMailDraftMeta(raw *string) (mailDraftArtifactMeta, error) {

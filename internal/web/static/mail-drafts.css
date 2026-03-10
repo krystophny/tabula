@@ -63,3 +63,99 @@
   min-height: 18rem;
   resize: vertical;
 }
+
+.thread-subject h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.2rem;
+}
+
+.thread-participants {
+  color: var(--fg-muted, var(--text-dim));
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.thread-message {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+  overflow: hidden;
+}
+
+.thread-message > summary {
+  list-style: none;
+  padding: 0.6rem 0.8rem;
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.thread-message > summary::-webkit-details-marker {
+  display: none;
+}
+
+.thread-message[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.thread-date {
+  color: var(--fg-muted, var(--text-dim));
+  font-size: 0.8rem;
+}
+
+.thread-snippet {
+  color: var(--fg-muted, var(--text-dim));
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.thread-message-body {
+  padding: 0.6rem 0.8rem;
+}
+
+.thread-message-headers {
+  color: var(--fg-muted, var(--text-dim));
+  font-size: 0.82rem;
+  margin-bottom: 0.6rem;
+  line-height: 1.6;
+}
+
+.thread-message-content {
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.thread-message-draft {
+  border-style: dashed;
+}
+
+.thread-draft-badge {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.thread-message-sent > summary::after {
+  content: 'Sent';
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+}
+
+.thread-compose-section {
+  border-top: 2px solid var(--border);
+  margin-top: 1rem;
+  padding-top: 1rem;
+}

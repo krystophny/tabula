@@ -138,3 +138,28 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   clip: rect(0, 0, 0, 0);
   border: 0;
 }
+
+.status-bar {
+  position: fixed;
+  bottom: 1.2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 250;
+  background: var(--bg-elevated);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.status-bar.is-visible {
+  opacity: 1;
+}
+
+.status-label {
+  display: none;
+}
