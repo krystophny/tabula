@@ -30,6 +30,7 @@ const loadWorkspaceBrowserPath = (...args) => refs.loadWorkspaceBrowserPath(...a
 const parentWorkspaceBrowserPath = (...args) => refs.parentWorkspaceBrowserPath(...args);
 const workspaceCompanionEntries = (...args) => refs.workspaceCompanionEntries(...args);
 const openWorkspaceSidebarFile = (...args) => refs.openWorkspaceSidebarFile(...args);
+const openScanImportPicker = (...args) => refs.openScanImportPicker(...args);
 
 export async function openItemSidebarView(view = state.itemSidebarView, filters = null) {
   state.fileSidebarMode = 'items';
@@ -510,6 +511,21 @@ export function renderItemSidebarList(list) {
       onClick: () => {},
     }));
     return;
+  }
+  const activeItem = items.find((entry) => Number(entry?.id || 0) === Number(state.itemSidebarActiveItemID || 0)) || null;
+  if (activeItem) {
+    const actions = document.createElement('div');
+    actions.className = 'sidebar-actions';
+    const scanButton = document.createElement('button');
+    scanButton.id = 'scan-upload-trigger';
+    scanButton.type = 'button';
+    scanButton.className = 'edge-btn';
+    scanButton.textContent = 'Scan Notes';
+    scanButton.addEventListener('click', () => {
+      openScanImportPicker();
+    });
+    actions.appendChild(scanButton);
+    list.appendChild(actions);
   }
   items.forEach((item) => {
     const icon = itemIconForRow(item);

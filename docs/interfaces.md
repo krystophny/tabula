@@ -70,6 +70,8 @@ Runtime and chat session management:
 - `PUT /api/chat/sessions/{session_id}/dictation/draft`
 - `POST /api/ink/submit`
 - `POST /api/review/submit`
+- `POST /api/scan/upload`
+- `POST /api/scan/confirm`
 - `POST /api/bugs/report`
 
 Domain model API:

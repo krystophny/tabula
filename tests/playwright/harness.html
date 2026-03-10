@@ -693,6 +693,31 @@
       done: [],
       counts: [],
     };
+    window.__scanUploadRequests = [];
+    window.__scanConfirmRequests = [];
+    window.__scanUploadResponse = {
+      ok: true,
+      project_id: 'test',
+      item_id: 0,
+      artifact_id: 0,
+      scan_artifact: { id: 990, kind: 'image', title: 'Scanned annotations' },
+      summary_path: '.tabura/artifacts/scans/test-upload.md',
+      annotations: [
+        { content: 'check null case', anchor_text: 'Line two', line: 2, confidence: 0.9 },
+      ],
+    };
+    window.__scanConfirmResponse = {
+      ok: true,
+      project_id: 'test',
+      item_id: 0,
+      artifact_id: 0,
+      scan_artifact_id: 990,
+      review_artifact: { id: 991, kind: 'annotation', title: 'Reviewed annotations' },
+      summary_path: '.tabura/artifacts/scans/test-confirm.md',
+      annotations: [
+        { content: 'check null case', anchor_text: 'Line two', line: 2, confidence: 0.9 },
+      ],
+    };
     function normalizeHarnessSphere(value) {
       const sphere = String(value || '').trim().toLowerCase();
       if (sphere === 'work' || sphere === 'private') return sphere;
@@ -752,6 +777,20 @@
       if (!Array.isArray(queue[key])) queue[key] = [];
       queue[key].push(Math.max(0, Number(delayMs) || 0));
       window.__itemSidebarResponseDelays = queue;
+    };
+    window.__setScanUploadResponse = (next) => {
+      const incoming = next && typeof next === 'object' ? next : {};
+      window.__scanUploadResponse = {
+        ...window.__scanUploadResponse,
+        ...incoming,
+      };
+    };
+    window.__setScanConfirmResponse = (next) => {
+      const incoming = next && typeof next === 'object' ? next : {};
+      window.__scanConfirmResponse = {
+        ...window.__scanConfirmResponse,
+        ...incoming,
+      };
     };
     function cloneItemSidebarEntry(entry) {
       return normalizeHarnessItemSidebarEntry(entry);
@@ -1628,6 +1667,50 @@
           revision_manifest_path: '.tabura/revisions/readme-md/manifest.json',
           revision_history_path: '.tabura/revisions/readme-md/history.md',
         }), { status: 200 });
+      }
+      if (u.includes('/api/scan/upload') && opts?.method === 'POST') {
+        const form = opts?.body instanceof FormData ? opts.body : null;
+        const file = form?.get('file');
+        const filename = file instanceof File ? file.name : '';
+        const bytes = file instanceof Blob ? (await file.arrayBuffer()).byteLength : 0;
+        const projectId = String(form?.get('project_id') || activeProjectId).trim();
+        const itemId = Number(form?.get('item_id') || 0);
+        const artifactId = Number(form?.get('artifact_id') || 0);
+        const request = { project_id: projectId, item_id: itemId, artifact_id: artifactId, filename, bytes };
+        window.__scanUploadRequests.push(request);
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'scan_upload',
+          method: opts?.method || 'POST',
+          url: u,
+          payload: request,
+        });
+        return new Response(JSON.stringify({
+          ...window.__scanUploadResponse,
+          project_id: projectId || window.__scanUploadResponse.project_id,
+          item_id: itemId || window.__scanUploadResponse.item_id,
+          artifact_id: artifactId || window.__scanUploadResponse.artifact_id,
+        }), { status: 201 });
+      }
+      if (u.includes('/api/scan/confirm') && opts?.method === 'POST') {
+        let body = {};
+        try { body = JSON.parse(String(opts?.body || '{}')); } catch (_) { body = {}; }
+        window.__scanConfirmRequests.push(body);
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'scan_confirm',
+          method: opts?.method || 'POST',
+          url: u,
+          payload: body,
+        });
+        return new Response(JSON.stringify({
+          ...window.__scanConfirmResponse,
+          project_id: String(body.project_id || window.__scanConfirmResponse.project_id || activeProjectId),
+          item_id: Number(body.item_id || window.__scanConfirmResponse.item_id || 0),
+          artifact_id: Number(body.artifact_id || window.__scanConfirmResponse.artifact_id || 0),
+          scan_artifact_id: Number(body.scan_artifact_id || window.__scanConfirmResponse.scan_artifact_id || 0),
+          annotations: Array.isArray(body.annotations) ? body.annotations : window.__scanConfirmResponse.annotations,
+        }), { status: 201 });
       }
       if (u.includes('/api/participant/config') && opts?.method === 'PUT') {
         let body = {};

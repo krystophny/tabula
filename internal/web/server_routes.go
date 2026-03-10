@@ -51,6 +51,8 @@ func (a *App) Router() http.Handler {
 	r.Get("/api/projects/{project_id}/workspaces", a.handleProjectWorkspacesList)
 	r.Post("/api/ink/submit", a.handleInkSubmit)
 	r.Post("/api/review/submit", a.handleReviewSubmit)
+	r.Post("/api/scan/upload", a.handleScanUpload)
+	r.Post("/api/scan/confirm", a.handleScanConfirm)
 	r.Post("/api/bugs/report", a.handleBugReportCreate)
 	r.Get("/api/workspaces", a.handleWorkspaceList)
 	r.Get("/api/watches", a.handleWorkspaceWatchList)

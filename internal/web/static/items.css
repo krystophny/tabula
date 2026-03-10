@@ -72,6 +72,20 @@
   line-height: 1.1;
 }
 
+.sidebar-actions {
+  position: sticky;
+  top: 2.25rem;
+  z-index: 1;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid #d1d5db;
+  background: #f9fafb;
+}
+
+.sidebar-actions .edge-btn {
+  width: 100%;
+  justify-content: center;
+}
+
 .pr-file-item {
   position: relative;
   width: 100%;
