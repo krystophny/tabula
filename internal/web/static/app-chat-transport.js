@@ -228,6 +228,91 @@ export function isVoiceOutputModePayload(payload) {
   return String(payload?.output_mode || '').trim().toLowerCase() === 'voice';
 }
 
+function batchItemLabel(item) {
+  const titled = String(item?.item_title || '').trim();
+  if (titled) return titled;
+  const itemID = Number(item?.item_id || 0);
+  if (itemID > 0) return `item ${itemID}`;
+  return 'item';
+}
+
+function batchItemCounts(items) {
+  const counts = { total: 0, running: 0, completed: 0, failed: 0 };
+  if (!Array.isArray(items)) return counts;
+  items.forEach((item) => {
+    counts.total += 1;
+    const status = String(item?.status || '').trim().toLowerCase();
+    if (status === 'completed') counts.completed += 1;
+    else if (status === 'failed') counts.failed += 1;
+    else if (status === 'running') counts.running += 1;
+  });
+  return counts;
+}
+
+function batchSummaryLabel(batch, items, fallbackCount = 0) {
+  const batchStatus = String(batch?.status || '').trim().toLowerCase();
+  const counts = batchItemCounts(items);
+  const total = counts.total || Math.max(0, Number(fallbackCount || 0));
+  if (batchStatus === 'running') {
+    if (total > 0) return `batch running: ${total} item(s)`;
+    return 'batch running';
+  }
+  if (batchStatus === 'completed') {
+    if (counts.total > 0) return `batch completed: ${counts.completed} completed, ${counts.failed} failed`;
+    return 'batch completed';
+  }
+  if (batchStatus === 'failed') {
+    if (counts.total > 0) return `batch failed: ${counts.completed} completed, ${counts.failed} failed`;
+    return 'batch failed';
+  }
+  if (total === 0) return 'no matching batch items';
+  return 'batch status updated';
+}
+
+function batchProgressMessage(payload) {
+  const batch = payload?.batch && typeof payload.batch === 'object' ? payload.batch : {};
+  const item = payload?.item && typeof payload.item === 'object' ? payload.item : null;
+  if (item) {
+    const label = batchItemLabel(item);
+    const status = String(item?.status || '').trim().toLowerCase() || 'updated';
+    if (status === 'completed') {
+      return `Batch update: ${label} completed.`;
+    }
+    if (status === 'failed') {
+      const errorMsg = String(item?.error_msg || '').trim();
+      if (errorMsg) return `Batch update: ${label} failed: ${errorMsg}.`;
+      return `Batch update: ${label} failed.`;
+    }
+    if (status === 'running') {
+      return `Batch update: ${label} started.`;
+    }
+    return `Batch update: ${label} ${status}.`;
+  }
+  return `Batch update: ${batchSummaryLabel(batch, payload?.items, payload?.item_count)}.`;
+}
+
+function batchStatusIsActive(payload) {
+  const batchStatus = String(payload?.batch?.status || '').trim().toLowerCase();
+  if (batchStatus === 'running') return true;
+  return payload?.status?.active === true;
+}
+
+function applyBatchStatus(payload) {
+  const label = batchSummaryLabel(payload?.batch, payload?.items, payload?.item_count);
+  state.batchStatusLabel = label;
+  state.batchStatusActive = batchStatusIsActive(payload);
+  showStatus(label);
+  refreshBatchItemSidebar();
+}
+
+function refreshBatchItemSidebar() {
+  if (state.fileSidebarMode === 'items' && state.prReviewDrawerOpen) {
+    void loadItemSidebarView(state.itemSidebarView);
+    return;
+  }
+  void refreshItemSidebarCounts().catch(() => {});
+}
+
 export function handleChatEvent(payload) {
   const type = String(payload?.type || '').trim();
   if (!type) return;
@@ -345,6 +430,8 @@ export function handleChatEvent(payload) {
       }
     } else if (actionType === 'print_item') {
       openPrintView(String(action?.url || '').trim());
+    } else if (actionType === 'batch_status') {
+      applyBatchStatus(action);
     } else if (actionType === 'toggle_live_dialogue' || actionType === 'toggle_conversation') {
       const next = state.liveSessionActive ? '' : LIVE_SESSION_MODE_DIALOGUE;
       const action = next
@@ -361,6 +448,13 @@ export function handleChatEvent(payload) {
           showStatus(`live toggle failed: ${message}`);
         });
     }
+    return;
+  }
+
+  if (type === 'batch_progress') {
+    const message = batchProgressMessage(payload);
+    if (message) appendPlainMessage('system', message);
+    applyBatchStatus(payload);
     return;
   }
 
@@ -505,7 +599,7 @@ export function handleChatEvent(payload) {
     const shouldSpeakTurn = isVoiceOutputModePayload(payload) || (turnID ? state.voiceTurns.has(turnID) : false) || isVoiceTurn();
     trackAssistantTurnFinished(turnID);
     state.assistantLastError = '';
-    showStatus('ready');
+    showStatus(state.batchStatusActive && state.batchStatusLabel ? state.batchStatusLabel : 'ready');
     updateAssistantActivityIndicator();
     void refreshAssistantActivity();
 

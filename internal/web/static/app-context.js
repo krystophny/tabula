@@ -230,6 +230,8 @@ export const state = {
   projectRunStatesInFlight: false,
   assistantSilentCancelInFlight: false,
   chatWsLastMessageAt: 0,
+  batchStatusLabel: '',
+  batchStatusActive: false,
   pendingRuntimeReloadContext: null,
   pendingRuntimeReloadStatus: '',
 };
