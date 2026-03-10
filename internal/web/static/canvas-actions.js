@@ -1,4 +1,5 @@
 import { refs, state } from './app-context.js';
+import { artifactSupportsMailActions } from './artifact-taxonomy.js';
 import {
   launchForwardAuthoring,
   launchNewMailAuthoring,
@@ -13,7 +14,7 @@ function activeCanvasMailItem(event) {
   const items = Array.isArray(state.itemSidebarItems) ? state.itemSidebarItems : [];
   const item = items.find((entry) => Number(entry?.id || 0) === itemID) || null;
   const artifactKind = String(item?.artifact_kind || meta?.artifact_kind || '').trim().toLowerCase();
-  if (artifactKind !== 'email' && artifactKind !== 'email_thread') return null;
+  if (!artifactSupportsMailActions(artifactKind)) return null;
   return item;
 }
 

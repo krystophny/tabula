@@ -1,5 +1,10 @@
 import * as env from './app-env.js';
 import * as context from './app-context.js';
+import {
+  artifactCanvasEventKind,
+  artifactSupportsMailActions,
+  artifactUsesThreadHTML,
+} from './artifact-taxonomy.js';
 
 const { apiURL } = env;
 const { refs, SIDEBAR_IMAGE_EXTENSIONS } = context;
@@ -261,7 +266,7 @@ export function buildEmailThreadHTML(title, artifactMeta) {
 
 function buildSidebarCanvasMeta(item, artifactKind) {
   const normalizedKind = String(artifactKind || item?.artifact_kind || '').trim().toLowerCase();
-  if (normalizedKind !== 'email' && normalizedKind !== 'email_thread') {
+  if (!artifactSupportsMailActions(normalizedKind)) {
     return undefined;
   }
   return {
@@ -323,7 +328,7 @@ export async function openSidebarArtifactItem(item) {
       text: buildSidebarItemFallbackText(item),
       meta: fallbackMeta,
     };
-    if (fallbackArtifactKind === 'email_thread') {
+    if (artifactUsesThreadHTML(fallbackArtifactKind)) {
       noArtifactEvent.threadMeta = parseSidebarArtifactMeta(item?.artifact_meta_json || '');
     }
     applyCanvasArtifactEvent(noArtifactEvent);
@@ -338,17 +343,18 @@ export async function openSidebarArtifactItem(item) {
   const artifact = payload?.artifact || {};
   const refPath = String(artifact?.ref_path || '').trim();
   const artifactKind = String(artifact?.kind || item?.artifact_kind || '').trim().toLowerCase();
+  const canvasKind = artifactCanvasEventKind(artifactKind, refPath);
   if (refPath && !refPath.startsWith('/')) {
-    if (artifactKind === 'pdf' || artifactKind === 'pdf_artifact' || refPath.toLowerCase().endsWith('.pdf')) {
+    if (canvasKind === 'pdf_artifact') {
       applyCanvasArtifactEvent({
-        kind: 'pdf_artifact',
+        kind: canvasKind,
         event_id: `sidebar-item-${artifactID}-${Date.now()}`,
         title: String(artifact?.title || item?.artifact_title || item?.title || refPath),
         path: refPath,
       });
       return true;
     }
-    if (SIDEBAR_IMAGE_EXTENSIONS.has(`.${String(refPath.split('.').pop() || '').toLowerCase()}`)) {
+    if (canvasKind === 'image_artifact' || SIDEBAR_IMAGE_EXTENSIONS.has(`.${String(refPath.split('.').pop() || '').toLowerCase()}`)) {
       applyCanvasArtifactEvent({
         kind: 'image_artifact',
         event_id: `sidebar-item-${artifactID}-${Date.now()}`,
@@ -365,7 +371,7 @@ export async function openSidebarArtifactItem(item) {
     text: buildSidebarItemFallbackText(item, artifact),
     meta: buildSidebarCanvasMeta(item, artifactKind),
   };
-  if (artifactKind === 'email_thread') {
+  if (artifactUsesThreadHTML(artifactKind)) {
     textEvent.threadMeta = parseSidebarArtifactMeta(artifact?.meta_json || '');
   }
   applyCanvasArtifactEvent(textEvent);
