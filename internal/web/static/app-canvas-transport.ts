@@ -36,6 +36,8 @@ export function applyCanvasArtifactEvent(payload) {
       artifactKind: '',
       title: '',
       surfaceDefault: '',
+      itemID: 0,
+      artifactID: 0,
     };
     state.prReviewAwaitingArtifact = false;
     state.workspaceOpenFilePath = '';
@@ -74,11 +76,15 @@ export function applyCanvasArtifactEvent(payload) {
     meta?.surface_default ?? payload?.surface_default ?? '',
   ).trim().toLowerCase();
   const artifactKind = String(meta?.artifact_kind || '').trim().toLowerCase();
+  const itemID = Number(meta?.item_id || 0);
+  const artifactID = Number(meta?.artifact_id || 0);
   state.currentCanvasArtifact = {
     kind,
     artifactKind,
     title: String(payload?.title || '').trim(),
     surfaceDefault: hintedSurface === 'editor' ? 'editor' : (hintedSurface === 'annotate' ? 'annotate' : ''),
+    itemID: Number.isFinite(itemID) && itemID > 0 ? itemID : 0,
+    artifactID: Number.isFinite(artifactID) && artifactID > 0 ? artifactID : 0,
   };
 
   if (kind) {

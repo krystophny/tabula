@@ -27,6 +27,16 @@ func newAuthedTestApp(t *testing.T) *App {
 	return app
 }
 
+func holdAssistantTurnWorker(t *testing.T, app *App, sessionID string) {
+	t.Helper()
+	if app == nil || app.turns == nil {
+		t.Fatal("missing app turn tracker")
+	}
+	app.turns.mu.Lock()
+	app.turns.worker[sessionID] = true
+	app.turns.mu.Unlock()
+}
+
 func doAuthedJSONRequest(t *testing.T, handler http.Handler, method, path string, payload any) *httptest.ResponseRecorder {
 	t.Helper()
 	var body bytes.Buffer

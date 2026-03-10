@@ -798,5 +798,61 @@ func (a *App) classifyAndExecuteSystemActionForTurn(ctx context.Context, session
 	if localErr == nil && localAction == nil && localConfidence >= intentClassifierMinConfidence {
 		return "", nil, false
 	}
+	if cursor != nil && cursor.hasPointedItem() && looksLikeStandaloneSystemRequest(trimmedText) {
+		if message, payloads, ok := a.suggestCanonicalActionsForCursorItem(cursor); ok {
+			return message, payloads, true
+		}
+	}
 	return "", nil, false
+}
+
+func (a *App) suggestCanonicalActionsForCursorItem(cursor *chatCursorContext) (string, []map[string]interface{}, bool) {
+	if a == nil || a.store == nil || cursor == nil || cursor.ItemID <= 0 {
+		return "", nil, false
+	}
+	item, err := a.store.GetItem(cursor.ItemID)
+	if err != nil {
+		return "", nil, false
+	}
+	artifactKind := ""
+	artifactTitle := firstNonEmptyCursorText(cursor.ItemTitle, item.Title)
+	if item.ArtifactID != nil && *item.ArtifactID > 0 {
+		artifact, artifactErr := a.store.GetArtifact(*item.ArtifactID)
+		if artifactErr == nil {
+			artifactKind = string(artifact.Kind)
+			artifactTitle = firstNonEmptyCursorText(optionalStringValue(artifact.Title), artifactTitle)
+		}
+	}
+	if artifactKind == "" {
+		linkedArtifacts, listErr := a.store.ListItemArtifacts(item.ID)
+		if listErr == nil && len(linkedArtifacts) > 0 {
+			artifactKind = string(linkedArtifacts[0].Artifact.Kind)
+			artifactTitle = firstNonEmptyCursorText(optionalStringValue(linkedArtifacts[0].Artifact.Title), artifactTitle)
+		}
+	}
+	artifactKind = normalizedArtifactKind(artifactKind)
+	if artifactKind == "" {
+		return "", nil, false
+	}
+	spec := lookupArtifactKindSpec(artifactKind)
+	if len(spec.Actions) == 0 {
+		return "", nil, false
+	}
+	actionLabels := artifactPromptActions(artifactKind)
+	target := firstNonEmptyCursorText(artifactTitle, "this item")
+	kindLabel := strings.ReplaceAll(artifactKind, "_", " ")
+	message := fmt.Sprintf(
+		"I wasn't confident enough to guess. Use one of the %s actions for %q: %s.",
+		kindLabel,
+		target,
+		strings.Join(actionLabels, ", "),
+	)
+	return message, []map[string]interface{}{{
+		"type":          "suggest_canonical_actions",
+		"actions":       append([]string(nil), spec.Actions...),
+		"item_id":       item.ID,
+		"item_state":    item.State,
+		"artifact_kind": artifactKind,
+		"message":       message,
+	}}, true
 }

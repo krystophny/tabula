@@ -12,6 +12,7 @@ import {
   launchReplyAllAuthoring,
   launchReplyAuthoring,
 } from './app-mail-drafts.js';
+import { executeCurrentCanonicalAction } from './app-canonical-actions.js';
 
 function activeCanvasItem(event) {
   const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
@@ -59,10 +60,12 @@ export function renderCanvasArtifactActions(root, event) {
     button.type = 'button';
     button.className = 'edge-btn canvas-canonical-action';
     button.dataset.canonicalAction = action;
-    button.disabled = true;
     const actionInfo = canonicalActionSpec(action);
     button.textContent = canonicalActionLabel(action) || action;
     button.title = String(actionInfo?.description || '').trim();
+    button.addEventListener('click', () => {
+      void executeCurrentCanonicalAction(action, { sourceElement: button });
+    });
     panel.appendChild(button);
   }
 

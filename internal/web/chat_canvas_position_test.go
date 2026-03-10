@@ -79,6 +79,7 @@ func TestChatCanvasPositionTracker_RateLimitsBurst(t *testing.T) {
 func TestHandleChatWSTextMessage_CanvasPositionQueuesRequestedTurn(t *testing.T) {
 	app := newAuthedTestApp(t)
 	sessionID := testSessionForCanvasPosition(t, app)
+	holdAssistantTurnWorker(t, app, sessionID)
 
 	handleChatWSTextMessage(app, newChatWSConn(nil), sessionID, []byte(`{
 		"type": "canvas_position",

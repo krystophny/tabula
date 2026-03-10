@@ -726,6 +726,7 @@
       item_id: 950,
       remote_id: 1,
     };
+    window.__itemSidebarNextItemID = 1000;
     window.__meetingSummaryProposals = defaultMeetingSummaryProposals();
     window.__itemSidebarResponseDelays = {
       inbox: [],
@@ -1787,6 +1788,42 @@
         const sphere = requestedSphere(u);
         const filtered = workspaces.filter((workspace) => !sphere || String(workspace?.sphere || '').trim().toLowerCase() === sphere);
         return new Response(JSON.stringify({ ok: true, workspaces: filtered }), { status: 200 });
+      }
+      if (/\/api\/items(?:\?|$)/.test(u) && opts?.method === 'POST') {
+        let body = {};
+        try { body = JSON.parse(String(opts?.body || '{}')); } catch (_) { body = {}; }
+        const stateKey = ['waiting', 'someday', 'done'].includes(String(body.state || '').trim().toLowerCase())
+          ? String(body.state || '').trim().toLowerCase()
+          : 'inbox';
+        const artifactID = Number(body.artifact_id || 0);
+        const artifacts = window.__itemSidebarArtifacts && typeof window.__itemSidebarArtifacts === 'object'
+          ? window.__itemSidebarArtifacts
+          : {};
+        const artifact = artifacts[String(artifactID)] || artifacts[artifactID] || null;
+        const itemID = Number(window.__itemSidebarNextItemID || 1000);
+        window.__itemSidebarNextItemID = itemID + 1;
+        const item = prependItemSidebarEntry({
+          id: itemID,
+          title: String(body.title || 'Follow up').trim() || 'Follow up',
+          state: stateKey,
+          sphere: normalizeHarnessSphere(body.sphere),
+          artifact_id: artifactID > 0 ? artifactID : 0,
+          source: '',
+          source_ref: '',
+          artifact_title: String(artifact?.title || '').trim(),
+          artifact_kind: String(artifact?.kind || '').trim(),
+          actor_name: '',
+          created_at: '2026-03-10 10:20:00',
+          updated_at: '2026-03-10 10:20:00',
+        }, stateKey);
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'item_create',
+          method: opts?.method || 'POST',
+          url: u,
+          payload: body,
+        });
+        return new Response(JSON.stringify({ ok: true, item }), { status: 201 });
       }
       if (/\/api\/items\/\d+\/triage(?:\?|$)/.test(u) && opts?.method === 'POST') {
         let body = {};

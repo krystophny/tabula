@@ -268,6 +268,7 @@ function buildSidebarCanvasMeta(item, artifactKind) {
   const normalizedKind = String(artifactKind || item?.artifact_kind || '').trim().toLowerCase();
   const meta: Record<string, any> = {
     item_id: Number(item?.id || 0),
+    artifact_id: Number(item?.artifact_id || 0),
     artifact_kind: normalizedKind,
   };
   if (artifactSupportsMailActions(normalizedKind)) {

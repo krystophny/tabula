@@ -212,6 +212,8 @@ export const state = {
     artifactKind: '',
     title: '',
     surfaceDefault: '',
+    itemID: 0,
+    artifactID: 0,
   },
   sidebarEdgeTapAt: 0,
   toolPalettePosition: null,

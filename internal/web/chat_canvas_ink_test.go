@@ -106,6 +106,7 @@ func TestRecognizeChatCanvasInkGesture(t *testing.T) {
 func TestHandleChatWSTextMessage_CanvasInkQueuesRequestedTurnAndPersistsSnapshot(t *testing.T) {
 	app := newAuthedTestApp(t)
 	sessionID := testSessionForCanvasPosition(t, app)
+	holdAssistantTurnWorker(t, app, sessionID)
 
 	handleChatWSTextMessage(app, newChatWSConn(nil), sessionID, []byte(`{
 		"type": "canvas_ink",
