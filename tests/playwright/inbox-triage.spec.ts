@@ -440,6 +440,7 @@ test.describe('inbox triage interactions', () => {
     await touchPhase(page, row, 'move', -100, 0);
     await expect(page.locator(row)).toHaveAttribute('data-triage-action', 'delegate');
     await touchPhase(page, row, 'end', -100, 0);
+    await expect(page.locator('#pr-file-pane')).toHaveClass(/is-open/);
     await expect(page.locator('#item-sidebar-menu')).toBeVisible();
     await expect(page.locator('#item-sidebar-menu')).toContainText('Alice');
     await page.locator('#item-sidebar-menu .item-sidebar-menu-item', { hasText: 'Codex' }).click();
@@ -450,6 +451,7 @@ test.describe('inbox triage interactions', () => {
     await touchPhase(page, row, 'move', -185, 0);
     await expect(page.locator(row)).toHaveAttribute('data-triage-action', 'later');
     await touchPhase(page, row, 'end', -185, 0);
+    await expect(page.locator('#pr-file-pane')).toHaveClass(/is-open/);
     await expect(page.locator('#pr-file-list')).not.toContainText('Review parser cleanup');
 
     const log = await page.evaluate(() => (window as any).__harnessLog || []);

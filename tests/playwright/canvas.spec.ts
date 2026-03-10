@@ -918,14 +918,14 @@ test.describe('canvas - edge panels', () => {
     expect(classes).not.toContain('edge-active');
   });
 
-  test('touch swipe up hides pinned top panel', async ({ page }) => {
+  test('touch tap on the top strip hides the pinned top panel', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     const edgeTop = page.locator('#edge-top');
     await dispatchTouchTap(page, 187, 3);
     await page.waitForTimeout(200);
     await expect(edgeTop).toHaveClass(/edge-pinned/);
 
-    await dispatchTouchSwipe(page, 187, 140, 187, 24);
+    await dispatchTouchTap(page, 187, 3);
     await page.waitForTimeout(150);
 
     const classes = await edgeTop.getAttribute('class');
@@ -941,14 +941,21 @@ test.describe('canvas - edge panels', () => {
     await expect(edgeTop).toHaveClass(/edge-pinned/);
   });
 
-  test('touch swipe left hides file sidebar drawer', async ({ page }) => {
+  test('touch tap on the sidebar edge strip hides the file sidebar drawer', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     const pane = page.locator('#pr-file-pane');
+    const edgeLeftTap = page.locator('#edge-left-tap');
     await dispatchTouchTap(page, 3, 333);
     await page.waitForTimeout(200);
     await expect(pane).toHaveClass(/is-open/);
 
-    await dispatchTouchSwipe(page, 220, 333, 80, 333);
+    const closeZone = await edgeLeftTap.boundingBox();
+    expect(closeZone).not.toBeNull();
+    await dispatchTouchTap(
+      page,
+      Number(closeZone?.x || 0) + Number(closeZone?.width || 0) / 2,
+      Number(closeZone?.y || 0) + Number(closeZone?.height || 0) / 2,
+    );
     await page.waitForTimeout(150);
 
     const paneClasses = await pane.getAttribute('class');
