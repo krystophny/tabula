@@ -50,43 +50,58 @@ func runGitHubCLI(ctx context.Context, cwd string, args ...string) (string, erro
 	return string(out), nil
 }
 
-func resolveGitHubCommandDir(cwd string) string {
-	clean := strings.TrimSpace(cwd)
-	candidates := []string{}
-	if clean != "" {
-		candidates = append(candidates, clean)
+func githubCommandDirCandidates(cwd string) []string {
+	seen := map[string]struct{}{}
+	candidates := make([]string, 0, 16)
+	appendChain := func(raw string) {
+		clean := strings.TrimSpace(raw)
+		if clean == "" {
+			return
+		}
 		dir := filepath.Clean(clean)
 		for {
+			if _, ok := seen[dir]; !ok {
+				seen[dir] = struct{}{}
+				candidates = append(candidates, dir)
+			}
 			parent := filepath.Dir(dir)
 			if parent == dir {
 				break
 			}
-			candidates = append(candidates, parent)
 			dir = parent
 		}
 	}
+	appendChain(cwd)
 	if wd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, wd, filepath.Clean(filepath.Dir(wd)))
+		appendChain(wd)
 	}
 	if exe, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exe)
-		candidates = append(candidates, exeDir, filepath.Clean(filepath.Dir(exeDir)))
+		appendChain(filepath.Dir(exe))
 	}
-	for _, candidate := range candidates {
-		if looksLikeGitRepo(candidate) {
-			return candidate
+	return candidates
+}
+
+func resolveGitRepoRoot(dir string) string {
+	clean := strings.TrimSpace(dir)
+	if clean == "" {
+		return ""
+	}
+	command := exec.Command("git", "-C", clean, "rev-parse", "--show-toplevel")
+	out, err := command.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func resolveGitHubCommandDir(cwd string) string {
+	clean := strings.TrimSpace(cwd)
+	for _, candidate := range githubCommandDirCandidates(clean) {
+		if root := resolveGitRepoRoot(candidate); root != "" {
+			return root
 		}
 	}
 	return clean
-}
-
-func looksLikeGitRepo(dir string) bool {
-	command := exec.Command("git", "-C", dir, "rev-parse", "--is-inside-work-tree")
-	out, err := command.Output()
-	if err != nil {
-		return false
-	}
-	return strings.TrimSpace(string(out)) == "true"
 }
 
 func countUnifiedDiffFiles(diff string) int {

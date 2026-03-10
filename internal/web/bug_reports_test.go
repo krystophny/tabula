@@ -29,10 +29,11 @@ func TestHandleBugReportCreateWritesBundleUnderWorkspaceArtifacts(t *testing.T) 
 		t.Fatalf("SetActiveWorkspace() error: %v", err)
 	}
 	var ghCalls [][]string
+	wantCWD := resolveBugReportGitHubCommandDir(workspaceDir)
 	app.ghCommandRunner = func(_ context.Context, cwd string, args ...string) (string, error) {
 		ghCalls = append(ghCalls, append([]string{cwd}, args...))
-		if cwd != "" {
-			t.Fatalf("gh cwd = %q, want empty bug-report gh context", cwd)
+		if cwd != wantCWD {
+			t.Fatalf("gh cwd = %q, want %q", cwd, wantCWD)
 		}
 		if len(args) >= 3 && args[0] == "label" && args[1] == "list" {
 			return `[{"name":"bug"}]`, nil
@@ -217,9 +218,10 @@ func TestHandleBugReportCreateFallsBackToWorkspaceSphere(t *testing.T) {
 	if err := app.store.SetActiveWorkspace(workspace.ID); err != nil {
 		t.Fatalf("SetActiveWorkspace() error: %v", err)
 	}
+	wantCWD := resolveBugReportGitHubCommandDir(workspaceDir)
 	app.ghCommandRunner = func(_ context.Context, cwd string, args ...string) (string, error) {
-		if cwd != "" {
-			t.Fatalf("gh cwd = %q, want empty bug-report gh context", cwd)
+		if cwd != wantCWD {
+			t.Fatalf("gh cwd = %q, want %q", cwd, wantCWD)
 		}
 		if len(args) >= 3 && args[0] == "label" && args[1] == "list" {
 			return `[{"name":"bug"},{"name":"p0"}]`, nil
@@ -257,6 +259,7 @@ func TestHandleBugReportCreateFallsBackToWorkspaceSphere(t *testing.T) {
 }
 
 func TestHandleBugReportCreateRequiresWorkspaceContext(t *testing.T) {
+	t.Chdir(t.TempDir())
 	app := newAuthedTestApp(t)
 	rr := doAuthedJSONRequest(t, app.Router(), "POST", "/api/bugs/report", map[string]any{
 		"screenshot_data_url": testPNGDataURL,
@@ -284,9 +287,10 @@ func TestHandleBugReportCreateUsesLocalProjectFallback(t *testing.T) {
 	t.Cleanup(func() {
 		_ = app.Shutdown(context.Background())
 	})
+	wantCWD := resolveBugReportGitHubCommandDir(localProjectDir)
 	app.ghCommandRunner = func(_ context.Context, cwd string, args ...string) (string, error) {
-		if cwd != "" {
-			t.Fatalf("gh cwd = %q, want empty bug-report gh context", cwd)
+		if cwd != wantCWD {
+			t.Fatalf("gh cwd = %q, want %q", cwd, wantCWD)
 		}
 		if len(args) >= 3 && args[0] == "label" && args[1] == "list" {
 			return `[{"name":"bug"},{"name":"p0"}]`, nil
@@ -336,10 +340,11 @@ func TestHandleBugReportCreateUsesCanonicalRepoFromNonGitWorkspace(t *testing.T)
 		t.Fatalf("SetActiveWorkspace() error: %v", err)
 	}
 	var calls [][]string
+	wantCWD := resolveBugReportGitHubCommandDir(workspaceDir)
 	app.ghCommandRunner = func(_ context.Context, cwd string, args ...string) (string, error) {
 		calls = append(calls, append([]string{cwd}, args...))
-		if cwd != "" {
-			t.Fatalf("gh cwd = %q, want empty bug-report gh context", cwd)
+		if cwd != wantCWD {
+			t.Fatalf("gh cwd = %q, want %q", cwd, wantCWD)
 		}
 		if len(args) >= 3 && args[0] == "label" && args[1] == "list" {
 			return `[{"name":"bug"},{"name":"p0"}]`, nil
@@ -380,6 +385,65 @@ func TestHandleBugReportCreateUsesCanonicalRepoFromNonGitWorkspace(t *testing.T)
 	}
 	if !strings.Contains(createCall, "--repo krystophny/tabura") {
 		t.Fatalf("create call = %q, want canonical repo flag", createCall)
+	}
+}
+
+func TestHandleBugReportCreateFallsBackToTaburaRepoWithoutWorkspace(t *testing.T) {
+	repoDir := t.TempDir()
+	initGitRepo(t, repoDir)
+	addGitRemote(t, repoDir, "https://github.com/krystophny/tabura.git")
+	t.Chdir(repoDir)
+
+	app, err := New(t.TempDir(), "", "", "", "", "", "", false)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	if err := app.store.AddAuthSession(testAuthToken); err != nil {
+		t.Fatalf("AddAuthSession() error: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = app.Shutdown(context.Background())
+	})
+
+	wantCWD := resolveBugReportGitHubCommandDir("")
+	app.ghCommandRunner = func(_ context.Context, cwd string, args ...string) (string, error) {
+		if cwd != wantCWD {
+			t.Fatalf("gh cwd = %q, want %q", cwd, wantCWD)
+		}
+		if len(args) >= 3 && args[0] == "label" && args[1] == "list" {
+			return `[{"name":"bug"},{"name":"p0"}]`, nil
+		}
+		if len(args) >= 2 && args[0] == "issue" && args[1] == "create" {
+			return "https://github.com/krystophny/tabura/issues/118\n", nil
+		}
+		if len(args) >= 2 && args[0] == "issue" && args[1] == "view" {
+			return `{"number":118,"title":"Bug report: Repo fallback","url":"https://github.com/krystophny/tabura/issues/118","state":"OPEN","labels":[{"name":"bug"},{"name":"p0"}],"assignees":[]}`, nil
+		}
+		t.Fatalf("unexpected gh invocation: %v", args)
+		return "", nil
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), "POST", "/api/bugs/report", map[string]any{
+		"note":                "Repo fallback.",
+		"screenshot_data_url": testPNGDataURL,
+	})
+	if rr.Code != 200 {
+		t.Fatalf("POST /api/bugs/report status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	payload := decodeJSONResponse(t, rr)
+	bundlePath := strFromAny(payload["bundle_path"])
+	if !strings.HasPrefix(bundlePath, ".tabura/artifacts/bugs/") {
+		t.Fatalf("bundle_path = %q, want .tabura/artifacts/bugs/... path", bundlePath)
+	}
+	workspace, err := app.store.GetWorkspaceByPath(repoDir)
+	if err != nil {
+		t.Fatalf("GetWorkspaceByPath() error: %v", err)
+	}
+	if workspace.Sphere != store.SphereWork {
+		t.Fatalf("workspace.Sphere = %q, want %q", workspace.Sphere, store.SphereWork)
+	}
+	if _, err := app.store.GetItemBySource("github", "krystophny/tabura#118"); err != nil {
+		t.Fatalf("GetItemBySource() error: %v", err)
 	}
 }
 

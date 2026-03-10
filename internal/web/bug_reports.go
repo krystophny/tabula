@@ -227,6 +227,11 @@ func (a *App) resolveBugReportWorkspace() (bugReportWorkspace, error) {
 		}
 		return bugReportWorkspace{Name: name, DirPath: root}, nil
 	}
+	if workspace, ok, err := a.resolveTaburaBugReportWorkspace(); err != nil {
+		return bugReportWorkspace{}, err
+	} else if ok {
+		return workspace, nil
+	}
 	return bugReportWorkspace{}, errors.New("bug report requires an active workspace or local project")
 }
 
@@ -235,7 +240,8 @@ func (a *App) createGitHubIssueFromBugReport(workspace bugReportWorkspace, bundl
 	if err != nil {
 		return ghIssueListItem{}, 0, err
 	}
-	if err := a.ensureGitHubLabels("", taburaBugReportOwnerRepo, map[string]struct {
+	githubCWD := resolveBugReportGitHubCommandDir(workspace.DirPath)
+	if err := a.ensureGitHubLabels(githubCWD, taburaBugReportOwnerRepo, map[string]struct {
 		Color       string
 		Description string
 	}{
@@ -245,7 +251,7 @@ func (a *App) createGitHubIssueFromBugReport(workspace bugReportWorkspace, bundl
 		return ghIssueListItem{}, 0, err
 	}
 	issue, err := a.createGitHubIssueInWorkspaceWithRepo(
-		"",
+		githubCWD,
 		taburaBugReportOwnerRepo,
 		bugReportIssueTitle(bundle),
 		bugReportIssueBody(bundle, toBugReportRelativePath(workspace.DirPath, bundlePath)),
@@ -309,6 +315,34 @@ func normalizeBugReportSphere(raw string) string {
 	}
 }
 
+func (a *App) resolveTaburaBugReportWorkspace() (bugReportWorkspace, bool, error) {
+	workspaceID, err := a.store.FindWorkspaceByGitRemote(taburaBugReportOwnerRepo)
+	if err != nil {
+		return bugReportWorkspace{}, false, err
+	}
+	if workspaceID != nil && *workspaceID > 0 {
+		workspace, err := a.store.GetWorkspace(*workspaceID)
+		if err != nil {
+			return bugReportWorkspace{}, false, err
+		}
+		return bugReportWorkspace{
+			Name:    workspace.Name,
+			DirPath: workspace.DirPath,
+			ID:      workspaceID,
+			Sphere:  workspace.Sphere,
+		}, true, nil
+	}
+	repoRoot := resolveCanonicalGitHubRepoRoot(taburaBugReportOwnerRepo)
+	if repoRoot == "" {
+		return bugReportWorkspace{}, false, nil
+	}
+	return bugReportWorkspace{
+		Name:    "Tabura",
+		DirPath: repoRoot,
+		Sphere:  store.SphereWork,
+	}, true, nil
+}
+
 func (a *App) ensureGitHubLabels(cwd, ownerRepo string, wanted map[string]struct {
 	Color       string
 	Description string
@@ -357,6 +391,43 @@ func withGitHubRepoArg(args []string, ownerRepo string) []string {
 	out = append(out, args...)
 	out = append(out, "--repo", clean)
 	return out
+}
+
+func resolveBugReportGitHubCommandDir(workspaceDir string) string {
+	if repoRoot := resolveCanonicalGitHubRepoRoot(taburaBugReportOwnerRepo); repoRoot != "" {
+		return repoRoot
+	}
+	return resolveGitRepoRoot(workspaceDir)
+}
+
+func resolveCanonicalGitHubRepoRoot(ownerRepo string) string {
+	target := normalizeBugReportGitHubOwnerRepo(ownerRepo)
+	if target == "" {
+		return ""
+	}
+	for _, candidate := range githubCommandDirCandidates("") {
+		repoRoot := resolveGitRepoRoot(candidate)
+		if repoRoot == "" {
+			continue
+		}
+		if resolveBugReportGitRemoteOwnerRepo(repoRoot) == target {
+			return repoRoot
+		}
+	}
+	return ""
+}
+
+func resolveBugReportGitRemoteOwnerRepo(dir string) string {
+	clean := strings.TrimSpace(dir)
+	if clean == "" {
+		return ""
+	}
+	cmd := exec.Command("git", "-C", clean, "remote", "get-url", "origin")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return normalizeBugReportGitHubOwnerRepo(string(out))
 }
 
 func bugReportIssueTitle(bundle bugReportBundle) string {
