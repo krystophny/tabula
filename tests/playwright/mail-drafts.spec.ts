@@ -80,6 +80,18 @@ test.describe('mail drafts', () => {
 
     await expect(page.locator('#canvas-text')).toHaveClass(/mail-draft-canvas/);
     await expect(page.locator('.mail-draft-title')).toContainText('Draft email');
+    await expect(page.locator('.mail-draft-envelope .mail-draft-section-label')).toHaveText('Envelope');
+    await expect(page.locator('.mail-draft-letter .mail-draft-section-label')).toHaveText('Message');
+    await expect(page.locator('.mail-draft-envelope .mail-draft-field-line')).toHaveCount(4);
+    const composerLayout = await page.locator('.mail-draft-envelope .mail-draft-field-line').first().evaluate((node) => {
+      const style = window.getComputedStyle(node as HTMLElement);
+      return {
+        display: style.display,
+        columns: style.gridTemplateColumns,
+      };
+    });
+    expect(composerLayout.display).toBe('grid');
+    expect(composerLayout.columns).not.toBe('none');
     await expect.poll(async () => page.locator('#mail-draft-recipient-suggestions option').count()).toBe(2);
     await expect(page.locator('#mail-draft-recipient-suggestions option').nth(0)).toHaveAttribute('value', 'ada@example.com');
     await expect(page.locator('#mail-draft-recipient-suggestions option').nth(1)).toHaveAttribute('value', 'bob@example.com');

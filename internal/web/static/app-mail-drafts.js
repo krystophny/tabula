@@ -323,6 +323,31 @@ async function populateRecipientSuggestions(root) {
   } catch (_) {}
 }
 
+function buildMailDraftField(field) {
+  const row = document.createElement('label');
+  row.className = 'mail-draft-field-line';
+
+  const key = document.createElement('span');
+  key.className = 'mail-draft-key';
+  key.textContent = field.label;
+
+  const value = document.createElement('div');
+  value.className = 'mail-draft-field-value';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.name = field.name;
+  input.value = field.value;
+  input.autocomplete = 'off';
+  if (field.list) input.setAttribute('list', field.list);
+  input.addEventListener('input', scheduleMailDraftSave);
+
+  value.appendChild(input);
+  row.appendChild(key);
+  row.appendChild(value);
+  return row;
+}
+
 export function renderMailDraftArtifact(root, event) {
   const draft = event?.draft && typeof event.draft === 'object' ? event.draft : {};
   if (!(root instanceof HTMLElement)) return;
@@ -344,6 +369,7 @@ export function renderMailDraftArtifact(root, event) {
   const header = document.createElement('header');
   header.className = 'mail-draft-header';
   const headerCopy = document.createElement('div');
+  headerCopy.className = 'mail-draft-header-copy';
   const kicker = document.createElement('div');
   kicker.className = 'mail-draft-kicker';
   kicker.textContent = 'Mail Draft';
@@ -355,29 +381,40 @@ export function renderMailDraftArtifact(root, event) {
   account.textContent = `${String(draft?.account_label || '').trim()}${draft?.provider ? ` · ${String(draft.provider).trim()}` : ''}`.trim();
   headerCopy.appendChild(kicker);
   headerCopy.appendChild(heading);
-  headerCopy.appendChild(account);
+  if (account.textContent) {
+    headerCopy.appendChild(account);
+  }
   const headerActions = document.createElement('div');
   headerActions.className = 'mail-draft-header-actions';
+  const status = document.createElement('p');
+  status.id = MAIL_DRAFT_STATUS_ID;
+  status.className = 'mail-draft-status';
+  status.textContent = String(draft?.status || 'draft').trim() || 'draft';
   const send = document.createElement('button');
   send.type = 'button';
   send.className = 'edge-btn';
   send.id = 'mail-draft-send';
   send.textContent = 'Send';
+  headerActions.appendChild(status);
   headerActions.appendChild(send);
   header.appendChild(headerCopy);
   header.appendChild(headerActions);
   shell.appendChild(header);
 
-  const status = document.createElement('p');
-  status.id = MAIL_DRAFT_STATUS_ID;
-  status.className = 'mail-draft-status';
-  status.textContent = String(draft?.status || 'draft').trim() || 'draft';
-  shell.appendChild(status);
-
   const datalist = document.createElement('datalist');
   datalist.id = MAIL_DRAFT_SUGGESTIONS_ID;
   shell.appendChild(datalist);
 
+  const paper = document.createElement('div');
+  paper.className = 'mail-draft-paper';
+
+  const envelope = document.createElement('section');
+  envelope.className = 'mail-draft-envelope';
+  const envelopeLabel = document.createElement('div');
+  envelopeLabel.className = 'mail-draft-section-label';
+  envelopeLabel.textContent = 'Envelope';
+  const envelopeFields = document.createElement('div');
+  envelopeFields.className = 'mail-draft-envelope-fields';
   const fields = [
     { label: 'To', name: 'to', value: Array.isArray(draft?.to) ? draft.to.join(', ') : '', list: MAIL_DRAFT_SUGGESTIONS_ID },
     { label: 'Cc', name: 'cc', value: Array.isArray(draft?.cc) ? draft.cc.join(', ') : '', list: MAIL_DRAFT_SUGGESTIONS_ID },
@@ -385,36 +422,31 @@ export function renderMailDraftArtifact(root, event) {
     { label: 'Subject', name: 'subject', value: String(draft?.subject || '') },
   ];
   fields.forEach((field) => {
-    const row = document.createElement('label');
-    row.className = 'mail-draft-row';
-    const key = document.createElement('span');
-    key.className = 'mail-draft-key';
-    key.textContent = field.label;
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.name = field.name;
-    input.value = field.value;
-    input.autocomplete = 'off';
-    if (field.list) input.setAttribute('list', field.list);
-    input.addEventListener('input', scheduleMailDraftSave);
-    row.appendChild(key);
-    row.appendChild(input);
-    shell.appendChild(row);
+    envelopeFields.appendChild(buildMailDraftField(field));
   });
+  envelope.appendChild(envelopeLabel);
+  envelope.appendChild(envelopeFields);
+  paper.appendChild(envelope);
 
+  const letter = document.createElement('section');
+  letter.className = 'mail-draft-letter';
+  const letterLabel = document.createElement('div');
+  letterLabel.className = 'mail-draft-section-label';
+  letterLabel.textContent = 'Message';
   const bodyRow = document.createElement('label');
   bodyRow.className = 'mail-draft-body-row';
-  const bodyLabel = document.createElement('span');
-  bodyLabel.className = 'mail-draft-key';
-  bodyLabel.textContent = 'Body';
   const body = document.createElement('textarea');
   body.name = 'body';
   body.className = 'mail-draft-body';
   body.value = String(draft?.body || '');
+  body.placeholder = 'Write the message here.';
   body.addEventListener('input', scheduleMailDraftSave);
-  bodyRow.appendChild(bodyLabel);
   bodyRow.appendChild(body);
-  shell.appendChild(bodyRow);
+  letter.appendChild(letterLabel);
+  letter.appendChild(bodyRow);
+  paper.appendChild(letter);
+
+  shell.appendChild(paper);
 
   root.appendChild(shell);
   const sendButton = root.querySelector('#mail-draft-send');
