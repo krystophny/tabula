@@ -114,7 +114,7 @@ test.describe('capture page', () => {
     await expect(page.locator('#capture-status')).toContainText('Microphone access is currently denied.');
   });
 
-  test('queues voice memos offline and uploads them on reconnect', async ({ page }) => {
+  test('keeps offline voice memos in memory and uploads them on reconnect', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/tests/playwright/capture-harness.html?online=0');
 
@@ -122,10 +122,12 @@ test.describe('capture page', () => {
     await page.locator('#capture-record').click({ force: true });
 
     await expect(page.locator('body')).toHaveAttribute('data-capture-state', 'offline');
-    await expect(page.locator('#capture-status')).toContainText('Saved locally');
+    await expect(page.locator('#capture-status')).toContainText('kept in memory');
 
     const transcribeRequestsBefore = await page.evaluate(() => (window as any).__captureTranscribeRequests);
     expect(transcribeRequestsBefore).toHaveLength(0);
+    const indexedDBOpenCountBefore = await page.evaluate(() => (window as any).__captureIndexedDBOpenCount());
+    expect(indexedDBOpenCountBefore).toBe(0);
 
     await page.evaluate(() => {
       (window as any).__setCaptureOnline(true);
@@ -136,6 +138,8 @@ test.describe('capture page', () => {
     expect(transcribeRequestsAfter).toHaveLength(1);
     const itemRequests = await page.evaluate(() => (window as any).__captureRequests);
     expect(itemRequests).toHaveLength(1);
+    const indexedDBOpenCountAfter = await page.evaluate(() => (window as any).__captureIndexedDBOpenCount());
+    expect(indexedDBOpenCountAfter).toBe(0);
   });
 
   test('offers a text fallback after repeated voice save failures', async ({ page }) => {

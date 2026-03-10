@@ -10,6 +10,7 @@ This document formalizes the audio privacy guarantees for Tabura's speech-to-tex
 
 - Captured voice memos follow the same RAM-only policy as meeting capture.
 - Uploaded audio is normalized and transcribed in memory, then discarded immediately.
+- Offline or retryable voice memos may stay in browser RAM for the current page session only; they must not be persisted to IndexedDB, disk, SQLite, or other durable browser storage.
 - Only transcript text may persist as an artifact or chat message. The original recording must not be stored for replay.
 - Oversized or invalid uploads must be rejected without creating multipart temp files on disk.
 

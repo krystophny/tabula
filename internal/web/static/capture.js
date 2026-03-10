@@ -17,8 +17,6 @@
 
   const testEnv = window.__taburaCaptureTestEnv || {};
   const microphonePermissionCacheKey = 'tabura.capture.microphone_permission';
-  const queueDatabaseName = String(testEnv.queueDatabaseName || 'tabura-capture');
-  const queueStoreName = 'voice-memos';
   const maxVoiceRetries = 3;
 
   const state = {
@@ -27,7 +25,6 @@
     recording: false,
     saving: false,
     transcribing: false,
-    drainingQueue: false,
     discardRecording: false,
     mediaStream: null,
     mediaRecorder: null,
@@ -113,8 +110,8 @@
       return;
     }
     if (cleanState === 'offline') {
-      recordLabel.textContent = 'Queued';
-      recordHint.textContent = 'Saved locally. It will upload when you are back online.';
+      recordLabel.textContent = 'Offline';
+      recordHint.textContent = 'Voice memo kept in memory until you reconnect.';
       return;
     }
     if (cleanState === 'success') {
@@ -373,119 +370,16 @@
     return !isOnline() || message.includes('failed to fetch') || message.includes('networkerror');
   }
 
-  function queueUnsupported() {
-    return !window.indexedDB;
-  }
-
-  function openQueueDB() {
-    return new Promise((resolve, reject) => {
-      if (queueUnsupported()) {
-        reject(new Error('IndexedDB unavailable'));
-        return;
-      }
-      const request = window.indexedDB.open(queueDatabaseName, 1);
-      request.onerror = () => {
-        reject(request.error || new Error('capture queue unavailable'));
-      };
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains(queueStoreName)) {
-          db.createObjectStore(queueStoreName, { keyPath: 'id', autoIncrement: true });
-        }
-      };
-      request.onsuccess = () => {
-        resolve(request.result);
-      };
-    });
-  }
-
-  function runQueueRequest(mode, action) {
-    return openQueueDB().then((db) => new Promise((resolve, reject) => {
-      const tx = db.transaction(queueStoreName, mode);
-      const store = tx.objectStore(queueStoreName);
-      let request;
-      try {
-        request = action(store);
-      } catch (error) {
-        db.close();
-        reject(error);
-        return;
-      }
-      tx.oncomplete = () => {
-        db.close();
-      };
-      tx.onerror = () => {
-        db.close();
-        reject(tx.error || new Error('capture queue transaction failed'));
-      };
-      request.onsuccess = () => {
-        resolve(request.result);
-      };
-      request.onerror = () => {
-        reject(request.error || new Error('capture queue request failed'));
-      };
-    }));
-  }
-
-  function enqueueVoiceMemo(blob, transcript) {
-    return runQueueRequest('readwrite', (store) => store.add({
-      createdAt: new Date().toISOString(),
-      blob,
-      transcript: String(transcript || '').trim(),
-    }));
-  }
-
-  function listQueuedVoiceMemos() {
-    return runQueueRequest('readonly', (store) => store.getAll()).then((items) => {
-      const out = Array.isArray(items) ? items : [];
-      out.sort((left, right) => Number(left.id || 0) - Number(right.id || 0));
-      return out;
-    });
-  }
-
-  function deleteQueuedVoiceMemo(id) {
-    return runQueueRequest('readwrite', (store) => store.delete(id));
-  }
-
-  async function queueCurrentVoiceMemo() {
+  function holdVoiceMemoInMemory(statusMessage) {
     if (!state.audioBlob) {
       return false;
     }
-    await enqueueVoiceMemo(state.audioBlob, state.pendingTranscript);
-    clearVoiceMemoState();
     setCaptureState('offline');
-    setStatus('Saved locally. It will upload when online.', '');
+    setStatus(
+      String(statusMessage || 'Offline. Voice memo kept in memory until you reconnect.'),
+      '',
+    );
     return true;
-  }
-
-  async function drainQueuedVoiceMemos() {
-    if (state.drainingQueue || !isOnline()) {
-      return;
-    }
-    state.drainingQueue = true;
-    try {
-      const queued = await listQueuedVoiceMemos();
-      for (const entry of queued) {
-        if (!isOnline()) {
-          break;
-        }
-        const transcript = normalizeNote(entry && entry.transcript)
-          || await transcribeVoiceMemo(entry && entry.blob ? entry.blob : null);
-        await saveVoiceMemo(transcript);
-        await deleteQueuedVoiceMemo(entry.id);
-        setCaptureState('success');
-        setStatus(`Saved: ${deriveItemTitle(transcript)}`, 'success');
-        scheduleStatusClear(1800);
-        scheduleCaptureStateReset(1800);
-      }
-    } catch (error) {
-      if (!isNetworkFailure(error)) {
-        setStatus(`Queued memo failed: ${String(error && error.message ? error.message : error)}`, 'error');
-      }
-    } finally {
-      state.drainingQueue = false;
-      updateSaveState();
-    }
   }
 
   async function readMicrophonePermission() {
@@ -537,15 +431,11 @@
     } catch (error) {
       const message = String(error && error.message ? error.message : error);
       if (isNetworkFailure(error)) {
-        try {
-          const queued = await queueCurrentVoiceMemo();
-          if (!queued) {
-            throw new Error('queue_unavailable');
-          }
-        } catch (queueError) {
-          setCaptureState('failed');
-          setStatus(`Upload failed: ${String(queueError && queueError.message ? queueError.message : queueError)}`, 'error');
-        }
+        holdVoiceMemoInMemory(
+          state.pendingTranscript
+            ? 'Offline. The transcript is kept in memory until you reconnect.'
+            : 'Offline. Voice memo kept in memory until you reconnect.',
+        );
       } else if (message === 'transcription_http_error') {
         state.voiceRetryCount += 1;
         state.fallbackVisible = state.voiceRetryCount >= maxVoiceRetries;
@@ -615,11 +505,7 @@
         finishRecording();
         if (state.audioBlob) {
           if (!isOnline()) {
-            void queueCurrentVoiceMemo().catch((error) => {
-              setCaptureState('failed');
-              setStatus(`Queue failed: ${String(error && error.message ? error.message : error)}`, 'error');
-              updateSaveState();
-            });
+            holdVoiceMemoInMemory();
             return;
           }
           void processVoiceMemo();
@@ -733,23 +619,25 @@
   fallbackButton.addEventListener('click', offerTextFallback);
   resetButton.addEventListener('click', resetCapture);
   window.addEventListener('online', () => {
+    if (!state.recording && !state.saving && !state.transcribing && state.audioBlob) {
+      void processVoiceMemo();
+      return;
+    }
     if (!state.recording && !state.saving && !state.transcribing) {
-      void drainQueuedVoiceMemos();
+      setCaptureState('idle');
+      setStatus('', '');
     }
   });
   window.addEventListener('offline', () => {
     if (!state.recording && !state.audioBlob) {
       setCaptureState('offline');
-      setStatus('Offline. New voice memos will queue until you reconnect.', '');
+      setStatus('Offline. Voice memos stay in memory only until you reconnect.', '');
     }
   });
 
   updateSaveState();
   applyCaptureAvailability();
   setCaptureState('idle');
-  if (isOnline()) {
-    void drainQueuedVoiceMemos();
-  }
   window.__taburaCapture = {
     deriveItemTitle,
     voiceMemoErrorMessage,

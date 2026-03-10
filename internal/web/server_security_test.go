@@ -183,6 +183,19 @@ func TestPrivacySchemaNoAudioColumns(t *testing.T) {
 	}
 }
 
+func TestPrivacyCapturePageDoesNotPersistVoiceAudio(t *testing.T) {
+	data, err := staticFiles.ReadFile("static/capture.js")
+	if err != nil {
+		t.Fatalf("ReadFile(static/capture.js): %v", err)
+	}
+	source := strings.ToLower(string(data))
+	for _, forbidden := range []string{"indexeddb", "queued locally", "saved locally"} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("capture.js contains forbidden persisted-audio marker %q", forbidden)
+		}
+	}
+}
+
 func TestPrivacySTTBufferCleanupOnCancel(t *testing.T) {
 	conn, cleanup := newTestWSConn(t)
 	defer cleanup()

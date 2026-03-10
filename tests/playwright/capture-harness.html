@@ -51,6 +51,7 @@
       const searchParams = new URLSearchParams(window.location.search);
       let online = searchParams.get('online') !== '0';
       let permissionMode = searchParams.get('permission') || 'granted';
+      let indexedDBOpenCount = 0;
       let transcribeResponses = [
         { status: 200, body: { text: 'Voice memo from capture harness. Follow up tomorrow morning.' } },
       ];
@@ -59,13 +60,13 @@
         isSecureContext: searchParams.get('secure') !== '0',
         protocol: searchParams.get('protocol') || window.location.protocol,
         hostname: searchParams.get('host') || window.location.hostname,
-        queueDatabaseName: `tabura-capture-${Math.random().toString(16).slice(2)}`,
       };
 
       window.__captureRequests = itemRequests;
       window.__captureArtifactRequests = artifactRequests;
       window.__captureTranscribeRequests = transcribeRequests;
       window.__captureFetchRequests = fetchRequests;
+      window.__captureIndexedDBOpenCount = () => indexedDBOpenCount;
       window.__setCaptureOnline = (value) => {
         online = Boolean(value);
         window.dispatchEvent(new Event(online ? 'online' : 'offline'));
@@ -178,6 +179,16 @@
             addEventListener() {},
             removeEventListener() {},
           }),
+        },
+      });
+
+      Object.defineProperty(window, 'indexedDB', {
+        configurable: true,
+        value: {
+          open() {
+            indexedDBOpenCount += 1;
+            throw new Error('capture should not persist voice memos to IndexedDB');
+          },
         },
       });
 
