@@ -19,10 +19,11 @@ Project is not a product concept. Session and message are transport or storage d
 ### Key invariants
 
 1. The canvas shows artifacts, always. Bare items (no artifact) show in the sidebar only.
-2. An item may have an artifact. The common case (email, PR, document) does. Bare tasks do not. No synthetic canvas content is generated for bare items.
-3. A workspace is a directory. No virtual workspaces. Composition via filesystem tools.
+2. An item may have zero or more artifacts with roles (source, related, output). One artifact is designated primary and shown on canvas. Bare tasks (no artifact) show in sidebar only.
+3. A workspace is a directory. No virtual workspaces. Composition via filesystem tools. Ephemeral workspaces use real temp directories.
 4. Contexts are the only cross-cutting grouping mechanism. No ProjectID anywhere.
 5. Work and private are top-level contexts, not a separate "sphere" field. They follow the same rules as all other contexts.
+6. Intent classification is workspace-independent. Execution is workspace-aware.
 
 ### Context hierarchy and filtering
 
@@ -98,6 +99,27 @@ How real entities map to the five nouns:
 | Tasks (Todoist) | Assigned manually or left floating | Often bare (no artifact) | The item IS the task | Auto from Todoist project mappings |
 | Calendar (Google) | Assigned manually | Meeting agenda/notes. Transcript after meeting. | Meeting event. Transitions to Meeting live session. | Auto from calendar mappings |
 | GitHub issues/PRs | Tracked in code workspace | Issue/PR content as artifact | Item in code workspace | work/tabura, topic contexts |
+
+### Inbox
+
+Inbox is a global view accessible from any workspace sidebar. It shows all items in inbox state. The inbox is filterable by context: selecting a context narrows the view to items carrying that context (or any child context). Unfiltered inbox shows everything.
+
+### Ephemeral workspaces
+
+Starting without a workspace creates an ephemeral workspace backed by a real temp directory. The user gets full AI support from moment zero: dialogue, meeting, system commands. Items created go to inbox with contexts (no workspace assignment). Artifacts go to the ephemeral workspace's temp directory.
+
+- **Persist**: user names the workspace and provides a real path. Temp directory contents move to the new path. The workspace becomes permanent.
+- **Discard**: temp directory is cleaned up. Items and contexts survive in inbox.
+
+Landing page: last-used workspace, or ephemeral if none.
+
+### Intent architecture
+
+Intent classification is workspace-independent. The classifier takes user utterance and outputs: system command, canonical action, or dialogue continuation. It does not need workspace context, artifact state, or canvas state.
+
+Execution is workspace-aware. System commands operate at system level (switch workspace, sync, settings). Canonical actions operate on the current workspace (artifacts, items, canvas state). Dialogue goes to the workspace chat session with full workspace context.
+
+There is no hub entity. System commands are available from any workspace.
 
 ## Authoritative Live Model
 
