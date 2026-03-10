@@ -124,4 +124,42 @@ test.describe('bug report flow', () => {
 
     await expect(page.locator('#bug-report-sheet')).toBeVisible();
   });
+
+  test('firefox-bug-report uses the browser-safe preview on Firefox', async ({ page, browserName }) => {
+    test.skip(browserName !== 'firefox', 'Firefox-only regression coverage');
+    await waitReady(page);
+
+    await page.evaluate(() => {
+      (window as any).__taburaBugReportTestEnv = {};
+    });
+
+    await page.locator('#bug-report-button').click();
+    await expect(page.locator('#bug-report-sheet')).toBeVisible();
+    await expect(page.locator('.bug-report-sheet__preview')).toHaveAttribute('data-capture-mode', 'fallback-firefox');
+
+    const preview = await page.evaluate(async () => {
+      const img = document.getElementById('bug-report-preview') as HTMLImageElement | null;
+      if (!img) return null;
+      if (!img.complete) await img.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || 1;
+      canvas.height = img.naturalHeight || 1;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(img, 0, 0);
+      const pixel = Array.from(ctx.getImageData(20, 20, 1, 1).data);
+      return {
+        src: img.src,
+        mode: img.dataset.captureMode || '',
+        pixel,
+      };
+    });
+
+    expect(preview).not.toBeNull();
+    expect(preview?.mode).toBe('fallback-firefox');
+    expect(String(preview?.src || '')).toContain('data:image/png;base64,');
+    expect(preview?.pixel?.[0]).not.toBe(255);
+    expect(preview?.pixel?.[1]).not.toBe(255);
+    expect(preview?.pixel?.[2]).not.toBe(255);
+  });
 });

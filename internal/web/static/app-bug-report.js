@@ -20,6 +20,7 @@ const BUG_REPORT_EVENT_LIMIT = 24;
 const BUG_REPORT_LOG_LIMIT = 40;
 const BUG_REPORT_STROKE_COLOR = '#d92d20';
 const BUG_REPORT_STROKE_WIDTH = 4;
+const BUG_REPORT_CAPTURE_TIMEOUT_MS = 1500;
 
 const recentEvents = [];
 const browserLogs = [];
@@ -45,6 +46,10 @@ function formatNow() {
 
 function safeText(value) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+}
+
+function bugReportTestEnv() {
+  return window.__taburaBugReportTestEnv || {};
 }
 
 function stringifyConsoleArg(value) {
@@ -128,6 +133,7 @@ function bugReportNodes() {
   return {
     button: document.getElementById('bug-report-button'),
     sheet: document.getElementById('bug-report-sheet'),
+    previewFrame: document.querySelector('#bug-report-sheet .bug-report-sheet__preview'),
     preview: document.getElementById('bug-report-preview'),
     ink: document.getElementById('bug-report-ink'),
     note: document.getElementById('bug-report-note'),
@@ -203,9 +209,10 @@ function closeBugReportSheet() {
 }
 
 function syncBugReportCanvasSize() {
-  const { preview, ink } = bugReportNodes();
+  const { previewFrame, preview, ink } = bugReportNodes();
   if (!(preview instanceof HTMLImageElement) || !(ink instanceof HTMLCanvasElement)) return;
-  const rect = preview.getBoundingClientRect();
+  const target = previewFrame instanceof HTMLElement ? previewFrame : preview;
+  const rect = target.getBoundingClientRect();
   const width = Math.max(1, Math.round(rect.width));
   const height = Math.max(1, Math.round(rect.height));
   if (width === 0 || height === 0) return;
@@ -426,33 +433,84 @@ async function loadImageFromURL(url) {
   });
 }
 
-function buildFallbackScreenshotDataURL() {
+function fallbackScreenshotReasonLabel(reason) {
+  if (reason === 'firefox') return 'Live screenshot unavailable in Firefox';
+  if (reason === 'loading') return 'Preparing bug report preview';
+  if (reason === 'timeout') return 'Live screenshot timed out';
+  if (reason === 'render-error') return 'Live screenshot failed';
+  return 'Using browser-safe preview';
+}
+
+function currentBugReportUserAgent() {
+  const testEnv = bugReportTestEnv();
+  const forced = safeText(testEnv.userAgent || testEnv.forceUserAgent);
+  return forced || safeText(navigator.userAgent);
+}
+
+function shouldPreferBrowserSafeBugReportPreview() {
+  const testEnv = bugReportTestEnv();
+  if (testEnv.forceLiveCapture === true) return false;
+  if (testEnv.forceFallbackCapture === true) return true;
+  return /(firefox|fxios)/i.test(currentBugReportUserAgent());
+}
+
+function setBugReportPreviewMode(mode) {
+  const { previewFrame, preview } = bugReportNodes();
+  if (previewFrame instanceof HTMLElement) {
+    previewFrame.dataset.captureMode = mode;
+  }
+  if (preview instanceof HTMLImageElement) {
+    preview.dataset.captureMode = mode;
+  }
+}
+
+function applyBugReportPreview(dataURL, mode) {
+  const { preview } = bugReportNodes();
+  setBugReportPreviewMode(mode);
+  if (preview instanceof HTMLImageElement) {
+    preview.src = dataURL;
+  }
+}
+
+function buildFallbackScreenshotDataURL(reason = '') {
   const canvas = document.createElement('canvas');
   canvas.width = 1280;
   canvas.height = 720;
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
-  ctx.fillStyle = '#ffffff';
+  const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+  gradient.addColorStop(0, '#ede1cc');
+  gradient.addColorStop(1, '#d8ccb5');
+  ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#000000';
-  ctx.font = '28px monospace';
-  ctx.fillText('Tabura Bug Report Snapshot', 48, 72);
+  ctx.fillStyle = '#17120f';
+  ctx.fillRect(36, 36, canvas.width - 72, canvas.height - 72);
+  ctx.fillStyle = '#f7f0e2';
+  ctx.fillRect(52, 52, canvas.width - 104, canvas.height - 104);
+  ctx.fillStyle = '#8a3b12';
+  ctx.fillRect(52, 52, canvas.width - 104, 18);
+  ctx.fillStyle = '#17120f';
+  ctx.font = 'bold 34px monospace';
+  ctx.fillText('Tabura Bug Report Preview', 84, 134);
+  ctx.font = '24px monospace';
+  ctx.fillText(fallbackScreenshotReasonLabel(reason), 84, 186);
   ctx.font = '20px monospace';
   [
     `time: ${formatNow()}`,
     `artifact: ${safeText(getActiveArtifactTitle()) || 'none'}`,
     `tool: ${safeText(state.interaction?.tool) || 'unknown'}`,
     `project: ${safeText(state.activeProjectId) || 'none'}`,
+    `browser: ${currentBugReportUserAgent() || 'unknown'}`,
   ].forEach((line, index) => {
-    ctx.fillText(line, 48, 132 + (index * 36));
+    ctx.fillText(line, 84, 248 + (index * 36));
   });
   return canvas.toDataURL('image/png');
 }
 
-async function captureViewportScreenshot() {
-  const testEnv = window.__taburaBugReportTestEnv || {};
+async function captureViewportScreenshotFromClone() {
+  const testEnv = bugReportTestEnv();
   if (safeText(testEnv.screenshotDataURL)) {
-    return safeText(testEnv.screenshotDataURL);
+    return { dataURL: safeText(testEnv.screenshotDataURL), mode: 'test' };
   }
   const root = document.getElementById('view-main') || document.body;
   const rect = root.getBoundingClientRect();
@@ -460,7 +518,7 @@ async function captureViewportScreenshot() {
   const height = Math.max(1, Math.round(rect.height || window.innerHeight || 1));
   const clone = root.cloneNode(true);
   if (!(clone instanceof HTMLElement)) {
-    return buildFallbackScreenshotDataURL();
+    throw new Error('clone failed');
   }
   syncCloneInputs(root, clone);
   replaceCloneCanvases(root, clone);
@@ -485,16 +543,43 @@ async function captureViewportScreenshot() {
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d');
-      if (!ctx) return buildFallbackScreenshotDataURL();
+      if (!ctx) throw new Error('canvas unavailable');
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, width, height);
       ctx.drawImage(img, 0, 0);
-      return canvas.toDataURL('image/png');
+      return { dataURL: canvas.toDataURL('image/png'), mode: 'live' };
     } finally {
       URL.revokeObjectURL(url);
     }
-  } catch (_) {
-    return buildFallbackScreenshotDataURL();
+  } catch (err) {
+    throw err;
+  }
+}
+
+async function captureViewportScreenshot() {
+  const testEnv = bugReportTestEnv();
+  if (safeText(testEnv.screenshotDataURL)) {
+    return { dataURL: safeText(testEnv.screenshotDataURL), mode: 'test' };
+  }
+  if (shouldPreferBrowserSafeBugReportPreview()) {
+    return { dataURL: buildFallbackScreenshotDataURL('firefox'), mode: 'fallback-firefox' };
+  }
+  let timer = 0;
+  try {
+    const result = await Promise.race([
+      captureViewportScreenshotFromClone(),
+      new Promise((_, reject) => {
+        timer = window.setTimeout(() => reject(new Error('timeout')), BUG_REPORT_CAPTURE_TIMEOUT_MS);
+      }),
+    ]);
+    return result;
+  } catch (err) {
+    const reason = safeText(err?.message).toLowerCase() === 'timeout' ? 'timeout' : 'render-error';
+    return { dataURL: buildFallbackScreenshotDataURL(reason), mode: `fallback-${reason}` };
+  } finally {
+    if (timer) {
+      window.clearTimeout(timer);
+    }
   }
 }
 
@@ -630,11 +715,11 @@ async function openBugReport(trigger) {
   ensureBugReportUi();
   const runtime = await fetchRuntimeMeta().catch(() => ({}));
   const report = await snapshotBugReportContext(trigger, runtime);
-  report.screenshotDataURL = await captureViewportScreenshot();
+  report.screenshotDataURL = buildFallbackScreenshotDataURL('loading');
   pendingReport = report;
+  applyBugReportPreview(report.screenshotDataURL, 'fallback-loading');
   const { preview, note } = bugReportNodes();
   if (preview instanceof HTMLImageElement) {
-    preview.src = report.screenshotDataURL;
     preview.onload = () => syncBugReportCanvasSize();
   }
   if (note instanceof HTMLTextAreaElement) {
@@ -643,7 +728,13 @@ async function openBugReport(trigger) {
   }
   clearBugReportInk();
   openBugReportSheet();
+  window.requestAnimationFrame(() => syncBugReportCanvasSize());
   showStatus('bug report captured');
+  const capture = await captureViewportScreenshot();
+  if (pendingReport !== report) return;
+  report.screenshotDataURL = capture.dataURL;
+  applyBugReportPreview(capture.dataURL, capture.mode);
+  syncBugReportCanvasSize();
 }
 
 export function isInlineBugReportTrigger(text) {
