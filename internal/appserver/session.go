@@ -237,6 +237,12 @@ func (s *Session) SendTurnWithParams(ctx context.Context, prompt, turnModel stri
 		s.markClosed()
 		return nil, contextErr(ctx, err)
 	}
+	stopCloseOnCancel := context.AfterFunc(ctx, func() {
+		_ = s.Close()
+	})
+	defer func() {
+		_ = stopCloseOnCancel()
+	}()
 
 	if onEvent != nil {
 		onEvent(StreamEvent{Type: "thread_started", ThreadID: s.threadID})

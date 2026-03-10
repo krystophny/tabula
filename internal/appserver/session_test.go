@@ -194,6 +194,90 @@ func TestSessionContextUsageTracking(t *testing.T) {
 	}
 }
 
+func TestSessionSendTurnHonorsContextCancel(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	turnStarted := make(chan struct{})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatalf("upgrade: %v", err)
+		}
+		defer conn.Close()
+
+		for {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var msg map[string]interface{}
+			if err := json.Unmarshal(data, &msg); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			method, _ := msg["method"].(string)
+			switch method {
+			case "initialize":
+				_ = conn.WriteJSON(map[string]interface{}{
+					"id":     msg["id"],
+					"result": map[string]interface{}{"userAgent": "test"},
+				})
+			case "initialized":
+			case "thread/start":
+				_ = conn.WriteJSON(map[string]interface{}{
+					"id": msg["id"],
+					"result": map[string]interface{}{
+						"thread": map[string]interface{}{"id": "thread-persist"},
+					},
+				})
+			case "turn/start":
+				_ = conn.WriteJSON(map[string]interface{}{
+					"id": msg["id"],
+					"result": map[string]interface{}{
+						"turn": map[string]interface{}{"id": "turn-cancel"},
+					},
+				})
+				select {
+				case <-turnStarted:
+				default:
+					close(turnStarted)
+				}
+			}
+		}
+	}))
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	client, err := NewClient(wsURL)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	sess, err := client.OpenSession(context.Background(), "/tmp", "")
+	if err != nil {
+		t.Fatalf("open session: %v", err)
+	}
+	defer sess.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-turnStarted
+		cancel()
+	}()
+
+	startedAt := time.Now()
+	_, err = sess.SendTurn(ctx, "cancel test", "", nil)
+	if err == nil || !strings.Contains(err.Error(), context.Canceled.Error()) {
+		t.Fatalf("expected context cancellation error, got %v", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > 2*time.Second {
+		t.Fatalf("expected turn cancellation to return promptly, took %s", elapsed)
+	}
+	if sess.IsOpen() {
+		t.Fatal("expected canceled session turn to close the persistent session")
+	}
+}
+
 func TestSessionClosedAfterError(t *testing.T) {
 	srv := newTestServer(t, func(conn *websocket.Conn, msg map[string]interface{}, _ int) {
 		_ = conn.WriteJSON(map[string]interface{}{
