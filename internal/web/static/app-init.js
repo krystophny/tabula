@@ -392,6 +392,10 @@ export function bindUi() {
     const handleWorkspaceTap = (target, x, y) => {
       const requestedPositionPrompt = String(state.requestedPositionPrompt || '').trim();
       if (requestedPositionPrompt) {
+        if (state.interaction.tool !== 'prompt') {
+          if (prefersTextComposer() && state.hasArtifact && createPdfStickyNoteAt(x, y)) return;
+          return;
+        }
         if (isVoiceInteractionTarget(target, x, y)) return;
         const sel = window.getSelection();
         if (sel && !sel.isCollapsed) return;

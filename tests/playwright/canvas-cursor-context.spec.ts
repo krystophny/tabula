@@ -68,6 +68,85 @@ async function renderTestArtifact(page: Page) {
   });
 }
 
+async function renderPdfArtifactMock(page: Page) {
+  await page.evaluate(() => {
+    const pane = document.getElementById('canvas-pdf');
+    if (!(pane instanceof HTMLElement)) return;
+    pane.style.display = '';
+    pane.classList.add('is-active');
+    pane.innerHTML = '';
+
+    const surface = document.createElement('div');
+    surface.className = 'canvas-pdf-surface';
+    const pagesHost = document.createElement('div');
+    pagesHost.className = 'canvas-pdf-pages';
+
+    const pageNode = document.createElement('section');
+    pageNode.className = 'canvas-pdf-page';
+    pageNode.dataset.page = '1';
+
+    const pageInner = document.createElement('div');
+    pageInner.className = 'canvas-pdf-page-inner';
+    pageInner.style.width = '640px';
+    pageInner.style.height = '860px';
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'canvas-pdf-canvas';
+    canvas.width = 640;
+    canvas.height = 860;
+    canvas.style.width = '640px';
+    canvas.style.height = '860px';
+    pageInner.appendChild(canvas);
+
+    const textLayer = document.createElement('div');
+    textLayer.className = 'textLayer canvas-pdf-text-layer';
+    textLayer.style.setProperty('--scale-factor', '1');
+
+    const line = document.createElement('span');
+    line.textContent = 'Persistent PDF note';
+    line.style.position = 'absolute';
+    line.style.left = '72px';
+    line.style.top = '132px';
+    line.style.fontSize = '18px';
+    line.style.lineHeight = '1';
+    textLayer.appendChild(line);
+    pageInner.appendChild(textLayer);
+
+    pageNode.appendChild(pageInner);
+    pagesHost.appendChild(pageNode);
+    surface.appendChild(pagesHost);
+    pane.appendChild(surface);
+
+    const app = (window as any)._taburaApp;
+    const state = app?.getState?.();
+    if (state) {
+      state.currentCanvasArtifact = {
+        kind: 'pdf_artifact',
+        title: 'test.pdf',
+        path: 'docs/test.pdf',
+        event_id: 'art-pdf-1',
+      };
+      state.hasArtifact = true;
+    }
+    document.dispatchEvent(new CustomEvent('tabura:canvas-rendered', {
+      detail: {
+        kind: 'pdf_artifact',
+        title: 'test.pdf',
+        path: 'docs/test.pdf',
+        event_id: 'art-pdf-1',
+      },
+    }));
+  });
+}
+
+async function setInteractionTool(page: Page, tool: 'pointer' | 'highlight' | 'ink' | 'text_note' | 'prompt') {
+  await page.evaluate((mode) => {
+    (window as any).__setRuntimeState?.({ tool: mode });
+    const app = (window as any)._taburaApp;
+    if (app?.getState) app.getState().interaction.tool = mode;
+  }, tool);
+}
+
 async function waitForEdgeButtons(page: Page) {
   await expect.poll(async () => page.evaluate(() => {
     const dialogue = document.querySelector('#edge-top-models .edge-live-dialogue-btn');
@@ -225,8 +304,29 @@ test('meeting taps move the pinned cursor without starting a new recording', asy
   expect(secondDot?.top).toBe(`${secondY}px`);
 });
 
-test('request_position turns the next tap into a requested canvas position reply', async ({ page }) => {
+test('request_position stays local in annotation tools instead of dispatching a reply', async ({ page }) => {
+  await renderPdfArtifactMock(page);
+  await setInteractionTool(page, 'text_note');
+  await clearLog(page);
+  await injectChatEvent(page, {
+    type: 'request_position',
+    prompt: 'Tap where the comment should go.',
+  });
+
+  await page.mouse.click(420, 360);
+  await page.waitForTimeout(150);
+
+  const log = await getLog(page);
+  expect(log.some((entry) => entry.type === 'recorder' && entry.action === 'start')).toBe(false);
+  expect(log.some((entry) => entry.type === 'canvas_position')).toBe(false);
+  await expect(page.locator('#annotation-bubble')).toBeVisible();
+  await expect(page.locator('#canvas-pdf .canvas-sticky-note')).toHaveCount(1);
+  expect(await page.evaluate(() => (window as any)._taburaApp.getState().requestedPositionPrompt)).toBe('Tap where the comment should go.');
+});
+
+test('request_position still sends a reply from the prompt tool', async ({ page }) => {
   await renderTestArtifact(page);
+  await setInteractionTool(page, 'prompt');
   await clearLog(page);
   await injectChatEvent(page, {
     type: 'request_position',
