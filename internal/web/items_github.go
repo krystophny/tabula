@@ -53,6 +53,10 @@ func optionalTrimmedString(raw string) *string {
 	return &clean
 }
 
+func legacyBugReportIssueSourceRef(number int) string {
+	return fmt.Sprintf("issue:%d", number)
+}
+
 func githubIssueSourceRef(ownerRepo string, number int) string {
 	return fmt.Sprintf("%s#%d", strings.TrimSpace(ownerRepo), number)
 }
@@ -160,6 +164,20 @@ func (a *App) syncGitHubIssueArtifact(item store.Item, ownerRepo string, issue g
 	return err
 }
 
+func migrateLegacyBugReportIssue(a *App, workspaceID int64, ownerRepo string, issue ghIssueListItem) error {
+	legacy, err := a.store.GetItemBySource("bug_report", legacyBugReportIssueSourceRef(issue.Number))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if legacy.WorkspaceID == nil || *legacy.WorkspaceID != workspaceID {
+		return nil
+	}
+	return a.store.UpdateItemSource(legacy.ID, "github", githubIssueSourceRef(ownerRepo, issue.Number))
+}
+
 func (a *App) syncGitHubIssues(workspaceID int64) (itemGitHubSyncResponse, error) {
 	workspace, err := a.store.GetWorkspace(workspaceID)
 	if err != nil {
@@ -190,6 +208,9 @@ func (a *App) syncGitHubIssues(workspaceID int64) (itemGitHubSyncResponse, error
 		}
 		if strings.TrimSpace(issue.Title) == "" {
 			return itemGitHubSyncResponse{}, fmt.Errorf("github issue #%d title is required", issue.Number)
+		}
+		if err := migrateLegacyBugReportIssue(a, workspace.ID, repo, issue); err != nil {
+			return itemGitHubSyncResponse{}, err
 		}
 
 		item, err := a.store.UpsertItemFromSource("github", githubIssueSourceRef(repo, issue.Number), issue.Title, &workspace.ID)

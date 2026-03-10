@@ -159,7 +159,7 @@ func TestHandleBugReportCreateWritesBundleUnderWorkspaceArtifacts(t *testing.T) 
 	if got := strFromAny(canvasState["artifact_title"]); got != "README.md" {
 		t.Fatalf("canvas_state.artifact_title = %q, want %q", got, "README.md")
 	}
-	item, err := app.store.GetItemBySource("bug_report", "issue:77")
+	item, err := app.store.GetItemBySource("github", "owner/tabula#77")
 	if err != nil {
 		t.Fatalf("GetItemBySource() error: %v", err)
 	}
@@ -314,7 +314,7 @@ func TestHandleBugReportCreateUsesLocalProjectFallback(t *testing.T) {
 	if workspace.Sphere != store.SphereWork {
 		t.Fatalf("workspace.Sphere = %q, want %q", workspace.Sphere, store.SphereWork)
 	}
-	item, err := app.store.GetItemBySource("bug_report", "issue:91")
+	item, err := app.store.GetItemBySource("github", "owner/tabula#91")
 	if err != nil {
 		t.Fatalf("GetItemBySource() error: %v", err)
 	}

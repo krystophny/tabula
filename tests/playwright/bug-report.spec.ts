@@ -58,6 +58,20 @@ test.describe('bug report flow', () => {
     await expect(page.locator('#canvas-text')).toContainText('#77');
   });
 
+  test('filed bug reports appear in inbox immediately', async ({ page }) => {
+    await waitReady(page);
+
+    await page.locator('#edge-left-tap').click();
+    await expect(page.locator('#pr-file-list')).toContainText('Review parser cleanup');
+
+    await page.locator('#bug-report-button').click();
+    await page.locator('#bug-report-note').fill('Harness inbox refresh');
+    await page.locator('#bug-report-save').click();
+
+    await expect(page.locator('#pr-file-list')).toContainText('Bug report: Harness repro');
+    await expect(page.locator('#edge-left-tap')).toHaveAttribute('data-inbox-count', '3');
+  });
+
   test('keyboard shortcut opens the bug report sheet', async ({ page }) => {
     await waitReady(page);
 

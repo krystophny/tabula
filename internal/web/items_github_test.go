@@ -2,7 +2,9 @@ package web
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os/exec"
 	"path/filepath"
@@ -171,6 +173,60 @@ func TestGitHubIssueSyncAPIRejectsWorkspaceWithoutGitHubRemote(t *testing.T) {
 	})
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("sync without remote status = %d, want 400: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestGitHubIssueSyncMigratesLegacyBugReportItems(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	repoDir := filepath.Join(t.TempDir(), "workspace")
+	initGitHubWorkspaceRepo(t, repoDir, "https://github.com/owner/tabula.git")
+	workspace, err := app.store.CreateWorkspace("Repo", repoDir)
+	if err != nil {
+		t.Fatalf("CreateWorkspace() error: %v", err)
+	}
+	source := "bug_report"
+	sourceRef := legacyBugReportIssueSourceRef(77)
+	item, err := app.store.CreateItem("Old bug report title", store.ItemOptions{
+		WorkspaceID: &workspace.ID,
+		Source:      &source,
+		SourceRef:   &sourceRef,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(legacy bug report) error: %v", err)
+	}
+
+	app.ghCommandRunner = func(_ context.Context, cwd string, args ...string) (string, error) {
+		if cwd != repoDir {
+			t.Fatalf("gh cwd = %q, want %q", cwd, repoDir)
+		}
+		return `[
+			{"number":77,"title":"Bug report: Inbox sync migration","url":"https://github.com/owner/tabula/issues/77","state":"CLOSED","labels":[{"name":"bug"}],"assignees":[]}
+		]`, nil
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/sync/github", map[string]any{
+		"workspace_id": workspace.ID,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("sync status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+
+	migrated, err := app.store.GetItemBySource("github", "owner/tabula#77")
+	if err != nil {
+		t.Fatalf("GetItemBySource(migrated) error: %v", err)
+	}
+	if migrated.ID != item.ID {
+		t.Fatalf("migrated item ID = %d, want %d", migrated.ID, item.ID)
+	}
+	if migrated.State != store.ItemStateDone {
+		t.Fatalf("migrated item state = %q, want %q", migrated.State, store.ItemStateDone)
+	}
+	if migrated.Title != "Bug report: Inbox sync migration" {
+		t.Fatalf("migrated item title = %q, want synced title", migrated.Title)
+	}
+	if _, err := app.store.GetItemBySource("bug_report", "issue:77"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("legacy bug report source lookup error = %v, want sql.ErrNoRows", err)
 	}
 }
 

@@ -245,8 +245,19 @@ func (a *App) createGitHubIssueFromBugReport(workspace bugReportWorkspace, bundl
 	if err != nil {
 		return ghIssueListItem{}, 0, err
 	}
-	source := "bug_report"
-	sourceRef := fmt.Sprintf("issue:%d", issue.Number)
+	ownerRepo := ""
+	if workspaceID != nil {
+		ownerRepo, _ = a.store.GitHubRepoForWorkspace(*workspaceID)
+	}
+	if ownerRepo == "" {
+		ownerRepo = bugReportOwnerRepoFromIssueURL(issue.URL)
+	}
+	source := "github"
+	sourceRef := githubIssueSourceRef(ownerRepo, issue.Number)
+	if ownerRepo == "" {
+		source = "bug_report"
+		sourceRef = legacyBugReportIssueSourceRef(issue.Number)
+	}
 	item, err := a.store.CreateItem(strings.TrimSpace(issue.Title), store.ItemOptions{
 		WorkspaceID: workspaceID,
 		Source:      &source,
@@ -254,10 +265,6 @@ func (a *App) createGitHubIssueFromBugReport(workspace bugReportWorkspace, bundl
 	})
 	if err != nil {
 		return ghIssueListItem{}, 0, err
-	}
-	ownerRepo := bugReportOwnerRepoFromIssueURL(issue.URL)
-	if ownerRepo == "" && workspaceID != nil {
-		ownerRepo, _ = a.store.GitHubRepoForWorkspace(*workspaceID)
 	}
 	if ownerRepo != "" {
 		if err := a.syncGitHubIssueArtifact(item, ownerRepo, issue); err != nil {

@@ -11,6 +11,8 @@ const sttStart = (...args) => refs.sttStart(...args);
 const sttSendBlob = (...args) => refs.sttSendBlob(...args);
 const sttStop = (...args) => refs.sttStop(...args);
 const sttCancel = (...args) => refs.sttCancel(...args);
+const loadItemSidebarView = (...args) => refs.loadItemSidebarView(...args);
+const refreshItemSidebarCounts = (...args) => refs.refreshItemSidebarCounts(...args);
 
 const BUG_REPORT_SHORTCUT_KEY = 'b';
 const BUG_REPORT_TOUCH_HOLD_MS = 700;
@@ -700,6 +702,11 @@ async function saveBugReport() {
     });
     showCanvasColumn('canvas-text');
     const issueNumber = Number(payload?.issue_number || 0);
+    try {
+      await refreshBugReportInboxState();
+    } catch (refreshErr) {
+      console.warn('bug report inbox refresh failed', refreshErr);
+    }
     showStatus(issueNumber > 0 ? `bug report filed: #${issueNumber}` : `bug bundle saved: ${safeText(payload?.bundle_path) || 'ok'}`);
   } catch (err) {
     showStatus(`bug bundle failed: ${safeText(err?.message || err) || 'unknown error'}`);
@@ -708,6 +715,14 @@ async function saveBugReport() {
       save.disabled = false;
     }
   }
+}
+
+async function refreshBugReportInboxState() {
+  if (!String(state.activeProjectId || '').trim()) return false;
+  if (state.prReviewDrawerOpen && state.fileSidebarMode === 'items' && String(state.itemSidebarView || '').trim().toLowerCase() === 'inbox') {
+    return loadItemSidebarView('inbox');
+  }
+  return refreshItemSidebarCounts();
 }
 
 function onBugReportPointerDown(event) {
