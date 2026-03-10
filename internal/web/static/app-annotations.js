@@ -1,6 +1,5 @@
-import { apiURL } from './app-env.js';
 import { refs, state } from './app-context.js';
-
+import { createScanAnnotationController } from './app-annotations-scan.js';
 const acquireMicStream = (...args) => refs.acquireMicStream(...args);
 const newMediaRecorder = (...args) => refs.newMediaRecorder(...args);
 const showStatus = (...args) => refs.showStatus(...args);
@@ -9,23 +8,18 @@ const sttSendBlob = (...args) => refs.sttSendBlob(...args);
 const sttStop = (...args) => refs.sttStop(...args);
 const sttCancel = (...args) => refs.sttCancel(...args);
 const submitMessage = (...args) => refs.submitMessage(...args);
-const openSidebarArtifactItem = (...args) => refs.openSidebarArtifactItem(...args);
-
 const ANNOTATION_STORAGE_KEY = 'tabura.annotations.v1';
 const HIGHLIGHT_COLOR = 'rgba(253, 230, 138, 0.72)';
 const STICKY_NOTE_LABEL = 'Sticky note';
 const INK_NOTE_LABEL = 'Ink annotation';
-
 let annotationsReady = false;
 let activeDescriptor = null;
 let bubbleState = null;
 let activeVoiceNote = null;
-let scanUploadInFlight = false;
-
+let annotationRenderRetryFrame = 0;
 function safeText(value) {
   return String(value == null ? '' : value).trim();
 }
-
 function cloneJSON(value, fallback) {
   try {
     return JSON.parse(JSON.stringify(value));
@@ -33,7 +27,6 @@ function cloneJSON(value, fallback) {
     return fallback;
   }
 }
-
 function annotationStore() {
   try {
     const raw = window.localStorage.getItem(ANNOTATION_STORAGE_KEY);
@@ -43,13 +36,11 @@ function annotationStore() {
     return {};
   }
 }
-
 function persistAnnotationStore(next) {
   try {
     window.localStorage.setItem(ANNOTATION_STORAGE_KEY, JSON.stringify(next || {}));
   } catch (_) {}
 }
-
 function activeAnnotationKey() {
   if (!activeDescriptor) return '';
   const kind = safeText(activeDescriptor.kind || state.currentCanvasArtifact?.kind || '');
@@ -60,7 +51,6 @@ function activeAnnotationKey() {
   if (!stableID) return '';
   return `${kind || 'artifact'}:${stableID}`;
 }
-
 function listActiveAnnotations() {
   const key = activeAnnotationKey();
   if (!key) return [];
@@ -68,7 +58,6 @@ function listActiveAnnotations() {
   const entries = store[key];
   return Array.isArray(entries) ? entries : [];
 }
-
 function saveActiveAnnotations(entries) {
   const key = activeAnnotationKey();
   if (!key) return;
@@ -80,7 +69,6 @@ function saveActiveAnnotations(entries) {
   }
   persistAnnotationStore(store);
 }
-
 function updateActiveAnnotation(annotationID, updater) {
   const annotations = listActiveAnnotations();
   const index = annotations.findIndex((entry) => safeText(entry?.id) === safeText(annotationID));
@@ -92,12 +80,10 @@ function updateActiveAnnotation(annotationID, updater) {
   saveActiveAnnotations(annotations);
   return updated;
 }
-
 function removeActiveAnnotation(annotationID) {
   const remaining = listActiveAnnotations().filter((entry) => safeText(entry?.id) !== safeText(annotationID));
   saveActiveAnnotations(remaining);
 }
-
 function normalizeRects(rects) {
   if (!Array.isArray(rects)) return [];
   return rects
@@ -109,12 +95,10 @@ function normalizeRects(rects) {
     }))
     .filter((rect) => [rect.x, rect.y, rect.width, rect.height].every((value) => Number.isFinite(value) && value >= 0));
 }
-
 function clamp01(value) {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(1, value));
 }
-
 function annotationPrimaryRect(annotation) {
   return normalizeRects(annotation?.rects)[0] || null;
 }
@@ -126,6 +110,19 @@ function createAnnotationID() {
 function createNoteID() {
   return `note-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
+
+const scanController = createScanAnnotationController({
+  clamp01,
+  collectNormalizedClientRects,
+  createAnnotationID,
+  highlightColor: HIGHLIGHT_COLOR,
+  listActiveAnnotations,
+  openAnnotationBubble,
+  renderActiveAnnotations,
+  safeText,
+  saveActiveAnnotations,
+  showStatus,
+});
 
 function collectNormalizedClientRects(range, root, options = {}) {
   if (!(range instanceof Range) || !(root instanceof HTMLElement)) return [];
@@ -301,250 +298,12 @@ function clearAllActiveAnnotations() {
   showStatus('annotations cleared');
 }
 
-function activeSidebarItemForScan() {
-  const activeID = Number(state.itemSidebarActiveItemID || 0);
-  if (activeID <= 0) return null;
-  const items = Array.isArray(state.itemSidebarItems) ? state.itemSidebarItems : [];
-  return items.find((entry) => Number(entry?.id || 0) === activeID) || null;
-}
-
-function normalizeScanBounds(bounds) {
-  if (!bounds || typeof bounds !== 'object') return null;
-  return {
-    x: clamp01(Number(bounds.x)),
-    y: clamp01(Number(bounds.y)),
-    width: clamp01(Number(bounds.width)),
-    height: clamp01(Number(bounds.height)),
-  };
-}
-
-function normalizedRectFromClientRect(rect, rootRect, options = {}) {
-  const width = Math.max(Number(options.width || rootRect.width || 1), 1);
-  const height = Math.max(Number(options.height || rootRect.height || 1), 1);
-  return {
-    x: clamp01((rect.left - rootRect.left + Number(options.scrollLeft || 0)) / width),
-    y: clamp01((rect.top - rootRect.top + Number(options.scrollTop || 0)) / height),
-    width: clamp01(rect.width / width),
-    height: clamp01(rect.height / height),
-  };
-}
-
-function findTextAnchorRects(anchorText) {
-  const pane = document.getElementById('canvas-text');
-  const query = safeText(anchorText);
-  if (!(pane instanceof HTMLElement) || !pane.classList.contains('is-active') || !query) return [];
-  const walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT);
-  let node = walker.nextNode();
-  while (node) {
-    const text = String(node.textContent || '');
-    const index = text.toLowerCase().indexOf(query.toLowerCase());
-    if (index >= 0) {
-      const range = document.createRange();
-      range.setStart(node, index);
-      range.setEnd(node, Math.min(text.length, index + query.length));
-      const rects = collectNormalizedClientRects(range, pane, { scrollable: true });
-      range.detach?.();
-      if (rects.length > 0) return rects;
-    }
-    node = walker.nextNode();
-  }
-  return [];
-}
-
-function approximateTextRectsForLine(line) {
-  const pane = document.getElementById('canvas-text');
-  const lineNumber = Number.parseInt(String(line || ''), 10);
-  if (!(pane instanceof HTMLElement) || !pane.classList.contains('is-active') || !Number.isFinite(lineNumber) || lineNumber <= 0) {
-    return [];
-  }
-  const sourceNode = pane.querySelector(`[data-source-line="${lineNumber}"]`);
-  if (sourceNode instanceof HTMLElement) {
-    return [normalizedRectFromClientRect(sourceNode.getBoundingClientRect(), pane.getBoundingClientRect(), {
-      scrollLeft: pane.scrollLeft,
-      scrollTop: pane.scrollTop,
-      width: Math.max(pane.scrollWidth, pane.clientWidth, 1),
-      height: Math.max(pane.scrollHeight, pane.clientHeight, 1),
-    })];
-  }
-  const text = String(pane.textContent || '');
-  const lineCount = Math.max(1, text.split('\n').length);
-  const anchor = pane.querySelector('pre, code, p, li, blockquote');
-  const lineHeight = Math.max(18, parseFloat(window.getComputedStyle(anchor || pane).lineHeight) || 22);
-  const height = Math.max(pane.scrollHeight, lineCount * lineHeight, 1);
-  const top = Math.max(0, Math.min(height - lineHeight, (lineNumber - 1) * lineHeight));
-  return [{
-    x: 0.02,
-    y: clamp01(top / height),
-    width: 0.96,
-    height: clamp01(lineHeight / height),
-  }];
-}
-
-function buildImportedScanAnnotation(entry, index, payload = {}) {
-  const currentKind = safeText(state.currentCanvasArtifact?.kind || '');
-  const page = Number.parseInt(safeText(entry?.page), 10);
-  const line = Number.parseInt(safeText(entry?.line), 10);
-  const anchorText = safeText(entry?.anchor_text);
-  const text = safeText(entry?.content || entry?.text || 'Scanned note');
-  const bounds = normalizeScanBounds(entry?.bounds);
-  const base = {
-    id: createAnnotationID(),
-    text,
-    anchor_text: anchorText,
-    line: Number.isFinite(line) && line > 0 ? line : 0,
-    color: HIGHLIGHT_COLOR,
-    notes: [],
-    confidence: clamp01(Number(entry?.confidence)),
-    source: 'scan_upload',
-    scan_artifact_id: Number(payload?.scan_artifact?.id || payload?.scan_artifact_id || 0),
-    scan_item_id: Number(payload?.item_id || 0),
-    source_artifact_id: Number(payload?.artifact_id || 0),
-    project_id: safeText(payload?.project_id),
-  };
-  if (currentKind === 'pdf_artifact') {
-    return {
-      ...base,
-      type: bounds ? 'highlight' : 'sticky_note',
-      target: 'pdf',
-      page: Number.isFinite(page) && page > 0 ? page : 1,
-      rects: bounds ? [bounds] : [{ x: 0.08, y: clamp01(0.08 + (index * 0.06)), width: 0, height: 0 }],
-    };
-  }
-  const rects = findTextAnchorRects(anchorText) || [];
-  const mappedRects = rects.length > 0
-    ? rects
-    : (Number.isFinite(line) && line > 0 ? approximateTextRectsForLine(line) : []);
-  return {
-    ...base,
-    type: 'highlight',
-    target: 'text',
-    rects: mappedRects.length > 0 ? mappedRects : [{ x: 0.02, y: clamp01(0.06 + (index * 0.08)), width: 0.96, height: 0.05 }],
-  };
-}
-
 export function importScanAnnotations(payload = {}) {
-  const incoming = Array.isArray(payload?.annotations) ? payload.annotations : [];
-  if (incoming.length === 0) {
-    showStatus('scan imported: no annotations found');
-    return 0;
-  }
-  const annotations = listActiveAnnotations();
-  incoming.forEach((entry, index) => {
-    annotations.push(buildImportedScanAnnotation(entry, index, payload));
-  });
-  saveActiveAnnotations(annotations);
-  renderActiveAnnotations();
-  if (annotations.length > 0) {
-    openAnnotationBubble(annotations[annotations.length - incoming.length].id);
-  }
-  showStatus(`scan imported: ${incoming.length} annotation${incoming.length === 1 ? '' : 's'}`);
-  return incoming.length;
+  return scanController.importScanAnnotations(payload);
 }
-
-function ensureScanUploadInput() {
-  let input = document.getElementById('scan-upload-input');
-  if (input instanceof HTMLInputElement) return input;
-  input = document.createElement('input');
-  input.id = 'scan-upload-input';
-  input.type = 'file';
-  input.accept = 'image/*';
-  input.hidden = true;
-  input.addEventListener('change', () => {
-    const [file] = Array.from(input.files || []);
-    input.value = '';
-    if (file) {
-      void uploadScanFile(file);
-    }
-  });
-  document.body.appendChild(input);
-  return input;
-}
-
-export function openScanImportPicker() {
-  if (!activeSidebarItemForScan()) {
-    showStatus('select an item before importing a scan');
-    return false;
-  }
-  ensureScanUploadInput().click();
-  return true;
-}
-
-export async function uploadScanFile(file) {
-  const item = activeSidebarItemForScan();
-  if (!item) {
-    showStatus('select an item before importing a scan');
-    return false;
-  }
-  if (!safeText(state.activeProjectId)) {
-    showStatus('scan import requires an active project');
-    return false;
-  }
-  if (scanUploadInFlight) {
-    showStatus('scan import already running');
-    return false;
-  }
-  scanUploadInFlight = true;
-  try {
-    await openSidebarArtifactItem(item);
-    const form = new FormData();
-    form.set('project_id', safeText(state.activeProjectId));
-    form.set('item_id', String(Number(item?.id || 0)));
-    form.set('artifact_id', String(Number(item?.artifact_id || 0)));
-    form.set('file', file, file.name || 'scan.png');
-    const resp = await fetch(apiURL('scan/upload'), { method: 'POST', body: form });
-    if (!resp.ok) {
-      const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
-      throw new Error(detail);
-    }
-    importScanAnnotations(await resp.json());
-    return true;
-  } catch (err) {
-    showStatus(`scan import failed: ${safeText(err?.message || err) || 'unknown error'}`);
-    return false;
-  } finally {
-    scanUploadInFlight = false;
-  }
-}
-
-async function confirmImportedScanAnnotations(selected) {
-  const pending = Array.isArray(selected)
-    ? selected.filter((entry) => safeText(entry?.source) === 'scan_upload' && Number(entry?.scan_artifact_id || 0) > 0)
-    : [];
-  if (pending.length === 0) return true;
-  const groups = new Map();
-  pending.forEach((entry) => {
-    const key = String(Number(entry?.scan_artifact_id || 0));
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(entry);
-  });
-  for (const group of groups.values()) {
-    const first = group[0] || {};
-    const resp = await fetch(apiURL('scan/confirm'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        project_id: safeText(first?.project_id || state.activeProjectId),
-        item_id: Number(first?.scan_item_id || 0),
-        artifact_id: Number(first?.source_artifact_id || 0),
-        scan_artifact_id: Number(first?.scan_artifact_id || 0),
-        annotations: group.map((entry) => ({
-          content: safeText(entry?.text),
-          anchor_text: safeText(entry?.anchor_text),
-          line: Number(entry?.line || 0),
-          page: Number(entry?.page || 0),
-          bounds: normalizeScanBounds(Array.isArray(entry?.rects) ? entry.rects[0] : null),
-          confidence: Number(entry?.confidence || 0),
-        })),
-      }),
-    });
-    if (!resp.ok) {
-      const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
-      throw new Error(detail);
-    }
-    await resp.json();
-  }
-  return true;
-}
+export function openScanImportPicker() { return scanController.openScanImportPicker(); }
+export async function uploadScanFile(file) { return scanController.uploadScanFile(file); }
+async function confirmImportedScanAnnotations(selected) { return scanController.confirmImportedScanAnnotations(selected); }
 
 function annotationClientRects(annotation) {
   if (!annotation || !Array.isArray(annotation.rects)) return [];
@@ -574,15 +333,17 @@ function annotationClientRects(annotation) {
   }));
 }
 
-function annotationAnchorRect(annotation) {
-  const rects = annotationClientRects(annotation);
-  return rects[0] || null;
+function annotationAnchorRect(annotation) { return annotationClientRects(annotation)[0] || null; }
+function missingPdfAnnotationTargets(annotations) {
+  return annotations.some((annotation) => annotation?.target === 'pdf' && !(document.querySelector(`.canvas-pdf-page[data-page="${safeText(annotation.page)}"] .canvas-pdf-page-inner`) instanceof HTMLElement));
 }
-
+function scheduleAnnotationRenderRetry() {
+  if (annotationRenderRetryFrame) return;
+  annotationRenderRetryFrame = window.requestAnimationFrame(() => { annotationRenderRetryFrame = 0; renderActiveAnnotations(); });
+}
 function clearRenderedAnnotations() {
   document.querySelectorAll('.canvas-annotation-layer, .canvas-annotation-badge, .canvas-sticky-note, .canvas-ink-annotation').forEach((node) => node.remove());
 }
-
 function ensureTextAnnotationLayer() {
   const pane = document.getElementById('canvas-text');
   if (!(pane instanceof HTMLElement) || !pane.classList.contains('is-active')) return null;
@@ -596,7 +357,6 @@ function ensureTextAnnotationLayer() {
   layer.style.height = `${Math.max(pane.scrollHeight, pane.clientHeight, 1)}px`;
   return layer;
 }
-
 function ensurePdfAnnotationLayer(pageNumber) {
   const page = document.querySelector(`.canvas-pdf-page[data-page="${safeText(pageNumber)}"] .canvas-pdf-page-inner`);
   if (!(page instanceof HTMLElement)) return null;
@@ -608,23 +368,18 @@ function ensurePdfAnnotationLayer(pageNumber) {
   }
   return layer;
 }
-
 function openAnnotationBubble(annotationID) {
   const key = activeAnnotationKey();
   if (!key || !annotationID) return;
   bubbleState = { key, annotationID };
   renderAnnotationBubble();
 }
-
 function closeAnnotationBubble() {
   bubbleState = null;
   stopAnnotationVoiceNote(true);
   const bubble = document.getElementById('annotation-bubble');
-  if (bubble instanceof HTMLElement) {
-    bubble.hidden = true;
-  }
+  if (bubble instanceof HTMLElement) bubble.hidden = true;
 }
-
 function ensureAnnotationBubble() {
   let bubble = document.getElementById('annotation-bubble');
   if (bubble instanceof HTMLElement) return bubble;
@@ -635,7 +390,22 @@ function ensureAnnotationBubble() {
   document.body.appendChild(bubble);
   return bubble;
 }
-
+function positionAnnotationBubble(bubble, anchor) {
+  const maxLeft = Math.max(12, window.innerWidth - bubble.offsetWidth - 12);
+  const belowTop = anchor.top + anchor.height + 10;
+  const aboveTop = anchor.top - bubble.offsetHeight - 10;
+  const preferredTop = belowTop + bubble.offsetHeight <= window.innerHeight - 12 || aboveTop < 12 ? belowTop : aboveTop;
+  bubble.style.left = `${Math.max(12, Math.min(maxLeft, anchor.left))}px`;
+  bubble.style.top = `${Math.max(12, Math.min(window.innerHeight - bubble.offsetHeight - 12, preferredTop))}px`;
+}
+function moveAnnotationBubble() {
+  const bubble = document.getElementById('annotation-bubble');
+  if (!(bubble instanceof HTMLElement) || bubble.hidden || !bubbleState || bubbleState.key !== activeAnnotationKey()) return;
+  const annotation = listActiveAnnotations().find((entry) => safeText(entry?.id) === safeText(bubbleState.annotationID));
+  const anchor = annotation && annotationAnchorRect(annotation);
+  if (!anchor) return;
+  positionAnnotationBubble(bubble, anchor);
+}
 function renderAnnotationBubble() {
   const bubble = ensureAnnotationBubble();
   if (!bubbleState || bubbleState.key !== activeAnnotationKey()) {
@@ -649,7 +419,7 @@ function renderAnnotationBubble() {
   }
   const anchor = annotationAnchorRect(annotation);
   if (!anchor) {
-    bubble.hidden = true;
+    if (bubble.childElementCount === 0) bubble.hidden = true;
     return;
   }
 
@@ -679,6 +449,7 @@ function renderAnnotationBubble() {
     updateActiveAnnotation(annotation.id, (entry) => ({ ...entry, text: content }));
     renderActiveAnnotations();
     renderAnnotationBubble();
+    if (annotation?.target === 'pdf') [60, 180, 400, 800].forEach((delay) => window.setTimeout(() => renderActiveAnnotations(), delay));
   });
   selectionControls.appendChild(selectionSave);
 
@@ -726,6 +497,7 @@ function renderAnnotationBubble() {
     textarea.value = '';
     renderActiveAnnotations();
     renderAnnotationBubble();
+    if (annotation?.target === 'pdf') [60, 180, 400, 800].forEach((delay) => window.setTimeout(() => renderActiveAnnotations(), delay));
   });
   controls.appendChild(addButton);
 
@@ -779,8 +551,9 @@ function renderAnnotationBubble() {
 
   bubble.appendChild(bundleControls);
   bubble.hidden = false;
-  bubble.style.left = `${Math.max(12, Math.min(window.innerWidth - 300, anchor.left))}px`;
-  bubble.style.top = `${Math.max(12, Math.min(window.innerHeight - 220, anchor.top + anchor.height + 10))}px`;
+  bubble.style.left = '12px';
+  bubble.style.top = '12px';
+  positionAnnotationBubble(bubble, anchor);
 }
 
 export function pdfPageAnchorAtPoint(clientX, clientY) {
@@ -954,12 +727,13 @@ function renderTextAnnotations(annotations) {
 }
 
 function renderPdfAnnotations(annotations) {
+  let ready = true;
   annotations
     .filter((annotation) => annotation?.target === 'pdf')
     .forEach((annotation) => {
       const layer = ensurePdfAnnotationLayer(annotation.page);
       const root = document.querySelector(`.canvas-pdf-page[data-page="${safeText(annotation.page)}"] .canvas-pdf-page-inner`);
-      if (!(layer instanceof HTMLElement) || !(root instanceof HTMLElement)) return;
+      if (!(layer instanceof HTMLElement) || !(root instanceof HTMLElement)) { ready = false; return; }
       const width = Math.max(root.clientWidth, 1);
       const height = Math.max(root.clientHeight, 1);
       if (annotation?.type === 'sticky_note') {
@@ -994,17 +768,24 @@ function renderPdfAnnotations(annotations) {
       });
       renderAnnotationBadge(root, annotation, width, height);
     });
+  return ready;
 }
 
 export function renderActiveAnnotations() {
-  clearRenderedAnnotations();
   const annotations = listActiveAnnotations();
   if (annotations.length === 0) {
+    clearRenderedAnnotations();
     renderAnnotationBubble();
     return;
   }
+  if (missingPdfAnnotationTargets(annotations)) {
+    scheduleAnnotationRenderRetry();
+    renderAnnotationBubble();
+    return;
+  }
+  clearRenderedAnnotations();
   renderTextAnnotations(annotations);
-  renderPdfAnnotations(annotations);
+  if (!renderPdfAnnotations(annotations)) scheduleAnnotationRenderRetry();
   renderAnnotationBubble();
 }
 
@@ -1172,19 +953,13 @@ async function startAnnotationVoiceNote(annotationID) {
   recorder.start(250);
   showStatus('voice note recording');
 }
-
 async function stopAnnotationVoiceNote(cancel) {
   if (!activeVoiceNote) return;
   const current = activeVoiceNote;
   activeVoiceNote = null;
-  if (cancel) {
-    current.cancelled = true;
-    sttCancel();
-  }
+  if (cancel) { current.cancelled = true; sttCancel(); }
   try {
-    if (current.recorder && current.recorder.state !== 'inactive') {
-      current.recorder.stop();
-    }
+    if (current.recorder && current.recorder.state !== 'inactive') current.recorder.stop();
   } catch (_) {}
   if (current.stream?.getTracks) {
     current.stream.getTracks().forEach((track) => {
@@ -1209,22 +984,14 @@ export function initAnnotationUi() {
   document.addEventListener('pointerdown', (event) => {
     const bubble = document.getElementById('annotation-bubble');
     if (!(bubble instanceof HTMLElement) || bubble.hidden) return;
-    if (event.target instanceof Element && (bubble.contains(event.target) || event.target.closest('.canvas-user-highlight') || event.target.closest('.canvas-annotation-badge'))) {
-      return;
-    }
+    const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+    if (target && (bubble.contains(target) || target.closest('.canvas-user-highlight') || target.closest('.canvas-annotation-badge') || target.closest('.canvas-sticky-note') || target.closest('.canvas-ink-annotation'))) return;
     closeAnnotationBubble();
   }, true);
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') {
-      closeAnnotationBubble();
-    }
-  }, true);
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeAnnotationBubble(); }, true);
   document.addEventListener('scroll', () => {
     if (!bubbleState) return;
-    renderAnnotationBubble();
+    moveAnnotationBubble();
   }, true);
-  window.addEventListener('resize', () => {
-    if (!bubbleState) return;
-    renderActiveAnnotations();
-  });
+  window.addEventListener('resize', () => { if (bubbleState) renderActiveAnnotations(); });
 }
