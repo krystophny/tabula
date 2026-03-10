@@ -833,7 +833,22 @@ export async function refreshProjectRunStates() {
 
 export function startAssistantActivityWatcher() {
   if (state.assistantActivityTimer !== null) return;
-  const tick = () => {
+  const clearAssistantActivityTimer = () => {
+    if (state.assistantActivityTimer !== null) {
+      window.clearTimeout(state.assistantActivityTimer);
+      state.assistantActivityTimer = null;
+    }
+  };
+  const scheduleAssistantActivityTick = (delayMs = ASSISTANT_ACTIVITY_POLL_MS) => {
+    clearAssistantActivityTimer();
+    if (document.hidden) return;
+    const delay = Number.isFinite(delayMs) ? Math.max(0, Math.floor(delayMs)) : ASSISTANT_ACTIVITY_POLL_MS;
+    state.assistantActivityTimer = window.setTimeout(() => {
+      state.assistantActivityTimer = null;
+      void tick();
+    }, delay);
+  };
+  const tick = async () => {
     if (document.hidden) return;
     if (hasLocalStopCapableWork() && state.chatWs && state.chatWsLastMessageAt > 0) {
       const elapsed = Date.now() - state.chatWsLastMessageAt;
@@ -841,16 +856,20 @@ export function startAssistantActivityWatcher() {
         state.chatWsLastMessageAt = 0;
         closeChatWs();
         openChatWs();
+        scheduleAssistantActivityTick(ASSISTANT_ACTIVITY_POLL_MS);
         return;
       }
     }
-    void refreshAssistantActivity();
-    void refreshProjectRunStates();
+    try {
+      await refreshAssistantActivity();
+      await refreshProjectRunStates();
+    } finally {
+      scheduleAssistantActivityTick(ASSISTANT_ACTIVITY_POLL_MS);
+    }
   };
-  state.assistantActivityTimer = window.setInterval(tick, ASSISTANT_ACTIVITY_POLL_MS);
-  tick();
+  scheduleAssistantActivityTick(0);
   window.addEventListener('focus', () => {
-    tick();
+    scheduleAssistantActivityTick(0);
     if (document.hidden || state.chatVoiceCapture) return;
     requestMicRefresh();
     releaseMicStream({ force: true });
@@ -858,6 +877,7 @@ export function startAssistantActivityWatcher() {
   });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
+      clearAssistantActivityTimer();
       requestMicRefresh();
       stopHotwordMonitor();
       state.hotwordActive = false;
@@ -873,16 +893,18 @@ export function startAssistantActivityWatcher() {
       }
       return;
     }
-    tick();
+    scheduleAssistantActivityTick(0);
     requestHotwordSync();
   });
   window.addEventListener('pageshow', () => {
+    scheduleAssistantActivityTick(0);
     if (state.chatVoiceCapture) return;
     requestMicRefresh();
     releaseMicStream({ force: true });
     requestHotwordSync();
   });
   window.addEventListener('pagehide', () => {
+    clearAssistantActivityTimer();
     requestMicRefresh();
     stopHotwordMonitor();
     state.hotwordActive = false;

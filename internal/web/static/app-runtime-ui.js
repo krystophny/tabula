@@ -605,16 +605,41 @@ export async function pollRuntimeForRuntimeReload() {
   }
 }
 
+function clearRuntimeReloadWatcherTimer() {
+  if (runtimeReloadTimer !== null) {
+    window.clearTimeout(runtimeReloadTimer);
+    runtimeReloadTimer = null;
+  }
+}
+
+function scheduleRuntimeReloadWatcher(delayMs = DEV_UI_RELOAD_POLL_MS) {
+  clearRuntimeReloadWatcherTimer();
+  if (runtimeReloadRequested || document.hidden) return;
+  const delay = Number.isFinite(delayMs) ? Math.max(0, Math.floor(delayMs)) : DEV_UI_RELOAD_POLL_MS;
+  runtimeReloadTimer = window.setTimeout(async () => {
+    runtimeReloadTimer = null;
+    if (document.hidden) return;
+    await pollRuntimeForRuntimeReload();
+    scheduleRuntimeReloadWatcher(DEV_UI_RELOAD_POLL_MS);
+  }, delay);
+}
+
+export function isRuntimeReloadWatcherScheduled() {
+  return runtimeReloadTimer !== null;
+}
+
 export function startRuntimeReloadWatcher() {
   if (runtimeReloadTimer !== null) return;
-  const tick = () => {
-    void pollRuntimeForRuntimeReload();
-  };
-  runtimeReloadTimer = window.setInterval(tick, DEV_UI_RELOAD_POLL_MS);
-  tick();
-  window.addEventListener('focus', tick);
+  scheduleRuntimeReloadWatcher(0);
+  window.addEventListener('focus', () => {
+    scheduleRuntimeReloadWatcher(0);
+  });
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) tick();
+    if (document.hidden) {
+      clearRuntimeReloadWatcherTimer();
+      return;
+    }
+    scheduleRuntimeReloadWatcher(0);
   });
 }
 

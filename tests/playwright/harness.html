@@ -1515,6 +1515,12 @@
         }), { status: 200 });
       }
       if (u.includes('/api/projects/activity')) {
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'projects_activity',
+          method: opts?.method || 'GET',
+          url: u,
+        });
         const projects = harnessProjects.map((project) => ({
           project_id: project.id,
           project_key: project.project_key,
@@ -2386,6 +2392,12 @@
         return new Response(JSON.stringify({ active: 0, queued: 0 }), { status: 200 });
       }
       if (u.includes('/api/runtime')) {
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'runtime_meta',
+          method: opts?.method || 'GET',
+          url: u,
+        });
         return new Response(JSON.stringify({ ...runtimeState }), { status: 200 });
       }
       if (u.includes('/api/canvas/')) {
