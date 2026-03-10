@@ -8,11 +8,11 @@ If code, UI copy, storage, tests, or follow-on design notes disagree with this d
 
 Tabura has exactly five primary product nouns:
 
-- **Workspace** — a real directory the user works in. Always filesystem-grounded. Composed via symlinks and environment variables, not virtual abstractions. Thin record: path, name, sphere, active flag, chat config. Archivable as a self-contained unit.
+- **Workspace** — a real directory the user works in. Always filesystem-grounded. Composed via symlinks and environment variables, not virtual abstractions. Thin record: path, name, active flag, chat config. One workspace = one chat session (compatible with Codex CLI model). Archivable as a self-contained unit.
 - **Artifact** — curated content shown on canvas. Not every file is an artifact; artifacts are created lazily when interacted with, synced from external systems, or explicitly captured. Has kind, file path or URL, and metadata. Non-file artifacts (email, issue) can be materialized as real files in a workspace.
 - **Item** — an open loop requiring attention. Tracked in the inbox. Has state (inbox/waiting/someday/done), an optional artifact, an optional actor, and a workspace where it is tracked. Items do not always have artifacts; bare tasks like "call Bob" are items without artifacts.
 - **Actor** — a human or agent responsible for progress.
-- **Label** — a flat organizational tag. Attached to items, artifacts, and workspaces. The only cross-cutting grouping mechanism. Workspace labels cascade: querying a label includes items and artifacts in workspaces carrying that label.
+- **Context** — a hierarchical organizational tag. Attached to items, artifacts, and workspaces. The only cross-cutting grouping mechanism. Workspace contexts cascade: querying a context includes items and artifacts in workspaces carrying that context. Querying a parent context includes everything under it.
 
 Project is not a product concept. Session and message are transport or storage details, not user-facing ontology.
 
@@ -21,12 +21,83 @@ Project is not a product concept. Session and message are transport or storage d
 1. The canvas shows artifacts, always. Bare items (no artifact) show in the sidebar only.
 2. An item may have an artifact. The common case (email, PR, document) does. Bare tasks do not. No synthetic canvas content is generated for bare items.
 3. A workspace is a directory. No virtual workspaces. Composition via filesystem tools.
-4. Labels are the only cross-cutting grouping mechanism. No ProjectID anywhere.
-5. Sphere (work/private) stays as a dedicated field, not a label.
+4. Contexts are the only cross-cutting grouping mechanism. No ProjectID anywhere.
+5. Work and private are top-level contexts, not a separate "sphere" field. They follow the same rules as all other contexts.
+
+### Context hierarchy and filtering
+
+Contexts form a tree. Examples:
+
+```
+work/
+  w7x/
+  DEMO-2025/
+    EURATOM
+  tabura/
+  plasma-codes/
+private/
+  health/
+  family/
+important
+urgent
+```
+
+Filtering by a parent context includes everything under it. Filters combine: work/w7x + urgent = urgent W7X items. Filtering works globally across all nouns — items, artifacts, workspaces.
+
+### Time tracking
+
+Time accrues to ALL contexts on whatever you interact with, including ancestor contexts. Working on an item tagged work/w7x credits time to both work/w7x and work. If the item also carries urgent, time credits to that too. Filtering time by "work" gives total work time across all sub-contexts. Filtering by "urgent" gives total time on urgent things regardless of topic. No explicit time-tracking activation needed — the system tracks what you touch.
+
+### Triage and assignment
+
+Contexts auto-assigned from external container mappings (configured once per source). Workspace assignment is always manual. Most items float in inbox with contexts only, no workspace.
+
+Triage flow:
+
+1. External sync → item (inbox) + artifact + auto-contexts from container mappings
+2. User sees item in inbox with contexts already set
+3. Triage options:
+   - Reply and mark done (no workspace needed, contexts sufficient)
+   - Assign to workspace (explicit: "track this in ~/write/DEMO-2025")
+   - Add more contexts
+   - Materialize artifact into workspace (explicit archival)
+   - Delegate to actor
+
+### Workspace composition
+
+Workspaces are composed from multiple directories using filesystem tools:
+
+- **Symlinks** compose workspaces from multiple directories. A paper workspace at `~/write/DEMO-2025/` symlinks to `~/data/aug-campaign/` and `~/code/analysis/`.
+- **Path containment**: artifacts with ref_path inside the workspace directory are auto-associated.
+- **Explicit links**: workspace_artifact_links for cross-directory references that cannot be expressed as symlinks.
+- **Environment variables** ($CODE, $DATA) for scripts in composed workspaces, so paths remain portable across machines.
 
 ### Materialization
 
-Non-file artifacts linked to a workspace can be materialized as real files: email to .eml, GitHub issue to .md, external task to .md. This enables workspace archival: tar the directory and get a self-contained unit.
+Non-file artifacts linked to a workspace can be materialized as real files: email to .eml, GitHub issue to .md, external task to .md, calendar event to .ics. This is an explicit archival action, not automatic. The user decides when to persist a non-file artifact as a real file in a workspace directory.
+
+Use cases:
+
+- **Scientific archival**: paper workspace → materialize all non-file artifacts → archive → upload to Zenodo → DOI. The workspace IS the research compendium.
+- **Compliance**: admin workspace → materialize emails, decisions, financials → archive for audit.
+- **Reproducibility**: the archived workspace is self-contained — data, code, narrative, correspondence.
+
+### Concrete mapping
+
+How real entities map to the five nouns:
+
+| Entity | Workspace | Artifact | Item | Contexts |
+|---|---|---|---|---|
+| Scientific data (`~/data/`) | One workspace (whole git-lfs repo) | Files become artifacts when opened | Items when action needed | work/w7x, work/DEMO-2025 |
+| Code project (`~/code/tabula/`) | One workspace per repo | GitHub issues/PRs synced as artifacts | Issues/PRs are items tracked here | work/tabura, work/plasma-codes |
+| Paper (`~/write/DEMO-2025/`) | Composed workspace (symlinks to data+code) | Paper draft, figures, linked data | "Redo figure 3", "address reviewer 2" | work/DEMO-2025, work/DEMO-2025/EURATOM |
+| Documentation (`~/Nextcloud/plasma/DOCUMENTS/`) | One workspace | Reports, slides when opened | Rarely — mostly reference | work, per-topic |
+| Management (`~/Nextcloud/plasma_orga/`) | One workspace | Budgets, contracts, receipts | "Process invoice", "submit claim" | work, work/budget, work/personnel |
+| Email (Exchange work) | No workspace by default. Assigned manually during triage. | Email body+metadata. Materializable as .eml. | Inbox item. | work + auto from folder mappings |
+| Email (personal Gmail) | No workspace by default. | Email body+metadata. Materializable as .eml. | Inbox item. | private + auto from folder mappings |
+| Tasks (Todoist) | Assigned manually or left floating | Often bare (no artifact) | The item IS the task | Auto from Todoist project mappings |
+| Calendar (Google) | Assigned manually | Meeting agenda/notes. Transcript after meeting. | Meeting event. Transitions to Meeting live session. | Auto from calendar mappings |
+| GitHub issues/PRs | Tracked in code workspace | Issue/PR content as artifact | Item in code workspace | work/tabura, topic contexts |
 
 ## Authoritative Live Model
 
@@ -71,7 +142,7 @@ Auxiliary surfaces are allowed only when all of the following are true:
 
 - The surface is narrower than the main workspace.
 - The surface exists to make one job materially faster.
-- The surface writes back into the same Workspace / Artifact / Item / Actor / Label ontology.
+- The surface writes back into the same Workspace / Artifact / Item / Actor / Context ontology.
 - The surface does not create its own action grammar.
 - The surface does not create a parallel runtime shell, inbox, review system, or workspace universe.
 

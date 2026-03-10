@@ -74,6 +74,24 @@ Tabura's interaction model draws on a consistent thread in computing research: t
 
 **Olsen, "Evaluating User Interface Systems Research" (2007, CHI)** — HCI research over-values controlled micro-experiments and under-values systems contributions. The unified-environment vision is hard to validate with A/B tests on button placement, which partly explains why it keeps losing to incrementalist app design in academic publishing.
 
+## Context, attention, and time
+
+**Allen, Getting Things Done (2001)** — GTD contexts (@office, @phone, @computer) are situational filters: "given where I am, what can I do?" The key insight is that filtering by context is the primary way to decide what to work on next. Tabura generalizes this: contexts are hierarchical and include topics, urgency, and privacy — not just situational constraints.
+
+**Gonzalez & Mark, "Constant, Constant, Multi-tasking Craziness: Managing Multiple Working Spheres" (2004)** — empirical study of how knowledge workers manage multiple concurrent work contexts ("working spheres") throughout the day. People switch between spheres frequently, and the cost of switching is high. The system should support rapid context-switching with minimal state loss. Tabura's context model is a direct implementation: switch context, the filter changes, everything relevant appears.
+
+**Bardram, "Activity-Based Computing" (2005)** — proposes the activity, not the application, as the unit of computing. Users move between activities throughout the day. The system saves and restores the full state of each activity. This is the theoretical basis for context-as-active-filter: enter a context, see everything relevant, leave, state preserved.
+
+**TaskWarrior + Timewarrior** — the clearest existing implementation. `task context work` activates a filter. Everything you see is scoped to that context. Timewarrior tracks time against it. Switch context, switch filter, time accrues to the new one. Tabura's time model goes further: time accrues to all contexts on whatever you touch, so cross-cutting queries ("how much time on urgent things?") work without explicit activation.
+
+## Research compendium and FAIR principles
+
+**Gentleman & Temple Lang, "Statistical Analyses and Reproducible Research" (2007)** — proposed the research compendium: data, code, and narrative bundled into one unit. A Tabura paper workspace composed via symlinks and archived with materialized artifacts is exactly this. The workspace is the compendium.
+
+**Wilkinson et al., "The FAIR Guiding Principles for scientific data management and stewardship" (2016)** — Findable, Accessible, Interoperable, Reusable. Contexts make artifacts findable. Materialization as standard files (.eml, .md, .ics) makes them accessible. Filesystem-native storage makes them interoperable. Archivable workspaces with DOIs make them reusable and citable.
+
+The workspace archival model connects personal knowledge management (Bush, Engelbart, Kay) to scientific reproducibility (Gentleman) and data stewardship (FAIR). The same workspace that helps you think becomes the artifact you publish and the record you cite.
+
 ## The historical pattern
 
 Every serious attempt to build a document-centric or environment-centric system has either been killed by platform owners because it threatened the app-as-purchase-unit business model (OpenDoc, Courier, HyperCard), survived only in niche contexts (Oberon, Smalltalk, Lisp Machines), been miscopied with the key insight stripped out (Star to Mac/Windows), or succeeded by being unfashionable enough to avoid corporate attention (Emacs).
@@ -91,5 +109,8 @@ The app as organizing unit is the aberration, not the norm, in computing's intel
 7. From Suchman: action is situated. Accumulate context, then act. Do not immediately dispatch on every gesture.
 8. From Hutchins and Clark: the workspace is cognition, not just a place where cognition happens.
 9. From Weiser: the system should be calm. Present but not demanding.
+10. From Allen and Bardram: context is the primary filter for "what should I work on now?" Hierarchical contexts unify topics, urgency, and privacy into one mechanism.
+11. From Gonzalez/Mark and TaskWarrior: time accrues to all contexts on what you touch. Cross-cutting time queries work without explicit tracking activation.
+12. From Gentleman and FAIR: the workspace is the research compendium. Materialization and archival make personal work publishable and auditable.
 
 Tabura's position (local-first, filesystem-native, no platform tax, AI as integration layer) avoids the historical failure modes. There is no app monopoly to protect, no component architecture to over-engineer, and the AI layer means tools do not need to be heavyweight app-like components.
