@@ -77,6 +77,9 @@ func (s *Store) migrateProjectWorkspaces() error {
 
 	var activeWorkspaceID int64
 	for _, project := range projects {
+		if strings.TrimSpace(project.ID) == "" || normalizeProjectPath(project.RootPath) == "" {
+			continue
+		}
 		workspace, err := s.ensureWorkspaceForProject(project)
 		if err != nil {
 			return err

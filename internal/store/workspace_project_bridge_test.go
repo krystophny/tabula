@@ -175,3 +175,53 @@ INSERT INTO workspaces (id, name, dir_path, project_id, sphere, is_active) VALUE
 		t.Fatal("workspace is_active = false, want true")
 	}
 }
+
+func TestStoreMigrationToleratesProjectsWithoutWorkspaceFields(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "tabura.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error: %v", err)
+	}
+
+	legacySchema := `
+CREATE TABLE projects (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL
+);
+INSERT INTO projects (id, name) VALUES ('proj-legacy', 'Legacy Project');
+`
+	if _, err := db.Exec(legacySchema); err != nil {
+		_ = db.Close()
+		t.Fatalf("seed legacy schema: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close legacy db: %v", err)
+	}
+
+	s, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Close()
+	})
+
+	project, err := s.GetProject("proj-legacy")
+	if err != nil {
+		t.Fatalf("GetProject() error: %v", err)
+	}
+	if project.ProjectKey != "proj-legacy" {
+		t.Fatalf("project_key = %q, want %q", project.ProjectKey, "proj-legacy")
+	}
+	if project.RootPath != "" {
+		t.Fatalf("root_path = %q, want empty", project.RootPath)
+	}
+
+	workspaces, err := s.ListWorkspaces()
+	if err != nil {
+		t.Fatalf("ListWorkspaces() error: %v", err)
+	}
+	if len(workspaces) != 0 {
+		t.Fatalf("ListWorkspaces() len = %d, want 0", len(workspaces))
+	}
+}
