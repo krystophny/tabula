@@ -537,180 +537,18 @@ func (a *App) classifyAndExecuteSystemActionForTurn(ctx context.Context, session
 	}
 
 	captureMode = normalizeChatCaptureMode(firstNonEmptyCursorText(captureMode, a.chatCaptureModes.consume(sessionID)))
-	if inlineSourceSyncAction := parseInlineSourceSyncIntent(trimmedText); inlineSourceSyncAction != nil {
-		enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{inlineSourceSyncAction})
-		if len(enforced) == 0 {
-			return "", nil, false
-		}
-		message, payloads, err := a.executeSystemActionPlan(sessionID, session, trimmedText, enforced)
-		if err != nil {
-			return sourceSyncActionFailurePrefix(inlineSourceSyncAction.Action) + err.Error(), nil, true
-		}
-		return message, payloads, true
-	}
 	now := time.Now().UTC()
 	if a != nil && a.calendarNow != nil {
 		now = a.calendarNow().UTC()
 	}
-	if inlineCalendarAction := parseInlineCalendarIntent(trimmedText, now); inlineCalendarAction != nil {
-		enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{inlineCalendarAction})
-		if len(enforced) == 0 {
-			return "", nil, false
+	if match := tryDeterministicFastPath(trimmedText, deterministicFastPathContext{
+		Now:         now,
+		CaptureMode: captureMode,
+		Cursor:      cursor,
+	}); match != nil {
+		if message, payloads, handled := a.executeDeterministicFastPath(ctx, sessionID, session, trimmedText, match); handled {
+			return message, payloads, true
 		}
-		message, payloads, err := a.executeSystemActionPlan(sessionID, session, trimmedText, enforced)
-		if err != nil {
-			return calendarActionFailurePrefix(inlineCalendarAction.Action) + err.Error(), nil, true
-		}
-		return message, payloads, true
-	}
-	if inlineBriefingAction := parseInlineBriefingIntent(trimmedText, now); inlineBriefingAction != nil {
-		enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{inlineBriefingAction})
-		if len(enforced) == 0 {
-			return "", nil, false
-		}
-		message, payloads, err := a.executeSystemActionPlan(sessionID, session, trimmedText, enforced)
-		if err != nil {
-			return briefingActionFailurePrefix(inlineBriefingAction.Action) + err.Error(), nil, true
-		}
-		return message, payloads, true
-	}
-	if inlineTodoistAction := parseInlineTodoistIntent(trimmedText); inlineTodoistAction != nil {
-		enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{inlineTodoistAction})
-		if len(enforced) == 0 {
-			return "", nil, false
-		}
-		message, payloads, err := a.executeSystemActionPlan(sessionID, session, trimmedText, enforced)
-		if err != nil {
-			return todoistActionFailurePrefix(inlineTodoistAction.Action) + err.Error(), nil, true
-		}
-		return message, payloads, true
-	}
-	if inlineEvernoteAction := parseInlineEvernoteIntent(trimmedText); inlineEvernoteAction != nil {
-		enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{inlineEvernoteAction})
-		if len(enforced) == 0 {
-			return "", nil, false
-		}
-		message, payloads, err := a.executeSystemActionPlan(sessionID, session, trimmedText, enforced)
-		if err != nil {
-			return evernoteActionFailurePrefix(inlineEvernoteAction.Action) + err.Error(), nil, true
-		}
-		return message, payloads, true
-	}
-	if inlineBearAction := parseInlineBearIntent(trimmedText); inlineBearAction != nil {
-		enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{inlineBearAction})
-		if len(enforced) == 0 {
-			return "", nil, false
-		}
-		message, payloads, err := a.executeSystemActionPlan(sessionID, session, trimmedText, enforced)
-		if err != nil {
-			return bearActionFailurePrefix(inlineBearAction.Action) + err.Error(), nil, true
-		}
-		return message, payloads, true
-	}
-	if inlineZoteroAction := parseInlineZoteroIntent(trimmedText); inlineZoteroAction != nil {
-		enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{inlineZoteroAction})
-		if len(enforced) == 0 {
-			return "", nil, false
-		}
-		message, payloads, err := a.executeSystemActionPlan(sessionID, session, trimmedText, enforced)
-		if err != nil {
-			return zoteroActionFailurePrefix(inlineZoteroAction.Action) + err.Error(), nil, true
-		}
-		return message, payloads, true
-	}
-	if inlineCursorAction := parseInlineCursorIntent(trimmedText, cursor); inlineCursorAction != nil {
-		enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{inlineCursorAction})
-		if len(enforced) == 0 {
-			return "", nil, false
-		}
-		message, payloads, err := a.executeSystemActionPlan(sessionID, session, trimmedText, enforced)
-		if err != nil {
-			return "I couldn't resolve the pointed selection: " + err.Error(), nil, true
-		}
-		return message, payloads, true
-	}
-	if titledItemAction := parseInlineTitledItemIntent(trimmedText); titledItemAction != nil {
-		message, payload, err := a.executeTitledItemIntent(context.Background(), session, titledItemAction)
-		if err != nil {
-			return "I couldn't resolve the named item: " + err.Error(), nil, true
-		}
-		if payload == nil {
-			return message, nil, true
-		}
-		return message, []map[string]interface{}{payload}, true
-	}
-	if inlineItemAction := parseInlineItemIntentWithCaptureMode(trimmedText, time.Now().UTC(), captureMode); inlineItemAction != nil {
-		enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{inlineItemAction})
-		if len(enforced) == 0 {
-			return "", nil, false
-		}
-		message, payloads, err := a.executeSystemActionPlan(sessionID, session, trimmedText, enforced)
-		if err != nil {
-			failureAction := inlineItemAction.Action
-			copied := copySystemActions([]*SystemAction{inlineItemAction})
-			if len(copied) == 1 {
-				if normalized := normalizeSystemActionForExecution(copied[0], trimmedText); normalized != nil {
-					failureAction = normalized.Action
-				}
-			}
-			return itemActionFailurePrefix(failureAction) + err.Error(), nil, true
-		}
-		return message, payloads, true
-	}
-	if inlineGitHubActions := parseInlineGitHubIssueActions(trimmedText); len(inlineGitHubActions) > 0 {
-		enforced := enforceRoutingPolicy(trimmedText, inlineGitHubActions)
-		if len(enforced) == 0 {
-			return "", nil, false
-		}
-		message, payloads, err := a.executeSystemActionPlan(sessionID, session, trimmedText, enforced)
-		if err != nil {
-			return githubIssueActionFailurePrefix(enforced) + err.Error(), nil, true
-		}
-		return message, payloads, true
-	}
-	if inlineArtifactAction := parseInlineArtifactLinkIntent(trimmedText); inlineArtifactAction != nil {
-		enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{inlineArtifactAction})
-		if len(enforced) == 0 {
-			return "", nil, false
-		}
-		message, payloads, err := a.executeSystemActionPlan(sessionID, session, trimmedText, enforced)
-		if err != nil {
-			return "I couldn't resolve the artifact linking request: " + err.Error(), nil, true
-		}
-		return message, payloads, true
-	}
-	if inlineBatchAction := parseInlineBatchIntent(trimmedText); inlineBatchAction != nil {
-		enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{inlineBatchAction})
-		if len(enforced) == 0 {
-			return "", nil, false
-		}
-		message, payloads, err := a.executeSystemActionPlan(sessionID, session, trimmedText, enforced)
-		if err != nil {
-			return "I couldn't resolve the batch request: " + err.Error(), nil, true
-		}
-		return message, payloads, true
-	}
-	if inlineWorkspaceAction := parseInlineWorkspaceIntent(trimmedText); inlineWorkspaceAction != nil {
-		enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{inlineWorkspaceAction})
-		if len(enforced) == 0 {
-			return "", nil, false
-		}
-		message, payloads, err := a.executeSystemActionPlan(sessionID, session, trimmedText, enforced)
-		if err != nil {
-			return "I couldn't resolve the workspace request: " + err.Error(), nil, true
-		}
-		return message, payloads, true
-	}
-	if inlineProjectAction := parseInlineProjectIntent(trimmedText); inlineProjectAction != nil {
-		enforced := enforceRoutingPolicy(trimmedText, []*SystemAction{inlineProjectAction})
-		if len(enforced) == 0 {
-			return "", nil, false
-		}
-		message, payloads, err := a.executeSystemActionPlan(sessionID, session, trimmedText, enforced)
-		if err != nil {
-			return "I couldn't resolve the project request: " + err.Error(), nil, true
-		}
-		return message, payloads, true
 	}
 	intentText = a.contextualizeClarificationReplyForSession(sessionID, trimmedText)
 	if strings.TrimSpace(a.intentLLMURL) != "" {
