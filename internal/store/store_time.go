@@ -129,7 +129,7 @@ func (s *Store) validateTimeEntryContext(workspaceID *int64, projectID *string, 
 
 func (s *Store) ActiveWorkspace() (Workspace, error) {
 	return scanWorkspace(s.db.QueryRow(
-		`SELECT id, name, dir_path, project_id, ` + scopedContextSelect("context_workspaces", "workspace_id", "workspaces.id") + ` AS sphere, is_active, is_daily, daily_date, mcp_url, canvas_session_id, chat_model, chat_model_reasoning_effort, created_at, updated_at
+		`SELECT id, name, dir_path, project_id, ` + scopedContextSelect("context_workspaces", "workspace_id", "workspaces.id") + ` AS sphere, is_active, is_daily, daily_date, mcp_url, canvas_session_id, chat_model, chat_model_reasoning_effort, companion_config_json, created_at, updated_at
 		 FROM workspaces
 		 WHERE is_active <> 0
 		 ORDER BY updated_at DESC, id DESC

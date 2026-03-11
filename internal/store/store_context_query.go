@@ -170,7 +170,7 @@ func (s *Store) ListWorkspacesByContextPrefix(prefix string) ([]Workspace, error
 		args = append(args, clauseArgs...)
 	}
 	rows, err := s.db.Query(
-		`SELECT id, name, dir_path, project_id, `+scopedContextSelect("context_workspaces", "workspace_id", "workspaces.id")+` AS sphere, is_active, is_daily, daily_date, mcp_url, canvas_session_id, chat_model, chat_model_reasoning_effort, created_at, updated_at
+		`SELECT id, name, dir_path, project_id, `+scopedContextSelect("context_workspaces", "workspace_id", "workspaces.id")+` AS sphere, is_active, is_daily, daily_date, mcp_url, canvas_session_id, chat_model, chat_model_reasoning_effort, companion_config_json, created_at, updated_at
 		 FROM workspaces
 		 WHERE `+strings.Join(clauses, ` AND `),
 		args...,

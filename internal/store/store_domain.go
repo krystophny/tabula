@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
   canvas_session_id TEXT NOT NULL DEFAULT '',
   chat_model TEXT NOT NULL DEFAULT '',
   chat_model_reasoning_effort TEXT NOT NULL DEFAULT '',
+  companion_config_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -565,6 +566,7 @@ func scanWorkspace(
 		&out.CanvasSessionID,
 		&out.ChatModel,
 		&out.ChatModelReasoningEffort,
+		&out.CompanionConfigJSON,
 		&out.CreatedAt,
 		&out.UpdatedAt,
 	)
@@ -579,6 +581,7 @@ func scanWorkspace(
 	out.CanvasSessionID = strings.TrimSpace(out.CanvasSessionID)
 	out.ChatModel = normalizeProjectChatModel(out.ChatModel)
 	out.ChatModelReasoningEffort = normalizeProjectChatModelReasoningEffort(out.ChatModelReasoningEffort)
+	out.CompanionConfigJSON = strings.TrimSpace(out.CompanionConfigJSON)
 	out.IsActive = isActive != 0
 	out.IsDaily = isDaily != 0
 	out.DailyDate = nullStringPointer(dailyDate)

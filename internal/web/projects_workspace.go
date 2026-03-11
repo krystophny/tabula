@@ -11,6 +11,29 @@ import (
 
 func (a *App) workspaceForProject(project store.Project) (*store.Workspace, error) {
 	rootPath := filepath.Clean(strings.TrimSpace(project.RootPath))
+	workspaces, err := a.store.ListWorkspacesForProject(project.ID)
+	if err != nil {
+		return nil, err
+	}
+	var fallback *store.Workspace
+	for i := range workspaces {
+		workspace := workspaces[i]
+		if strings.TrimSpace(workspace.DirPath) == "" {
+			continue
+		}
+		if rootPath != "" && filepath.Clean(workspace.DirPath) == rootPath {
+			return &workspace, nil
+		}
+		if fallback == nil || workspace.IsActive {
+			fallback = &workspace
+			if workspace.IsActive {
+				break
+			}
+		}
+	}
+	if fallback != nil {
+		return fallback, nil
+	}
 	if rootPath == "" {
 		return nil, nil
 	}
@@ -18,15 +41,6 @@ func (a *App) workspaceForProject(project store.Project) (*store.Workspace, erro
 		return &workspace, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
-	}
-	workspaces, err := a.store.ListWorkspacesForProject(project.ID)
-	if err != nil {
-		return nil, err
-	}
-	for i := range workspaces {
-		if filepath.Clean(workspaces[i].DirPath) == rootPath {
-			return &workspaces[i], nil
-		}
 	}
 	if workspaceID, err := a.store.FindWorkspaceContainingPath(rootPath); err == nil && workspaceID != nil {
 		workspace, getErr := a.store.GetWorkspace(*workspaceID)
@@ -50,7 +64,7 @@ func (a *App) ensureWorkspaceForProject(project store.Project, activate bool) (s
 		return store.Workspace{}, err
 	}
 	if workspaceRef == nil {
-		workspace, createErr := a.store.CreateWorkspace(project.Name, rootPath, a.runtimeActiveSphere())
+		workspace, createErr := a.store.CreateWorkspaceForProject(project.Name, rootPath, project.ID, a.runtimeActiveSphere())
 		if createErr != nil {
 			return store.Workspace{}, createErr
 		}

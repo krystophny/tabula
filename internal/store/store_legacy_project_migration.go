@@ -151,12 +151,14 @@ func (s *Store) copyLegacyProjectRuntimeConfigToWorkspace(project Project) error
 		     canvas_session_id = CASE WHEN trim(canvas_session_id) = '' THEN ? ELSE canvas_session_id END,
 		     chat_model = CASE WHEN trim(chat_model) = '' THEN ? ELSE chat_model END,
 		     chat_model_reasoning_effort = CASE WHEN trim(chat_model_reasoning_effort) = '' THEN ? ELSE chat_model_reasoning_effort END,
+		     companion_config_json = CASE WHEN trim(companion_config_json) = '' OR trim(companion_config_json) = '{}' THEN ? ELSE companion_config_json END,
 		     updated_at = datetime('now')
 		 WHERE project_id = ?`,
 		strings.TrimSpace(project.MCPURL),
 		strings.TrimSpace(project.CanvasSessionID),
 		normalizeProjectChatModel(project.ChatModel),
 		normalizeProjectChatModelReasoningEffort(project.ChatModelReasoningEffort),
+		normalizeWorkspaceCompanionConfigJSON(project.CompanionConfigJSON),
 		projectID,
 	)
 	return err

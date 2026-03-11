@@ -230,16 +230,17 @@ WHERE lower(trim(sphere)) IN ('work', 'private')`); err != nil {
   canvas_session_id TEXT NOT NULL DEFAULT '',
   chat_model TEXT NOT NULL DEFAULT '',
   chat_model_reasoning_effort TEXT NOT NULL DEFAULT '',
+  companion_config_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 )`); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`INSERT INTO workspaces (
-	id, name, dir_path, project_id, is_active, mcp_url, canvas_session_id, chat_model, chat_model_reasoning_effort, created_at, updated_at
+	id, name, dir_path, project_id, is_active, mcp_url, canvas_session_id, chat_model, chat_model_reasoning_effort, companion_config_json, created_at, updated_at
 )
 SELECT
-	id, name, dir_path, project_id, is_active, mcp_url, canvas_session_id, chat_model, chat_model_reasoning_effort, created_at, updated_at
+	id, name, dir_path, project_id, is_active, mcp_url, canvas_session_id, chat_model, chat_model_reasoning_effort, '{}', created_at, updated_at
 FROM workspaces_scope_legacy`); err != nil {
 			return err
 		}

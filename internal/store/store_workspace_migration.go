@@ -30,6 +30,7 @@ func (s *Store) migrateWorkspaceConfigSupport() error {
 		{name: "canvas_session_id", sql: `ALTER TABLE workspaces ADD COLUMN canvas_session_id TEXT NOT NULL DEFAULT ''`},
 		{name: "chat_model", sql: `ALTER TABLE workspaces ADD COLUMN chat_model TEXT NOT NULL DEFAULT ''`},
 		{name: "chat_model_reasoning_effort", sql: `ALTER TABLE workspaces ADD COLUMN chat_model_reasoning_effort TEXT NOT NULL DEFAULT ''`},
+		{name: "companion_config_json", sql: `ALTER TABLE workspaces ADD COLUMN companion_config_json TEXT NOT NULL DEFAULT '{}'`},
 	}
 	for _, def := range defs {
 		if tableColumns["workspaces"][def.name] {
@@ -39,7 +40,8 @@ func (s *Store) migrateWorkspaceConfigSupport() error {
 			return err
 		}
 	}
-	return nil
+	_, err = s.db.Exec(`UPDATE workspaces SET companion_config_json = '{}' WHERE trim(companion_config_json) = ''`)
+	return err
 }
 
 func (s *Store) migrateWorkspaceDailySupport() error {

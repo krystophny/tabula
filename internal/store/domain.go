@@ -119,6 +119,7 @@ type Workspace struct {
 	CanvasSessionID          string  `json:"canvas_session_id,omitempty"`
 	ChatModel                string  `json:"chat_model,omitempty"`
 	ChatModelReasoningEffort string  `json:"chat_model_reasoning_effort,omitempty"`
+	CompanionConfigJSON      string  `json:"companion_config_json,omitempty"`
 	CreatedAt                string  `json:"created_at"`
 	UpdatedAt                string  `json:"updated_at"`
 }

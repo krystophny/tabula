@@ -275,12 +275,12 @@ func (a *App) maybeTriggerCompanionResponse(participantSessionID string, seg sto
 		log.Printf("participant trigger session lookup error: %v", err)
 		return
 	}
-	project, err := a.store.GetProjectByProjectKey(session.ProjectKey)
-	if err != nil {
-		log.Printf("participant trigger project lookup error: %v", err)
-		return
+	cfg := defaultCompanionConfig()
+	if workspace, err := a.store.GetWorkspace(session.WorkspaceID); err == nil {
+		cfg = a.loadCompanionConfig(workspace)
+	} else if project, err := a.store.GetProjectByProjectKey(session.ProjectKey); err == nil {
+		cfg = a.loadCompanionConfig(project)
 	}
-	cfg := a.loadCompanionConfig(project)
 	if !a.LivePolicy().RequiresExplicitAddress() || !cfg.CompanionEnabled || !cfg.DirectedSpeechGateEnabled {
 		return
 	}
@@ -391,17 +391,19 @@ func releaseParticipantSession(a *App, conn *chatWSConn) (string, bool) {
 	zeroizeBytes(remainingBuf)
 
 	projectKey := ""
+	cfg := defaultCompanionConfig()
 	if session, err := a.store.GetParticipantSession(sessionID); err == nil {
 		projectKey = session.ProjectKey
+		if workspace, workspaceErr := a.store.GetWorkspace(session.WorkspaceID); workspaceErr == nil {
+			cfg = a.loadCompanionConfig(workspace)
+		} else if project, projectErr := a.store.GetProjectByProjectKey(projectKey); projectErr == nil {
+			cfg = a.loadCompanionConfig(project)
+		}
 	}
 	_ = a.store.EndParticipantSession(sessionID)
 	_ = a.store.AddParticipantEvent(sessionID, 0, "session_stopped", "{}")
 	a.syncProjectCompanionArtifactsBySessionID(sessionID)
 	if projectKey != "" {
-		cfg := defaultCompanionConfig()
-		if project, err := a.store.GetProjectByProjectKey(projectKey); err == nil {
-			cfg = a.loadCompanionConfig(project)
-		}
 		a.settleCompanionRuntimeState(projectKey, cfg, "participant_stopped")
 	}
 	return sessionID, true

@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -135,9 +136,29 @@ func applyCompanionConfigPatch(cfg companionConfig, patch companionConfigPatch) 
 	return normalizeCompanionConfig(cfg)
 }
 
-func (a *App) loadCompanionConfig(project store.Project) companionConfig {
+func (a *App) loadCompanionConfig(target any) companionConfig {
 	cfg := defaultCompanionConfig()
-	raw := strings.TrimSpace(project.CompanionConfigJSON)
+	var raw string
+	switch typed := target.(type) {
+	case store.Workspace:
+		raw = strings.TrimSpace(typed.CompanionConfigJSON)
+	case *store.Workspace:
+		if typed != nil {
+			raw = strings.TrimSpace(typed.CompanionConfigJSON)
+		}
+	case store.Project:
+		workspace, err := a.ensureWorkspaceForProject(typed, false)
+		if err == nil {
+			raw = strings.TrimSpace(workspace.CompanionConfigJSON)
+		}
+	case *store.Project:
+		if typed != nil {
+			workspace, err := a.ensureWorkspaceForProject(*typed, false)
+			if err == nil {
+				raw = strings.TrimSpace(workspace.CompanionConfigJSON)
+			}
+		}
+	}
 	if raw == "" {
 		return cfg
 	}
@@ -148,38 +169,118 @@ func (a *App) loadCompanionConfig(project store.Project) companionConfig {
 	return applyCompanionConfigPatch(cfg, patch)
 }
 
-func (a *App) saveCompanionConfig(projectID string, cfg companionConfig) error {
+func (a *App) saveCompanionConfig(target any, cfg companionConfig) error {
 	normalized := normalizeCompanionConfig(cfg)
 	data, err := json.Marshal(normalized)
 	if err != nil {
 		return err
 	}
-	return a.store.UpdateProjectCompanionConfig(projectID, string(data))
+	resolveWorkspaceID := func(value any) (int64, error) {
+		switch typed := value.(type) {
+		case int64:
+			return typed, nil
+		case store.Workspace:
+			return typed.ID, nil
+		case *store.Workspace:
+			if typed == nil {
+				return 0, errors.New("workspace is required")
+			}
+			return typed.ID, nil
+		case string:
+			project, err := a.store.GetProject(strings.TrimSpace(typed))
+			if err != nil {
+				return 0, err
+			}
+			workspace, err := a.ensureWorkspaceForProject(project, false)
+			if err != nil {
+				return 0, err
+			}
+			return workspace.ID, nil
+		case store.Project:
+			workspace, err := a.ensureWorkspaceForProject(typed, false)
+			if err != nil {
+				return 0, err
+			}
+			return workspace.ID, nil
+		case *store.Project:
+			if typed == nil {
+				return 0, errors.New("project is required")
+			}
+			workspace, err := a.ensureWorkspaceForProject(*typed, false)
+			if err != nil {
+				return 0, err
+			}
+			return workspace.ID, nil
+		default:
+			return 0, errors.New("unsupported companion config target")
+		}
+	}
+	workspaceID, err := resolveWorkspaceID(target)
+	if err != nil {
+		return err
+	}
+	return a.store.UpdateWorkspaceCompanionConfig(workspaceID, string(data))
 }
 
-func (a *App) activeCompanionProject() (store.Project, error) {
-	return a.resolveProjectByIDOrActive("active")
+func (a *App) activeCompanionWorkspace() (store.Workspace, error) {
+	if project, err := a.resolveProjectByIDOrActive("active"); err == nil {
+		return a.ensureWorkspaceForProject(project, false)
+	} else if err != nil && !isNoRows(err) {
+		return store.Workspace{}, err
+	}
+	workspace, err := a.store.ActiveWorkspace()
+	if err == nil {
+		return workspace, nil
+	}
+	if isNoRows(err) {
+		return a.ensureStartupWorkspace()
+	}
+	return store.Workspace{}, err
+}
+
+func (a *App) companionKeyForWorkspace(workspace store.Workspace) string {
+	if project, err := a.projectForWorkspace(workspace); err == nil && project != nil {
+		return strings.TrimSpace(project.ProjectKey)
+	}
+	return strings.TrimSpace(workspace.DirPath)
+}
+
+func (a *App) companionWorkspaceForProjectIDOrActive(projectID string) (store.Workspace, *store.Project, error) {
+	project, err := a.resolveProjectByIDOrActive(projectID)
+	if err != nil {
+		return store.Workspace{}, nil, err
+	}
+	workspace, err := a.ensureWorkspaceForProject(project, false)
+	if err != nil {
+		return store.Workspace{}, nil, err
+	}
+	return workspace, &project, nil
 }
 
 func (a *App) resolveParticipantProject(chatSessionID string) (string, companionConfig) {
 	cleanSessionID := strings.TrimSpace(chatSessionID)
 	if cleanSessionID == "" {
-		if project, err := a.activeCompanionProject(); err == nil {
-			return project.ProjectKey, a.loadCompanionConfig(project)
+		if workspace, err := a.activeCompanionWorkspace(); err == nil {
+			return a.companionKeyForWorkspace(workspace), a.loadCompanionConfig(workspace)
 		}
 		return "default", defaultCompanionConfig()
 	}
 	if session, err := a.store.GetChatSession(cleanSessionID); err == nil {
-		projectKey := strings.TrimSpace(session.ProjectKey)
-		if projectKey != "" {
-			if project, err := a.store.GetProjectByProjectKey(projectKey); err == nil {
-				return projectKey, a.loadCompanionConfig(project)
+		if session.WorkspaceID > 0 {
+			if workspace, err := a.store.GetWorkspace(session.WorkspaceID); err == nil {
+				return strings.TrimSpace(session.ProjectKey), a.loadCompanionConfig(workspace)
 			}
-			return projectKey, defaultCompanionConfig()
 		}
 	}
+	if workspace, err := a.store.GetWorkspaceByPath(cleanSessionID); err == nil {
+		return a.companionKeyForWorkspace(workspace), a.loadCompanionConfig(workspace)
+	}
 	if project, err := a.store.GetProjectByProjectKey(cleanSessionID); err == nil {
-		return project.ProjectKey, a.loadCompanionConfig(project)
+		workspace, workspaceErr := a.ensureWorkspaceForProject(project, false)
+		if workspaceErr == nil {
+			return project.ProjectKey, a.loadCompanionConfig(workspace)
+		}
+		return project.ProjectKey, defaultCompanionConfig()
 	}
 	return cleanSessionID, defaultCompanionConfig()
 }
@@ -196,19 +297,19 @@ func (a *App) handleParticipantConfigGet(w http.ResponseWriter, r *http.Request)
 	if !a.requireAuth(w, r) {
 		return
 	}
-	project, err := a.activeCompanionProject()
+	workspace, err := a.activeCompanionWorkspace()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, a.loadCompanionConfig(project))
+	writeJSON(w, a.loadCompanionConfig(workspace))
 }
 
 func (a *App) handleParticipantConfigPut(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
-	project, err := a.activeCompanionProject()
+	workspace, err := a.activeCompanionWorkspace()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -218,14 +319,14 @@ func (a *App) handleParticipantConfigPut(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	current := a.loadCompanionConfig(project)
+	current := a.loadCompanionConfig(workspace)
 	cfg := applyCompanionConfigPatch(current, patch)
-	if err := a.saveCompanionConfig(project.ID, cfg); err != nil {
+	if err := a.saveCompanionConfig(workspace.ID, cfg); err != nil {
 		http.Error(w, "failed to save config", http.StatusInternalServerError)
 		return
 	}
 	if current.CompanionEnabled && !cfg.CompanionEnabled {
-		a.disableCompanionCapture(project.ProjectKey)
+		a.disableCompanionCapture(a.companionKeyForWorkspace(workspace))
 	}
 	writeJSON(w, cfg)
 }
@@ -234,7 +335,7 @@ func (a *App) handleProjectCompanionConfigGet(w http.ResponseWriter, r *http.Req
 	if !a.requireAuth(w, r) {
 		return
 	}
-	project, err := a.resolveProjectByIDOrActive(chi.URLParam(r, "project_id"))
+	workspace, _, err := a.companionWorkspaceForProjectIDOrActive(chi.URLParam(r, "project_id"))
 	if err != nil {
 		if isNoRows(err) {
 			http.Error(w, "project not found", http.StatusNotFound)
@@ -243,14 +344,14 @@ func (a *App) handleProjectCompanionConfigGet(w http.ResponseWriter, r *http.Req
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, a.loadCompanionConfig(project))
+	writeJSON(w, a.loadCompanionConfig(workspace))
 }
 
 func (a *App) handleProjectCompanionConfigPut(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
-	project, err := a.resolveProjectByIDOrActive(chi.URLParam(r, "project_id"))
+	workspace, _, err := a.companionWorkspaceForProjectIDOrActive(chi.URLParam(r, "project_id"))
 	if err != nil {
 		if isNoRows(err) {
 			http.Error(w, "project not found", http.StatusNotFound)
@@ -264,14 +365,14 @@ func (a *App) handleProjectCompanionConfigPut(w http.ResponseWriter, r *http.Req
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	current := a.loadCompanionConfig(project)
+	current := a.loadCompanionConfig(workspace)
 	cfg := applyCompanionConfigPatch(current, patch)
-	if err := a.saveCompanionConfig(project.ID, cfg); err != nil {
+	if err := a.saveCompanionConfig(workspace.ID, cfg); err != nil {
 		http.Error(w, "failed to save config", http.StatusInternalServerError)
 		return
 	}
 	if current.CompanionEnabled && !cfg.CompanionEnabled {
-		a.disableCompanionCapture(project.ProjectKey)
+		a.disableCompanionCapture(a.companionKeyForWorkspace(workspace))
 	}
 	writeJSON(w, cfg)
 }
@@ -280,7 +381,7 @@ func (a *App) handleProjectCompanionState(w http.ResponseWriter, r *http.Request
 	if !a.requireAuth(w, r) {
 		return
 	}
-	project, err := a.resolveProjectByIDOrActive(chi.URLParam(r, "project_id"))
+	workspace, project, err := a.companionWorkspaceForProjectIDOrActive(chi.URLParam(r, "project_id"))
 	if err != nil {
 		if isNoRows(err) {
 			http.Error(w, "project not found", http.StatusNotFound)
@@ -289,8 +390,8 @@ func (a *App) handleProjectCompanionState(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	cfg := a.loadCompanionConfig(project)
-	sessions, err := a.store.ListParticipantSessionsForProject(project.ID)
+	cfg := a.loadCompanionConfig(workspace)
+	sessions, err := a.store.ListParticipantSessionsForWorkspace(workspace.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -315,13 +416,18 @@ func (a *App) handleProjectCompanionState(w http.ResponseWriter, r *http.Request
 	if gateSession == nil {
 		gateSession = latestSession
 	}
-	runtime := a.currentCompanionRuntimeState(project.ProjectKey, cfg)
+	companionKey := a.companionKeyForWorkspace(workspace)
+	projectID := ""
+	if project != nil {
+		projectID = project.ID
+	}
+	runtime := a.currentCompanionRuntimeState(companionKey, cfg)
 	gate := a.loadCompanionDirectedSpeechGate(cfg, gateSession)
 	policy := a.loadCompanionInteractionPolicy(cfg, gateSession)
 	writeJSON(w, companionStateResponse{
 		OK:                 true,
-		ProjectID:          project.ID,
-		ProjectKey:         project.ProjectKey,
+		ProjectID:          projectID,
+		ProjectKey:         companionKey,
 		State:              runtime.State,
 		Runtime:            runtime,
 		CompanionEnabled:   cfg.CompanionEnabled,

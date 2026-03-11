@@ -199,35 +199,46 @@ func (a *App) extractMeetingItems(summary string) []proposedMeetingItem {
 	return out
 }
 
-func (a *App) loadProjectMeetingItems(w http.ResponseWriter, r *http.Request) (store.Project, []store.ParticipantSession, *store.ParticipantSession, string, []proposedMeetingItem, bool) {
-	project, sessions, session, ok := a.resolveProjectCompanionArtifact(w, r)
+func meetingPayloadProject(workspace store.Workspace, project *store.Project) (string, string) {
+	projectID := ""
+	projectKey := strings.TrimSpace(workspace.DirPath)
+	if project != nil {
+		projectID = project.ID
+		projectKey = strings.TrimSpace(project.ProjectKey)
+	}
+	return projectID, projectKey
+}
+
+func (a *App) loadProjectMeetingItems(w http.ResponseWriter, r *http.Request) (store.Workspace, *store.Project, []store.ParticipantSession, *store.ParticipantSession, string, []proposedMeetingItem, bool) {
+	workspace, project, sessions, session, ok := a.resolveProjectCompanionArtifact(w, r)
 	if !ok {
-		return store.Project{}, nil, nil, "", nil, false
+		return store.Workspace{}, nil, nil, nil, "", nil, false
 	}
 	summaryText := ""
 	if session != nil {
 		memory, err := a.loadCompanionRoomMemory(session.ID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return store.Project{}, nil, nil, "", nil, false
+			return store.Workspace{}, nil, nil, nil, "", nil, false
 		}
 		summaryText = strings.TrimSpace(memory.SummaryText)
 	}
-	return project, sessions, session, summaryText, a.extractMeetingItems(summaryText), true
+	return workspace, project, sessions, session, summaryText, a.extractMeetingItems(summaryText), true
 }
 
 func (a *App) handleProjectMeetingItemsGet(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
-	project, sessions, session, summaryText, proposed, ok := a.loadProjectMeetingItems(w, r)
+	workspace, project, sessions, session, summaryText, proposed, ok := a.loadProjectMeetingItems(w, r)
 	if !ok {
 		return
 	}
+	projectID, projectKey := meetingPayloadProject(workspace, project)
 	writeJSON(w, projectMeetingItemsResponse{
 		OK:            true,
-		ProjectID:     project.ID,
-		ProjectKey:    project.ProjectKey,
+		ProjectID:     projectID,
+		ProjectKey:    projectKey,
 		Sessions:      sessions,
 		Session:       session,
 		SummaryText:   summaryText,
@@ -235,21 +246,22 @@ func (a *App) handleProjectMeetingItemsGet(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-func (a *App) ensureMeetingSummaryArtifact(project store.Project, session *store.ParticipantSession, summaryText string) (store.Artifact, error) {
+func (a *App) ensureMeetingSummaryArtifact(workspace store.Workspace, project *store.Project, session *store.ParticipantSession, summaryText string) (store.Artifact, error) {
 	if session == nil {
 		return store.Artifact{}, errors.New("meeting session is required")
 	}
-	if err := a.syncProjectCompanionArtifacts(project, session); err != nil {
+	if err := a.syncProjectCompanionArtifacts(workspace, session); err != nil {
 		return store.Artifact{}, err
 	}
-	summaryPath := filepath.Join(companionArtifactDir(project, session), "summary.md")
+	summaryPath := filepath.Join(companionArtifactDir(workspace, session), "summary.md")
+	projectID, projectKey := meetingPayloadProject(workspace, project)
 	title := "Meeting Summary"
 	metaPayload := map[string]any{
 		"source":      meetingSummaryItemSource,
 		"summary":     strings.TrimSpace(summaryText),
 		"session_id":  session.ID,
-		"project_id":  project.ID,
-		"project_key": project.ProjectKey,
+		"project_id":  projectID,
+		"project_key": projectKey,
 	}
 	raw, err := json.Marshal(metaPayload)
 	if err != nil {
@@ -304,18 +316,24 @@ func normalizeSelectedMeetingItems(selected []int, limit int) []int {
 	return out
 }
 
-func (a *App) handleCreateMeetingItems(project store.Project, session *store.ParticipantSession, summaryText string, proposed []proposedMeetingItem, selected []int) ([]createdMeetingItem, error) {
+func (a *App) handleCreateMeetingItems(workspace store.Workspace, project *store.Project, session *store.ParticipantSession, summaryText string, proposed []proposedMeetingItem, selected []int) ([]createdMeetingItem, error) {
 	chosen := normalizeSelectedMeetingItems(selected, len(proposed))
 	if len(chosen) == 0 {
 		return nil, errors.New("at least one proposed item must be selected")
 	}
-	artifact, err := a.ensureMeetingSummaryArtifact(project, session, summaryText)
+	artifact, err := a.ensureMeetingSummaryArtifact(workspace, project, session, summaryText)
 	if err != nil {
 		return nil, err
 	}
-	workspaceID, err := a.resolveConversationWorkspaceID(project, &artifact)
-	if err != nil {
-		return nil, err
+	workspaceID := &workspace.ID
+	if project != nil {
+		resolvedID, resolveErr := a.resolveConversationWorkspaceID(*project, &artifact)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		if resolvedID != nil {
+			workspaceID = resolvedID
+		}
 	}
 	created := make([]createdMeetingItem, 0, len(chosen))
 	for _, index := range chosen {
@@ -353,7 +371,7 @@ func (a *App) handleProjectMeetingItemsCreate(w http.ResponseWriter, r *http.Req
 	if !a.requireAuth(w, r) {
 		return
 	}
-	project, _, session, summaryText, proposed, ok := a.loadProjectMeetingItems(w, r)
+	workspace, project, _, session, summaryText, proposed, ok := a.loadProjectMeetingItems(w, r)
 	if !ok {
 		return
 	}
@@ -366,15 +384,16 @@ func (a *App) handleProjectMeetingItemsCreate(w http.ResponseWriter, r *http.Req
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	created, err := a.handleCreateMeetingItems(project, session, summaryText, proposed, req.Selected)
+	created, err := a.handleCreateMeetingItems(workspace, project, session, summaryText, proposed, req.Selected)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	projectID, projectKey := meetingPayloadProject(workspace, project)
 	writeJSON(w, createMeetingItemsResponse{
 		OK:            true,
-		ProjectID:     project.ID,
-		ProjectKey:    project.ProjectKey,
+		ProjectID:     projectID,
+		ProjectKey:    projectKey,
 		Session:       session,
 		CreatedItems:  created,
 		ProposedItems: proposed,

@@ -49,31 +49,31 @@ type companionReferencesResponse struct {
 	TopicTimeline []any                      `json:"topic_timeline"`
 }
 
-func (a *App) resolveProjectCompanionArtifact(w http.ResponseWriter, r *http.Request) (store.Project, []store.ParticipantSession, *store.ParticipantSession, bool) {
-	project, err := a.resolveProjectByIDOrActive(chi.URLParam(r, "project_id"))
+func (a *App) resolveProjectCompanionArtifact(w http.ResponseWriter, r *http.Request) (store.Workspace, *store.Project, []store.ParticipantSession, *store.ParticipantSession, bool) {
+	workspace, project, err := a.companionWorkspaceForProjectIDOrActive(chi.URLParam(r, "project_id"))
 	if err != nil {
 		if isNoRows(err) {
 			http.Error(w, "project not found", http.StatusNotFound)
-			return store.Project{}, nil, nil, false
+			return store.Workspace{}, nil, nil, nil, false
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return store.Project{}, nil, nil, false
+		return store.Workspace{}, nil, nil, nil, false
 	}
-	sessions, err := a.store.ListParticipantSessionsForProject(project.ID)
+	sessions, err := a.store.ListParticipantSessionsForWorkspace(workspace.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return store.Project{}, nil, nil, false
+		return store.Workspace{}, nil, nil, nil, false
 	}
 	selected, err := selectProjectCompanionSession(sessions, r.URL.Query().Get("session_id"))
 	if err != nil {
 		if isNoRows(err) {
 			http.Error(w, "session not found", http.StatusNotFound)
-			return store.Project{}, nil, nil, false
+			return store.Workspace{}, nil, nil, nil, false
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return store.Project{}, nil, nil, false
+		return store.Workspace{}, nil, nil, nil, false
 	}
-	return project, sessions, selected, true
+	return workspace, project, sessions, selected, true
 }
 
 func selectProjectCompanionSession(sessions []store.ParticipantSession, requested string) (*store.ParticipantSession, error) {
@@ -287,11 +287,11 @@ func sanitizeCompanionArtifactPathComponent(raw string) string {
 	return strings.Trim(clean, "-.")
 }
 
-func companionArtifactDir(project store.Project, session *store.ParticipantSession) string {
+func companionArtifactDir(workspace store.Workspace, session *store.ParticipantSession) string {
 	if session == nil {
 		return ""
 	}
-	root := strings.TrimSpace(project.RootPath)
+	root := strings.TrimSpace(workspace.DirPath)
 	sessionID := sanitizeCompanionArtifactPathComponent(session.ID)
 	if root == "" || sessionID == "" {
 		return ""
@@ -309,11 +309,11 @@ func writeCompanionArtifactFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0o644)
 }
 
-func (a *App) syncProjectCompanionArtifacts(project store.Project, session *store.ParticipantSession) error {
+func (a *App) syncProjectCompanionArtifacts(workspace store.Workspace, session *store.ParticipantSession) error {
 	if a == nil || a.store == nil || session == nil {
 		return nil
 	}
-	dir := companionArtifactDir(project, session)
+	dir := companionArtifactDir(workspace, session)
 	if dir == "" {
 		return nil
 	}
@@ -356,12 +356,16 @@ func (a *App) syncProjectCompanionArtifactsBySessionID(sessionID string) {
 		log.Printf("companion artifact sync skipped: participant session lookup failed for %s: %v", sessionID, err)
 		return
 	}
-	project, err := a.store.GetProjectByProjectKey(session.ProjectKey)
-	if err != nil {
-		log.Printf("companion artifact sync skipped: project lookup failed for %s: %v", session.ProjectKey, err)
+	if session.WorkspaceID <= 0 {
+		log.Printf("companion artifact sync skipped: workspace missing for %s", sessionID)
 		return
 	}
-	if err := a.syncProjectCompanionArtifacts(project, &session); err != nil {
+	workspace, err := a.store.GetWorkspace(session.WorkspaceID)
+	if err != nil {
+		log.Printf("companion artifact sync skipped: workspace lookup failed for %s: %v", sessionID, err)
+		return
+	}
+	if err := a.syncProjectCompanionArtifacts(workspace, &session); err != nil {
 		log.Printf("companion artifact sync failed for %s: %v", sessionID, err)
 	}
 }
@@ -589,9 +593,14 @@ func (a *App) handleProjectCompanionTranscript(w http.ResponseWriter, r *http.Re
 	if !a.requireAuth(w, r) {
 		return
 	}
-	project, sessions, session, ok := a.resolveProjectCompanionArtifact(w, r)
+	workspace, project, sessions, session, ok := a.resolveProjectCompanionArtifact(w, r)
 	if !ok {
 		return
+	}
+	projectID := ""
+	projectKey := a.companionKeyForWorkspace(workspace)
+	if project != nil {
+		projectID = project.ID
 	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	fromTS, toTS := parseProjectTranscriptWindow(r)
@@ -610,15 +619,15 @@ func (a *App) handleProjectCompanionTranscript(w http.ResponseWriter, r *http.Re
 	}
 	payload := companionTranscriptResponse{
 		OK:         true,
-		ProjectID:  project.ID,
-		ProjectKey: project.ProjectKey,
+		ProjectID:  projectID,
+		ProjectKey: projectKey,
 		Query:      query,
 		Sessions:   sessions,
 		Session:    session,
 		Segments:   segments,
 	}
-	if err := a.syncProjectCompanionArtifacts(project, session); err != nil {
-		log.Printf("companion artifact sync failed for project %s transcript view: %v", project.ID, err)
+	if err := a.syncProjectCompanionArtifacts(workspace, session); err != nil {
+		log.Printf("companion artifact sync failed for workspace %d transcript view: %v", workspace.ID, err)
 	}
 	respondCompanionArtifact(w, r.URL.Query().Get("format"), payload, renderCompanionTranscriptMarkdown(session, segments), renderCompanionTranscriptText(session, segments))
 }
@@ -627,9 +636,14 @@ func (a *App) handleProjectCompanionSummary(w http.ResponseWriter, r *http.Reque
 	if !a.requireAuth(w, r) {
 		return
 	}
-	project, sessions, session, ok := a.resolveProjectCompanionArtifact(w, r)
+	workspace, project, sessions, session, ok := a.resolveProjectCompanionArtifact(w, r)
 	if !ok {
 		return
+	}
+	projectID := ""
+	projectKey := a.companionKeyForWorkspace(workspace)
+	if project != nil {
+		projectID = project.ID
 	}
 	summaryText := ""
 	updatedAt := int64(0)
@@ -650,15 +664,15 @@ func (a *App) handleProjectCompanionSummary(w http.ResponseWriter, r *http.Reque
 	}
 	payload := companionSummaryResponse{
 		OK:          true,
-		ProjectID:   project.ID,
-		ProjectKey:  project.ProjectKey,
+		ProjectID:   projectID,
+		ProjectKey:  projectKey,
 		Sessions:    sessions,
 		Session:     session,
 		SummaryText: summaryText,
 		UpdatedAt:   updatedAt,
 	}
-	if err := a.syncProjectCompanionArtifacts(project, session); err != nil {
-		log.Printf("companion artifact sync failed for project %s summary view: %v", project.ID, err)
+	if err := a.syncProjectCompanionArtifacts(workspace, session); err != nil {
+		log.Printf("companion artifact sync failed for workspace %d summary view: %v", workspace.ID, err)
 	}
 	respondCompanionArtifact(w, r.URL.Query().Get("format"), payload, renderCompanionSummaryMarkdown(session, summaryText, updatedAt, notes), renderCompanionSummaryText(session, summaryText, updatedAt, notes))
 }
@@ -667,9 +681,14 @@ func (a *App) handleProjectCompanionReferences(w http.ResponseWriter, r *http.Re
 	if !a.requireAuth(w, r) {
 		return
 	}
-	project, sessions, session, ok := a.resolveProjectCompanionArtifact(w, r)
+	workspace, project, sessions, session, ok := a.resolveProjectCompanionArtifact(w, r)
 	if !ok {
 		return
+	}
+	projectID := ""
+	projectKey := a.companionKeyForWorkspace(workspace)
+	if project != nil {
+		projectID = project.ID
 	}
 	entities := []string{}
 	topics := []any{}
@@ -684,15 +703,15 @@ func (a *App) handleProjectCompanionReferences(w http.ResponseWriter, r *http.Re
 	}
 	payload := companionReferencesResponse{
 		OK:            true,
-		ProjectID:     project.ID,
-		ProjectKey:    project.ProjectKey,
+		ProjectID:     projectID,
+		ProjectKey:    projectKey,
 		Sessions:      sessions,
 		Session:       session,
 		Entities:      entities,
 		TopicTimeline: topics,
 	}
-	if err := a.syncProjectCompanionArtifacts(project, session); err != nil {
-		log.Printf("companion artifact sync failed for project %s references view: %v", project.ID, err)
+	if err := a.syncProjectCompanionArtifacts(workspace, session); err != nil {
+		log.Printf("companion artifact sync failed for workspace %d references view: %v", workspace.ID, err)
 	}
 	respondCompanionArtifact(w, r.URL.Query().Get("format"), payload, renderCompanionReferencesMarkdown(session, entities, topics), renderCompanionReferencesText(session, entities, topics))
 }
