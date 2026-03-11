@@ -109,6 +109,145 @@ func TestArtifactTaxonomyAPI(t *testing.T) {
 	}
 }
 
+func TestArtifactMaterializeAPIWritesEmailFileIntoWorkspace(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	workspaceDir := filepath.Join(t.TempDir(), "mail-workspace")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	workspace, err := app.store.CreateWorkspace("Mail Workspace", workspaceDir)
+	if err != nil {
+		t.Fatalf("CreateWorkspace() error: %v", err)
+	}
+	title := "Quarterly Update"
+	metaJSON := `{"subject":"Quarterly Update","sender":"alice@example.com","recipients":["bob@example.com"],"date":"2026-03-11T09:00:00Z","labels":["work","finance"],"body":"Line one.\nLine two."}`
+	artifact, err := app.store.CreateArtifact(store.ArtifactKindEmail, nil, nil, &title, &metaJSON)
+	if err != nil {
+		t.Fatalf("CreateArtifact() error: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/artifacts/"+itoa(artifact.ID)+"/materialize", map[string]any{
+		"workspace_id": workspace.ID,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("materialize status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	payload := decodeJSONDataResponse(t, rr)
+	artifactPayload, ok := payload["artifact"].(map[string]any)
+	if !ok {
+		t.Fatalf("artifact payload = %#v", payload)
+	}
+	refPath := strFromAny(artifactPayload["ref_path"])
+	if !strings.HasPrefix(filepath.ToSlash(refPath), filepath.ToSlash(filepath.Join(workspaceDir, ".tabura", "artifacts", "materialized"))+"/") {
+		t.Fatalf("ref_path = %q, want materialized workspace path", refPath)
+	}
+	bytes, err := os.ReadFile(refPath)
+	if err != nil {
+		t.Fatalf("read materialized artifact: %v", err)
+	}
+	content := string(bytes)
+	for _, snippet := range []string{"Subject: Quarterly Update", "From: alice@example.com", "To: bob@example.com", "Line one.", "Line two."} {
+		if !strings.Contains(content, snippet) {
+			t.Fatalf("materialized content missing %q: %q", snippet, content)
+		}
+	}
+	if got := strFromAny(payload["relative_path"]); got == "" || !strings.HasSuffix(got, ".eml") {
+		t.Fatalf("relative_path = %q, want .eml path", got)
+	}
+
+	rrLinked := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/artifacts?workspace_id="+itoa(workspace.ID)+"&linked=true", nil)
+	if rrLinked.Code != http.StatusOK {
+		t.Fatalf("linked list status = %d, want 200: %s", rrLinked.Code, rrLinked.Body.String())
+	}
+	linkedArtifacts, ok := decodeJSONDataResponse(t, rrLinked)["artifacts"].([]any)
+	if !ok || len(linkedArtifacts) != 1 {
+		t.Fatalf("linked artifacts = %#v", decodeJSONDataResponse(t, rrLinked))
+	}
+	if got := int64(linkedArtifacts[0].(map[string]any)["id"].(float64)); got != artifact.ID {
+		t.Fatalf("linked artifact id = %d, want %d", got, artifact.ID)
+	}
+}
+
+func TestArtifactMaterializeAPIUsesLinkedWorkspaceByDefault(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	workspaceDir := filepath.Join(t.TempDir(), "repo-workspace")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	workspace, err := app.store.CreateWorkspace("Repo Workspace", workspaceDir)
+	if err != nil {
+		t.Fatalf("CreateWorkspace() error: %v", err)
+	}
+	title := "Issue #214"
+	refURL := "https://github.com/owner/tabula/issues/214"
+	metaJSON := `{"owner_repo":"owner/tabula","number":214,"state":"open","labels":["bug","ux"]}`
+	artifact, err := app.store.CreateArtifact(store.ArtifactKindGitHubIssue, nil, &refURL, &title, &metaJSON)
+	if err != nil {
+		t.Fatalf("CreateArtifact() error: %v", err)
+	}
+	if err := app.store.LinkArtifactToWorkspace(workspace.ID, artifact.ID); err != nil {
+		t.Fatalf("LinkArtifactToWorkspace() error: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/artifacts/"+itoa(artifact.ID)+"/materialize", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("materialize status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	payload := decodeJSONDataResponse(t, rr)
+	artifactPayload, ok := payload["artifact"].(map[string]any)
+	if !ok {
+		t.Fatalf("artifact payload = %#v", payload)
+	}
+	refPath := strFromAny(artifactPayload["ref_path"])
+	if !strings.HasSuffix(refPath, ".md") {
+		t.Fatalf("ref_path = %q, want markdown output", refPath)
+	}
+	bytes, err := os.ReadFile(refPath)
+	if err != nil {
+		t.Fatalf("read materialized artifact: %v", err)
+	}
+	content := string(bytes)
+	for _, snippet := range []string{"# Issue #214", "- Kind: `github_issue`", "https://github.com/owner/tabula/issues/214", `"state": "open"`} {
+		if !strings.Contains(content, snippet) {
+			t.Fatalf("materialized content missing %q: %q", snippet, content)
+		}
+	}
+}
+
+func TestArtifactMaterializeAPIRejectsAlreadyFileBackedArtifacts(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	workspaceDir := filepath.Join(t.TempDir(), "docs-workspace")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	workspace, err := app.store.CreateWorkspace("Docs Workspace", workspaceDir)
+	if err != nil {
+		t.Fatalf("CreateWorkspace() error: %v", err)
+	}
+	docPath := filepath.Join(workspaceDir, "notes.md")
+	if err := os.WriteFile(docPath, []byte("# notes\n"), 0o644); err != nil {
+		t.Fatalf("write doc: %v", err)
+	}
+	title := "notes.md"
+	artifact, err := app.store.CreateArtifact(store.ArtifactKindMarkdown, &docPath, nil, &title, nil)
+	if err != nil {
+		t.Fatalf("CreateArtifact() error: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/artifacts/"+itoa(artifact.ID)+"/materialize", map[string]any{
+		"workspace_id": workspace.ID,
+	})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("materialize status = %d, want 400: %s", rr.Code, rr.Body.String())
+	}
+	if got := decodeJSONResponse(t, rr)["error"]; got != "artifact is already file-backed" {
+		t.Fatalf("materialize error = %#v, want file-backed error", got)
+	}
+}
+
 func TestArtifactListAPIIncludesLinkedArtifactsForWorkspace(t *testing.T) {
 	app := newAuthedTestApp(t)
 

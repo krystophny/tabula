@@ -525,6 +525,33 @@ func (s *Store) ListArtifactWorkspaceLinks(workspaceID int64) ([]ArtifactWorkspa
 	return out, rows.Err()
 }
 
+func (s *Store) ListArtifactLinkWorkspaces(artifactID int64) ([]Workspace, error) {
+	if _, err := s.GetArtifact(artifactID); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(
+		`SELECT w.id, w.name, w.dir_path, w.project_id, `+scopedContextSelect("context_workspaces", "workspace_id", "w.id")+` AS sphere, w.is_active, w.mcp_url, w.canvas_session_id, w.chat_model, w.chat_model_reasoning_effort, w.created_at, w.updated_at
+		 FROM workspace_artifact_links wal
+		 INNER JOIN workspaces w ON w.id = wal.workspace_id
+		 WHERE wal.artifact_id = ?
+		 ORDER BY datetime(wal.created_at) DESC, w.id ASC`,
+		artifactID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Workspace{}
+	for rows.Next() {
+		workspace, err := scanWorkspace(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, workspace)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ListLinkedArtifacts(workspaceID int64) ([]Artifact, error) {
 	links, err := s.ListArtifactWorkspaceLinks(workspaceID)
 	if err != nil {

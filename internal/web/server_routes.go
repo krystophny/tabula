@@ -94,6 +94,7 @@ func (a *App) Router() http.Handler {
 	r.Get("/api/artifacts/taxonomy", a.handleArtifactTaxonomyGet)
 	r.Post("/api/artifacts", a.handleArtifactCreate)
 	r.Get("/api/artifacts/{artifact_id}", a.handleArtifactGet)
+	r.Post("/api/artifacts/{artifact_id}/materialize", a.handleArtifactMaterialize)
 	r.Post("/api/artifacts/{artifact_id}/extract-figures", a.handleArtifactFigureExtract)
 	r.Get("/api/artifacts/{artifact_id}/items", a.handleArtifactItemList)
 	r.Delete("/api/artifacts/{artifact_id}", a.handleArtifactDelete)
