@@ -28,6 +28,11 @@ type SystemAction struct {
 	Params map[string]interface{} `json:"-"`
 }
 
+type intentPlanClassification struct {
+	Actions   []*SystemAction
+	Addressed *bool
+}
+
 const systemActionLastShellPathPlaceholder = "$last_shell_path"
 
 func extractEmbeddedJSON(raw string) string {
@@ -178,35 +183,40 @@ func parseSystemActionJSON(raw string) (*SystemAction, error) {
 	return actions[0], nil
 }
 
-func parseSystemActionsJSON(raw string) ([]*SystemAction, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return nil, nil
+func decodeSystemActionCandidate(candidate string) (interface{}, bool) {
+	var decoded interface{}
+	if err := json.Unmarshal([]byte(candidate), &decoded); err == nil {
+		return decoded, true
 	}
-	decodeJSON := func(candidate string) (interface{}, bool) {
-		var decoded interface{}
-		if err := json.Unmarshal([]byte(candidate), &decoded); err == nil {
+	repaired := repairMalformedCommandQuotes(candidate)
+	if repaired != candidate {
+		if err := json.Unmarshal([]byte(repaired), &decoded); err == nil {
 			return decoded, true
 		}
-		repaired := repairMalformedCommandQuotes(candidate)
-		if repaired != candidate {
-			if err := json.Unmarshal([]byte(repaired), &decoded); err == nil {
-				return decoded, true
-			}
-		}
+	}
+	return nil, false
+}
+
+func decodeSystemActionJSON(raw string) (interface{}, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
 		return nil, false
 	}
-	decoded, ok := decodeJSON(trimmed)
+	decoded, ok := decodeSystemActionCandidate(trimmed)
 	if !ok {
 		embedded := extractEmbeddedJSON(trimmed)
 		if embedded == "" {
-			return nil, nil
+			return nil, false
 		}
-		decoded, ok = decodeJSON(embedded)
+		decoded, ok = decodeSystemActionCandidate(embedded)
 		if !ok {
-			return nil, nil
+			return nil, false
 		}
 	}
+	return decoded, true
+}
+
+func collectSystemActionsFromDecoded(decoded interface{}) []*SystemAction {
 	collect := func(values []interface{}) []*SystemAction {
 		actions := make([]*SystemAction, 0, len(values))
 		for _, value := range values {
@@ -221,26 +231,30 @@ func parseSystemActionsJSON(raw string) ([]*SystemAction, error) {
 	case map[string]interface{}:
 		if rawActions, ok := typed["actions"]; ok {
 			items, _ := rawActions.([]interface{})
-			actions := collect(items)
-			if len(actions) == 0 {
-				return nil, nil
-			}
-			return actions, nil
+			return collect(items)
 		}
 		action := parseSystemActionObject(typed)
 		if action == nil {
-			return nil, nil
+			return nil
 		}
-		return []*SystemAction{action}, nil
+		return []*SystemAction{action}
 	case []interface{}:
-		actions := collect(typed)
-		if len(actions) == 0 {
-			return nil, nil
-		}
-		return actions, nil
+		return collect(typed)
 	default:
+		return nil
+	}
+}
+
+func parseSystemActionsJSON(raw string) ([]*SystemAction, error) {
+	decoded, ok := decodeSystemActionJSON(raw)
+	if !ok {
 		return nil, nil
 	}
+	actions := collectSystemActionsFromDecoded(decoded)
+	if len(actions) == 0 {
+		return nil, nil
+	}
+	return actions, nil
 }
 
 func systemActionStringParam(params map[string]interface{}, key string) string {
@@ -511,6 +525,8 @@ func (a *App) classifyAndExecuteSystemActionForTurn(ctx context.Context, session
 		return "", nil, false
 	}
 	intentText := trimmedText
+	livePolicy := a.LivePolicy()
+	assumeAddressed := livePolicy.Config().AssumeAddressed
 	tryExecutePlan := func(actions []*SystemAction) (string, []map[string]interface{}, bool) {
 		enforced := enforceRoutingPolicy(trimmedText, actions)
 		if len(enforced) == 0 {
@@ -541,21 +557,40 @@ func (a *App) classifyAndExecuteSystemActionForTurn(ctx context.Context, session
 	if a != nil && a.calendarNow != nil {
 		now = a.calendarNow().UTC()
 	}
-	if match := tryDeterministicFastPath(trimmedText, deterministicFastPathContext{
-		Now:         now,
-		CaptureMode: captureMode,
-		Cursor:      cursor,
-	}); match != nil {
-		if message, payloads, handled := a.executeDeterministicFastPath(ctx, sessionID, session, trimmedText, match); handled {
+	tryDeterministicPlan := func() (string, []map[string]interface{}, bool) {
+		match := tryDeterministicFastPath(trimmedText, deterministicFastPathContext{
+			Now:         now,
+			CaptureMode: captureMode,
+			Cursor:      cursor,
+		})
+		if match == nil {
+			return "", nil, false
+		}
+		return a.executeDeterministicFastPath(ctx, sessionID, session, trimmedText, match)
+	}
+	if assumeAddressed {
+		if message, payloads, handled := tryDeterministicPlan(); handled {
 			return message, payloads, true
 		}
 	}
 	intentText = a.contextualizeClarificationReplyForSession(sessionID, trimmedText)
 	if strings.TrimSpace(a.intentLLMURL) != "" {
-		llmActions, llmErr := a.classifyIntentPlanWithLLM(ctx, intentText)
+		classification, llmErr := a.classifyIntentPlanWithLLMResult(ctx, intentText)
 		if llmErr == nil {
-			if message, payloads, ok := tryExecutePlan(llmActions); ok {
+			if addressed, known := resolveIntentAddressedness(livePolicy, intentText, classification.Addressed); known && !addressed {
+				return "", []map[string]interface{}{{
+					"type":              "meeting_capture",
+					"addressed":         false,
+					"suppress_response": true,
+				}}, true
+			}
+			if message, payloads, ok := tryExecutePlan(classification.Actions); ok {
 				return message, payloads, true
+			}
+			if !assumeAddressed {
+				if message, payloads, handled := tryDeterministicPlan(); handled {
+					return message, payloads, true
+				}
 			}
 		}
 		if requestRequiresOpenCanvasAction(intentText) {
@@ -567,6 +602,11 @@ func (a *App) classifyAndExecuteSystemActionForTurn(ctx context.Context, session
 			return "I couldn't open that file on canvas. Please provide an exact relative path (for example: docs/CLAUDE.md).", nil, true
 		}
 	}
+	if !assumeAddressed && isCompanionDirectAddress(intentText) {
+		if message, payloads, handled := tryDeterministicPlan(); handled {
+			return message, payloads, true
+		}
+	}
 
 	if cursor != nil && cursor.hasPointedItem() && looksLikeStandaloneSystemRequest(trimmedText) {
 		if message, payloads, ok := a.suggestCanonicalActionsForCursorItem(cursor); ok {
@@ -574,6 +614,19 @@ func (a *App) classifyAndExecuteSystemActionForTurn(ctx context.Context, session
 		}
 	}
 	return "", nil, false
+}
+
+func resolveIntentAddressedness(policy LivePolicy, text string, addressed *bool) (bool, bool) {
+	if normalizeLivePolicy(policy.String()) != LivePolicyMeeting {
+		return true, true
+	}
+	if isCompanionDirectAddress(text) {
+		return true, true
+	}
+	if addressed == nil {
+		return false, false
+	}
+	return *addressed, true
 }
 
 func (a *App) suggestCanonicalActionsForCursorItem(cursor *chatCursorContext) (string, []map[string]interface{}, bool) {

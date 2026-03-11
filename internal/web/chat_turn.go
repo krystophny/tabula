@@ -284,6 +284,10 @@ func (a *App) tryRunLocalSystemActionTurn(sessionID string, session store.ChatSe
 	if !handled && !localOnly {
 		return false
 	}
+	if handled && suppressLocalAssistantResponse(actionPayloads) {
+		a.finishCompanionPendingTurn(sessionID, "assistant_turn_suppressed")
+		return true
+	}
 	runID := randomToken()
 	a.broadcastChatEvent(sessionID, map[string]interface{}{
 		"type":    "turn_started",
@@ -325,6 +329,18 @@ func (a *App) tryRunLocalSystemActionTurn(sessionID string, session store.ChatSe
 		outputMode,
 	)
 	return true
+}
+
+func suppressLocalAssistantResponse(payloads []map[string]interface{}) bool {
+	for _, payload := range payloads {
+		if payload == nil {
+			continue
+		}
+		if suppress, ok := parseOptionalBool(payload["suppress_response"]); ok && suppress {
+			return true
+		}
+	}
+	return false
 }
 
 // runAssistantTurnLegacy is the single-shot fallback when persistent session

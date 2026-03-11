@@ -106,7 +106,11 @@ func normalizeIntentResponseKind(raw string) string {
 }
 
 func buildIntentLLMSystemPrompt() string {
-	return strings.TrimSpace(`You are Tabura's local router. Output JSON only.
+	return buildIntentLLMSystemPromptForPolicy(LivePolicyDialogue)
+}
+
+func buildIntentLLMSystemPromptForPolicy(policy LivePolicy) string {
+	prompt := `You are Tabura's local router. Output JSON only.
 System commands: ` + strings.Join(intentPromptSystemCommands, ", ") + `.
 Canonical artifact actions: ` + strings.Join(artifactTaxonomy.CanonicalActionOrder, ", ") + `.
 Return exactly one of:
@@ -125,7 +129,15 @@ For track_item include visible_after or count when relevant.
 For annotate_capture or compose on idea notes include target="idea_note".
 For bundle_review on someday work include target="someday" and operation.
 For dispatch_execute issue filing include target="github_issue" and mode="split" when local items are also required.
-Prefer case-insensitive filename search (for example -iname) and use single quotes inside JSON command strings.`)
+Prefer case-insensitive filename search (for example -iname) and use single quotes inside JSON command strings.`
+	if normalizeLivePolicy(policy.String()) == LivePolicyMeeting {
+		prompt += `
+Meeting mode: include an "addressed" boolean on every JSON response indicating whether the utterance is directed at Tabura.
+If the user explicitly mentions "Tabura" or "assistant", set "addressed":true.
+For meeting discussion not directed at Tabura, use {"addressed":false,"kind":"dialogue"}.
+For addressed commands/plans, keep the same response shape and add "addressed":true at the top level.`
+	}
+	return strings.TrimSpace(prompt)
 }
 
 func translateCanonicalActionForExecution(action *SystemAction) *SystemAction {

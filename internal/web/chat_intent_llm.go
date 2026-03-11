@@ -78,17 +78,60 @@ func (a *App) localIntentLLMModel() string {
 	return clean
 }
 
-func (a *App) classifyIntentPlanWithLLM(ctx context.Context, text string) ([]*SystemAction, error) {
+func addressedBoolPtr(value bool) *bool {
+	v := value
+	return &v
+}
+
+func parseOptionalBool(value interface{}) (bool, bool) {
+	switch typed := value.(type) {
+	case bool:
+		return typed, true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true":
+			return true, true
+		case "false":
+			return false, true
+		default:
+			return false, false
+		}
+	default:
+		return false, false
+	}
+}
+
+func parseIntentPlanClassification(raw string) (intentPlanClassification, error) {
+	decoded, ok := decodeSystemActionJSON(raw)
+	if !ok {
+		return intentPlanClassification{}, nil
+	}
+	result := intentPlanClassification{
+		Actions: collectSystemActionsFromDecoded(decoded),
+	}
+	if obj, ok := decoded.(map[string]interface{}); ok {
+		if addressed, ok := parseOptionalBool(obj["addressed"]); ok {
+			result.Addressed = addressedBoolPtr(addressed)
+		}
+	}
+	return result, nil
+}
+
+func (a *App) classifyIntentPlanWithLLMResult(ctx context.Context, text string) (intentPlanClassification, error) {
 	baseURL := strings.TrimRight(strings.TrimSpace(a.intentLLMURL), "/")
 	if baseURL == "" {
-		return nil, nil
+		return intentPlanClassification{}, nil
 	}
 	trimmedText := strings.TrimSpace(text)
 	if trimmedText == "" {
-		return nil, nil
+		return intentPlanClassification{}, nil
 	}
 	requiresOpenCanvas := requestRequiresOpenCanvasAction(trimmedText)
-	requestPlan := func(systemPrompt string, userPrompt string) ([]*SystemAction, error) {
+	policy := LivePolicyDialogue
+	if a != nil {
+		policy = a.LivePolicy()
+	}
+	requestPlan := func(systemPrompt string, userPrompt string) (intentPlanClassification, error) {
 		requestBody, _ := json.Marshal(map[string]interface{}{
 			"model":       a.localIntentLLMModel(),
 			"temperature": 0,
@@ -113,60 +156,55 @@ func (a *App) classifyIntentPlanWithLLM(ctx context.Context, text string) ([]*Sy
 			bytes.NewReader(requestBody),
 		)
 		if err != nil {
-			return nil, err
+			return intentPlanClassification{}, err
 		}
 		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			return nil, err
+			return intentPlanClassification{}, err
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, intentLLMResponseLimit))
-			return nil, fmt.Errorf("intent llm HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			return intentPlanClassification{}, fmt.Errorf("intent llm HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 		}
 		var payload localIntentLLMChatCompletionResponse
 		if err := json.NewDecoder(io.LimitReader(resp.Body, intentLLMResponseLimit)).Decode(&payload); err != nil {
-			return nil, err
+			return intentPlanClassification{}, err
 		}
 		if len(payload.Choices) == 0 {
-			return nil, nil
+			return intentPlanClassification{}, nil
 		}
 		content := strings.TrimSpace(payload.Choices[0].Message.Content)
 		if content == "" {
-			return nil, nil
+			return intentPlanClassification{}, nil
 		}
-		actions, parseErr := parseSystemActionsJSON(stripCodeFence(content))
+		classification, parseErr := parseIntentPlanClassification(stripCodeFence(content))
 		if parseErr != nil {
-			return nil, parseErr
+			return intentPlanClassification{}, parseErr
 		}
-		if len(actions) == 0 {
-			return nil, nil
-		}
-		normalized := make([]*SystemAction, 0, len(actions))
-		for _, action := range actions {
+		normalized := make([]*SystemAction, 0, len(classification.Actions))
+		for _, action := range classification.Actions {
 			if normalizedAction := normalizeSystemActionForExecution(action, trimmedText); normalizedAction != nil {
 				normalized = append(normalized, normalizedAction)
 			}
 		}
-		if len(normalized) == 0 {
-			return nil, nil
-		}
-		return normalized, nil
+		classification.Actions = normalized
+		return classification, nil
 	}
 
-	initialSystemPrompt := intentLLMSystemPrompt
+	initialSystemPrompt := buildIntentLLMSystemPromptForPolicy(policy)
 	if requiresOpenCanvas {
 		initialSystemPrompt += "\n\nConstraint: for explicit open/show/display file requests you MUST return an actions array whose final step is open_file_canvas. If path is uncertain, include a shell search step first and then use path=\"$last_shell_path\"."
 	}
-	actions, err := requestPlan(initialSystemPrompt, trimmedText)
+	classification, err := requestPlan(initialSystemPrompt, trimmedText)
 	if err != nil {
-		return nil, err
+		return intentPlanClassification{}, err
 	}
-	if requiresOpenCanvas && !planContainsAction(actions, "open_file_canvas") {
+	if requiresOpenCanvas && !planContainsAction(classification.Actions, "open_file_canvas") {
 		previousPlanJSON := "null"
-		if len(actions) > 0 {
-			if encoded, marshalErr := json.Marshal(actions); marshalErr == nil {
+		if len(classification.Actions) > 0 {
+			if encoded, marshalErr := json.Marshal(classification.Actions); marshalErr == nil {
 				previousPlanJSON = string(encoded)
 			}
 		}
@@ -175,22 +213,30 @@ func (a *App) classifyIntentPlanWithLLM(ctx context.Context, text string) ([]*Sy
 		if len(hints) > 0 {
 			hintText = strings.Join(hints, ", ")
 		}
-		retrySystemPrompt := intentLLMSystemPrompt + "\n\nConstraint: for explicit open/show/display file requests you MUST return an actions array whose final step is open_file_canvas. If path is uncertain, include a shell search step first and then use path=\"$last_shell_path\"."
+		retrySystemPrompt := buildIntentLLMSystemPromptForPolicy(policy) + "\n\nConstraint: for explicit open/show/display file requests you MUST return an actions array whose final step is open_file_canvas. If path is uncertain, include a shell search step first and then use path=\"$last_shell_path\"."
 		retryUserPrompt := "User request:\n" + trimmedText + "\n\nExtracted filename hints:\n" + hintText + "\n\nPrevious invalid plan (missing open_file_canvas or empty):\n" + previousPlanJSON
-		if repaired, repairErr := requestPlan(retrySystemPrompt, retryUserPrompt); repairErr == nil && len(repaired) > 0 {
-			actions = repaired
+		if repaired, repairErr := requestPlan(retrySystemPrompt, retryUserPrompt); repairErr == nil && len(repaired.Actions) > 0 {
+			classification = repaired
 		}
-		if !planContainsAction(actions, "open_file_canvas") {
-			actions = ensureOpenCanvasTerminalAction(actions)
+		if !planContainsAction(classification.Actions, "open_file_canvas") {
+			classification.Actions = ensureOpenCanvasTerminalAction(classification.Actions)
 		}
-		if !planContainsAction(actions, "open_file_canvas") {
-			return nil, nil
+		if !planContainsAction(classification.Actions, "open_file_canvas") {
+			return intentPlanClassification{}, nil
 		}
 	}
-	if len(actions) == 0 {
+	return classification, nil
+}
+
+func (a *App) classifyIntentPlanWithLLM(ctx context.Context, text string) ([]*SystemAction, error) {
+	classification, err := a.classifyIntentPlanWithLLMResult(ctx, text)
+	if err != nil {
+		return nil, err
+	}
+	if len(classification.Actions) == 0 {
 		return nil, nil
 	}
-	return actions, nil
+	return classification.Actions, nil
 }
 
 func (a *App) classifyIntentWithLLM(ctx context.Context, text string) (*SystemAction, error) {
