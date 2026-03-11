@@ -1,9 +1,16 @@
 import * as env from './app-env.js';
 import * as context from './app-context.js';
-
+import {
+  applyWorkspaceBusyStates,
+  applyWorkspaceFocusSnapshot,
+  normalizeWorkspaceBusyStates,
+  normalizeWorkspaceFocusSnapshot,
+  workspaceBusyBadgeText,
+  workspaceBusyBadgeTitle,
+  workspaceDisplayName,
+} from './app-workspace-status.js';
 const { marked, apiURL, wsURL, renderCanvas, clearCanvas, getLocationFromSelection, clearLineHighlight, escapeHtml, sanitizeHtml, getActiveArtifactTitle, getActiveTextEventId, getPreviousArtifactText, getUiState, setUiMode, showIndicatorMode, hideIndicator, showTextInput, hideTextInput, showOverlay, hideOverlay, updateOverlay, isOverlayVisible, isTextInputVisible, isRecording, setRecording, getInputAnchor, setInputAnchor, getAnchorFromPoint, buildContextPrefix, getLastInputPosition, setLastInputPosition, configureLiveSession, getLiveSessionSnapshot, handleLiveSessionMessage, isLiveSessionListenActive, LIVE_SESSION_HOTWORD_DEFAULT, LIVE_SESSION_MODE_DIALOGUE, LIVE_SESSION_MODE_MEETING, onLiveSessionTTSPlaybackComplete, cancelLiveSessionListen, startLiveSession, stopLiveSession, initHotword, startHotwordMonitor, stopHotwordMonitor, isHotwordActive, onHotwordDetected, setHotwordThreshold, setHotwordAudioContext, getPreRollAudio, getHotwordMicStream, initVAD, ensureVADLoaded, float32ToWav } = env;
 const { refs, state, getState, isVoiceTurn, COMPANION_VIEW_PATH_PREFIX, COMPANION_TRANSCRIPT_VIEW_PATH, COMPANION_SUMMARY_VIEW_PATH, COMPANION_REFERENCES_VIEW_PATH, MEETING_TRANSCRIPT_LABEL, MEETING_SUMMARY_LABEL, MEETING_REFERENCES_LABEL, MEETING_SUMMARY_ITEMS_PANEL_ID, CHAT_CTRL_LONG_PRESS_MS, ARTIFACT_EDIT_LONG_TAP_MS, ITEM_SIDEBAR_VIEWS, ITEM_SIDEBAR_GESTURE_CANCEL_PX, ITEM_SIDEBAR_GESTURE_COMMIT_PX, ITEM_SIDEBAR_GESTURE_LONG_PX, ITEM_SIDEBAR_DEFAULT_LATER_HOUR_UTC, ITEM_SIDEBAR_MENU_ID, DEV_UI_RELOAD_POLL_MS, ASSISTANT_ACTIVITY_POLL_MS, CHAT_WS_STALE_THRESHOLD_MS, ACTIVE_TURN_NO_ID_CLEAR_GRACE_MS, ACTIVE_TURN_ACTIVITY_CLEAR_GRACE_MS, PROJECT_CHAT_MODEL_ALIASES, PROJECT_CHAT_MODEL_REASONING_EFFORTS, TTS_SILENT_STORAGE_KEY, YOLO_MODE_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_ENABLED_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_LAST_SHOWN_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_INTERVAL_MS, ACTIVE_PROJECT_STORAGE_KEY, LAST_VIEW_STORAGE_KEY, RUNTIME_RELOAD_CONTEXT_STORAGE_KEY, SIDEBAR_IMAGE_EXTENSIONS, PANEL_MOTION_WATCH_QUERIES, VOICE_LIFECYCLE, COMPANION_IDLE_SURFACES, COMPANION_RUNTIME_STATES, TOOL_PALETTE_MODES, SPHERE_OPTIONS } = context;
-
 const showStatus = (...args) => refs.showStatus(...args);
 const updateAssistantActivityIndicator = (...args) => refs.updateAssistantActivityIndicator(...args);
 const switchProject = (...args) => refs.switchProject(...args);
@@ -46,7 +53,7 @@ const refreshItemSidebarCounts = (...args) => refs.refreshItemSidebarCounts(...a
 const isTemporaryProjectKind = (...args) => refs.isTemporaryProjectKind(...args);
 const shouldRenderAssistantHistoryInChat = (...args) => refs.shouldRenderAssistantHistoryInChat(...args);
 const hasLocalAssistantWork = (...args) => refs.hasLocalAssistantWork(...args);
-
+export { applyWorkspaceBusyStates, applyWorkspaceFocusSnapshot } from './app-workspace-status.js';
 export async function fetchProjects() {
   const resp = await fetch(apiURL('projects'), { cache: 'no-store' });
   if (!resp.ok) throw new Error(`projects list failed: HTTP ${resp.status}`);
@@ -64,17 +71,16 @@ export async function fetchProjects() {
   })).filter((project) => project.id);
   state.defaultProjectId = String(payload?.default_project_id || '').trim();
   state.serverActiveProjectId = String(payload?.active_project_id || '').trim();
+  await refreshWorkspaceRuntimeState().catch(() => {});
   renderEdgeTopProjects();
   renderEdgeTopModelButtons();
 }
-
 export function projectMatchesSphere(project, sphere = state.activeSphere) {
   if (!project) return false;
   const activeSphere = normalizeActiveSphere(sphere);
   const projectSphere = String(project?.sphere || '').trim().toLowerCase();
   return !projectSphere || projectSphere === activeSphere;
 }
-
 function visibleProjectsForSphere(sphere = state.activeSphere) {
   return state.projects.filter((project) => projectMatchesSphere(project, sphere));
 }
@@ -85,7 +91,26 @@ function currentExecutionPolicy(project = activeProject()) {
   if (mode === 'plan' || mode === 'review') return 'reviewed';
   return 'default';
 }
-
+export async function refreshWorkspaceRuntimeState() {
+  const [focusResp, busyResp] = await Promise.all([
+    fetch(apiURL('workspace/focus'), { cache: 'no-store' }),
+    fetch(apiURL('workspaces/busy'), { cache: 'no-store' }),
+  ]);
+  if (!focusResp.ok) {
+    throw new Error(`workspace focus failed: HTTP ${focusResp.status}`);
+  }
+  if (!busyResp.ok) {
+    throw new Error(`workspace busy failed: HTTP ${busyResp.status}`);
+  }
+  const focusPayload = await focusResp.json();
+  const busyPayload = await busyResp.json();
+  applyWorkspaceFocusSnapshot(focusPayload);
+  applyWorkspaceBusyStates(busyPayload?.states || []);
+  return {
+    focus: state.workspaceFocus,
+    states: state.workspaceBusyStates,
+  };
+}
 async function ensureVisibleActiveProject() {
   const current = activeProject();
   if (!current || projectMatchesSphere(current, state.activeSphere)) {
@@ -100,7 +125,6 @@ async function ensureVisibleActiveProject() {
   }
   await switchProject(fallback.id);
 }
-
 export async function setActiveSphere(nextSphere) {
   const sphere = normalizeActiveSphere(nextSphere);
   if (sphere === state.activeSphere && String(state.activeSphere || '').trim()) {
@@ -132,7 +156,6 @@ export async function setActiveSphere(nextSphere) {
     return false;
   }
 }
-
 export function normalizeProjectRunState(runState) {
   const activeTurns = Math.max(0, Number(runState?.active_turns || 0) || 0);
   const queuedTurns = Math.max(0, Number(runState?.queued_turns || 0) || 0);
@@ -148,7 +171,6 @@ export function normalizeProjectRunState(runState) {
     active_turn_id: String(runState?.active_turn_id || '').trim(),
   };
 }
-
 export function projectRunStateSummary(project) {
   const runState = normalizeProjectRunState(project?.run_state);
   if (runState.status === 'running') {
@@ -159,7 +181,6 @@ export function projectRunStateSummary(project) {
   }
   return 'idle';
 }
-
 export function upsertProject(project) {
   if (!project || !project.id) return;
   project.chat_mode = String(project.chat_mode || 'chat');
@@ -177,7 +198,6 @@ export function upsertProject(project) {
   }
   renderEdgeTopModelButtons();
 }
-
 export async function refreshCompanionState(projectID = state.activeProjectId) {
   const project = state.projects.find((item) => item.id === String(projectID || '').trim()) || null;
   if (!project) {
@@ -195,7 +215,6 @@ export async function refreshCompanionState(projectID = state.activeProjectId) {
   updateAssistantActivityIndicator();
   return payload;
 }
-
 export async function updateCompanionConfig(patch) {
   const project = activeProject();
   if (!project || !project.id) return null;
@@ -220,13 +239,11 @@ export async function updateCompanionConfig(patch) {
   updateAssistantActivityIndicator();
   return payload;
 }
-
 function normalizeLivePolicy(policy) {
   return String(policy || '').trim().toLowerCase() === LIVE_SESSION_MODE_MEETING
     ? LIVE_SESSION_MODE_MEETING
     : LIVE_SESSION_MODE_DIALOGUE;
 }
-
 export async function updateLivePolicy(policy) {
   const nextPolicy = normalizeLivePolicy(policy);
   const resp = await fetch(apiURL('live-policy'), {
@@ -244,7 +261,6 @@ export async function updateLivePolicy(policy) {
   updateAssistantActivityIndicator();
   return payload;
 }
-
 export async function toggleCompanionIdleSurfacePreference() {
   const nextSurface = state.companionIdleSurface === COMPANION_IDLE_SURFACES.BLACK
     ? COMPANION_IDLE_SURFACES.ROBOT
@@ -258,7 +274,6 @@ export async function toggleCompanionIdleSurfacePreference() {
     showStatus(`idle surface failed: ${message}`);
   }
 }
-
 export async function activateLiveSession(mode) {
   const normalized = String(mode || '').trim().toLowerCase();
   if (normalized !== LIVE_SESSION_MODE_DIALOGUE && normalized !== LIVE_SESSION_MODE_MEETING) return false;
@@ -288,7 +303,6 @@ export async function activateLiveSession(mode) {
   applyLiveSessionStateSnapshot();
   return started;
 }
-
 export async function deactivateLiveSession(options: Record<string, any> = {}) {
   const silent = Boolean(options?.silent);
   const disableMeetingConfig = Boolean(options?.disableMeetingConfig);
@@ -384,6 +398,41 @@ export function renderEdgeTopModelButtons() {
     sphereWrap.appendChild(button);
   }
   host.appendChild(sphereWrap);
+
+  const workspaceStatusWrap = document.createElement('div');
+  workspaceStatusWrap.className = 'edge-workspace-status-wrap';
+  const focusSnapshot = normalizeWorkspaceFocusSnapshot(state.workspaceFocus);
+  if (focusSnapshot.anchor) {
+    const anchorBadge = document.createElement('span');
+    anchorBadge.className = 'edge-project-btn edge-workspace-status edge-workspace-anchor';
+    anchorBadge.textContent = `Anchor ${workspaceDisplayName(focusSnapshot.anchor)}`;
+    const anchorPath = String(focusSnapshot.anchor?.dir_path || '').trim();
+    anchorBadge.title = anchorPath
+      ? `Daily anchor: ${workspaceDisplayName(focusSnapshot.anchor)} (${anchorPath})`
+      : `Daily anchor: ${workspaceDisplayName(focusSnapshot.anchor)}`;
+    workspaceStatusWrap.appendChild(anchorBadge);
+  }
+  if (focusSnapshot.focus) {
+    const focusBadge = document.createElement('span');
+    focusBadge.className = 'edge-project-btn edge-workspace-status edge-workspace-focus';
+    focusBadge.textContent = focusSnapshot.explicit
+      ? `Focus ${workspaceDisplayName(focusSnapshot.focus)}`
+      : 'Focus anchor';
+    const focusPath = String(focusSnapshot.focus?.dir_path || '').trim();
+    focusBadge.title = focusSnapshot.explicit
+      ? (focusPath
+        ? `Focused workspace: ${workspaceDisplayName(focusSnapshot.focus)} (${focusPath})`
+        : `Focused workspace: ${workspaceDisplayName(focusSnapshot.focus)}`)
+      : 'Focused workspace follows the anchor until you explicitly switch it.';
+    workspaceStatusWrap.appendChild(focusBadge);
+  }
+  const busyBadge = document.createElement('span');
+  const hasBusyWork = normalizeWorkspaceBusyStates(state.workspaceBusyStates).some((entry) => entry.status !== 'idle');
+  busyBadge.className = `edge-project-btn edge-workspace-status edge-workspace-busy${hasBusyWork ? ' is-busy' : ''}`;
+  busyBadge.textContent = workspaceBusyBadgeText(state.workspaceBusyStates);
+  busyBadge.title = workspaceBusyBadgeTitle(focusSnapshot, state.workspaceBusyStates);
+  workspaceStatusWrap.appendChild(busyBadge);
+  host.appendChild(workspaceStatusWrap);
 
   const project = activeProject();
   const selectedAlias = activeProjectChatModelAlias();
@@ -744,6 +793,7 @@ export async function activateProject(projectID) {
   setChatMode(project.chat_mode || 'chat');
   if (!state.chatSessionId) throw new Error('chat session ID missing');
   upsertProject(project);
+  await refreshWorkspaceRuntimeState().catch(() => {});
   clearWelcomeSurface();
   return project;
 }
