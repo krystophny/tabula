@@ -14,6 +14,16 @@ import (
 
 func (a *App) cwdForProjectKey(projectKey string) string {
 	key := strings.TrimSpace(projectKey)
+	if focused, explicit, err := a.focusedWorkspace(); err == nil && explicit {
+		if key == "" || key == focused.DirPath {
+			return strings.TrimSpace(focused.DirPath)
+		}
+		if project, projectErr := a.projectForWorkspace(focused); projectErr == nil && project != nil {
+			if key == strings.TrimSpace(project.ProjectKey) {
+				return strings.TrimSpace(focused.DirPath)
+			}
+		}
+	}
 	if key != "" {
 		if project, err := a.store.GetProjectByProjectKey(key); err == nil {
 			if workspaces, workspaceErr := a.store.ListWorkspacesForProject(project.ID); workspaceErr == nil {

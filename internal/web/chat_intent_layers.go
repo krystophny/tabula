@@ -20,6 +20,8 @@ const (
 var intentPromptSystemCommands = []string{
 	"switch_project",
 	"switch_workspace",
+	"focus_workspace",
+	"clear_focus",
 	"list_workspace_items",
 	"list_workspaces",
 	"create_workspace",

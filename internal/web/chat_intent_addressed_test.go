@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -129,8 +130,18 @@ func TestClassifyIntentPlanWithLLMIncludesRuntimeContextForLocalAnswers(t *testi
 	if err != nil {
 		t.Fatalf("active workspace: %v", err)
 	}
+	focus, err := app.store.CreateWorkspace("Focused", filepath.Join(t.TempDir(), "focused"))
+	if err != nil {
+		t.Fatalf("CreateWorkspace(focused): %v", err)
+	}
+	if err := app.setFocusedWorkspace(focus.ID); err != nil {
+		t.Fatalf("setFocusedWorkspace(): %v", err)
+	}
 	if _, err := app.store.CreateItem("Review parser follow-up", store.ItemOptions{WorkspaceID: &workspace.ID}); err != nil {
 		t.Fatalf("create item: %v", err)
+	}
+	if _, err := app.store.CreateItem("Focused follow-up", store.ItemOptions{WorkspaceID: &focus.ID}); err != nil {
+		t.Fatalf("create focused item: %v", err)
 	}
 	if _, err := app.store.AddChatMessage(session.ID, "user", "review the parser plan", "review the parser plan", "text"); err != nil {
 		t.Fatalf("add user message: %v", err)
@@ -154,7 +165,10 @@ func TestClassifyIntentPlanWithLLMIncludesRuntimeContextForLocalAnswers(t *testi
 	if !strings.Contains(userPrompt, workspace.Name) || !strings.Contains(userPrompt, workspace.DirPath) {
 		t.Fatalf("user prompt = %q, want active workspace details", userPrompt)
 	}
-	if !strings.Contains(userPrompt, "Open items in active workspace: 1") {
+	if !strings.Contains(userPrompt, focus.Name) || !strings.Contains(userPrompt, focus.DirPath) {
+		t.Fatalf("user prompt = %q, want focused workspace details", userPrompt)
+	}
+	if !strings.Contains(userPrompt, "Open items in focused workspace: 1") {
 		t.Fatalf("user prompt = %q, want workspace item count", userPrompt)
 	}
 	if !strings.Contains(userPrompt, "Running tasks: 1 active, 0 queued") {

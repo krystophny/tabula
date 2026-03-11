@@ -39,7 +39,7 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 		return
 	}
 
-	cwd, err := a.workspaceDirForChatSession(session)
+	cwd, err := a.effectiveWorkspaceDirForChatSession(session)
 	if err != nil {
 		a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": err.Error()})
@@ -351,7 +351,7 @@ func suppressLocalAssistantResponse(payloads []map[string]interface{}) bool {
 // runAssistantTurnLegacy is the single-shot fallback when persistent session
 // fails to connect. Each call creates a new WS + thread.
 func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession, messages []store.ChatMessage, cursorCtx *chatCursorContext, inkCtx []*chatCanvasInkEvent, positionCtx []*chatCanvasPositionEvent, outputMode string, profile appServerModelProfile) {
-	cwd, err := a.workspaceDirForChatSession(session)
+	cwd, err := a.effectiveWorkspaceDirForChatSession(session)
 	if err != nil {
 		a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": err.Error()})

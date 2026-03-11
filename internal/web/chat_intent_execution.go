@@ -34,13 +34,7 @@ func (a *App) executeSystemActionPlanUnsafe(sessionID string, session store.Chat
 	payloads := make([]map[string]interface{}, 0, len(actions))
 	lastShellPath := ""
 	targetProject, targetErr := a.systemActionTargetProject(session)
-	targetCWD := ""
-	if targetErr == nil {
-		targetCWD = strings.TrimSpace(targetProject.RootPath)
-		if targetCWD == "" {
-			targetCWD = strings.TrimSpace(a.cwdForProjectKey(targetProject.ProjectKey))
-		}
-	}
+	targetCWD := a.systemActionTargetCWD(session, targetProject, targetErr)
 	requestHints := extractOpenRequestHints(userText)
 	for _, action := range actions {
 		if action == nil {
@@ -82,6 +76,11 @@ func (a *App) executeSystemActionPlanUnsafe(sessionID string, session store.Chat
 }
 
 func (a *App) systemActionTargetProject(session store.ChatSession) (store.Project, error) {
+	if focusedWorkspace, explicit, err := a.focusedWorkspace(); err == nil && explicit {
+		if project, projectErr := a.projectForWorkspace(focusedWorkspace); projectErr == nil && project != nil {
+			return *project, nil
+		}
+	}
 	projectKey := strings.TrimSpace(session.ProjectKey)
 	if projectKey != "" {
 		project, err := a.store.GetProjectByProjectKey(projectKey)
@@ -90,6 +89,26 @@ func (a *App) systemActionTargetProject(session store.ChatSession) (store.Projec
 		}
 	}
 	return a.preferredProject()
+}
+
+func (a *App) systemActionTargetCWD(session store.ChatSession, targetProject store.Project, targetErr error) string {
+	if focusedWorkspace, explicit, err := a.focusedWorkspace(); err == nil && explicit {
+		if dirPath := strings.TrimSpace(focusedWorkspace.DirPath); dirPath != "" {
+			return dirPath
+		}
+	}
+	if targetErr == nil {
+		if cwd := strings.TrimSpace(targetProject.RootPath); cwd != "" {
+			return cwd
+		}
+		if cwd := strings.TrimSpace(a.cwdForProjectKey(targetProject.ProjectKey)); cwd != "" {
+			return cwd
+		}
+	}
+	if workspace, err := a.workspaceForChatSession(session); err == nil {
+		return strings.TrimSpace(workspace.DirPath)
+	}
+	return ""
 }
 
 func truncateSystemActionOutput(text string, maxBytes int) string {
@@ -237,6 +256,36 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 			"name":         workspace.Name,
 			"dir_path":     workspace.DirPath,
 		}, nil
+	case "focus_workspace":
+		workspace, err := a.resolveWorkspaceReference(session.ProjectKey, systemActionWorkspaceRef(action.Params))
+		if err != nil {
+			return "", nil, err
+		}
+		if err := a.setFocusedWorkspace(workspace.ID); err != nil {
+			return "", nil, err
+		}
+		a.broadcastWorkspaceFocusChanged()
+		return fmt.Sprintf("Focused on %s.", workspace.Name), map[string]interface{}{
+			"type":         "focus_workspace",
+			"workspace_id": workspace.ID,
+			"name":         workspace.Name,
+			"dir_path":     workspace.DirPath,
+		}, nil
+	case "clear_focus":
+		if err := a.setFocusedWorkspace(0); err != nil {
+			return "", nil, err
+		}
+		a.broadcastWorkspaceFocusChanged()
+		snapshot, err := a.workspaceFocusSnapshot()
+		if err != nil {
+			return "", nil, err
+		}
+		return fmt.Sprintf("Focus returned to %s.", snapshot.Focus.Name), map[string]interface{}{
+			"type":         "clear_focus",
+			"workspace_id": snapshot.Focus.ID,
+			"name":         snapshot.Focus.Name,
+			"dir_path":     snapshot.Focus.DirPath,
+		}, nil
 	case "cursor_open_item", "cursor_triage_item", "cursor_open_path":
 		return a.executeCursorAction(context.Background(), session, action)
 	case "list_workspaces":
@@ -364,10 +413,7 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 		if command == "" {
 			return "", nil, errors.New("shell command is required")
 		}
-		cwd := strings.TrimSpace(targetProject.RootPath)
-		if cwd == "" {
-			cwd = strings.TrimSpace(a.cwdForProjectKey(targetProject.ProjectKey))
-		}
+		cwd := a.systemActionTargetCWD(session, targetProject, nil)
 		if cwd == "" {
 			return "", nil, errors.New("shell cwd is not available")
 		}
@@ -429,10 +475,7 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 		if rawPath == "" {
 			return "", nil, errors.New("open_file_canvas path is required")
 		}
-		cwd := strings.TrimSpace(targetProject.RootPath)
-		if cwd == "" {
-			cwd = strings.TrimSpace(a.cwdForProjectKey(targetProject.ProjectKey))
-		}
+		cwd := a.systemActionTargetCWD(session, targetProject, nil)
 		if cwd == "" {
 			return "", nil, errors.New("open_file_canvas cwd is not available")
 		}

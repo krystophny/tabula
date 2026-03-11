@@ -37,6 +37,8 @@ func parseInlineWorkspaceIntent(text string) *SystemAction {
 		return &SystemAction{Action: "list_workspaces", Params: map[string]interface{}{}}
 	case "list all workspaces", "show all workspaces":
 		return &SystemAction{Action: "list_workspaces", Params: map[string]interface{}{"all_spheres": true}}
+	case "back to daily", "clear focus", "go home":
+		return &SystemAction{Action: "clear_focus", Params: map[string]interface{}{}}
 	case "show workspace details":
 		return &SystemAction{Action: "show_workspace_details", Params: map[string]interface{}{}}
 	case "watch this workspace", "watch workspace", "start watching", "watch here":
@@ -80,6 +82,15 @@ func parseInlineWorkspaceIntent(text string) *SystemAction {
 		if pathRef != "" && !strings.HasPrefix(strings.ToLower(pathRef), "from ") {
 			return &SystemAction{Action: "create_workspace", Params: map[string]interface{}{"path": pathRef}}
 		}
+	}
+	if name, ok := cutPrefixedWorkspaceReference(trimmed, "focus on "); ok {
+		return &SystemAction{Action: "focus_workspace", Params: map[string]interface{}{"workspace": name}}
+	}
+	if name, ok := cutPrefixedWorkspaceReference(trimmed, "focus "); ok {
+		return &SystemAction{Action: "focus_workspace", Params: map[string]interface{}{"workspace": name}}
+	}
+	if name, ok := cutPrefixedWorkspaceReference(trimmed, "work in "); ok {
+		return &SystemAction{Action: "focus_workspace", Params: map[string]interface{}{"workspace": name}}
 	}
 
 	if name, ok := cutPrefixedWorkspaceReference(trimmed, "open workspace "); ok {
@@ -303,28 +314,39 @@ func summarizeWorkspaceItems(workspace store.Workspace, items []store.Item) stri
 }
 
 type workspacePromptContext struct {
-	ActiveSphere  string
-	Workspace     store.Workspace
-	OpenItemCount int
+	ActiveSphere    string
+	AnchorWorkspace store.Workspace
+	FocusWorkspace  store.Workspace
+	FocusExplicit   bool
+	OpenItemCount   int
 }
 
 func (a *App) loadWorkspacePromptContext(projectKey string) *workspacePromptContext {
-	workspace, err := a.fallbackWorkspaceForProjectKey(projectKey)
-	if err != nil || workspace == nil {
+	anchor, err := a.fallbackWorkspaceForProjectKey(projectKey)
+	if err != nil || anchor == nil {
 		return nil
+	}
+	focus, explicit, err := a.focusedWorkspace()
+	if err != nil {
+		return nil
+	}
+	if !explicit {
+		focus = *anchor
 	}
 	activeSphere, err := a.store.ActiveSphere()
 	if err != nil {
 		return nil
 	}
-	items, err := a.listOpenWorkspaceItems(workspace.ID)
+	items, err := a.listOpenWorkspaceItems(focus.ID)
 	if err != nil {
 		return nil
 	}
 	return &workspacePromptContext{
-		ActiveSphere:  activeSphere,
-		Workspace:     *workspace,
-		OpenItemCount: len(items),
+		ActiveSphere:    activeSphere,
+		AnchorWorkspace: *anchor,
+		FocusWorkspace:  focus,
+		FocusExplicit:   explicit,
+		OpenItemCount:   len(items),
 	}
 }
 
@@ -335,8 +357,13 @@ func prependWorkspacePromptContext(prompt string, ctx *workspacePromptContext) s
 	var b strings.Builder
 	b.WriteString("## Workspace Context\n")
 	fmt.Fprintf(&b, "Active sphere: %s\n", ctx.ActiveSphere)
-	fmt.Fprintf(&b, "Active workspace: %s (%s)\n", ctx.Workspace.Name, ctx.Workspace.DirPath)
-	fmt.Fprintf(&b, "Open items in this workspace: %d\n\n", ctx.OpenItemCount)
+	fmt.Fprintf(&b, "Anchor workspace: %s (%s)\n", ctx.AnchorWorkspace.Name, ctx.AnchorWorkspace.DirPath)
+	if ctx.FocusExplicit {
+		fmt.Fprintf(&b, "Focused target workspace: %s (%s)\n", ctx.FocusWorkspace.Name, ctx.FocusWorkspace.DirPath)
+	} else {
+		fmt.Fprintf(&b, "Focused target workspace: %s (%s)\n", ctx.AnchorWorkspace.Name, ctx.AnchorWorkspace.DirPath)
+	}
+	fmt.Fprintf(&b, "Open items in focused workspace: %d\n\n", ctx.OpenItemCount)
 	b.WriteString(prompt)
 	return b.String()
 }

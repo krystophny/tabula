@@ -22,6 +22,9 @@ func TestParseInlineWorkspaceIntent(t *testing.T) {
 		wantScratch   bool
 		wantAll       bool
 	}{
+		{text: "focus on Alpha", wantAction: "focus_workspace", wantWorkspace: "Alpha"},
+		{text: "work in Beta", wantAction: "focus_workspace", wantWorkspace: "Beta"},
+		{text: "clear focus", wantAction: "clear_focus"},
 		{text: "open workspace Alpha", wantAction: "switch_workspace", wantWorkspace: "Alpha"},
 		{text: "switch to workspace Beta", wantAction: "switch_workspace", wantWorkspace: "Beta"},
 		{text: "switch to ./repo", wantAction: "switch_workspace", wantWorkspace: "./repo"},
@@ -470,21 +473,28 @@ func TestApplyWorkspacePromptContextIncludesActiveWorkspaceSummary(t *testing.T)
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	workspace, err := app.store.CreateWorkspace("Default", project.RootPath)
+	anchor, err := app.store.CreateWorkspace("Default", project.RootPath)
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	if err := app.store.SetActiveWorkspace(workspace.ID); err != nil {
+	if err := app.store.SetActiveWorkspace(anchor.ID); err != nil {
 		t.Fatalf("SetActiveWorkspace() error: %v", err)
+	}
+	focus, err := app.store.CreateWorkspace("Focused", filepath.Join(t.TempDir(), "focused"))
+	if err != nil {
+		t.Fatalf("CreateWorkspace(focused) error: %v", err)
+	}
+	if err := app.setFocusedWorkspace(focus.ID); err != nil {
+		t.Fatalf("setFocusedWorkspace() error: %v", err)
 	}
 	if err := app.store.SetActiveSphere(store.SphereWork); err != nil {
 		t.Fatalf("SetActiveSphere() error: %v", err)
 	}
-	if _, err := app.store.CreateItem("Visible item", store.ItemOptions{WorkspaceID: &workspace.ID}); err != nil {
+	if _, err := app.store.CreateItem("Visible item", store.ItemOptions{WorkspaceID: &focus.ID}); err != nil {
 		t.Fatalf("CreateItem(visible) error: %v", err)
 	}
 	if _, err := app.store.CreateItem("Done item", store.ItemOptions{
-		WorkspaceID: &workspace.ID,
+		WorkspaceID: &focus.ID,
 		State:       store.ItemStateDone,
 	}); err != nil {
 		t.Fatalf("CreateItem(done) error: %v", err)
@@ -497,11 +507,14 @@ func TestApplyWorkspacePromptContextIncludesActiveWorkspaceSummary(t *testing.T)
 	if !strings.Contains(prompt, "Active sphere: work") {
 		t.Fatalf("prompt missing active sphere line: %q", prompt)
 	}
-	if !strings.Contains(prompt, "Active workspace: Default ("+project.RootPath+")") {
-		t.Fatalf("prompt missing active workspace line: %q", prompt)
+	if !strings.Contains(prompt, "Anchor workspace: Default ("+project.RootPath+")") {
+		t.Fatalf("prompt missing anchor workspace line: %q", prompt)
 	}
-	if !strings.Contains(prompt, "Open items in this workspace: 1") {
-		t.Fatalf("prompt missing open item count: %q", prompt)
+	if !strings.Contains(prompt, "Focused target workspace: Focused ("+focus.DirPath+")") {
+		t.Fatalf("prompt missing focused workspace line: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Open items in focused workspace: 1") {
+		t.Fatalf("prompt missing focused open item count: %q", prompt)
 	}
 	if !strings.Contains(prompt, "Conversation transcript:\nUSER:\nhello") {
 		t.Fatalf("prompt missing original content: %q", prompt)
