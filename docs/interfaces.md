@@ -116,6 +116,7 @@ Domain model API:
 - `GET /api/artifacts/taxonomy`
 - `GET /api/artifacts/{artifact_id}`
 - `POST /api/artifacts/{artifact_id}/extract-figures`
+- `POST /api/artifacts/{artifact_id}/materialize`
 - `GET /api/artifacts/{artifact_id}/items`
 - `DELETE /api/artifacts/{artifact_id}`
 - `GET /api/batches`
