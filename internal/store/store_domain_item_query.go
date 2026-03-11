@@ -20,7 +20,7 @@ func (s *Store) ListItemsByStateFiltered(state string, filter ItemListFilter) ([
 	if cleanState == "" {
 		return nil, errors.New("invalid item state")
 	}
-	normalizedFilter, err := normalizeItemListFilter(filter)
+	normalizedFilter, err := s.prepareItemListFilter(filter)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +135,7 @@ func (s *Store) ListInboxItemsForSphere(now time.Time, sphere string) ([]ItemSum
 }
 
 func (s *Store) ListInboxItemsFiltered(now time.Time, filter ItemListFilter) ([]ItemSummary, error) {
-	normalizedFilter, err := normalizeItemListFilter(filter)
+	normalizedFilter, err := s.prepareItemListFilter(filter)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func (s *Store) ListWaitingItemsForSphere(sphere string) ([]ItemSummary, error) 
 }
 
 func (s *Store) ListWaitingItemsFiltered(filter ItemListFilter) ([]ItemSummary, error) {
-	normalizedFilter, err := normalizeItemListFilter(filter)
+	normalizedFilter, err := s.prepareItemListFilter(filter)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +187,7 @@ func (s *Store) ListSomedayItemsForSphere(sphere string) ([]ItemSummary, error) 
 }
 
 func (s *Store) ListSomedayItemsFiltered(filter ItemListFilter) ([]ItemSummary, error) {
-	normalizedFilter, err := normalizeItemListFilter(filter)
+	normalizedFilter, err := s.prepareItemListFilter(filter)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +211,7 @@ func (s *Store) ListDoneItemsFiltered(limit int, filter ItemListFilter) ([]ItemS
 	if limit <= 0 {
 		limit = 50
 	}
-	normalizedFilter, err := normalizeItemListFilter(filter)
+	normalizedFilter, err := s.prepareItemListFilter(filter)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +239,7 @@ func (s *Store) CountItemsByStateFiltered(now time.Time, filter ItemListFilter) 
 		ItemStateSomeday: 0,
 		ItemStateDone:    0,
 	}
-	normalizedFilter, err := normalizeItemListFilter(filter)
+	normalizedFilter, err := s.prepareItemListFilter(filter)
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +287,7 @@ func (s *Store) ListItems() ([]Item, error) {
 }
 
 func (s *Store) ListItemsFiltered(filter ItemListFilter) ([]Item, error) {
-	normalizedFilter, err := normalizeItemListFilter(filter)
+	normalizedFilter, err := s.prepareItemListFilter(filter)
 	if err != nil {
 		return nil, err
 	}

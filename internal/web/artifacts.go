@@ -21,6 +21,11 @@ func (a *App) handleArtifactList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind := store.ArtifactKind(strings.TrimSpace(r.URL.Query().Get("kind")))
+	contextQuery := strings.TrimSpace(r.URL.Query().Get("context"))
+	if strings.EqualFold(contextQuery, "null") {
+		writeAPIError(w, http.StatusBadRequest, "context must not be null")
+		return
+	}
 	workspaceIDText := strings.TrimSpace(r.URL.Query().Get("workspace_id"))
 	linkedOnly := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("linked")), "true")
 	var (
@@ -47,6 +52,24 @@ func (a *App) handleArtifactList(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeDomainStoreError(w, err)
 		return
+	}
+	if contextQuery != "" {
+		contextArtifacts, err := a.store.ListArtifactsByContextPrefix(contextQuery)
+		if err != nil {
+			writeDomainStoreError(w, err)
+			return
+		}
+		allowed := make(map[int64]struct{}, len(contextArtifacts))
+		for _, artifact := range contextArtifacts {
+			allowed[artifact.ID] = struct{}{}
+		}
+		filtered := make([]store.Artifact, 0, len(artifacts))
+		for _, artifact := range artifacts {
+			if _, ok := allowed[artifact.ID]; ok {
+				filtered = append(filtered, artifact)
+			}
+		}
+		artifacts = filtered
 	}
 	writeAPIData(w, http.StatusOK, map[string]any{
 		"artifacts": artifacts,
