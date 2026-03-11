@@ -194,6 +194,16 @@ test('Live policy persists from runtime and reacts to websocket policy changes',
   await page.waitForTimeout(200);
   await waitForEdgeButtons(page);
 
+  const initialSessionState = await page.evaluate(() => {
+    const app = (window as any)._taburaApp;
+    const state = app?.getState?.();
+    return {
+      activeProjectId: String(state?.activeProjectId || ''),
+      chatSessionId: String(state?.chatSessionId || ''),
+      chatMode: String(state?.chatMode || ''),
+    };
+  });
+
   await expect(page.locator('#edge-top-models .edge-live-meeting-btn')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#edge-top-models .edge-live-dialogue-btn')).toHaveAttribute('aria-pressed', 'false');
 
@@ -211,6 +221,15 @@ test('Live policy persists from runtime and reacts to websocket policy changes',
     return log.find((entry) => entry.action === 'live_policy')?.payload || null;
   }).toEqual({ policy: 'dialogue' });
   await expect(page.locator('#edge-top-models .edge-live-status')).toContainText('Dialogue');
+  await expect.poll(async () => page.evaluate(() => {
+    const app = (window as any)._taburaApp;
+    const state = app?.getState?.();
+    return {
+      activeProjectId: String(state?.activeProjectId || ''),
+      chatSessionId: String(state?.chatSessionId || ''),
+      chatMode: String(state?.chatMode || ''),
+    };
+  })).toEqual(initialSessionState);
 
   await page.evaluate(() => {
     const button = document.querySelector('#edge-top-models .edge-live-stop-btn');
