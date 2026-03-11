@@ -34,6 +34,7 @@ func TestTryDeterministicFastPathRegistry(t *testing.T) {
 		{name: "artifact", text: "show linked artifacts", wantMatch: "artifact_link", wantAction: "list_linked_artifacts"},
 		{name: "batch", text: "show me progress", wantMatch: "batch", wantAction: "batch_status"},
 		{name: "workspace", text: "list workspaces", wantMatch: "workspace", wantAction: "list_workspaces"},
+		{name: "workspace focus", text: "open the plasma workspace", wantMatch: "workspace", wantAction: "focus_workspace"},
 		{name: "project", text: "what project is this?", wantMatch: "project", wantAction: "show_workspace_project"},
 	}
 

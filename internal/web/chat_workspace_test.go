@@ -23,7 +23,9 @@ func TestParseInlineWorkspaceIntent(t *testing.T) {
 		wantAll       bool
 	}{
 		{text: "focus on Alpha", wantAction: "focus_workspace", wantWorkspace: "Alpha"},
+		{text: "focus stellarator", wantAction: "focus_workspace", wantWorkspace: "stellarator"},
 		{text: "work in Beta", wantAction: "focus_workspace", wantWorkspace: "Beta"},
+		{text: "open the Plasma workspace", wantAction: "focus_workspace", wantWorkspace: "Plasma"},
 		{text: "clear focus", wantAction: "clear_focus"},
 		{text: "open workspace Alpha", wantAction: "switch_workspace", wantWorkspace: "Alpha"},
 		{text: "switch to workspace Beta", wantAction: "switch_workspace", wantWorkspace: "Beta"},
@@ -119,6 +121,88 @@ func TestClassifyAndExecuteSystemActionSwitchWorkspace(t *testing.T) {
 	}
 	if !updated.IsActive {
 		t.Fatal("expected beta workspace to be active")
+	}
+}
+
+func TestClassifyAndExecuteSystemActionFocusWorkspaceUsesFuzzyNameMatching(t *testing.T) {
+	app := newAuthedTestApp(t)
+	app.intentLLMURL = ""
+
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensure default project: %v", err)
+	}
+	anchor, err := app.ensureTodayDailyWorkspace()
+	if err != nil {
+		t.Fatalf("ensureTodayDailyWorkspace: %v", err)
+	}
+	focus, err := app.store.CreateWorkspace("stellarator-rmp-analysis", filepath.Join(t.TempDir(), "stellarator-rmp-analysis"))
+	if err != nil {
+		t.Fatalf("CreateWorkspace(focus) error: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("chat session: %v", err)
+	}
+
+	message, payloads, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "open the stellarator workspace")
+	if !handled {
+		t.Fatal("expected focus workspace command to be handled")
+	}
+	if message != "Focused on stellarator-rmp-analysis." {
+		t.Fatalf("message = %q", message)
+	}
+	if len(payloads) != 1 || strFromAny(payloads[0]["type"]) != "focus_workspace" {
+		t.Fatalf("payloads = %#v", payloads)
+	}
+	if got := int64FromAny(payloads[0]["workspace_id"]); got != focus.ID {
+		t.Fatalf("payload workspace_id = %d, want %d", got, focus.ID)
+	}
+	focusedID, err := app.store.FocusedWorkspaceID()
+	if err != nil {
+		t.Fatalf("FocusedWorkspaceID() error: %v", err)
+	}
+	if focusedID != focus.ID {
+		t.Fatalf("focused workspace = %d, want %d", focusedID, focus.ID)
+	}
+	active, err := app.store.ActiveWorkspace()
+	if err != nil {
+		t.Fatalf("ActiveWorkspace() error: %v", err)
+	}
+	if active.ID != anchor.ID {
+		t.Fatalf("active workspace = %d, want anchor %d", active.ID, anchor.ID)
+	}
+}
+
+func TestResolveWorkspaceReferenceRejectsAmbiguousFuzzyMatch(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	for _, name := range []string{"plasma-core", "plasma-response"} {
+		if _, err := app.store.CreateWorkspace(name, filepath.Join(t.TempDir(), name)); err != nil {
+			t.Fatalf("CreateWorkspace(%s) error: %v", name, err)
+		}
+	}
+
+	_, err := app.resolveWorkspaceReference("", "plasma")
+	if err == nil || !strings.Contains(err.Error(), `workspace "plasma" is ambiguous`) {
+		t.Fatalf("resolveWorkspaceReference() error = %v, want ambiguous match", err)
+	}
+}
+
+func TestResolveWorkspaceReferenceMatchesContainedName(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	workspace, err := app.store.CreateWorkspace("stellarator-rmp-analysis", filepath.Join(t.TempDir(), "stellarator-rmp-analysis"))
+	if err != nil {
+		t.Fatalf("CreateWorkspace() error: %v", err)
+	}
+
+	resolved, err := app.resolveWorkspaceReference("", "rmp")
+	if err != nil {
+		t.Fatalf("resolveWorkspaceReference() error: %v", err)
+	}
+	if resolved.ID != workspace.ID {
+		t.Fatalf("resolved workspace = %d, want %d", resolved.ID, workspace.ID)
 	}
 }
 

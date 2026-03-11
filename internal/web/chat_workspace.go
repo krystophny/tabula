@@ -19,6 +19,7 @@ var (
 	workspaceRenamePattern        = regexp.MustCompile(`(?i)^rename\s+workspace\s+(.+?)\s+to\s+(.+?)$`)
 	workspaceDeletePattern        = regexp.MustCompile(`(?i)^(?:delete|remove)\s+workspace\s+(.+?)$`)
 	workspaceDetailsPattern       = regexp.MustCompile(`(?i)^(?:show\s+)?workspace\s+details(?:\s+for\s+(.+?))?$`)
+	workspaceFocusOpenPattern     = regexp.MustCompile(`(?i)^open\s+(?:the\s+)?(.+?)\s+workspace$`)
 )
 
 func parseInlineWorkspaceIntent(text string) *SystemAction {
@@ -81,6 +82,11 @@ func parseInlineWorkspaceIntent(text string) *SystemAction {
 		pathRef := cleanWorkspaceReference(match[1])
 		if pathRef != "" && !strings.HasPrefix(strings.ToLower(pathRef), "from ") {
 			return &SystemAction{Action: "create_workspace", Params: map[string]interface{}{"path": pathRef}}
+		}
+	}
+	if match := workspaceFocusOpenPattern.FindStringSubmatch(trimmed); len(match) == 2 {
+		if name := cleanWorkspaceReference(match[1]); name != "" {
+			return &SystemAction{Action: "focus_workspace", Params: map[string]interface{}{"workspace": name}}
 		}
 	}
 	if name, ok := cutPrefixedWorkspaceReference(trimmed, "focus on "); ok {
@@ -257,30 +263,62 @@ func (a *App) resolveWorkspaceReference(projectKey string, raw string) (store.Wo
 	if err != nil {
 		return store.Workspace{}, err
 	}
-	var matches []store.Workspace
+	if workspace, ok, err := resolveWorkspaceMatch(workspaces, ref, expanded, workspaceReferenceExactMatch); err != nil || ok {
+		return workspace, err
+	}
+	if workspace, ok, err := resolveWorkspaceMatch(workspaces, ref, expanded, workspaceReferencePrefixMatch); err != nil || ok {
+		return workspace, err
+	}
+	if workspace, ok, err := resolveWorkspaceMatch(workspaces, ref, expanded, workspaceReferenceContainsMatch); err != nil || ok {
+		return workspace, err
+	}
+	return store.Workspace{}, fmt.Errorf("workspace %q not found", ref)
+}
+
+type workspaceReferenceMatchMode int
+
+const (
+	workspaceReferenceExactMatch workspaceReferenceMatchMode = iota
+	workspaceReferencePrefixMatch
+	workspaceReferenceContainsMatch
+)
+
+func resolveWorkspaceMatch(workspaces []store.Workspace, ref, expanded string, mode workspaceReferenceMatchMode) (store.Workspace, bool, error) {
+	matches := make([]store.Workspace, 0, len(workspaces))
 	for _, workspace := range workspaces {
-		switch {
-		case strings.EqualFold(workspace.Name, ref):
-			matches = append(matches, workspace)
-		case strings.EqualFold(filepath.Base(workspace.DirPath), ref):
-			matches = append(matches, workspace)
-		case strings.EqualFold(workspace.DirPath, expanded):
+		if workspaceReferenceMatches(workspace, ref, expanded, mode) {
 			matches = append(matches, workspace)
 		}
 	}
-	if len(matches) == 1 {
-		return matches[0], nil
-	}
-	if len(matches) > 1 {
+	switch len(matches) {
+	case 0:
+		return store.Workspace{}, false, nil
+	case 1:
+		return matches[0], true, nil
+	default:
 		sort.Slice(matches, func(i, j int) bool {
-			if matches[i].IsActive != matches[j].IsActive {
-				return matches[i].IsActive
-			}
 			return strings.ToLower(matches[i].Name) < strings.ToLower(matches[j].Name)
 		})
-		return store.Workspace{}, fmt.Errorf("workspace %q is ambiguous", ref)
+		return store.Workspace{}, true, fmt.Errorf("workspace %q is ambiguous", ref)
 	}
-	return store.Workspace{}, fmt.Errorf("workspace %q not found", ref)
+}
+
+func workspaceReferenceMatches(workspace store.Workspace, ref, expanded string, mode workspaceReferenceMatchMode) bool {
+	name := strings.ToLower(strings.TrimSpace(workspace.Name))
+	base := strings.ToLower(strings.TrimSpace(filepath.Base(workspace.DirPath)))
+	dirPath := strings.ToLower(strings.TrimSpace(workspace.DirPath))
+	refLower := strings.ToLower(strings.TrimSpace(ref))
+	expandedLower := strings.ToLower(strings.TrimSpace(expanded))
+	switch mode {
+	case workspaceReferenceExactMatch:
+		return name == refLower || base == refLower || dirPath == expandedLower
+	case workspaceReferencePrefixMatch:
+		return strings.HasPrefix(name, refLower) || strings.HasPrefix(base, refLower)
+	case workspaceReferenceContainsMatch:
+		return strings.Contains(name, refLower) || strings.Contains(base, refLower)
+	default:
+		return false
+	}
 }
 
 func (a *App) listOpenWorkspaceItems(workspaceID int64) ([]store.Item, error) {
