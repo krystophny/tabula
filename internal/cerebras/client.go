@@ -54,10 +54,11 @@ type Client struct {
 
 	now func() time.Time
 
-	mu               sync.Mutex
-	quotaExhausted   bool
-	exhaustedAt      time.Time
-	unavailableUntil time.Time
+	mu                 sync.Mutex
+	quotaExhausted     bool
+	quotaNoticePending bool
+	exhaustedAt        time.Time
+	unavailableUntil   time.Time
 }
 
 type chatCompletionResponse struct {
@@ -258,7 +259,12 @@ func (c *Client) markQuotaExhausted() {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.maybeResetQuotaLocked()
+	if c.quotaExhausted {
+		return
+	}
 	c.quotaExhausted = true
+	c.quotaNoticePending = true
 	c.exhaustedAt = c.now().UTC()
 }
 
@@ -273,6 +279,7 @@ func (c *Client) maybeResetQuotaLocked() {
 		return
 	}
 	c.quotaExhausted = false
+	c.quotaNoticePending = false
 	c.exhaustedAt = time.Time{}
 }
 
@@ -284,6 +291,20 @@ func (c *Client) isQuotaExhausted() bool {
 	defer c.mu.Unlock()
 	c.maybeResetQuotaLocked()
 	return c.quotaExhausted
+}
+
+func (c *Client) ConsumeQuotaExhaustedNotice() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.maybeResetQuotaLocked()
+	if !c.quotaNoticePending {
+		return false
+	}
+	c.quotaNoticePending = false
+	return true
 }
 
 func (c *Client) markUnavailable() {

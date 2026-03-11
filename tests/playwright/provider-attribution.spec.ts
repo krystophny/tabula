@@ -59,6 +59,20 @@ test('unknown provider falls back to Assistant', async ({ page }) => {
   await expect(label).toHaveText('Assistant');
 });
 
+test('system notice appends a system chat row', async ({ page }) => {
+  await waitReady(page);
+
+  await injectChatEvent(page, {
+    type: 'system_notice',
+    message: 'Cerebras daily quota exhausted. Falling back to Local + OpenAI until next UTC day.',
+  });
+
+  const row = page.locator('.chat-message.chat-system').last();
+  await expect(row.locator('.chat-bubble')).toHaveText(
+    'Cerebras daily quota exhausted. Falling back to Local + OpenAI until next UTC day.',
+  );
+});
+
 test('provisional assistant message is replaced by final output for the same turn', async ({ page }) => {
   await waitReady(page);
 

@@ -107,6 +107,46 @@ func TestClientQuotaExhaustionResetsOnNextUTCDay(t *testing.T) {
 	}
 }
 
+func TestClientQuotaExhaustionNoticeIsConsumedOncePerDay(t *testing.T) {
+	clock := time.Date(2026, 3, 11, 12, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "rate limited", http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "token-123", DefaultModel, DefaultReasoningEffort)
+	client.HTTPClient = server.Client()
+	client.now = func() time.Time { return clock }
+
+	_, err := client.Complete(context.Background(), CompletionRequest{
+		Messages: []Message{{Role: "user", Content: "hello"}},
+	})
+	if !errors.Is(err, ErrQuotaExhausted) {
+		t.Fatalf("Complete() error = %v, want ErrQuotaExhausted", err)
+	}
+	if !client.ConsumeQuotaExhaustedNotice() {
+		t.Fatal("ConsumeQuotaExhaustedNotice() = false, want true after first exhaustion")
+	}
+	if client.ConsumeQuotaExhaustedNotice() {
+		t.Fatal("ConsumeQuotaExhaustedNotice() = true, want false after notice consumed")
+	}
+
+	clock = clock.Add(13 * time.Hour)
+	if !client.IsAvailable() {
+		t.Fatal("IsAvailable() = false, want true after UTC reset")
+	}
+
+	_, err = client.Complete(context.Background(), CompletionRequest{
+		Messages: []Message{{Role: "user", Content: "hello again"}},
+	})
+	if !errors.Is(err, ErrQuotaExhausted) {
+		t.Fatalf("second Complete() error = %v, want ErrQuotaExhausted", err)
+	}
+	if !client.ConsumeQuotaExhaustedNotice() {
+		t.Fatal("ConsumeQuotaExhaustedNotice() = false, want true after next-day exhaustion")
+	}
+}
+
 func TestClientBacksOffAfterServerError(t *testing.T) {
 	clock := time.Date(2026, 3, 11, 9, 0, 0, 0, time.UTC)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

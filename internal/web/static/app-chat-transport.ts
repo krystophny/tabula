@@ -834,6 +834,12 @@ export function handleChatEvent(payload) {
     return;
   }
 
+  if (type === 'system_notice') {
+    const message = String(payload.message || '').trim();
+    if (message) appendPlainMessage('system', message);
+    return;
+  }
+
   if (type === 'error') {
     state.voiceAwaitingTurn = false;
     const turnID = String(payload.turn_id || '').trim();

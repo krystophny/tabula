@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/krystophny/tabura/internal/appserver"
+	"github.com/krystophny/tabura/internal/cerebras"
 	"github.com/krystophny/tabura/internal/store"
 )
 
@@ -430,6 +431,9 @@ func (a *App) runAssistantTurnParallel(
 			}
 		case result := <-cerebrasCh:
 			cerebrasResult = result
+			if errors.Is(result.err, cerebras.ErrQuotaExhausted) {
+				a.notifyCerebrasQuotaExhausted(sessionID)
+			}
 			if !localReady || localEvaluation.isCommand() || localEvaluation.isHighConfidenceLocalAnswer() {
 				continue
 			}

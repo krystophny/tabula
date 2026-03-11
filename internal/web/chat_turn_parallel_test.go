@@ -777,12 +777,21 @@ func TestRunAssistantTurnParallelQuotaExhaustedDisablesCerebrasForRestOfDay(t *t
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
+	conn, clientConn, cleanup := newParticipantTestWSConn(t)
+	defer cleanup()
+	app.hub.registerChat(session.ID, conn)
+	defer app.hub.unregisterChat(session.ID, conn)
 	if _, err := app.store.AddChatMessage(session.ID, "user", "first turn", "first turn", "text"); err != nil {
 		t.Fatalf("AddChatMessage(user): %v", err)
 	}
 	app.runAssistantTurn(session.ID, dequeuedTurn{outputMode: turnOutputModeSilent})
+	firstPayloads := collectWSJSONTypesUntil(t, clientConn, 2*time.Second, "assistant_output")
 	if app.cerebrasClient.IsAvailable() {
 		t.Fatal("cerebrasClient.IsAvailable() = true, want false after 429")
+	}
+	firstTypes := strings.Join(wsTypes(firstPayloads), ",")
+	if !strings.Contains(firstTypes, "system_notice") {
+		t.Fatalf("first websocket types = %s, want system_notice", firstTypes)
 	}
 	app.closeAppSession(session.ID)
 
@@ -790,6 +799,11 @@ func TestRunAssistantTurnParallelQuotaExhaustedDisablesCerebrasForRestOfDay(t *t
 		t.Fatalf("AddChatMessage(user): %v", err)
 	}
 	app.runAssistantTurn(session.ID, dequeuedTurn{outputMode: turnOutputModeSilent})
+	secondPayloads := collectWSJSONTypesUntil(t, clientConn, 2*time.Second, "assistant_output")
+	secondTypes := strings.Join(wsTypes(secondPayloads), ",")
+	if strings.Contains(secondTypes, "system_notice") {
+		t.Fatalf("second websocket types = %s, want no duplicate system_notice", secondTypes)
+	}
 
 	if got := latestAssistantMessage(t, app, session.ID); got != "Spark handles the turn." {
 		t.Fatalf("assistant message = %q, want Spark final reply", got)
@@ -801,9 +815,20 @@ func TestRunAssistantTurnParallelQuotaExhaustedDisablesCerebrasForRestOfDay(t *t
 	if err != nil {
 		t.Fatalf("ListChatMessages: %v", err)
 	}
+	noticeCount := 0
 	for _, message := range messages {
-		if strings.EqualFold(strings.TrimSpace(message.Role), "system") && strings.Contains(strings.ToLower(message.ContentPlain), "cerebras") {
+		if !strings.EqualFold(strings.TrimSpace(message.Role), "system") {
+			continue
+		}
+		if strings.TrimSpace(message.ContentPlain) == cerebrasQuotaNoticeMessage {
+			noticeCount++
+			continue
+		}
+		if strings.Contains(strings.ToLower(message.ContentPlain), "cerebras") {
 			t.Fatalf("unexpected user-visible Cerebras error: %q", message.ContentPlain)
 		}
+	}
+	if noticeCount != 1 {
+		t.Fatalf("quota notice count = %d, want 1", noticeCount)
 	}
 }

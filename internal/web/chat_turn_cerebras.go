@@ -14,6 +14,8 @@ Return a compact JSON object with:
 - confidence: one of high, medium, low
 Do not include markdown fences.`
 
+const cerebrasQuotaNoticeMessage = "Cerebras daily quota exhausted. Falling back to Local + OpenAI until next UTC day."
+
 type cerebrasTurnResult struct {
 	text       string
 	confidence string
@@ -67,4 +69,16 @@ func (a *App) runCerebrasTurn(ctx context.Context, prompt string) cerebrasTurnRe
 		confidence: strings.TrimSpace(resp.Confidence),
 		latency:    resp.Latency,
 	}
+}
+
+func (a *App) notifyCerebrasQuotaExhausted(sessionID string) {
+	if a == nil || a.cerebrasClient == nil || !a.cerebrasClient.ConsumeQuotaExhaustedNotice() {
+		return
+	}
+	_, _ = a.store.AddChatMessage(sessionID, "system", cerebrasQuotaNoticeMessage, cerebrasQuotaNoticeMessage, "text")
+	a.broadcastChatEvent(sessionID, map[string]interface{}{
+		"type":    "system_notice",
+		"message": cerebrasQuotaNoticeMessage,
+		"source":  assistantProviderCerebras,
+	})
 }
