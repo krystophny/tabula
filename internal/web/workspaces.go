@@ -3,6 +3,8 @@ package web
 import (
 	"net/http"
 	"strings"
+
+	"github.com/krystophny/tabura/internal/store"
 )
 
 type workspaceCreateRequest struct {
@@ -22,10 +24,34 @@ func (a *App) handleWorkspaceList(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
-	workspaces, err := a.store.ListWorkspacesForSphere(strings.TrimSpace(r.URL.Query().Get("sphere")))
+	sphere := strings.TrimSpace(r.URL.Query().Get("sphere"))
+	contextQuery := strings.TrimSpace(r.URL.Query().Get("context"))
+	if strings.EqualFold(contextQuery, "null") {
+		writeAPIError(w, http.StatusBadRequest, "context must not be null")
+		return
+	}
+	workspaces, err := a.store.ListWorkspacesForSphere(sphere)
 	if err != nil {
 		writeDomainStoreError(w, err)
 		return
+	}
+	if contextQuery != "" {
+		contextWorkspaces, err := a.store.ListWorkspacesByContextPrefix(contextQuery)
+		if err != nil {
+			writeDomainStoreError(w, err)
+			return
+		}
+		allowed := make(map[int64]struct{}, len(contextWorkspaces))
+		for _, workspace := range contextWorkspaces {
+			allowed[workspace.ID] = struct{}{}
+		}
+		filtered := make([]store.Workspace, 0, len(workspaces))
+		for _, workspace := range workspaces {
+			if _, ok := allowed[workspace.ID]; ok {
+				filtered = append(filtered, workspace)
+			}
+		}
+		workspaces = filtered
 	}
 	writeAPIData(w, http.StatusOK, map[string]any{
 		"workspaces": workspaces,

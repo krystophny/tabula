@@ -90,6 +90,18 @@ func (s *Store) LinkContextToItem(contextID, itemID int64) error {
 	return err
 }
 
+func (s *Store) LinkContextToArtifact(contextID, artifactID int64) error {
+	if contextID <= 0 || artifactID <= 0 {
+		return errors.New("context_id and artifact_id must be positive integers")
+	}
+	_, err := s.db.Exec(
+		`INSERT OR IGNORE INTO context_artifacts (context_id, artifact_id) VALUES (?, ?)`,
+		contextID,
+		artifactID,
+	)
+	return err
+}
+
 func (s *Store) ListContexts() ([]Context, error) {
 	rows, err := s.db.Query(
 		`SELECT id, name, color, parent_id, created_at

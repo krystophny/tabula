@@ -31,6 +31,7 @@ func normalizeItemListFilter(filter ItemListFilter) (ItemListFilter, error) {
 			normalized.ProjectID = &projectID
 		}
 	}
+	normalized.Context = normalizeOptionalContextQuery(filter.Context)
 	if filter.ContextID != nil {
 		if *filter.ContextID <= 0 {
 			return ItemListFilter{}, errors.New("context_id must be a positive integer")
@@ -38,6 +39,26 @@ func normalizeItemListFilter(filter ItemListFilter) (ItemListFilter, error) {
 		value := *filter.ContextID
 		normalized.ContextID = &value
 	}
+	if normalized.Context != "" && normalized.ContextID != nil {
+		return ItemListFilter{}, errors.New("context cannot be combined with context_id")
+	}
+	return normalized, nil
+}
+
+func (s *Store) prepareItemListFilter(filter ItemListFilter) (ItemListFilter, error) {
+	normalized, err := normalizeItemListFilter(filter)
+	if err != nil {
+		return ItemListFilter{}, err
+	}
+	if normalized.Context == "" {
+		return normalized, nil
+	}
+	contextIDs, err := s.resolveContextQueryIDs(normalized.Context)
+	if err != nil {
+		return ItemListFilter{}, err
+	}
+	normalized.resolvedContextIDs = contextIDs
+	normalized.contextResolved = true
 	return normalized, nil
 }
 
@@ -72,6 +93,18 @@ func appendItemFilterClauses(parts []string, args []any, filter ItemListFilter, 
 	if filter.ProjectID != nil {
 		parts = append(parts, `COALESCE(`+column("project_id")+`, `+workspaceProjectColumn()+`) = ?`)
 		args = append(args, *filter.ProjectID)
+	}
+	if filter.contextResolved {
+		if len(filter.resolvedContextIDs) == 0 {
+			parts = append(parts, "0=1")
+			return parts, args
+		}
+		contextItemMatch, contextItemArgs := contextLinkExistsClause("context_items", "item_id", outerColumn("id"), filter.resolvedContextIDs)
+		contextWorkspaceMatch, contextWorkspaceArgs := contextLinkExistsClause("context_workspaces", "workspace_id", outerColumn("workspace_id"), filter.resolvedContextIDs)
+		parts = append(parts, `(`+contextItemMatch+` OR `+contextWorkspaceMatch+`)`)
+		args = append(args, contextItemArgs...)
+		args = append(args, contextWorkspaceArgs...)
+		return parts, args
 	}
 	if filter.ContextID != nil {
 		contextItemMatch := `EXISTS (

@@ -119,6 +119,15 @@ func parseItemListFilterQuery(r *http.Request) (store.ItemListFilter, error) {
 		}
 		filter.ContextID = &contextID
 	}
+	if rawContext := strings.TrimSpace(r.URL.Query().Get("context")); rawContext != "" {
+		if strings.EqualFold(rawContext, "null") {
+			return store.ItemListFilter{}, errors.New("context must not be null")
+		}
+		if filter.ContextID != nil {
+			return store.ItemListFilter{}, errors.New("context cannot be combined with context_id")
+		}
+		filter.Context = rawContext
+	}
 	return filter, nil
 }
 
