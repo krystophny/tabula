@@ -297,6 +297,37 @@ func (s *Store) UpdateProjectKind(id, kind string) error {
 	return err
 }
 
+func (s *Store) UpdateProjectLocation(id, name, projectKey, rootPath, kind string) error {
+	projectID := strings.TrimSpace(id)
+	if projectID == "" {
+		return errors.New("project id is required")
+	}
+	cleanName := normalizeProjectName(name)
+	if cleanName == "" {
+		return errors.New("project name is required")
+	}
+	cleanProjectKey := strings.TrimSpace(projectKey)
+	if cleanProjectKey == "" {
+		return errors.New("project key is required")
+	}
+	cleanRootPath := normalizeProjectPath(rootPath)
+	if cleanRootPath == "" {
+		return errors.New("project path is required")
+	}
+	_, err := s.db.Exec(
+		`UPDATE projects
+		 SET name = ?, project_key = ?, root_path = ?, kind = ?, updated_at = ?
+		 WHERE id = ?`,
+		cleanName,
+		cleanProjectKey,
+		cleanRootPath,
+		normalizeProjectKind(kind),
+		time.Now().Unix(),
+		projectID,
+	)
+	return err
+}
+
 func (s *Store) DeleteProject(id string) error {
 	projectID := strings.TrimSpace(id)
 	if projectID == "" {

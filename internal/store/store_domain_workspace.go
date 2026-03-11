@@ -264,6 +264,36 @@ func (s *Store) UpdateWorkspaceName(id int64, name string) (Workspace, error) {
 	return s.GetWorkspace(id)
 }
 
+func (s *Store) UpdateWorkspaceLocation(id int64, name, dirPath string) (Workspace, error) {
+	cleanName := normalizeWorkspaceName(name)
+	if cleanName == "" {
+		return Workspace{}, errors.New("workspace name is required")
+	}
+	cleanPath := normalizeWorkspacePath(dirPath)
+	if cleanPath == "" {
+		return Workspace{}, errors.New("workspace path is required")
+	}
+	res, err := s.db.Exec(
+		`UPDATE workspaces
+		 SET name = ?, dir_path = ?, updated_at = datetime('now')
+		 WHERE id = ?`,
+		cleanName,
+		cleanPath,
+		id,
+	)
+	if err != nil {
+		return Workspace{}, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return Workspace{}, err
+	}
+	if affected == 0 {
+		return Workspace{}, sql.ErrNoRows
+	}
+	return s.GetWorkspace(id)
+}
+
 func (s *Store) SetWorkspaceSphere(id int64, sphere string) (Workspace, error) {
 	cleanSphere := normalizeRequiredSphere(sphere)
 	if cleanSphere == "" {

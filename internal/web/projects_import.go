@@ -15,6 +15,11 @@ import (
 	"github.com/krystophny/tabura/internal/store"
 )
 
+type temporaryProjectPersistRequest struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
 func (a *App) nextManagedProjectPath(name string) (string, error) {
 	baseDir := filepath.Join(a.dataDir, "projects")
 	if err := os.MkdirAll(baseDir, 0o755); err != nil {
@@ -191,7 +196,68 @@ func (a *App) createProject(req projectCreateRequest) (store.Project, bool, erro
 	return created, true, nil
 }
 
-func (a *App) persistTemporaryProject(projectID string) (store.Project, error) {
+func (a *App) persistTemporaryProjectTarget(project store.Project, req temporaryProjectPersistRequest) (string, string, error) {
+	targetName := strings.TrimSpace(req.Name)
+	targetPath := strings.TrimSpace(req.Path)
+	if targetPath == "" {
+		targetPath = project.RootPath
+	}
+	absTarget, err := filepath.Abs(targetPath)
+	if err != nil {
+		return "", "", err
+	}
+	absTarget = filepath.Clean(absTarget)
+	if targetName == "" {
+		targetName = defaultProjectNameFromPath(absTarget)
+	}
+	if targetName == "" {
+		targetName = project.Name
+	}
+	if absTarget != filepath.Clean(project.RootPath) {
+		if _, err := os.Stat(absTarget); err == nil {
+			return "", "", errors.New("target path already exists")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", "", err
+		}
+		if existing, err := a.store.GetProjectByRootPath(absTarget); err == nil && existing.ID != project.ID {
+			return "", "", errors.New("path is already used by another project")
+		} else if err != nil && !isNoRows(err) {
+			return "", "", err
+		}
+		if _, err := a.store.GetWorkspaceByPath(absTarget); err == nil {
+			return "", "", errors.New("path is already used by another workspace")
+		} else if err != nil && !isNoRows(err) {
+			return "", "", err
+		}
+	}
+	return targetName, absTarget, nil
+}
+
+func (a *App) updateWorkspaceArtifactPaths(workspaceID int64, oldRoot, newRoot string) error {
+	if filepath.Clean(oldRoot) == filepath.Clean(newRoot) {
+		return nil
+	}
+	artifacts, err := a.store.ListArtifactsForWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+	for _, artifact := range artifacts {
+		if artifact.RefPath == nil || !pathWithinRoot(*artifact.RefPath, oldRoot) {
+			continue
+		}
+		rel, err := filepath.Rel(oldRoot, *artifact.RefPath)
+		if err != nil {
+			return err
+		}
+		nextPath := filepath.Join(newRoot, rel)
+		if err := a.store.UpdateArtifact(artifact.ID, store.ArtifactUpdate{RefPath: &nextPath}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *App) persistTemporaryProject(projectID string, req temporaryProjectPersistRequest) (store.Project, error) {
 	project, err := a.store.GetProject(strings.TrimSpace(projectID))
 	if err != nil {
 		return store.Project{}, err
@@ -199,10 +265,39 @@ func (a *App) persistTemporaryProject(projectID string) (store.Project, error) {
 	if !isTemporaryProject(project) {
 		return store.Project{}, errors.New("project is not temporary")
 	}
-	if err := a.store.UpdateProjectKind(project.ID, "managed"); err != nil {
+	workspace, err := a.ensureWorkspaceForProject(project, false)
+	if err != nil {
 		return store.Project{}, err
 	}
-	return a.store.GetProject(project.ID)
+	targetName, targetPath, err := a.persistTemporaryProjectTarget(project, req)
+	if err != nil {
+		return store.Project{}, err
+	}
+	oldRoot := filepath.Clean(project.RootPath)
+	if targetPath != oldRoot {
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			return store.Project{}, err
+		}
+		if err := os.Rename(oldRoot, targetPath); err != nil {
+			return store.Project{}, err
+		}
+		if _, err := protocol.BootstrapProject(targetPath); err != nil {
+			return store.Project{}, err
+		}
+		if err := a.updateWorkspaceArtifactPaths(workspace.ID, oldRoot, targetPath); err != nil {
+			return store.Project{}, err
+		}
+		if err := a.store.UpdateParticipantProjectKey(project.ProjectKey, targetPath); err != nil {
+			return store.Project{}, err
+		}
+	}
+	if _, err := a.store.UpdateWorkspaceLocation(workspace.ID, targetName, targetPath); err != nil {
+		return store.Project{}, err
+	}
+	if err := a.store.UpdateProjectLocation(project.ID, targetName, targetPath, targetPath, "managed"); err != nil {
+		return store.Project{}, err
+	}
+	return a.activateProject(project.ID)
 }
 
 func (a *App) temporaryProjectDiscardRoot(project store.Project) string {
@@ -242,10 +337,33 @@ func (a *App) discardTemporaryProject(projectID string) (store.Project, error) {
 	if !isTemporaryProject(project) {
 		return store.Project{}, errors.New("project is not temporary")
 	}
+	workspaces, err := a.store.ListWorkspacesForProject(project.ID)
+	if err != nil {
+		return store.Project{}, err
+	}
+	if workspace, workspaceErr := a.store.GetWorkspaceByPath(project.RootPath); workspaceErr == nil {
+		found := false
+		for _, existing := range workspaces {
+			if existing.ID == workspace.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			workspaces = append(workspaces, workspace)
+		}
+	} else if workspaceErr != nil && !isNoRows(workspaceErr) {
+		return store.Project{}, workspaceErr
+	}
 	discardRoot := a.temporaryProjectDiscardRoot(project)
 	fallback, fallbackErr := a.fallbackProjectAfterDiscard(project.ID)
 	if err := a.store.DeleteProject(project.ID); err != nil {
 		return store.Project{}, err
+	}
+	for _, workspace := range workspaces {
+		if err := a.store.DeleteWorkspace(workspace.ID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return store.Project{}, err
+		}
 	}
 	if discardRoot != "" {
 		if removeErr := os.RemoveAll(discardRoot); removeErr != nil {
@@ -304,7 +422,14 @@ func (a *App) handleTemporaryProjectPersist(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "project_id is required", http.StatusBadRequest)
 		return
 	}
-	project, err := a.persistTemporaryProject(projectID)
+	var req temporaryProjectPersistRequest
+	if r.ContentLength > 0 {
+		if err := decodeJSON(r, &req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+	}
+	project, err := a.persistTemporaryProject(projectID, req)
 	if err != nil {
 		if isNoRows(err) {
 			http.Error(w, "project not found", http.StatusNotFound)

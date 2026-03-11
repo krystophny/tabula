@@ -298,6 +298,24 @@ func (a *App) chooseActiveProject(projects []store.Project, defaultProject store
 		return store.Project{}, errors.New("no projects available")
 	}
 	activeSphere := a.runtimeActiveSphere()
+	if workspace, err := a.store.ActiveWorkspace(); err == nil {
+		if cleanSphere := normalizeRuntimeActiveSphere(workspace.Sphere); cleanSphere != "" && cleanSphere != activeSphere {
+			if err := a.store.SetActiveSphere(cleanSphere); err != nil {
+				return store.Project{}, err
+			}
+			activeSphere = cleanSphere
+		}
+		for _, project := range projects {
+			if workspace.ProjectID != nil && project.ID == strings.TrimSpace(*workspace.ProjectID) {
+				if err := a.store.SetActiveProjectID(project.ID); err != nil {
+					return store.Project{}, err
+				}
+				return project, nil
+			}
+		}
+	} else if !isNoRows(err) {
+		return store.Project{}, err
+	}
 	activeID, err := a.store.ActiveProjectID()
 	if err != nil {
 		return store.Project{}, err
@@ -347,6 +365,10 @@ func (a *App) chooseActiveProject(projects []store.Project, defaultProject store
 
 func (a *App) handleProjectsList(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
+		return
+	}
+	if err := a.ensureStartupProjectWithWorkspace(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	projects, defaultProject, err := a.listProjectsWithDefault()

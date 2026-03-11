@@ -120,6 +120,25 @@ func (s *Store) EndParticipantSession(id string) error {
 	return err
 }
 
+func (s *Store) UpdateParticipantProjectKey(oldProjectKey, newProjectKey string) error {
+	oldKey := strings.TrimSpace(oldProjectKey)
+	newKey := strings.TrimSpace(newProjectKey)
+	if oldKey == "" {
+		return errors.New("old project key is required")
+	}
+	if newKey == "" {
+		return errors.New("new project key is required")
+	}
+	_, err := s.db.Exec(
+		`UPDATE participant_sessions
+		 SET project_key = ?
+		 WHERE project_key = ?`,
+		newKey,
+		oldKey,
+	)
+	return err
+}
+
 func (s *Store) AddParticipantSegment(seg ParticipantSegment) (ParticipantSegment, error) {
 	sessionID := strings.TrimSpace(seg.SessionID)
 	if sessionID == "" {

@@ -281,6 +281,11 @@ func (a *App) activateProject(projectID string) (store.Project, error) {
 	if err := a.store.SetActiveProjectID(project.ID); err != nil {
 		return store.Project{}, err
 	}
+	if !isHubProject(project) {
+		if _, err := a.ensureWorkspaceForProject(project, true); err != nil {
+			return store.Project{}, err
+		}
+	}
 	if err := a.markProjectSeen(project); err != nil {
 		return store.Project{}, err
 	}

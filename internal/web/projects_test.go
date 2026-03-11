@@ -108,6 +108,42 @@ func TestProjectsListIncludesActiveAndSessions(t *testing.T) {
 	}
 }
 
+func TestProjectsListCreatesEphemeralWorkspaceWhenNoneExist(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects", map[string]any{})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("projects list status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	var payload projectsListResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	activeProject, err := app.store.GetProject(payload.ActiveProjectID)
+	if err != nil {
+		t.Fatalf("GetProject(active) error: %v", err)
+	}
+	if activeProject.Kind != "task" {
+		t.Fatalf("active project kind = %q, want task", activeProject.Kind)
+	}
+	if !strings.Contains(filepath.ToSlash(activeProject.RootPath), "/projects/temporary/task/") {
+		t.Fatalf("active project root = %q, want temporary task path", activeProject.RootPath)
+	}
+	workspace, err := app.store.ActiveWorkspace()
+	if err != nil {
+		t.Fatalf("ActiveWorkspace() error: %v", err)
+	}
+	if workspace.ProjectID == nil || *workspace.ProjectID != activeProject.ID {
+		t.Fatalf("workspace project_id = %v, want %q", workspace.ProjectID, activeProject.ID)
+	}
+	if workspace.DirPath != activeProject.RootPath {
+		t.Fatalf("workspace dir_path = %q, want %q", workspace.DirPath, activeProject.RootPath)
+	}
+	if _, err := app.store.GetChatSessionByWorkspaceID(workspace.ID); err != nil {
+		t.Fatalf("GetChatSessionByWorkspaceID() error: %v", err)
+	}
+}
+
 func TestHubProjectReusesWorkspaceChatSession(t *testing.T) {
 	app := newAuthedTestApp(t)
 
@@ -174,6 +210,63 @@ func TestProjectsListIncludesWorkspaceSphere(t *testing.T) {
 	}
 	if project.Sphere != store.SphereWork {
 		t.Fatalf("project sphere = %q, want %q", project.Sphere, store.SphereWork)
+	}
+}
+
+func TestProjectsListPrefersLastUsedWorkspaceProject(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	alphaPath := filepath.Join(t.TempDir(), "alpha")
+	betaPath := filepath.Join(t.TempDir(), "beta")
+	if err := os.MkdirAll(alphaPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(alpha) error: %v", err)
+	}
+	if err := os.MkdirAll(betaPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(beta) error: %v", err)
+	}
+	alphaProject, _, err := app.createProject(projectCreateRequest{Name: "Alpha", Kind: "linked", Path: alphaPath})
+	if err != nil {
+		t.Fatalf("createProject(alpha) error: %v", err)
+	}
+	betaProject, _, err := app.createProject(projectCreateRequest{Name: "Beta", Kind: "linked", Path: betaPath})
+	if err != nil {
+		t.Fatalf("createProject(beta) error: %v", err)
+	}
+	alphaWorkspace, err := app.ensureWorkspaceForProject(alphaProject, false)
+	if err != nil {
+		t.Fatalf("ensureWorkspaceForProject(alpha) error: %v", err)
+	}
+	betaWorkspace, err := app.ensureWorkspaceForProject(betaProject, false)
+	if err != nil {
+		t.Fatalf("ensureWorkspaceForProject(beta) error: %v", err)
+	}
+	if _, err := app.store.SetWorkspaceSphere(betaWorkspace.ID, store.SphereWork); err != nil {
+		t.Fatalf("SetWorkspaceSphere(beta) error: %v", err)
+	}
+	hub, err := app.ensureHubProject()
+	if err != nil {
+		t.Fatalf("ensureHubProject() error: %v", err)
+	}
+	if err := app.store.SetActiveProjectID(hub.ID); err != nil {
+		t.Fatalf("SetActiveProjectID(hub) error: %v", err)
+	}
+	if err := app.setActiveWorkspaceTracked(alphaWorkspace.ID, "workspace_switch"); err != nil {
+		t.Fatalf("setActiveWorkspaceTracked(alpha) error: %v", err)
+	}
+	if err := app.setActiveWorkspaceTracked(betaWorkspace.ID, "workspace_switch"); err != nil {
+		t.Fatalf("setActiveWorkspaceTracked(beta) error: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects", map[string]any{})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("projects list status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	var payload projectsListResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.ActiveProjectID != betaProject.ID {
+		t.Fatalf("active_project_id = %q, want %q", payload.ActiveProjectID, betaProject.ID)
 	}
 }
 
@@ -982,13 +1075,33 @@ func TestTemporaryProjectCreationCopiesSourceSettingsAndPersist(t *testing.T) {
 	if got := strings.TrimSpace(created.CompanionConfigJSON); got != `{"companion_enabled":true,"idle_surface":"black"}` {
 		t.Fatalf("stored companion config = %q", got)
 	}
+	workspace, err := app.ensureWorkspaceForProject(created, false)
+	if err != nil {
+		t.Fatalf("ensureWorkspaceForProject(created) error: %v", err)
+	}
+	artifactPath := filepath.Join(created.RootPath, "meeting-notes.md")
+	if err := os.WriteFile(artifactPath, []byte("notes"), 0o644); err != nil {
+		t.Fatalf("WriteFile(artifactPath) error: %v", err)
+	}
+	artifact, err := app.store.CreateArtifact(store.ArtifactKindMarkdown, &artifactPath, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("CreateArtifact() error: %v", err)
+	}
+	participantSession, err := app.store.AddParticipantSession(created.ProjectKey, "{}")
+	if err != nil {
+		t.Fatalf("AddParticipantSession() error: %v", err)
+	}
+	targetPath := filepath.Join(t.TempDir(), "persisted-meeting")
 
 	rrPersist := doAuthedJSONRequest(
 		t,
 		app.Router(),
 		http.MethodPost,
 		"/api/projects/"+createPayload.Project.ID+"/persist",
-		map[string]any{},
+		map[string]any{
+			"name": "Focused Meeting",
+			"path": targetPath,
+		},
 	)
 	if rrPersist.Code != http.StatusOK {
 		t.Fatalf("expected persist 200, got %d: %s", rrPersist.Code, rrPersist.Body.String())
@@ -1008,6 +1121,43 @@ func TestTemporaryProjectCreationCopiesSourceSettingsAndPersist(t *testing.T) {
 	}
 	if persistPayload.Project.Kind != "managed" {
 		t.Fatalf("persisted kind = %q, want managed", persistPayload.Project.Kind)
+	}
+	persisted, err := app.store.GetProject(createPayload.Project.ID)
+	if err != nil {
+		t.Fatalf("GetProject(persisted) error: %v", err)
+	}
+	if persisted.Name != "Focused Meeting" {
+		t.Fatalf("persisted name = %q, want Focused Meeting", persisted.Name)
+	}
+	if persisted.RootPath != targetPath {
+		t.Fatalf("persisted root_path = %q, want %q", persisted.RootPath, targetPath)
+	}
+	updatedWorkspace, err := app.store.GetWorkspace(workspace.ID)
+	if err != nil {
+		t.Fatalf("GetWorkspace(updated) error: %v", err)
+	}
+	if updatedWorkspace.Name != "Focused Meeting" {
+		t.Fatalf("workspace name = %q, want Focused Meeting", updatedWorkspace.Name)
+	}
+	if updatedWorkspace.DirPath != targetPath {
+		t.Fatalf("workspace dir_path = %q, want %q", updatedWorkspace.DirPath, targetPath)
+	}
+	updatedArtifact, err := app.store.GetArtifact(artifact.ID)
+	if err != nil {
+		t.Fatalf("GetArtifact(updated) error: %v", err)
+	}
+	if updatedArtifact.RefPath == nil || *updatedArtifact.RefPath != filepath.Join(targetPath, "meeting-notes.md") {
+		t.Fatalf("artifact ref_path = %v, want moved path", updatedArtifact.RefPath)
+	}
+	if _, err := os.Stat(filepath.Join(targetPath, "meeting-notes.md")); err != nil {
+		t.Fatalf("Stat(moved artifact) error: %v", err)
+	}
+	updatedParticipantSession, err := app.store.GetParticipantSession(participantSession.ID)
+	if err != nil {
+		t.Fatalf("GetParticipantSession(updated) error: %v", err)
+	}
+	if updatedParticipantSession.ProjectKey != targetPath {
+		t.Fatalf("participant session project_key = %q, want %q", updatedParticipantSession.ProjectKey, targetPath)
 	}
 }
 
@@ -1044,8 +1194,16 @@ func TestTemporaryProjectDiscardRemovesProjectDataAndFallsBackToHub(t *testing.T
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession() error: %v", err)
 	}
+	workspace, err := app.store.GetWorkspace(chatSession.WorkspaceID)
+	if err != nil {
+		t.Fatalf("GetWorkspace(chat workspace) error: %v", err)
+	}
 	if _, err := app.store.AddChatMessage(chatSession.ID, "assistant", "saved output", "saved output", "markdown"); err != nil {
 		t.Fatalf("AddChatMessage() error: %v", err)
+	}
+	item, err := app.store.CreateItem("Temporary follow-up", store.ItemOptions{WorkspaceID: &workspace.ID})
+	if err != nil {
+		t.Fatalf("CreateItem() error: %v", err)
 	}
 	participantSession, err := app.store.AddParticipantSession(createPayload.Project.ProjectKey, "{}")
 	if err != nil {
@@ -1100,10 +1258,26 @@ func TestTemporaryProjectDiscardRemovesProjectDataAndFallsBackToHub(t *testing.T
 	if _, err := app.store.GetChatSession(chatSession.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("GetChatSession(discarded) error = %v, want sql.ErrNoRows", err)
 	}
+	if _, err := app.store.GetWorkspaceByPath(createPayload.Project.RootPath); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetWorkspaceByPath(discarded root) error = %v, want sql.ErrNoRows", err)
+	}
 	if _, err := app.store.GetParticipantSession(participantSession.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("GetParticipantSession(discarded) error = %v, want sql.ErrNoRows", err)
 	}
 	if _, err := os.Stat(createPayload.Project.RootPath); !os.IsNotExist(err) {
 		t.Fatalf("temporary project root still exists: %v", err)
+	}
+	survivingItem, err := app.store.GetItem(item.ID)
+	if err != nil {
+		t.Fatalf("GetItem(surviving) error: %v", err)
+	}
+	if survivingItem.WorkspaceID != nil {
+		t.Fatalf("surviving item workspace_id = %v, want nil", survivingItem.WorkspaceID)
+	}
+	if survivingItem.ProjectID != nil {
+		t.Fatalf("surviving item project_id = %v, want nil", survivingItem.ProjectID)
+	}
+	if survivingItem.Sphere != store.SpherePrivate {
+		t.Fatalf("surviving item sphere = %q, want %q", survivingItem.Sphere, store.SpherePrivate)
 	}
 }

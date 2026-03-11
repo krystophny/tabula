@@ -291,12 +291,12 @@ export function resolveInitialProjectID() {
   if (reloadProjectID && state.projects.some((project) => project.id === reloadProjectID)) {
     return reloadProjectID;
   }
+  if (state.serverActiveProjectId && state.projects.some((project) => project.id === state.serverActiveProjectId)) {
+    return state.serverActiveProjectId;
+  }
   if (state.startupBehavior === 'hub_first') {
     const hub = hubProject();
     if (hub?.id) return hub.id;
-  }
-  if (state.serverActiveProjectId && state.projects.some((project) => project.id === state.serverActiveProjectId)) {
-    return state.serverActiveProjectId;
   }
   const persisted = readPersistedProjectID();
   if (persisted && state.projects.some((project) => project.id === persisted)) {
