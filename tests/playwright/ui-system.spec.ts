@@ -1053,7 +1053,7 @@ test.describe('floating tool palette', () => {
     await waitForLogEntry(page, 'api_fetch', 'runtime_preferences');
 
     await expect(page.locator('#edge-top-models .edge-live-status')).toContainText('Dialogue');
-    const interaction = await page.evaluate(() => {
+    await expect.poll(async () => page.evaluate(() => {
       const state = (window as any)._taburaApp?.getState?.();
       return {
         tool: state?.interaction?.tool,
@@ -1061,8 +1061,7 @@ test.describe('floating tool palette', () => {
         liveSessionActive: state?.liveSessionActive,
         liveSessionMode: state?.liveSessionMode,
       };
-    });
-    expect(interaction).toEqual({
+    })).toEqual({
       tool: 'ink',
       conversation: 'continuous_dialogue',
       liveSessionActive: true,
