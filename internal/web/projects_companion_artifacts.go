@@ -59,7 +59,7 @@ func (a *App) resolveProjectCompanionArtifact(w http.ResponseWriter, r *http.Req
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return store.Project{}, nil, nil, false
 	}
-	sessions, err := a.store.ListParticipantSessions(project.ProjectKey)
+	sessions, err := a.store.ListParticipantSessionsForProject(project.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return store.Project{}, nil, nil, false

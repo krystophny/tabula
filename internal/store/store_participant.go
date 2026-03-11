@@ -9,11 +9,12 @@ import (
 )
 
 type ParticipantSession struct {
-	ID         string `json:"id"`
-	ProjectKey string `json:"project_key"`
-	StartedAt  int64  `json:"started_at"`
-	EndedAt    int64  `json:"ended_at"`
-	ConfigJSON string `json:"config_json"`
+	ID          string `json:"id"`
+	WorkspaceID int64  `json:"workspace_id"`
+	ProjectKey  string `json:"project_key"`
+	StartedAt   int64  `json:"started_at"`
+	EndedAt     int64  `json:"ended_at"`
+	ConfigJSON  string `json:"config_json"`
 }
 
 type ParticipantSegment struct {
@@ -49,10 +50,78 @@ type ParticipantRoomState struct {
 
 var ErrParticipantSessionEnded = errors.New("participant session is ended")
 
-func (s *Store) AddParticipantSession(projectKey, configJSON string) (ParticipantSession, error) {
-	key := strings.TrimSpace(projectKey)
-	if key == "" {
-		return ParticipantSession{}, errors.New("project key is required")
+const participantSessionSelect = `
+SELECT ps.id,
+       ps.workspace_id,
+       COALESCE(NULLIF(trim(p.project_key), ''), w.dir_path, '') AS project_key,
+       ps.started_at,
+       ps.ended_at,
+       ps.config_json
+  FROM participant_sessions ps
+  JOIN workspaces w ON w.id = ps.workspace_id
+  LEFT JOIN projects p ON p.id = w.project_id
+`
+
+func scanParticipantSession(scanner interface{ Scan(...any) error }) (ParticipantSession, error) {
+	var out ParticipantSession
+	if err := scanner.Scan(
+		&out.ID,
+		&out.WorkspaceID,
+		&out.ProjectKey,
+		&out.StartedAt,
+		&out.EndedAt,
+		&out.ConfigJSON,
+	); err != nil {
+		return ParticipantSession{}, err
+	}
+	out.ProjectKey = strings.TrimSpace(out.ProjectKey)
+	out.ConfigJSON = strings.TrimSpace(out.ConfigJSON)
+	return out, nil
+}
+
+func (s *Store) resolveParticipantSessionWorkspace(ref string) (Workspace, error) {
+	cleanRef := strings.TrimSpace(ref)
+	if cleanRef == "" {
+		return Workspace{}, sql.ErrNoRows
+	}
+	if project, err := s.GetProjectByProjectKey(cleanRef); err == nil {
+		if workspaceID, findErr := s.FindWorkspaceContainingPath(project.RootPath); findErr != nil {
+			return Workspace{}, findErr
+		} else if workspaceID != nil {
+			return s.GetWorkspace(*workspaceID)
+		}
+		return s.ensureWorkspaceForLegacyProject(project)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return Workspace{}, err
+	}
+	if workspace, err := s.GetWorkspaceByPath(cleanRef); err == nil {
+		return workspace, nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return Workspace{}, err
+	}
+	if workspaceID, err := s.FindWorkspaceContainingPath(cleanRef); err != nil {
+		return Workspace{}, err
+	} else if workspaceID != nil {
+		return s.GetWorkspace(*workspaceID)
+	}
+	return Workspace{}, sql.ErrNoRows
+}
+
+func (s *Store) AddParticipantSession(ref, configJSON string) (ParticipantSession, error) {
+	cleanRef := strings.TrimSpace(ref)
+	if cleanRef == "" {
+		return ParticipantSession{}, errors.New("workspace reference is required")
+	}
+	workspace, err := s.resolveParticipantSessionWorkspace(cleanRef)
+	if err != nil {
+		return ParticipantSession{}, err
+	}
+	return s.AddParticipantSessionForWorkspace(workspace.ID, configJSON)
+}
+
+func (s *Store) AddParticipantSessionForWorkspace(workspaceID int64, configJSON string) (ParticipantSession, error) {
+	if workspaceID <= 0 {
+		return ParticipantSession{}, errors.New("workspace id is required")
 	}
 	if strings.TrimSpace(configJSON) == "" {
 		configJSON = "{}"
@@ -60,8 +129,8 @@ func (s *Store) AddParticipantSession(projectKey, configJSON string) (Participan
 	now := time.Now().Unix()
 	id := fmt.Sprintf("psess-%s", randomHex(8))
 	_, err := s.db.Exec(
-		`INSERT INTO participant_sessions (id, project_key, started_at, ended_at, config_json) VALUES (?,?,?,0,?)`,
-		id, key, now, configJSON,
+		`INSERT INTO participant_sessions (id, workspace_id, started_at, ended_at, config_json) VALUES (?,?,?,0,?)`,
+		id, workspaceID, now, configJSON,
 	)
 	if err != nil {
 		return ParticipantSession{}, err
@@ -70,39 +139,65 @@ func (s *Store) AddParticipantSession(projectKey, configJSON string) (Participan
 }
 
 func (s *Store) GetParticipantSession(id string) (ParticipantSession, error) {
-	var out ParticipantSession
-	err := s.db.QueryRow(
-		`SELECT id, project_key, started_at, ended_at, config_json FROM participant_sessions WHERE id = ?`,
+	return scanParticipantSession(s.db.QueryRow(
+		participantSessionSelect+` WHERE ps.id = ?`,
 		strings.TrimSpace(id),
-	).Scan(&out.ID, &out.ProjectKey, &out.StartedAt, &out.EndedAt, &out.ConfigJSON)
-	if err != nil {
-		return ParticipantSession{}, err
-	}
-	return out, nil
+	))
 }
 
-func (s *Store) ListParticipantSessions(projectKey string) ([]ParticipantSession, error) {
-	key := strings.TrimSpace(projectKey)
-	var rows *sql.Rows
-	var err error
-	if key != "" {
-		rows, err = s.db.Query(
-			`SELECT id, project_key, started_at, ended_at, config_json FROM participant_sessions WHERE project_key = ? ORDER BY started_at DESC`,
-			key,
-		)
-	} else {
-		rows, err = s.db.Query(
-			`SELECT id, project_key, started_at, ended_at, config_json FROM participant_sessions ORDER BY started_at DESC`,
+func (s *Store) ListParticipantSessions(ref string) ([]ParticipantSession, error) {
+	cleanRef := strings.TrimSpace(ref)
+	if cleanRef == "" {
+		return s.listParticipantSessionsQuery(
+			participantSessionSelect + ` ORDER BY ps.started_at DESC, ps.id DESC`,
 		)
 	}
+	if project, err := s.GetProjectByProjectKey(cleanRef); err == nil {
+		return s.ListParticipantSessionsForProject(project.ID)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	workspace, err := s.resolveParticipantSessionWorkspace(cleanRef)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return []ParticipantSession{}, nil
+		}
+		return nil, err
+	}
+	return s.ListParticipantSessionsForWorkspace(workspace.ID)
+}
+
+func (s *Store) ListParticipantSessionsForWorkspace(workspaceID int64) ([]ParticipantSession, error) {
+	if workspaceID <= 0 {
+		return nil, errors.New("workspace id is required")
+	}
+	return s.listParticipantSessionsQuery(
+		participantSessionSelect+` WHERE ps.workspace_id = ? ORDER BY ps.started_at DESC, ps.id DESC`,
+		workspaceID,
+	)
+}
+
+func (s *Store) ListParticipantSessionsForProject(projectID string) ([]ParticipantSession, error) {
+	cleanProjectID := strings.TrimSpace(projectID)
+	if cleanProjectID == "" {
+		return nil, errors.New("project id is required")
+	}
+	return s.listParticipantSessionsQuery(
+		participantSessionSelect+` WHERE w.project_id = ? ORDER BY ps.started_at DESC, ps.id DESC`,
+		cleanProjectID,
+	)
+}
+
+func (s *Store) listParticipantSessionsQuery(query string, args ...any) ([]ParticipantSession, error) {
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []ParticipantSession{}
 	for rows.Next() {
-		var item ParticipantSession
-		if err := rows.Scan(&item.ID, &item.ProjectKey, &item.StartedAt, &item.EndedAt, &item.ConfigJSON); err != nil {
+		item, err := scanParticipantSession(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, item)
@@ -120,23 +215,105 @@ func (s *Store) EndParticipantSession(id string) error {
 	return err
 }
 
-func (s *Store) UpdateParticipantProjectKey(oldProjectKey, newProjectKey string) error {
-	oldKey := strings.TrimSpace(oldProjectKey)
-	newKey := strings.TrimSpace(newProjectKey)
-	if oldKey == "" {
-		return errors.New("old project key is required")
+func (s *Store) migrateParticipantSessionWorkspaceKey() error {
+	tableColumns, err := s.tableColumnSet("participant_sessions")
+	if err != nil {
+		return err
 	}
-	if newKey == "" {
-		return errors.New("new project key is required")
+	columns := tableColumns["participant_sessions"]
+	if columns["workspace_id"] && !columns["project_key"] {
+		return nil
 	}
-	_, err := s.db.Exec(
-		`UPDATE participant_sessions
-		 SET project_key = ?
-		 WHERE project_key = ?`,
-		newKey,
-		oldKey,
-	)
-	return err
+
+	type legacySession struct {
+		ID          string
+		WorkspaceID int64
+		Ref         string
+		StartedAt   int64
+		EndedAt     int64
+		ConfigJSON  string
+	}
+
+	legacy := make([]legacySession, 0, 16)
+	if columns["workspace_id"] {
+		rows, err := s.db.Query(`SELECT id, workspace_id, started_at, ended_at, config_json FROM participant_sessions ORDER BY started_at ASC, id ASC`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var item legacySession
+			if err := rows.Scan(&item.ID, &item.WorkspaceID, &item.StartedAt, &item.EndedAt, &item.ConfigJSON); err != nil {
+				return err
+			}
+			legacy = append(legacy, item)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+	} else {
+		rows, err := s.db.Query(`SELECT id, project_key, started_at, ended_at, config_json FROM participant_sessions ORDER BY started_at ASC, id ASC`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var item legacySession
+			if err := rows.Scan(&item.ID, &item.Ref, &item.StartedAt, &item.EndedAt, &item.ConfigJSON); err != nil {
+				return err
+			}
+			legacy = append(legacy, item)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+	}
+	for i := range legacy {
+		if legacy[i].WorkspaceID > 0 {
+			continue
+		}
+		workspace, err := s.resolveParticipantSessionWorkspace(legacy[i].Ref)
+		if err != nil {
+			return fmt.Errorf("resolve participant session workspace for %q: %w", legacy[i].ID, err)
+		}
+		legacy[i].WorkspaceID = workspace.ID
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+CREATE TABLE participant_sessions_new (
+  id TEXT PRIMARY KEY,
+  workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER NOT NULL DEFAULT 0,
+  config_json TEXT NOT NULL DEFAULT '{}'
+)`); err != nil {
+		return err
+	}
+	for _, item := range legacy {
+		if _, err := tx.Exec(
+			`INSERT INTO participant_sessions_new (id, workspace_id, started_at, ended_at, config_json) VALUES (?,?,?,?,?)`,
+			item.ID,
+			item.WorkspaceID,
+			item.StartedAt,
+			item.EndedAt,
+			strings.TrimSpace(item.ConfigJSON),
+		); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`DROP TABLE participant_sessions`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`ALTER TABLE participant_sessions_new RENAME TO participant_sessions`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) AddParticipantSegment(seg ParticipantSegment) (ParticipantSegment, error) {

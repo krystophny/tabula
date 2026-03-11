@@ -47,7 +47,19 @@ func handleParticipantStart(a *App, conn *chatWSConn, chatSessionID string) {
 		return
 	}
 	cfgJSON, _ := json.Marshal(cfg)
-	sess, err := a.store.AddParticipantSession(projectKey, string(cfgJSON))
+	var (
+		sess store.ParticipantSession
+		err  error
+	)
+	if strings.TrimSpace(chatSessionID) != "" {
+		if chatSession, sessionErr := a.store.GetChatSession(chatSessionID); sessionErr == nil && chatSession.WorkspaceID > 0 {
+			sess, err = a.store.AddParticipantSessionForWorkspace(chatSession.WorkspaceID, string(cfgJSON))
+		} else {
+			sess, err = a.store.AddParticipantSession(projectKey, string(cfgJSON))
+		}
+	} else {
+		sess, err = a.store.AddParticipantSession(projectKey, string(cfgJSON))
+	}
 	if err != nil {
 		_ = conn.writeJSON(participantMessage{Type: "participant_error", Error: fmt.Sprintf("failed to create session: %v", err)})
 		return
@@ -310,7 +322,7 @@ func (a *App) maybeTriggerCompanionResponse(participantSessionID string, seg sto
 	if text == "" {
 		return
 	}
-	chatSession, err := a.store.GetOrCreateChatSession(session.ProjectKey)
+	chatSession, err := a.store.GetOrCreateChatSessionForWorkspace(session.WorkspaceID)
 	if err != nil {
 		log.Printf("participant trigger chat session error: %v", err)
 		return

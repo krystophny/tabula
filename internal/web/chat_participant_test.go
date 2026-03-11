@@ -31,6 +31,15 @@ func enableCompanionForTestProject(t *testing.T, app *App, projectKey string) {
 	}
 }
 
+func createParticipantSessionProject(t *testing.T, app *App, key string) store.Project {
+	t.Helper()
+	project, err := app.store.CreateProject("Participant "+key, key, filepath.Join(t.TempDir(), key), "managed", "", "", false)
+	if err != nil {
+		t.Fatalf("CreateProject(%q): %v", key, err)
+	}
+	return project
+}
+
 func newParticipantTestWSConn(t *testing.T) (*chatWSConn, *websocket.Conn, func()) {
 	t.Helper()
 	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
@@ -266,12 +275,13 @@ func TestParticipantSessionsListEmpty(t *testing.T) {
 
 func TestParticipantSessionsListWithData(t *testing.T) {
 	app := newAuthedTestApp(t)
+	project := createParticipantSessionProject(t, app, "test-key")
 
-	_, err := app.store.AddParticipantSession("test-key", "{}")
+	_, err := app.store.AddParticipantSession(project.ProjectKey, "{}")
 	if err != nil {
 		t.Fatalf("add session: %v", err)
 	}
-	_, err = app.store.AddParticipantSession("test-key", "{}")
+	_, err = app.store.AddParticipantSession(project.ProjectKey, "{}")
 	if err != nil {
 		t.Fatalf("add session 2: %v", err)
 	}
@@ -292,9 +302,11 @@ func TestParticipantSessionsListWithData(t *testing.T) {
 
 func TestParticipantSessionsListFilterByProjectKey(t *testing.T) {
 	app := newAuthedTestApp(t)
+	projectA := createParticipantSessionProject(t, app, "key-a")
+	projectB := createParticipantSessionProject(t, app, "key-b")
 
-	_, _ = app.store.AddParticipantSession("key-a", "{}")
-	_, _ = app.store.AddParticipantSession("key-b", "{}")
+	_, _ = app.store.AddParticipantSession(projectA.ProjectKey, "{}")
+	_, _ = app.store.AddParticipantSession(projectB.ProjectKey, "{}")
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/participant/sessions?project_key=key-a", nil)
 	if rr.Code != http.StatusOK {
@@ -323,8 +335,9 @@ func TestParticipantTranscriptRequiresAuth(t *testing.T) {
 
 func TestParticipantTranscript(t *testing.T) {
 	app := newAuthedTestApp(t)
+	project := createParticipantSessionProject(t, app, "proj-t")
 
-	sess, err := app.store.AddParticipantSession("proj-t", "{}")
+	sess, err := app.store.AddParticipantSession(project.ProjectKey, "{}")
 	if err != nil {
 		t.Fatalf("add session: %v", err)
 	}
@@ -359,8 +372,9 @@ func TestParticipantTranscript(t *testing.T) {
 
 func TestParticipantTranscriptTimeFilter(t *testing.T) {
 	app := newAuthedTestApp(t)
+	project := createParticipantSessionProject(t, app, "proj-tf")
 
-	sess, _ := app.store.AddParticipantSession("proj-tf", "{}")
+	sess, _ := app.store.AddParticipantSession(project.ProjectKey, "{}")
 	_, _ = app.store.AddParticipantSegment(store.ParticipantSegment{SessionID: sess.ID, StartTS: 100, Text: "early"})
 	_, _ = app.store.AddParticipantSegment(store.ParticipantSegment{SessionID: sess.ID, StartTS: 200, Text: "late"})
 
@@ -378,8 +392,9 @@ func TestParticipantTranscriptTimeFilter(t *testing.T) {
 
 func TestParticipantSearch(t *testing.T) {
 	app := newAuthedTestApp(t)
+	project := createParticipantSessionProject(t, app, "proj-s")
 
-	sess, _ := app.store.AddParticipantSession("proj-s", "{}")
+	sess, _ := app.store.AddParticipantSession(project.ProjectKey, "{}")
 	_, _ = app.store.AddParticipantSegment(store.ParticipantSegment{SessionID: sess.ID, StartTS: 100, Text: "hello world"})
 	_, _ = app.store.AddParticipantSegment(store.ParticipantSegment{SessionID: sess.ID, StartTS: 200, Text: "goodbye world"})
 
@@ -397,8 +412,9 @@ func TestParticipantSearch(t *testing.T) {
 
 func TestParticipantExportTxt(t *testing.T) {
 	app := newAuthedTestApp(t)
+	project := createParticipantSessionProject(t, app, "proj-e")
 
-	sess, _ := app.store.AddParticipantSession("proj-e", "{}")
+	sess, _ := app.store.AddParticipantSession(project.ProjectKey, "{}")
 	_, _ = app.store.AddParticipantSegment(store.ParticipantSegment{SessionID: sess.ID, StartTS: 100, Speaker: "Alice", Text: "hello"})
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/participant/sessions/"+sess.ID+"/export?format=txt", nil)
@@ -413,8 +429,9 @@ func TestParticipantExportTxt(t *testing.T) {
 
 func TestParticipantExportJSON(t *testing.T) {
 	app := newAuthedTestApp(t)
+	project := createParticipantSessionProject(t, app, "proj-ej")
 
-	sess, _ := app.store.AddParticipantSession("proj-ej", "{}")
+	sess, _ := app.store.AddParticipantSession(project.ProjectKey, "{}")
 	_, _ = app.store.AddParticipantSegment(store.ParticipantSegment{SessionID: sess.ID, StartTS: 100, Text: "hello json"})
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/participant/sessions/"+sess.ID+"/export?format=json", nil)
@@ -436,8 +453,9 @@ func TestParticipantExportJSON(t *testing.T) {
 
 func TestParticipantExportMarkdown(t *testing.T) {
 	app := newAuthedTestApp(t)
+	project := createParticipantSessionProject(t, app, "proj-em")
 
-	sess, _ := app.store.AddParticipantSession("proj-em", "{}")
+	sess, _ := app.store.AddParticipantSession(project.ProjectKey, "{}")
 	_, _ = app.store.AddParticipantSegment(store.ParticipantSegment{SessionID: sess.ID, StartTS: 100, Speaker: "Bob", Text: "hello md"})
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/participant/sessions/"+sess.ID+"/export?format=md", nil)
@@ -517,7 +535,6 @@ func TestPrivacyParticipantBufferCleanupOnStop(t *testing.T) {
 	conn.participantMu.Unlock()
 
 	app := newAuthedTestApp(t)
-	_, _ = app.store.AddParticipantSession("test-key", "{}")
 
 	handleParticipantStop(app, conn)
 
@@ -814,6 +831,9 @@ func TestParticipantStartUsesChatSessionProjectKey(t *testing.T) {
 	}
 	if participantSession.ProjectKey != project.ProjectKey {
 		t.Fatalf("participant session project_key = %q, want %q", participantSession.ProjectKey, project.ProjectKey)
+	}
+	if participantSession.WorkspaceID == 0 {
+		t.Fatal("participant session workspace_id should be set")
 	}
 }
 

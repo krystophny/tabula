@@ -284,9 +284,6 @@ func (a *App) persistTemporaryProject(projectID string, req temporaryProjectPers
 		if err := a.updateWorkspaceArtifactPaths(workspace.ID, oldRoot, targetPath); err != nil {
 			return store.Project{}, err
 		}
-		if err := a.store.UpdateParticipantProjectKey(project.ProjectKey, targetPath); err != nil {
-			return store.Project{}, err
-		}
 	}
 	if _, err := a.store.UpdateWorkspaceLocation(workspace.ID, targetName, targetPath); err != nil {
 		return store.Project{}, err

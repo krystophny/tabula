@@ -10,18 +10,31 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func createParticipantTestProject(t *testing.T, s *Store, key string) Project {
+	t.Helper()
+	project, err := s.CreateProject("Participant "+key, key, filepath.Join(t.TempDir(), key), "managed", "", "", false)
+	if err != nil {
+		t.Fatalf("CreateProject(%q) error: %v", key, err)
+	}
+	return project
+}
+
 func TestParticipantSessionLifecycle(t *testing.T) {
 	s := newTestStore(t)
+	project := createParticipantTestProject(t, s, "proj-1")
 
-	sess, err := s.AddParticipantSession("proj-1", `{"language":"en"}`)
+	sess, err := s.AddParticipantSession(project.ProjectKey, `{"language":"en"}`)
 	if err != nil {
 		t.Fatalf("add session: %v", err)
 	}
 	if sess.ID == "" {
 		t.Fatal("session id is empty")
 	}
-	if sess.ProjectKey != "proj-1" {
-		t.Fatalf("project key = %q, want proj-1", sess.ProjectKey)
+	if sess.ProjectKey != project.ProjectKey {
+		t.Fatalf("project key = %q, want %q", sess.ProjectKey, project.ProjectKey)
+	}
+	if sess.WorkspaceID == 0 {
+		t.Fatal("workspace id is zero")
 	}
 	if sess.StartedAt == 0 {
 		t.Fatal("started_at is zero")
@@ -38,12 +51,12 @@ func TestParticipantSessionLifecycle(t *testing.T) {
 		t.Fatalf("get returned id = %q, want %q", got.ID, sess.ID)
 	}
 
-	sess2, err := s.AddParticipantSession("proj-1", "{}")
+	sess2, err := s.AddParticipantSession(project.ProjectKey, "{}")
 	if err != nil {
 		t.Fatalf("add second session: %v", err)
 	}
 
-	list, err := s.ListParticipantSessions("proj-1")
+	list, err := s.ListParticipantSessions(project.ProjectKey)
 	if err != nil {
 		t.Fatalf("list sessions: %v", err)
 	}
@@ -73,8 +86,9 @@ func TestParticipantSessionLifecycle(t *testing.T) {
 
 func TestParticipantSegmentCRUD(t *testing.T) {
 	s := newTestStore(t)
+	project := createParticipantTestProject(t, s, "proj-seg")
 
-	sess, err := s.AddParticipantSession("proj-seg", "{}")
+	sess, err := s.AddParticipantSession(project.ProjectKey, "{}")
 	if err != nil {
 		t.Fatalf("add session: %v", err)
 	}
@@ -142,8 +156,9 @@ func TestParticipantSegmentCRUD(t *testing.T) {
 
 func TestParticipantSegmentRejectsEndedSession(t *testing.T) {
 	s := newTestStore(t)
+	project := createParticipantTestProject(t, s, "proj-ended")
 
-	sess, err := s.AddParticipantSession("proj-ended", "{}")
+	sess, err := s.AddParticipantSession(project.ProjectKey, "{}")
 	if err != nil {
 		t.Fatalf("add session: %v", err)
 	}
@@ -164,8 +179,9 @@ func TestParticipantSegmentRejectsEndedSession(t *testing.T) {
 
 func TestParticipantEventCRUD(t *testing.T) {
 	s := newTestStore(t)
+	project := createParticipantTestProject(t, s, "proj-ev")
 
-	sess, err := s.AddParticipantSession("proj-ev", "{}")
+	sess, err := s.AddParticipantSession(project.ProjectKey, "{}")
 	if err != nil {
 		t.Fatalf("add session: %v", err)
 	}
@@ -191,8 +207,9 @@ func TestParticipantEventCRUD(t *testing.T) {
 
 func TestParticipantRoomStateUpsert(t *testing.T) {
 	s := newTestStore(t)
+	project := createParticipantTestProject(t, s, "proj-room")
 
-	sess, err := s.AddParticipantSession("proj-room", "{}")
+	sess, err := s.AddParticipantSession(project.ProjectKey, "{}")
 	if err != nil {
 		t.Fatalf("add session: %v", err)
 	}
@@ -303,10 +320,90 @@ CREATE TABLE participant_room_state (
 		t.Fatalf("TableColumns() error: %v", err)
 	}
 
-	assertColumnsPresent(t, columns, "participant_sessions", "id", "project_key", "started_at", "ended_at", "config_json")
+	assertColumnsPresent(t, columns, "participant_sessions", "id", "workspace_id", "started_at", "ended_at", "config_json")
 	assertColumnsPresent(t, columns, "participant_segments", "id", "session_id", "start_ts", "end_ts", "speaker", "text", "model", "latency_ms", "committed_at", "status")
 	assertColumnsPresent(t, columns, "participant_events", "id", "session_id", "segment_id", "event_type", "payload_json", "created_at")
 	assertColumnsPresent(t, columns, "participant_room_state", "id", "session_id", "summary_text", "entities_json", "topic_timeline_json", "updated_at")
+}
+
+func TestParticipantSchemaMigrationMovesProjectKeySessionsToWorkspaceID(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legacy-migrate.db")
+	legacyDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open legacy db: %v", err)
+	}
+
+	legacySchema := `
+CREATE TABLE projects (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  project_key TEXT NOT NULL UNIQUE,
+  root_path TEXT NOT NULL UNIQUE,
+  kind TEXT NOT NULL DEFAULT 'managed',
+  mcp_url TEXT NOT NULL DEFAULT '',
+  canvas_session_id TEXT NOT NULL DEFAULT '',
+  chat_model TEXT NOT NULL DEFAULT '',
+  chat_model_reasoning_effort TEXT NOT NULL DEFAULT '',
+  companion_config_json TEXT NOT NULL DEFAULT '{}',
+  is_default INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  last_opened_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE participant_sessions (
+  id TEXT PRIMARY KEY,
+  project_key TEXT NOT NULL,
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER NOT NULL DEFAULT 0,
+  config_json TEXT NOT NULL DEFAULT '{}'
+);
+`
+	if _, err := legacyDB.Exec(legacySchema); err != nil {
+		t.Fatalf("seed legacy schema: %v", err)
+	}
+	rootPath := filepath.Join(t.TempDir(), "legacy-project")
+	if _, err := legacyDB.Exec(
+		`INSERT INTO projects (id, name, project_key, root_path, kind, created_at, updated_at, last_opened_at) VALUES (?,?,?,?,?,?,?,?)`,
+		"proj-legacy", "Legacy", rootPath, rootPath, "managed", 1, 1, 1,
+	); err != nil {
+		t.Fatalf("insert project: %v", err)
+	}
+	if _, err := legacyDB.Exec(
+		`INSERT INTO participant_sessions (id, project_key, started_at, ended_at, config_json) VALUES (?,?,?,?,?)`,
+		"psess-legacy", rootPath, 100, 0, `{"language":"en"}`,
+	); err != nil {
+		t.Fatalf("insert participant session: %v", err)
+	}
+	if err := legacyDB.Close(); err != nil {
+		t.Fatalf("close legacy db: %v", err)
+	}
+
+	s, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("store.New() migration error: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Close()
+	})
+
+	session, err := s.GetParticipantSession("psess-legacy")
+	if err != nil {
+		t.Fatalf("GetParticipantSession() error: %v", err)
+	}
+	if session.WorkspaceID == 0 {
+		t.Fatal("workspace id is zero after migration")
+	}
+	if session.ProjectKey != rootPath {
+		t.Fatalf("project key = %q, want %q", session.ProjectKey, rootPath)
+	}
+
+	columns, err := s.TableColumns()
+	if err != nil {
+		t.Fatalf("TableColumns() error: %v", err)
+	}
+	if containsString(columns["participant_sessions"], "project_key") {
+		t.Fatalf("participant_sessions columns still include project_key: %v", columns["participant_sessions"])
+	}
 }
 
 func TestParticipantSchemaOmitsAudioPersistenceColumns(t *testing.T) {

@@ -231,7 +231,7 @@ CREATE TABLE IF NOT EXISTS app_state (
 );
 CREATE TABLE IF NOT EXISTS participant_sessions (
   id TEXT PRIMARY KEY,
-  project_key TEXT NOT NULL,
+  workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   started_at INTEGER NOT NULL,
   ended_at INTEGER NOT NULL DEFAULT 0,
   config_json TEXT NOT NULL DEFAULT '{}'
@@ -282,6 +282,9 @@ CREATE TABLE IF NOT EXISTS participant_room_state (
 		return err
 	}
 	if err := s.migrateLegacyProjectData(); err != nil {
+		return err
+	}
+	if err := s.migrateParticipantSessionWorkspaceKey(); err != nil {
 		return err
 	}
 	return s.migrateChatSessionWorkspaceKey()

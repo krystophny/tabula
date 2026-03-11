@@ -289,7 +289,7 @@ func (a *App) handleProjectCompanionState(w http.ResponseWriter, r *http.Request
 		return
 	}
 	cfg := a.loadCompanionConfig(project)
-	sessions, err := a.store.ListParticipantSessions(project.ProjectKey)
+	sessions, err := a.store.ListParticipantSessionsForProject(project.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -361,7 +361,11 @@ func (a *App) disableCompanionCapture(projectKey string) {
 		_ = conn.writeJSON(participantMessage{Type: "participant_error", Error: "meeting mode is disabled"})
 	})
 
-	sessions, err := a.store.ListParticipantSessions(cleanProjectKey)
+	project, err := a.store.GetProjectByProjectKey(cleanProjectKey)
+	if err != nil {
+		return
+	}
+	sessions, err := a.store.ListParticipantSessionsForProject(project.ID)
 	if err != nil {
 		return
 	}
