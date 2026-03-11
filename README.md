@@ -4,7 +4,7 @@ Core paradigm:
 - Full-viewport zen canvas: blank screen (tabula rasa) or artifact fills the view.
 - Tap to talk, right-click to type, keyboard auto-activates. No visible chrome.
 - Responses stream as ephemeral overlays; document edits update in place with diff highlighting.
-- Edge panels (hover/swipe to reveal) for project switching and chat panel access.
+- Edge panels (hover/swipe to reveal) for workspace/file browsing and chat panel access.
 - Live sessions are split into `Dialogue` and `Meeting`, with one shared audio runtime and built-in `Alexa` hotword behavior.
 
 License: MIT (`LICENSE`)
@@ -21,7 +21,7 @@ Legal notice: Tabura is provided "as is" and "as available" without warranties, 
 - **Model download policy**: [`docs/model-download-policy.md`](docs/model-download-policy.md)
 - **Meeting notes privacy**: [`docs/meeting-notes-privacy.md`](docs/meeting-notes-privacy.md)
 - **Third-party licenses**: [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)
-- **Current release notes (v0.1.9)**: [`docs/release-v0.1.9.md`](docs/release-v0.1.9.md)
+- **Current release notes (v0.2.0)**: [`docs/release-v0.2.0.md`](docs/release-v0.2.0.md)
 
 ## Install
 
@@ -149,13 +149,13 @@ Zen canvas behavior:
 - Built-in VAD auto-stop detects utterance end and commits speech.
 - Live sessions are local-first and Whisper-backed by default.
 - The main canvas stays empty; live controls live in the hidden top edge panel.
-- Meetings and long-running jobs default to temporary projects with persisted text artifacts only.
+- Meetings and long-running jobs default to temporary workspaces with persisted text artifacts only.
 - Assistant output follows one path only:
   - chat-only (spoken), or
   - file-backed canvas (`:::file`) with canvas content rendered only on canvas.
 - Multi-paragraph assistant output is auto-promoted to a temp canvas file and not shown/spoken in chat.
 - Responses stream as ephemeral overlays. Click outside to dismiss.
-- Edge panels: hover near top edge for projects, right edge for chat log.
+- Edge panels: left edge reveals the workspace/file sidebar, right edge reveals chat log.
 - Slash commands: `/plan`, `/plan on`, `/plan off`, `/pr [selector]`, `/status`, `/stop`, `/clear`, `/compact`.
 - Artifacts render Markdown + LaTeX.
 
@@ -201,7 +201,7 @@ curl -sS -X POST "$CONSUMER" -H 'content-type: application/json' \
 ```bash
 ./scripts/sync-surface.sh --check
 go test ./...
-npm run test:reports
+./scripts/playwright.sh
 ```
 
 Test report artifacts are written under `.tabura/artifacts/test-reports/`.

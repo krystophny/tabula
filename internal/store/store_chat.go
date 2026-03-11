@@ -205,6 +205,7 @@ func (s *Store) migrateChatSessionWorkspaceKey() error {
 	type legacySession struct {
 		ID          string
 		WorkspaceID int64
+		ProjectKey  string
 		AppThreadID string
 		Mode        string
 		CreatedAt   int64
@@ -221,18 +222,10 @@ func (s *Store) migrateChatSessionWorkspaceKey() error {
 		defer rows.Close()
 		for rows.Next() {
 			var item legacySession
-			var projectKey string
-			if err := rows.Scan(&item.ID, &item.WorkspaceID, &projectKey, &item.AppThreadID, &item.Mode, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			if err := rows.Scan(&item.ID, &item.WorkspaceID, &item.ProjectKey, &item.AppThreadID, &item.Mode, &item.CreatedAt, &item.UpdatedAt); err != nil {
 				return err
 			}
-			projectKey = strings.TrimSpace(projectKey)
-			if item.WorkspaceID <= 0 {
-				workspace, err := s.resolveChatSessionWorkspace(projectKey)
-				if err != nil {
-					return fmt.Errorf("resolve chat session workspace for %q: %w", item.ID, err)
-				}
-				item.WorkspaceID = workspace.ID
-			}
+			item.ProjectKey = strings.TrimSpace(item.ProjectKey)
 			legacy = append(legacy, item)
 		}
 		if err := rows.Err(); err != nil {
@@ -246,21 +239,26 @@ func (s *Store) migrateChatSessionWorkspaceKey() error {
 		defer rows.Close()
 		for rows.Next() {
 			var item legacySession
-			var projectKey string
-			if err := rows.Scan(&item.ID, &projectKey, &item.AppThreadID, &item.Mode, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			if err := rows.Scan(&item.ID, &item.ProjectKey, &item.AppThreadID, &item.Mode, &item.CreatedAt, &item.UpdatedAt); err != nil {
 				return err
 			}
-			projectKey = strings.TrimSpace(projectKey)
-			workspace, err := s.resolveChatSessionWorkspace(projectKey)
-			if err != nil {
-				return fmt.Errorf("resolve chat session workspace for %q: %w", item.ID, err)
-			}
-			item.WorkspaceID = workspace.ID
+			item.ProjectKey = strings.TrimSpace(item.ProjectKey)
 			legacy = append(legacy, item)
 		}
 		if err := rows.Err(); err != nil {
 			return err
 		}
+	}
+
+	for i := range legacy {
+		if legacy[i].WorkspaceID > 0 {
+			continue
+		}
+		workspace, err := s.resolveChatSessionWorkspace(legacy[i].ProjectKey)
+		if err != nil {
+			return fmt.Errorf("resolve chat session workspace for %q: %w", legacy[i].ID, err)
+		}
+		legacy[i].WorkspaceID = workspace.ID
 	}
 
 	seenWorkspace := map[int64]struct{}{}

@@ -565,6 +565,86 @@ func TestStoreChatSessionsKeyToWorkspace(t *testing.T) {
 	}
 }
 
+func TestStoreMigratesLegacyChatSessionsProjectKeySchema(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "tabura.db")
+	s, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("store.New(initial) error: %v", err)
+	}
+
+	root := filepath.Join(t.TempDir(), "workspace-alpha")
+	project, err := s.CreateProject("Alpha", "alpha-key", root, "managed", "", "", false)
+	if err != nil {
+		t.Fatalf("CreateProject() error: %v", err)
+	}
+	session, err := s.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("GetOrCreateChatSession() error: %v", err)
+	}
+
+	if _, err := s.db.Exec(`
+CREATE TABLE chat_sessions_legacy (
+  id TEXT PRIMARY KEY,
+  project_key TEXT NOT NULL,
+  app_thread_id TEXT NOT NULL DEFAULT '',
+  mode TEXT NOT NULL DEFAULT 'chat',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+)`); err != nil {
+		t.Fatalf("create legacy chat_sessions table: %v", err)
+	}
+	if _, err := s.db.Exec(`
+INSERT INTO chat_sessions_legacy (id, project_key, app_thread_id, mode, created_at, updated_at)
+SELECT cs.id,
+       COALESCE(NULLIF(trim(p.project_key), ''), w.dir_path, ''),
+       cs.app_thread_id,
+       cs.mode,
+       cs.created_at,
+       cs.updated_at
+  FROM chat_sessions cs
+  JOIN workspaces w ON w.id = cs.workspace_id
+  LEFT JOIN projects p ON p.id = w.project_id`); err != nil {
+		t.Fatalf("copy legacy chat_sessions rows: %v", err)
+	}
+	if _, err := s.db.Exec(`DROP TABLE chat_sessions`); err != nil {
+		t.Fatalf("drop modern chat_sessions table: %v", err)
+	}
+	if _, err := s.db.Exec(`ALTER TABLE chat_sessions_legacy RENAME TO chat_sessions`); err != nil {
+		t.Fatalf("rename legacy chat_sessions table: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close(initial) error: %v", err)
+	}
+
+	reopened, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("store.New(reopen legacy chat_sessions) error: %v", err)
+	}
+	defer reopened.Close()
+
+	columns, err := reopened.tableColumnNames("chat_sessions")
+	if err != nil {
+		t.Fatalf("tableColumnNames(chat_sessions) error: %v", err)
+	}
+	if containsString(columns, "project_key") {
+		t.Fatalf("chat_sessions columns still include project_key: %v", columns)
+	}
+	if !containsString(columns, "workspace_id") {
+		t.Fatalf("chat_sessions columns missing workspace_id: %v", columns)
+	}
+
+	migrated, err := reopened.GetChatSession(session.ID)
+	if err != nil {
+		t.Fatalf("GetChatSession() after legacy migration error: %v", err)
+	}
+	if migrated.WorkspaceID <= 0 {
+		t.Fatalf("workspace_id = %d, want positive id", migrated.WorkspaceID)
+	}
+	if migrated.ProjectKey != project.ProjectKey {
+		t.Fatalf("project_key = %q, want %q", migrated.ProjectKey, project.ProjectKey)
+	}
+}
+
 func TestGetOrCreateChatSessionBlankRefRequiresActiveWorkspace(t *testing.T) {
 	s := newTestStore(t)
 	root := filepath.Join(t.TempDir(), "workspace-default")
