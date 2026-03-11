@@ -87,6 +87,31 @@ func TestCommandFlightTrackerIdempotentActionBypassesCooldown(t *testing.T) {
 	}
 }
 
+func TestCommandFlightTrackerSyncActionBypassesCooldown(t *testing.T) {
+	base := time.Date(2026, 3, 11, 12, 0, 0, 0, time.UTC)
+	now := base
+	tracker := newCommandFlightTracker(2 * time.Second)
+	tracker.now = func() time.Time { return now }
+	env := newCommandEnvelope(&SystemAction{
+		Action: "sync_todoist",
+	})
+
+	if !env.Idempotent {
+		t.Fatal("sync_todoist should be idempotent")
+	}
+	if status, _, ok := tracker.TryAcquire(env); !ok || status != "" {
+		t.Fatalf("first acquire = (%q, %v), want success", status, ok)
+	}
+	if status, _, ok := tracker.TryAcquire(env); ok || status != "already_executed" {
+		t.Fatalf("second acquire while inflight = (%q, %v), want already_executed", status, ok)
+	}
+
+	tracker.Release(env, true)
+	if status, remaining, ok := tracker.TryAcquire(env); !ok || status != "" || remaining != 0 {
+		t.Fatalf("sync re-acquire = (%q, %v, %v), want success", status, remaining, ok)
+	}
+}
+
 func TestExecuteSystemActionSuppressesShellCooldownDuplicate(t *testing.T) {
 	app, err := New(t.TempDir(), t.TempDir(), "", "", "", "", "", false)
 	if err != nil {
