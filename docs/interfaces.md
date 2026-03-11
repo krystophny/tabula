@@ -85,6 +85,7 @@ Runtime and chat session management:
 
 Domain model API:
 - `GET /api/workspaces`
+- `GET /api/workspaces/busy`
 - `GET /api/workspace/focus`
 - `GET /api/watches`
 - `POST /api/workspaces`

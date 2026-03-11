@@ -476,6 +476,7 @@ var WebRouteSections = []RouteSection{
 		Title: "Domain model API",
 		Routes: []string{
 			"GET /api/workspaces",
+			"GET /api/workspaces/busy",
 			"GET /api/workspace/focus",
 			"GET /api/watches",
 			"POST /api/workspaces",
