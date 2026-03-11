@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/krystophny/tabura/internal/store"
 )
 
 func TestWorkspaceFocusAPI(t *testing.T) {
@@ -127,6 +129,110 @@ func TestFocusedWorkspaceShellCommandUsesFocusCWD(t *testing.T) {
 	}
 	if !containsLine(message, focusPath) {
 		t.Fatalf("shell output = %q, want line %q", message, focusPath)
+	}
+}
+
+func TestFocusedWorkspaceLeavesChatSessionAnchored(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	anchor, err := app.ensureTodayDailyWorkspace()
+	if err != nil {
+		t.Fatalf("ensureTodayDailyWorkspace: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSessionForWorkspace(anchor.ID)
+	if err != nil {
+		t.Fatalf("GetOrCreateChatSessionForWorkspace: %v", err)
+	}
+	focusPath := filepath.Join(t.TempDir(), "focused")
+	if err := os.MkdirAll(focusPath, 0o755); err != nil {
+		t.Fatalf("MkdirAll(focusPath): %v", err)
+	}
+	focus, err := app.store.CreateWorkspace("Focused", focusPath)
+	if err != nil {
+		t.Fatalf("CreateWorkspace(focus): %v", err)
+	}
+	if err := app.setFocusedWorkspace(focus.ID); err != nil {
+		t.Fatalf("setFocusedWorkspace: %v", err)
+	}
+
+	if _, _, err := app.executeSystemAction(session.ID, session, &SystemAction{
+		Action: "shell",
+		Params: map[string]interface{}{"command": "pwd"},
+	}); err != nil {
+		t.Fatalf("executeSystemAction(shell): %v", err)
+	}
+
+	reloadedSession, err := app.store.GetChatSession(session.ID)
+	if err != nil {
+		t.Fatalf("GetChatSession(): %v", err)
+	}
+	if reloadedSession.WorkspaceID != anchor.ID {
+		t.Fatalf("chat session workspace = %d, want anchor %d", reloadedSession.WorkspaceID, anchor.ID)
+	}
+	active, err := app.store.ActiveWorkspace()
+	if err != nil {
+		t.Fatalf("ActiveWorkspace(): %v", err)
+	}
+	if active.ID != anchor.ID {
+		t.Fatalf("active workspace = %d, want anchor %d", active.ID, anchor.ID)
+	}
+}
+
+func TestExplicitWorkspaceActionOverridesFocusWithoutChangingIt(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	anchor, err := app.ensureTodayDailyWorkspace()
+	if err != nil {
+		t.Fatalf("ensureTodayDailyWorkspace: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSessionForWorkspace(anchor.ID)
+	if err != nil {
+		t.Fatalf("GetOrCreateChatSessionForWorkspace: %v", err)
+	}
+	alpha, err := app.store.CreateWorkspace("Alpha", filepath.Join(t.TempDir(), "alpha"))
+	if err != nil {
+		t.Fatalf("CreateWorkspace(alpha): %v", err)
+	}
+	beta, err := app.store.CreateWorkspace("Beta", filepath.Join(t.TempDir(), "beta"))
+	if err != nil {
+		t.Fatalf("CreateWorkspace(beta): %v", err)
+	}
+	if _, err := app.store.CreateItem("Beta follow-up", store.ItemOptions{WorkspaceID: &beta.ID}); err != nil {
+		t.Fatalf("CreateItem(beta): %v", err)
+	}
+	if err := app.setFocusedWorkspace(alpha.ID); err != nil {
+		t.Fatalf("setFocusedWorkspace(alpha): %v", err)
+	}
+
+	message, payload, err := app.executeSystemAction(session.ID, session, &SystemAction{
+		Action: "list_workspace_items",
+		Params: map[string]interface{}{"workspace": "Beta"},
+	})
+	if err != nil {
+		t.Fatalf("executeSystemAction(list_workspace_items): %v", err)
+	}
+	if got := int64(payload["workspace_id"].(int64)); got != beta.ID {
+		t.Fatalf("payload workspace_id = %d, want %d", got, beta.ID)
+	}
+	if !strings.Contains(message, "Open items for workspace Beta") {
+		t.Fatalf("message = %q, want Beta listing", message)
+	}
+	focusedID, err := app.store.FocusedWorkspaceID()
+	if err != nil {
+		t.Fatalf("FocusedWorkspaceID(): %v", err)
+	}
+	if focusedID != alpha.ID {
+		t.Fatalf("FocusedWorkspaceID() = %d, want %d", focusedID, alpha.ID)
+	}
+}
+
+func TestIntentPromptSystemCommandsIncludeFocusActions(t *testing.T) {
+	prompt := buildIntentLLMSystemPrompt()
+	if !strings.Contains(prompt, "focus_workspace") {
+		t.Fatalf("prompt missing focus_workspace: %q", prompt)
+	}
+	if !strings.Contains(prompt, "clear_focus") {
+		t.Fatalf("prompt missing clear_focus: %q", prompt)
 	}
 }
 
