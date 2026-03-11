@@ -19,12 +19,13 @@ func TestExtractMeetingItemsSupportsMixedSummaryFormats(t *testing.T) {
 		"- ACTION: Alice will draft the revised agenda.",
 		"1. TODO: review the budget appendix.",
 		"Bob: send the follow-up email.",
+		"Alice, can you prepare the budget by Friday?",
 		"Discussion: the budget is tight.",
 	}, "\n")
 
 	proposed := app.extractMeetingItems(summary)
-	if len(proposed) != 3 {
-		t.Fatalf("extractMeetingItems() len = %d, want 3", len(proposed))
+	if len(proposed) != 4 {
+		t.Fatalf("extractMeetingItems() len = %d, want 4", len(proposed))
 	}
 
 	if proposed[0].Title != "Draft the revised agenda" || proposed[0].ActorName != "Alice" {
@@ -36,9 +37,25 @@ func TestExtractMeetingItemsSupportsMixedSummaryFormats(t *testing.T) {
 	if proposed[2].Title != "Send the follow-up email" || proposed[2].ActorName != "Bob" {
 		t.Fatalf("third proposal = %#v", proposed[2])
 	}
+	if proposed[3].Title != "Prepare the budget by Friday" || proposed[3].ActorName != "Alice" {
+		t.Fatalf("fourth proposal = %#v", proposed[3])
+	}
 
 	if got := app.extractMeetingItems("The meeting covered current status only."); len(got) != 0 {
 		t.Fatalf("extractMeetingItems(no actions) len = %d, want 0", len(got))
+	}
+}
+
+func TestExtractMeetingDecisionsRecognizesDecisionLanguage(t *testing.T) {
+	decisions := extractMeetingDecisions("OK, let us go with option B for the timeline. We decided to revisit staffing next week.")
+	if len(decisions) != 2 {
+		t.Fatalf("extractMeetingDecisions() len = %d, want 2", len(decisions))
+	}
+	if decisions[0] != "Go with option B for the timeline" {
+		t.Fatalf("first decision = %q", decisions[0])
+	}
+	if decisions[1] != "Decided to revisit staffing next week" {
+		t.Fatalf("second decision = %q", decisions[1])
 	}
 }
 

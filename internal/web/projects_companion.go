@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -336,49 +337,68 @@ func (a *App) handleProjectCompanionState(w http.ResponseWriter, r *http.Request
 	})
 }
 
+func (a *App) stopParticipantCaptureSessions(match func(store.ParticipantSession) bool, reason, errMsg string) {
+	if a == nil || a.store == nil || match == nil {
+		return
+	}
+	affectedProjectKeys := map[string]struct{}{}
+	if a.hub != nil {
+		a.hub.forEachChatConn(func(conn *chatWSConn) {
+			conn.participantMu.Lock()
+			sessionID := strings.TrimSpace(conn.participantSessionID)
+			active := conn.participantActive
+			conn.participantMu.Unlock()
+			if !active || sessionID == "" {
+				return
+			}
+			session, err := a.store.GetParticipantSession(sessionID)
+			if err != nil || !match(session) {
+				return
+			}
+			affectedProjectKeys[session.ProjectKey] = struct{}{}
+			stoppedSessionID, ok := releaseParticipantSession(a, conn)
+			if !ok {
+				return
+			}
+			_ = conn.writeJSON(participantMessage{Type: "participant_stopped", SessionID: stoppedSessionID})
+			_ = conn.writeJSON(participantMessage{Type: "participant_error", Error: errMsg})
+		})
+	}
+
+	sessions, err := a.store.ListParticipantSessions("")
+	if err != nil {
+		return
+	}
+	for _, session := range sessions {
+		if session.EndedAt != 0 || !match(session) {
+			continue
+		}
+		affectedProjectKeys[session.ProjectKey] = struct{}{}
+		_ = a.store.EndParticipantSession(session.ID)
+		_ = a.store.AddParticipantEvent(session.ID, 0, "session_stopped", fmt.Sprintf(`{"reason":%q}`, strings.TrimSpace(reason)))
+		a.syncProjectCompanionArtifactsBySessionID(session.ID)
+	}
+	for projectKey := range affectedProjectKeys {
+		a.broadcastCompanionRuntimeState(projectKey, companionRuntimeSnapshot{
+			State:      companionRuntimeStateIdle,
+			Reason:     strings.TrimSpace(reason),
+			ProjectKey: projectKey,
+		})
+	}
+}
+
 func (a *App) disableCompanionCapture(projectKey string) {
 	cleanProjectKey := strings.TrimSpace(projectKey)
 	if cleanProjectKey == "" {
 		return
 	}
-	a.hub.forEachChatConn(func(conn *chatWSConn) {
-		conn.participantMu.Lock()
-		sessionID := strings.TrimSpace(conn.participantSessionID)
-		active := conn.participantActive
-		conn.participantMu.Unlock()
-		if !active || sessionID == "" {
-			return
-		}
-		session, err := a.store.GetParticipantSession(sessionID)
-		if err != nil || session.ProjectKey != cleanProjectKey {
-			return
-		}
-		stoppedSessionID, ok := releaseParticipantSession(a, conn)
-		if !ok {
-			return
-		}
-		_ = conn.writeJSON(participantMessage{Type: "participant_stopped", SessionID: stoppedSessionID})
-		_ = conn.writeJSON(participantMessage{Type: "participant_error", Error: "meeting mode is disabled"})
-	})
+	a.stopParticipantCaptureSessions(func(session store.ParticipantSession) bool {
+		return session.ProjectKey == cleanProjectKey
+	}, "companion_disabled", "meeting mode is disabled")
+}
 
-	project, err := a.store.GetProjectByProjectKey(cleanProjectKey)
-	if err != nil {
-		return
-	}
-	sessions, err := a.store.ListParticipantSessionsForProject(project.ID)
-	if err != nil {
-		return
-	}
-	for _, session := range sessions {
-		if session.EndedAt != 0 {
-			continue
-		}
-		_ = a.store.EndParticipantSession(session.ID)
-		_ = a.store.AddParticipantEvent(session.ID, 0, "session_stopped", `{"reason":"companion_disabled"}`)
-	}
-	a.broadcastCompanionRuntimeState(cleanProjectKey, companionRuntimeSnapshot{
-		State:      companionRuntimeStateIdle,
-		Reason:     "companion_disabled",
-		ProjectKey: cleanProjectKey,
-	})
+func (a *App) disableLiveMeetingCapture() {
+	a.stopParticipantCaptureSessions(func(session store.ParticipantSession) bool {
+		return true
+	}, "live_policy_disabled", "meeting mode is disabled")
 }

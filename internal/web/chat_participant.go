@@ -212,6 +212,7 @@ func transcribeParticipantChunk(a *App, conn *chatWSConn, sessionID string, buf 
 	}
 
 	_ = a.store.AddParticipantEvent(sessionID, seg.ID, "segment_committed", fmt.Sprintf(`{"text":%q}`, text))
+	a.captureMeetingNotesForSegment(sessionID, seg)
 	a.syncProjectCompanionArtifactsBySessionID(sessionID)
 	if projectKey != "" {
 		a.broadcastCompanionTranscriptEvent(projectKey, map[string]interface{}{

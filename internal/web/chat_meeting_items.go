@@ -15,9 +15,10 @@ import (
 const meetingSummaryItemSource = "meeting_summary"
 
 var (
-	meetingItemExplicitPrefixPattern = regexp.MustCompile(`(?i)^(?:action(?:\s+item)?|todo|follow[- ]?up|next\s+step|owner)\s*[:\-]\s*(.+)$`)
-	meetingItemActorActionPattern    = regexp.MustCompile(`^([A-Z][\pL0-9'’.-]*(?:\s+[A-Z][\pL0-9'’.-]*){0,2})\s+(?:will|should|can|must|needs?\s+to|is\s+going\s+to|to)\s+(.+)$`)
-	meetingItemActorLabelPattern     = regexp.MustCompile(`^([A-Z][\pL0-9'’.-]*(?:\s+[A-Z][\pL0-9'’.-]*){0,2})\s*[:\-]\s*(.+)$`)
+	meetingItemExplicitPrefixPattern  = regexp.MustCompile(`(?i)^(?:action(?:\s+item)?|todo|follow[- ]?up|next\s+step|owner)\s*[:\-]\s*(.+)$`)
+	meetingItemActorActionPattern     = regexp.MustCompile(`^([A-Z][\pL0-9'’.-]*(?:\s+[A-Z][\pL0-9'’.-]*){0,2})\s+(?:will|should|can|must|needs?\s+to|is\s+going\s+to|to)\s+(.+)$`)
+	meetingItemActorLabelPattern      = regexp.MustCompile(`^([A-Z][\pL0-9'’.-]*(?:\s+[A-Z][\pL0-9'’.-]*){0,2})\s*[:\-]\s*(.+)$`)
+	meetingItemAssigneeRequestPattern = regexp.MustCompile(`^([A-Z][\pL0-9'’.-]*(?:\s+[A-Z][\pL0-9'’.-]*){0,2})\s*,\s*(?:can|could|will|would)\s+you\s+(.+)$`)
 )
 
 type proposedMeetingItem struct {
@@ -149,7 +150,10 @@ func parseMeetingItemCandidate(raw string) (proposedMeetingItem, bool) {
 	}
 
 	actorName := ""
-	if match := meetingItemActorActionPattern.FindStringSubmatch(text); len(match) == 3 {
+	if match := meetingItemAssigneeRequestPattern.FindStringSubmatch(text); len(match) == 3 {
+		actorName = strings.TrimSpace(match[1])
+		text = strings.TrimSpace(match[2])
+	} else if match := meetingItemActorActionPattern.FindStringSubmatch(text); len(match) == 3 {
 		actorName = strings.TrimSpace(match[1])
 		text = strings.TrimSpace(match[2])
 	} else if match := meetingItemActorLabelPattern.FindStringSubmatch(text); len(match) == 3 && looksLikeMeetingAction(match[2]) {

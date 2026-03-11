@@ -173,12 +173,16 @@ func (a *App) handleLivePolicyPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
+	current := a.LivePolicy()
 	changed, err := a.setLivePolicy(policy)
 	if err != nil {
 		http.Error(w, "failed to save live policy", http.StatusInternalServerError)
 		return
 	}
 	if changed {
+		if current == LivePolicyMeeting && policy != LivePolicyMeeting {
+			a.disableLiveMeetingCapture()
+		}
 		a.broadcastLivePolicyChanged(policy)
 	}
 	writeJSON(w, map[string]interface{}{

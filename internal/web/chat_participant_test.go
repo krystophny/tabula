@@ -686,6 +686,75 @@ func TestParticipantBinaryChunkTranscribesWAVSegmentImmediately(t *testing.T) {
 	}
 }
 
+func TestParticipantBinaryChunkCapturesMeetingNotesAndInboxItems(t *testing.T) {
+	app := newAuthedTestApp(t)
+	t.Setenv("PATH", t.TempDir())
+
+	sttSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"text":"OK, let us go with option B for the timeline. Alice, can you prepare the budget by Friday?"}`))
+	}))
+	defer sttSrv.Close()
+	app.sttURL = sttSrv.URL
+
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+	}
+	enableCompanionForTestProject(t, app, project.ProjectKey)
+	chatSession, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("GetOrCreateChatSession: %v", err)
+	}
+
+	conn, clientConn, cleanup := newParticipantTestWSConn(t)
+	defer cleanup()
+
+	handleParticipantStart(app, conn, chatSession.ID)
+	started := readParticipantMessage(t, clientConn, 2*time.Second)
+	if started.Type != "participant_started" {
+		t.Fatalf("start message type = %q, want participant_started", started.Type)
+	}
+
+	handleParticipantBinaryChunk(app, conn, buildParticipantSpeechWAV(240, 16000))
+
+	segmentMsg := readParticipantMessage(t, clientConn, 2*time.Second)
+	if segmentMsg.Type != "participant_segment_text" {
+		t.Fatalf("message type = %q, want participant_segment_text", segmentMsg.Type)
+	}
+
+	participantSession, err := app.store.GetParticipantSession(started.SessionID)
+	if err != nil {
+		t.Fatalf("GetParticipantSession: %v", err)
+	}
+	items, err := app.store.ListItemsFiltered(store.ItemListFilter{
+		Source:      meetingCaptureItemSource,
+		WorkspaceID: &participantSession.WorkspaceID,
+	})
+	if err != nil {
+		t.Fatalf("ListItemsFiltered: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("meeting capture items = %d, want 1", len(items))
+	}
+	if items[0].Title != "Alice: Prepare the budget by Friday" {
+		t.Fatalf("captured item title = %q", items[0].Title)
+	}
+
+	summaryPath := filepath.Join(project.RootPath, ".tabura", "artifacts", "companion", started.SessionID, "summary.md")
+	summaryBody, err := os.ReadFile(summaryPath)
+	if err != nil {
+		t.Fatalf("read summary artifact: %v", err)
+	}
+	summaryText := string(summaryBody)
+	if !strings.Contains(summaryText, "## Decisions") || !strings.Contains(summaryText, "Go with option B for the timeline") {
+		t.Fatalf("summary artifact missing decision capture: %q", summaryText)
+	}
+	if !strings.Contains(summaryText, "## Action Items") || !strings.Contains(summaryText, "Alice: Prepare the budget by Friday") {
+		t.Fatalf("summary artifact missing action-item capture: %q", summaryText)
+	}
+}
+
 func TestParticipantBinaryChunkTranscribeFailureSendsParticipantError(t *testing.T) {
 	app := newAuthedTestApp(t)
 	t.Setenv("PATH", t.TempDir())
@@ -1050,6 +1119,58 @@ func TestParticipantConfigPutDisableStopsActiveSession(t *testing.T) {
 	}
 	if persisted.EndedAt == 0 {
 		t.Fatal("participant session should be ended after disabling companion")
+	}
+}
+
+func TestLivePolicyPostStopsActiveParticipantSession(t *testing.T) {
+	app := newAuthedTestApp(t)
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+	}
+	enableCompanionForTestProject(t, app, project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("GetOrCreateChatSession: %v", err)
+	}
+	conn, cleanup := newTestWSConn(t)
+	defer cleanup()
+	app.hub.registerChat(session.ID, conn)
+	defer app.hub.unregisterChat(session.ID, conn)
+
+	handleParticipantStart(app, conn, session.ID)
+
+	conn.participantMu.Lock()
+	participantSessionID := conn.participantSessionID
+	conn.participantMu.Unlock()
+	if participantSessionID == "" {
+		t.Fatal("expected participant session id")
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/live-policy", map[string]any{
+		"policy": "dialogue",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("POST live-policy status = %d, want 200", rr.Code)
+	}
+
+	conn.participantMu.Lock()
+	active := conn.participantActive
+	currentSessionID := conn.participantSessionID
+	conn.participantMu.Unlock()
+	if active {
+		t.Fatal("participantActive = true, want false after switching to dialogue")
+	}
+	if currentSessionID != "" {
+		t.Fatalf("participantSessionID = %q, want empty after switching to dialogue", currentSessionID)
+	}
+
+	persisted, err := app.store.GetParticipantSession(participantSessionID)
+	if err != nil {
+		t.Fatalf("GetParticipantSession: %v", err)
+	}
+	if persisted.EndedAt == 0 {
+		t.Fatal("participant session should be ended after leaving meeting mode")
 	}
 }
 

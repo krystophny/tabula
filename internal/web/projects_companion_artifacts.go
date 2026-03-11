@@ -321,13 +321,18 @@ func (a *App) syncProjectCompanionArtifacts(project store.Project, session *stor
 	if err != nil {
 		return err
 	}
+	events, err := a.store.ListParticipantEvents(session.ID)
+	if err != nil {
+		return err
+	}
 	memory, err := a.loadCompanionRoomMemory(session.ID)
 	if err != nil {
 		return err
 	}
+	notes := buildMeetingNotesSnapshot(segments, events, memory)
 	files := map[string]string{
 		"transcript.md": renderCompanionTranscriptMarkdown(session, segments),
-		"summary.md":    renderCompanionSummaryMarkdown(session, memory.SummaryText, memory.UpdatedAt),
+		"summary.md":    renderCompanionSummaryMarkdown(session, memory.SummaryText, memory.UpdatedAt, notes),
 		"references.md": renderCompanionReferencesMarkdown(session, memory.Entities, memory.TopicTimeline),
 	}
 	for name, content := range files {
@@ -412,7 +417,77 @@ func renderCompanionTranscriptText(session *store.ParticipantSession, segments [
 	return b.String()
 }
 
-func renderCompanionSummaryMarkdown(session *store.ParticipantSession, summary string, updatedAt int64) string {
+func appendMeetingNotesMarkdown(b *strings.Builder, notes meetingNotesSnapshot) {
+	b.WriteString("## Participants\n\n")
+	if len(notes.Participants) == 0 {
+		b.WriteString("_No participants captured yet._\n")
+	} else {
+		for _, participant := range notes.Participants {
+			fmt.Fprintf(b, "- %s\n", participant)
+		}
+	}
+	b.WriteString("\n## Decisions\n\n")
+	if len(notes.Decisions) == 0 {
+		b.WriteString("_No decisions captured yet._\n")
+	} else {
+		for _, decision := range notes.Decisions {
+			fmt.Fprintf(b, "- %s\n", decision)
+		}
+	}
+	b.WriteString("\n## Action Items\n\n")
+	if len(notes.ActionItems) == 0 {
+		b.WriteString("_No action items captured yet._\n")
+	} else {
+		for _, item := range notes.ActionItems {
+			fmt.Fprintf(b, "- %s\n", item.ItemTitle)
+		}
+	}
+	b.WriteString("\n## Key Topics\n\n")
+	if len(notes.KeyTopics) == 0 {
+		b.WriteString("_No key topics captured yet._\n")
+		return
+	}
+	for _, topic := range notes.KeyTopics {
+		fmt.Fprintf(b, "- %s\n", topic)
+	}
+}
+
+func appendMeetingNotesText(b *strings.Builder, notes meetingNotesSnapshot) {
+	b.WriteString("Participants\n")
+	if len(notes.Participants) == 0 {
+		b.WriteString("- none\n")
+	} else {
+		for _, participant := range notes.Participants {
+			fmt.Fprintf(b, "- %s\n", participant)
+		}
+	}
+	b.WriteString("\nDecisions\n")
+	if len(notes.Decisions) == 0 {
+		b.WriteString("- none\n")
+	} else {
+		for _, decision := range notes.Decisions {
+			fmt.Fprintf(b, "- %s\n", decision)
+		}
+	}
+	b.WriteString("\nAction Items\n")
+	if len(notes.ActionItems) == 0 {
+		b.WriteString("- none\n")
+	} else {
+		for _, item := range notes.ActionItems {
+			fmt.Fprintf(b, "- %s\n", item.ItemTitle)
+		}
+	}
+	b.WriteString("\nKey Topics\n")
+	if len(notes.KeyTopics) == 0 {
+		b.WriteString("- none\n")
+		return
+	}
+	for _, topic := range notes.KeyTopics {
+		fmt.Fprintf(b, "- %s\n", topic)
+	}
+}
+
+func renderCompanionSummaryMarkdown(session *store.ParticipantSession, summary string, updatedAt int64, notes meetingNotesSnapshot) string {
 	var b strings.Builder
 	b.WriteString("# Meeting Summary\n\n")
 	if session == nil {
@@ -427,14 +502,16 @@ func renderCompanionSummaryMarkdown(session *store.ParticipantSession, summary s
 	text := strings.TrimSpace(summary)
 	if text == "" {
 		b.WriteString("_No summary text available._\n")
-		return b.String()
+	} else {
+		b.WriteString(text)
+		b.WriteString("\n")
 	}
-	b.WriteString(text)
 	b.WriteString("\n")
+	appendMeetingNotesMarkdown(&b, notes)
 	return b.String()
 }
 
-func renderCompanionSummaryText(session *store.ParticipantSession, summary string, updatedAt int64) string {
+func renderCompanionSummaryText(session *store.ParticipantSession, summary string, updatedAt int64, notes meetingNotesSnapshot) string {
 	if session == nil {
 		return "No summary is available for this project yet.\n"
 	}
@@ -447,10 +524,12 @@ func renderCompanionSummaryText(session *store.ParticipantSession, summary strin
 	text := strings.TrimSpace(summary)
 	if text == "" {
 		b.WriteString("No summary text available.\n")
-		return b.String()
+	} else {
+		b.WriteString(text)
+		b.WriteString("\n")
 	}
-	b.WriteString(text)
 	b.WriteString("\n")
+	appendMeetingNotesText(&b, notes)
 	return b.String()
 }
 
@@ -554,6 +633,7 @@ func (a *App) handleProjectCompanionSummary(w http.ResponseWriter, r *http.Reque
 	}
 	summaryText := ""
 	updatedAt := int64(0)
+	notes := meetingNotesSnapshot{}
 	if session != nil {
 		memory, err := a.loadCompanionRoomMemory(session.ID)
 		if err != nil {
@@ -562,6 +642,11 @@ func (a *App) handleProjectCompanionSummary(w http.ResponseWriter, r *http.Reque
 		}
 		summaryText = memory.SummaryText
 		updatedAt = memory.UpdatedAt
+		notes, err = a.loadMeetingNotesSnapshot(session.ID, memory)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	payload := companionSummaryResponse{
 		OK:          true,
@@ -575,7 +660,7 @@ func (a *App) handleProjectCompanionSummary(w http.ResponseWriter, r *http.Reque
 	if err := a.syncProjectCompanionArtifacts(project, session); err != nil {
 		log.Printf("companion artifact sync failed for project %s summary view: %v", project.ID, err)
 	}
-	respondCompanionArtifact(w, r.URL.Query().Get("format"), payload, renderCompanionSummaryMarkdown(session, summaryText, updatedAt), renderCompanionSummaryText(session, summaryText, updatedAt))
+	respondCompanionArtifact(w, r.URL.Query().Get("format"), payload, renderCompanionSummaryMarkdown(session, summaryText, updatedAt, notes), renderCompanionSummaryText(session, summaryText, updatedAt, notes))
 }
 
 func (a *App) handleProjectCompanionReferences(w http.ResponseWriter, r *http.Request) {
