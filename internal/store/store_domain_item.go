@@ -82,6 +82,11 @@ func (s *Store) CreateItem(title string, opts ItemOptions) (Item, error) {
 	if err := s.syncScopedContextLink("context_items", "item_id", id, itemSphere); err != nil {
 		return Item{}, err
 	}
+	if opts.WorkspaceID != nil && *opts.WorkspaceID > 0 {
+		if err := s.syncItemDateContext(id, opts.WorkspaceID); err != nil {
+			return Item{}, err
+		}
+	}
 	return s.GetItem(id)
 }
 
@@ -148,6 +153,11 @@ func (s *Store) UpsertItemFromSource(source, sourceRef, title string, workspaceI
 		}
 		if err := s.syncScopedContextLink("context_items", "item_id", existing.ID, itemSphere); err != nil {
 			return Item{}, err
+		}
+		if workspaceID != nil || existing.WorkspaceID != nil {
+			if err := s.syncItemDateContext(existing.ID, workspaceID); err != nil {
+				return Item{}, err
+			}
 		}
 		return s.GetItem(existing.ID)
 	case !errors.Is(err, sql.ErrNoRows):
@@ -430,6 +440,11 @@ func (s *Store) UpdateItem(id int64, updates ItemUpdate) error {
 	}
 	if item.Sphere != "" {
 		if err := s.syncScopedContextLink("context_items", "item_id", id, item.Sphere); err != nil {
+			return err
+		}
+	}
+	if updates.WorkspaceID != nil || item.WorkspaceID != nil {
+		if err := s.syncItemDateContext(id, targetWorkspaceID); err != nil {
 			return err
 		}
 	}

@@ -114,6 +114,9 @@ func (s *Store) EnsureDailyWorkspace(date, dirPath string) (Workspace, error) {
 		return Workspace{}, errors.New("workspace path is required")
 	}
 	if workspace, err := s.DailyWorkspaceForDate(cleanDate); err == nil {
+		if err := s.syncWorkspaceDateContext(workspace.ID, workspace.DailyDate); err != nil {
+			return Workspace{}, err
+		}
 		return workspace, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return Workspace{}, err
@@ -146,6 +149,9 @@ func (s *Store) EnsureDailyWorkspace(date, dirPath string) (Workspace, error) {
 		return Workspace{}, err
 	}
 	if err := s.syncScopedContextLink("context_workspaces", "workspace_id", id, SpherePrivate); err != nil {
+		return Workspace{}, err
+	}
+	if err := s.syncWorkspaceDateContext(id, &cleanDate); err != nil {
 		return Workspace{}, err
 	}
 	return s.GetWorkspace(id)

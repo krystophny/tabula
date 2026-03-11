@@ -42,6 +42,9 @@ func (s *Store) SetItemWorkspace(id int64, workspaceID *int64) error {
 	if affected == 0 {
 		return sql.ErrNoRows
 	}
+	if err := s.syncItemDateContext(id, workspaceID); err != nil {
+		return err
+	}
 	return nil
 }
 
