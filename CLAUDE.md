@@ -318,6 +318,15 @@ go test ./...
 
 Playwright runs in the official container through `scripts/playwright.sh`.
 
+On macOS, if the container daemon (Docker Desktop, OrbStack, colima) is not
+running, the script prints a diagnostic and exits.  Set `PLAYWRIGHT_NATIVE=1`
+to run natively with locally installed browsers (Chromium is usually available;
+Firefox and WebKit require `npx playwright install`):
+
+```bash
+PLAYWRIGHT_NATIVE=1 ./scripts/playwright.sh
+```
+
 Current Playwright specs:
 - `tests/playwright/artifact-context.spec.ts`
 - `tests/playwright/canvas-refresh.spec.ts`
