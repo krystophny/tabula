@@ -223,16 +223,15 @@ export function canStartLiveDialogueListen() {
   if (!isDialogueLiveSession()) return false;
   const mode = syncVoiceLifecycle('can-start-live-dialogue');
   if (mode === VOICE_LIFECYCLE.RECORDING || mode === VOICE_LIFECYCLE.STOPPING_RECORDING) return false;
-  if (mode === VOICE_LIFECYCLE.TTS_PLAYING) return false;
   if (state.chatVoiceCapture) return false;
-  if (mode !== VOICE_LIFECYCLE.LISTENING && isStopCapableLifecycle(mode)) return false;
+  if (mode !== VOICE_LIFECYCLE.LISTENING && mode !== VOICE_LIFECYCLE.TTS_PLAYING && isStopCapableLifecycle(mode)) return false;
   return true;
 }
 
-export function beginConversationVoiceCapture() {
+export function beginConversationVoiceCapture(triggerSource = 'hotword') {
   const x = Math.floor(window.innerWidth / 2);
   const y = Math.floor(window.innerHeight / 2);
-  void beginVoiceCapture(x, y, null, { hotwordTriggered: true });
+  void beginVoiceCapture(x, y, null, { triggerSource });
 }
 
 export function currentIndicatorMode() {

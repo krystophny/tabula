@@ -166,6 +166,7 @@
     let messagePostDelayMs = 0;
     let sttTranscribeStatus = 200;
     let sttTranscribePayload = { text: 'hello world' };
+    let sttTranscribeResponsesQueue = [];
     window.__setCancelResponses = (responses) => {
       cancelResponsesQueue = Array.isArray(responses) ? responses.map((entry) => ({ ...entry })) : [];
     };
@@ -185,10 +186,21 @@
       const n = Number(status);
       sttTranscribeStatus = Number.isFinite(n) ? Math.max(100, Math.min(599, Math.floor(n))) : 200;
     };
+    window.__queueSTTTranscribeResponses = (responses) => {
+      sttTranscribeResponsesQueue = Array.isArray(responses)
+        ? responses.map((entry) => ({
+            payload: entry?.payload && typeof entry.payload === 'object' ? { ...entry.payload } : {},
+            status: Number.isFinite(Number(entry?.status))
+              ? Math.max(100, Math.min(599, Math.floor(Number(entry.status))))
+              : 200,
+          }))
+        : [];
+    };
     window.__setCancelResponses([]);
     window.__setActivityResponse({ active_turns: 0, queued_turns: 0 });
     window.__setMessagePostDelay(0);
     window.__setSTTTranscribeResponse({ text: 'hello world' }, 200);
+    window.__queueSTTTranscribeResponses([]);
     const harnessParams = new URL(window.location.href).searchParams;
     const runtimeState = {
       dev_mode: false,
@@ -380,6 +392,12 @@
 
               const speechThreshold = noiseFloorDb + VAD_MOCK_SPEECH_OFFSET_DB;
               const isSpeech = db > speechThreshold;
+              const speechDelta = Math.max(0, db - speechThreshold);
+              const speechProb = Math.max(0, Math.min(1, isSpeech ? 0.78 + (speechDelta / 20) : 0.08));
+
+              if (callbacks.onFrameProcessed) {
+                callbacks.onFrameProcessed({ isSpeech: speechProb });
+              }
 
               if (!speechActive) {
                 if (isSpeech) {
@@ -2673,10 +2691,20 @@
             window.__harnessLog.push({ type: 'stt', action: 'start', mime_type: msg.mime_type });
           } else if (msg.type === 'stt_stop') {
             window.__harnessLog.push({ type: 'stt', action: 'stop' });
+            const queued = Array.isArray(sttTranscribeResponsesQueue) && sttTranscribeResponsesQueue.length > 0
+              ? sttTranscribeResponsesQueue.shift()
+              : null;
+            const payload = queued?.payload && typeof queued.payload === 'object'
+              ? queued.payload
+              : sttTranscribePayload;
             const ws = this;
             setTimeout(() => {
               if (ws.onmessage) {
-                ws.onmessage({ data: JSON.stringify({ type: 'stt_result', text: 'hello world' }) });
+                if (payload?.text) {
+                  ws.onmessage({ data: JSON.stringify({ type: 'stt_result', text: String(payload.text) }) });
+                } else {
+                  ws.onmessage({ data: JSON.stringify({ type: 'stt_empty', reason: String(payload?.reason || 'empty_transcript') }) });
+                }
               }
             }, 5);
           } else if (msg.type === 'stt_cancel') {

@@ -1,7 +1,8 @@
 import * as env from './app-env.js';
 import * as context from './app-context.js';
+import { DialogueTurnController } from './dialogue-turn-policy.js';
 
-const { marked, apiURL, wsURL, renderCanvas, clearCanvas, getLocationFromSelection, clearLineHighlight, escapeHtml, sanitizeHtml, getActiveArtifactTitle, getActiveTextEventId, getPreviousArtifactText, getUiState, setUiMode, showIndicatorMode, hideIndicator, showTextInput, hideTextInput, showOverlay, hideOverlay, updateOverlay, isOverlayVisible, isTextInputVisible, isRecording, setRecording, getInputAnchor, setInputAnchor, getAnchorFromPoint, buildContextPrefix, getLastInputPosition, setLastInputPosition, configureLiveSession, getLiveSessionSnapshot, handleLiveSessionMessage, isLiveSessionListenActive, LIVE_SESSION_HOTWORD_DEFAULT, LIVE_SESSION_MODE_DIALOGUE, LIVE_SESSION_MODE_MEETING, onLiveSessionTTSPlaybackComplete, cancelLiveSessionListen, startLiveSession, stopLiveSession, initHotword, startHotwordMonitor, stopHotwordMonitor, isHotwordActive, onHotwordDetected, setHotwordThreshold, setHotwordAudioContext, getPreRollAudio, getHotwordMicStream, initVAD, ensureVADLoaded, float32ToWav } = env;
+const { marked, apiURL, wsURL, renderCanvas, clearCanvas, getLocationFromSelection, clearLineHighlight, escapeHtml, sanitizeHtml, getActiveArtifactTitle, getActiveTextEventId, getPreviousArtifactText, getUiState, setUiMode, showIndicatorMode, hideIndicator, showTextInput, hideTextInput, showOverlay, hideOverlay, updateOverlay, isOverlayVisible, isTextInputVisible, isRecording, setRecording, getInputAnchor, setInputAnchor, getAnchorFromPoint, buildContextPrefix, getLastInputPosition, setLastInputPosition, configureLiveSession, getLiveSessionSnapshot, handleLiveSessionMessage, isLiveSessionListenActive, LIVE_SESSION_HOTWORD_DEFAULT, LIVE_SESSION_MODE_DIALOGUE, LIVE_SESSION_MODE_MEETING, onLiveSessionTTSPlaybackComplete, cancelLiveSessionListen, resumeDialogueListen, setDialogueTTSBargeInMode, startLiveSession, stopLiveSession, initHotword, startHotwordMonitor, stopHotwordMonitor, isHotwordActive, onHotwordDetected, setHotwordThreshold, setHotwordAudioContext, getPreRollAudio, getHotwordMicStream, initVAD, ensureVADLoaded, float32ToWav } = env;
 const { refs, state, getState, isVoiceTurn, COMPANION_VIEW_PATH_PREFIX, COMPANION_TRANSCRIPT_VIEW_PATH, COMPANION_SUMMARY_VIEW_PATH, COMPANION_REFERENCES_VIEW_PATH, MEETING_TRANSCRIPT_LABEL, MEETING_SUMMARY_LABEL, MEETING_REFERENCES_LABEL, MEETING_SUMMARY_ITEMS_PANEL_ID, CHAT_CTRL_LONG_PRESS_MS, ARTIFACT_EDIT_LONG_TAP_MS, ITEM_SIDEBAR_VIEWS, ITEM_SIDEBAR_GESTURE_CANCEL_PX, ITEM_SIDEBAR_GESTURE_COMMIT_PX, ITEM_SIDEBAR_GESTURE_LONG_PX, ITEM_SIDEBAR_DEFAULT_LATER_HOUR_UTC, ITEM_SIDEBAR_MENU_ID, DEV_UI_RELOAD_POLL_MS, ASSISTANT_ACTIVITY_POLL_MS, CHAT_WS_STALE_THRESHOLD_MS, ACTIVE_TURN_NO_ID_CLEAR_GRACE_MS, ACTIVE_TURN_ACTIVITY_CLEAR_GRACE_MS, PROJECT_CHAT_MODEL_ALIASES, PROJECT_CHAT_MODEL_REASONING_EFFORTS, TTS_SILENT_STORAGE_KEY, YOLO_MODE_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_ENABLED_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_LAST_SHOWN_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_INTERVAL_MS, ACTIVE_PROJECT_STORAGE_KEY, LAST_VIEW_STORAGE_KEY, RUNTIME_RELOAD_CONTEXT_STORAGE_KEY, SIDEBAR_IMAGE_EXTENSIONS, PANEL_MOTION_WATCH_QUERIES, VOICE_LIFECYCLE, COMPANION_IDLE_SURFACES, COMPANION_RUNTIME_STATES, TOOL_PALETTE_MODES } = context;
 
 const showStatus = (...args) => refs.showStatus(...args);
@@ -33,6 +34,67 @@ const VOICE_VAD_MAX_RECORDING_HARD_MS = 240000;
 const HOTWORD_VAD_NO_SPEECH_MS = 7000;
 const VOICE_VAD_RECORDER_CHUNK_MS = 250;
 const VOICE_CAPTURE_STOP_FLUSH_TIMEOUT_MS = 1500;
+
+const VOICE_TRIGGER_SOURCE_MANUAL = 'manual';
+const VOICE_TRIGGER_SOURCE_HOTWORD = 'hotword';
+const VOICE_TRIGGER_SOURCE_DIALOGUE = 'dialogue_listen';
+const VOICE_TRIGGER_SOURCE_BARGE_IN = 'barge_in';
+
+const dialogueTurnController = new DialogueTurnController({
+  onFinalize(text) {
+    if (!isDialogueLiveSession()) {
+      dialogueTurnController.reset();
+      return;
+    }
+    showStatus('sending...');
+    state.voiceTranscriptSubmitInFlight = true;
+    state.voiceAwaitingTurn = true;
+    updateAssistantActivityIndicator();
+    void submitMessage(text, { kind: 'voice_transcript' });
+  },
+  onContinue() {
+    if (!isDialogueLiveSession()) {
+      dialogueTurnController.reset();
+      return;
+    }
+    state.voiceAwaitingTurn = false;
+    setVoiceLifecycle(VOICE_LIFECYCLE.IDLE, 'dialogue-turn-continue');
+    updateAssistantActivityIndicator();
+    showStatus('listening...');
+    window.setTimeout(() => {
+      if (!isDialogueLiveSession()) {
+        dialogueTurnController.reset();
+        return;
+      }
+      resumeDialogueListen();
+    }, 0);
+  },
+  onBackchannel() {
+    if (!isDialogueLiveSession()) {
+      dialogueTurnController.reset();
+      return;
+    }
+    state.voiceAwaitingTurn = false;
+    setVoiceLifecycle(VOICE_LIFECYCLE.IDLE, 'dialogue-turn-backchannel');
+    updateAssistantActivityIndicator();
+    showStatus('listening...');
+    window.setTimeout(() => {
+      if (!isDialogueLiveSession()) {
+        dialogueTurnController.reset();
+        return;
+      }
+      resumeDialogueListen();
+    }, 0);
+  },
+});
+
+function normalizeVoiceTriggerSource(value: unknown): string {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === VOICE_TRIGGER_SOURCE_HOTWORD) return VOICE_TRIGGER_SOURCE_HOTWORD;
+  if (normalized === VOICE_TRIGGER_SOURCE_DIALOGUE) return VOICE_TRIGGER_SOURCE_DIALOGUE;
+  if (normalized === VOICE_TRIGGER_SOURCE_BARGE_IN) return VOICE_TRIGGER_SOURCE_BARGE_IN;
+  return VOICE_TRIGGER_SOURCE_MANUAL;
+}
 
 export function newMediaRecorder(stream) {
   const candidates = [
@@ -417,7 +479,8 @@ export function startVADMonitor(capture) {
 }
 
 export async function startSileroVADMonitor(capture) {
-  const isHotwordCapture = Boolean(capture?.hotwordTriggered);
+  const triggerSource = normalizeVoiceTriggerSource(capture?.triggerSource);
+  const isHotwordCapture = triggerSource === VOICE_TRIGGER_SOURCE_HOTWORD;
   const vadNoSpeechMs = isHotwordCapture ? HOTWORD_VAD_NO_SPEECH_MS : VOICE_VAD_NO_SPEECH_MS;
   const redemptionMs = isHotwordCapture ? 1200 : 600;
   const minSpeechMs = isHotwordCapture ? 400 : 250;
@@ -464,6 +527,8 @@ export async function startSileroVADMonitor(capture) {
         vadState.committed = true;
         if (audio instanceof Float32Array && audio.length > 0) {
           capture._vadAudioBlob = float32ToWav(audio, 16000);
+          capture._vadAudioDurationMs = Math.round((audio.length / 16000) * 1000);
+          capture._vadAutoStopped = true;
         }
         stopVADMonitor(capture);
         void stopVoiceCaptureAndSend();
@@ -560,7 +625,12 @@ export async function beginVoiceCapture(x, y, anchor, options: Record<string, an
     showVoiceCaptureNotice(microphoneUnavailableMessage(), x, y);
     return;
   }
+  const triggerSource = normalizeVoiceTriggerSource(options?.triggerSource);
+  if (triggerSource === VOICE_TRIGGER_SOURCE_MANUAL || !isDialogueLiveSession()) {
+    dialogueTurnController.reset();
+  }
   cancelLiveSessionListen();
+  const interruptedAssistant = Boolean(state.ttsPlaying);
   // Interrupt TTS playback when starting recording
   stopTTSPlayback();
 
@@ -582,10 +652,12 @@ export async function beginVoiceCapture(x, y, anchor, options: Record<string, an
     stopping: false,
     stopRequested: false,
     autoSend: true,
-    hotwordTriggered: Boolean(options && options.hotwordTriggered),
+    triggerSource,
+    interruptedAssistant,
     mediaStream: null,
     mediaRecorder: null,
     chunks: [],
+    startedAtMs: Date.now(),
   };
   state.chatVoiceCapture = capture;
   state.lastInputOrigin = 'voice';
@@ -661,7 +733,10 @@ export async function stopVoiceCaptureAndSend() {
   const capture = state.chatVoiceCapture;
   if (!capture || capture.stopping) return;
   const opSeq = startVoiceLifecycleOp('voice-capture-stop-send');
-  const isHotwordCapture = Boolean(capture?.hotwordTriggered);
+  const triggerSource = normalizeVoiceTriggerSource(capture?.triggerSource);
+  const isDialogueAutoCapture = isDialogueLiveSession()
+    && capture?._vadAutoStopped === true
+    && triggerSource !== VOICE_TRIGGER_SOURCE_MANUAL;
   capture.stopRequested = true;
   if (!capture.active) return;
   capture.stopping = true;
@@ -711,22 +786,40 @@ export async function stopVoiceCaptureAndSend() {
     remoteStopped = true;
     const transcript = String(result?.text || '').trim();
     if (!transcript) {
-      if (isDialogueLiveSession() && isHotwordCapture) {
+      if (isDialogueLiveSession() && triggerSource !== VOICE_TRIGGER_SOURCE_MANUAL) {
         state.voiceAwaitingTurn = false;
         reopenDialogueListen = true;
         return;
       }
       throw new Error(voiceCaptureEmptyReasonMessage(result?.reason));
     }
+    const segmentDurationMs = Math.max(
+      0,
+      Number(capture._vadAudioDurationMs || 0) || (Date.now() - Number(capture.startedAtMs || Date.now())),
+    );
+    if (isDialogueAutoCapture) {
+      state.voiceAwaitingTurn = false;
+      setVoiceLifecycle(VOICE_LIFECYCLE.IDLE, 'dialogue-turn-segment');
+      updateAssistantActivityIndicator();
+      dialogueTurnController.consume({
+        text: transcript,
+        durationMs: segmentDurationMs,
+        interruptedAssistant: Boolean(capture.interruptedAssistant),
+      });
+      return;
+    }
     if (await maybeHandleDictationTranscript(transcript)) {
+      dialogueTurnController.reset();
       state.voiceAwaitingTurn = false;
       setVoiceLifecycle(VOICE_LIFECYCLE.IDLE, 'dictation-transcript-finished');
     } else {
+      dialogueTurnController.reset();
       showStatus('sending...');
       state.voiceTranscriptSubmitInFlight = true;
       void submitMessage(transcript, { kind: 'voice_transcript' });
     }
   } catch (err) {
+    dialogueTurnController.reset();
     if (opSeq !== state.voiceLifecycleSeq) return;
     state.voiceAwaitingTurn = false;
     setVoiceLifecycle(VOICE_LIFECYCLE.IDLE, 'voice-capture-stop-failed');
@@ -756,18 +849,22 @@ export async function stopVoiceCaptureAndSend() {
     }
     updateAssistantActivityIndicator();
     if (reopenDialogueListen && isDialogueLiveSession()) {
-      // Re-open follow-up listen only after capture teardown has settled.
       window.setTimeout(() => {
         if (!isDialogueLiveSession()) return;
-        onLiveSessionTTSPlaybackComplete();
+        resumeDialogueListen();
       }, 0);
     }
   }
 }
 
+export function resetDialogueTurnController() {
+  dialogueTurnController.reset();
+}
+
 export function cancelChatVoiceCapture() {
   const capture = state.chatVoiceCapture;
   if (!capture) return;
+  dialogueTurnController.reset();
   setRecording(false);
   state.voiceTranscriptSubmitInFlight = false;
   state.voiceAwaitingTurn = false;

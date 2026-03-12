@@ -15,6 +15,7 @@ const appendRenderedAssistant = (...args) => refs.appendRenderedAssistant(...arg
 const refreshAssistantActivity = (...args) => refs.refreshAssistantActivity(...args);
 const stopVoiceCaptureAndSend = (...args) => refs.stopVoiceCaptureAndSend(...args);
 const deactivateLiveSession = (...args) => refs.deactivateLiveSession(...args);
+const resetDialogueTurnController = (...args) => refs.resetDialogueTurnController(...args);
 const isMobileSilent = (...args) => refs.isMobileSilent(...args);
 const nextLocalMessageId = (...args) => refs.nextLocalMessageId(...args);
 const stopChatVoiceMedia = (...args) => refs.stopChatVoiceMedia(...args);
@@ -309,6 +310,7 @@ export async function submitMessage(text, options: Record<string, any> = {}) {
 
 export function forceVoiceLifecycleIdle(statusText = 'stopped') {
   cancelLiveSessionListen();
+  resetDialogueTurnController();
   state.voiceTranscriptSubmitInFlight = false;
   abortPendingSubmit('voice_transcript');
   sttCancel();

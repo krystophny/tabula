@@ -141,10 +141,12 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('companion face shows listening state during recording', async ({ page }) => {
-  await enableCompanion(page);
   await setDialogueListenWindowMs(page, 3_000);
   await setDialogueMode(page, true);
-  await waitForHotwordStart(page);
+  await enableCompanion(page);
+  await page.evaluate(() => {
+    (window as any)._taburaApp?.syncCompanionIdleSurface?.();
+  });
   await page.evaluate(() => {
     (window as any).__setVadDbFrames([
       ...Array.from({ length: 8 }, () => -80),
@@ -153,8 +155,6 @@ test('companion face shows listening state during recording', async ({ page }) =
     ]);
   });
   await clearLog(page);
-
-  await triggerHotword(page);
 
   await expect.poll(async () => {
     const log = await getLog(page);
@@ -168,10 +168,12 @@ test('companion face shows listening state during recording', async ({ page }) =
 });
 
 test('"recording..." status text suppressed when companion visible', async ({ page }) => {
-  await enableCompanion(page);
   await setDialogueListenWindowMs(page, 3_000);
   await setDialogueMode(page, true);
-  await waitForHotwordStart(page);
+  await enableCompanion(page);
+  await page.evaluate(() => {
+    (window as any)._taburaApp?.syncCompanionIdleSurface?.();
+  });
   await page.evaluate(() => {
     (window as any).__setVadDbFrames([
       ...Array.from({ length: 8 }, () => -80),
@@ -180,8 +182,6 @@ test('"recording..." status text suppressed when companion visible', async ({ pa
     ]);
   });
   await clearLog(page);
-
-  await triggerHotword(page);
 
   await expect.poll(async () => {
     const log = await getLog(page);
@@ -196,10 +196,12 @@ test('"recording..." status text suppressed when companion visible', async ({ pa
 });
 
 test('companion reaches thinking state during assistant turn', async ({ page }) => {
-  await enableCompanion(page);
   await setDialogueListenWindowMs(page, 3_000);
   await setDialogueMode(page, true);
-  await waitForHotwordStart(page);
+  await enableCompanion(page);
+  await page.evaluate(() => {
+    (window as any)._taburaApp?.syncCompanionIdleSurface?.();
+  });
   await clearLog(page);
 
   // Set up voice-awaiting-turn state to enter thinking
@@ -208,6 +210,7 @@ test('companion reaches thinking state during assistant turn', async ({ page }) 
     const s = app.getState();
     s.lastInputOrigin = 'voice';
     s.voiceAwaitingTurn = true;
+    app?.syncCompanionIdleSurface?.();
   });
   await injectChatEvent(page, { type: 'turn_started', turn_id: 'companion-trans-1' });
 

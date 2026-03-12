@@ -113,6 +113,19 @@ async function setDialogueMode(page: Page, enabled: boolean) {
   await expect(page.locator('#edge-top-models .edge-live-dialogue-btn')).toBeVisible();
 }
 
+async function setMeetingMode(page: Page) {
+  await switchToTestProject(page);
+  await waitForEdgeButtons(page);
+  await page.evaluate(() => {
+    const button = document.querySelector('#edge-top-models .edge-live-meeting-btn');
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error('meeting button not found');
+    }
+    button.click();
+  });
+  await expect(page.locator('#edge-top-models .edge-live-status')).toContainText('Meeting');
+}
+
 async function triggerHotword(page: Page) {
   await page.evaluate(() => {
     (window as any).__triggerHotwordDetection();
@@ -128,8 +141,7 @@ async function waitForHotwordStart(page: Page) {
 
 test('hotword detection starts recording directly', async ({ page }) => {
   await waitReady(page);
-  await setDialogueListenWindowMs(page, 1_200);
-  await setDialogueMode(page, true);
+  await setMeetingMode(page);
   await waitForHotwordStart(page);
   await clearLog(page);
 
@@ -139,11 +151,6 @@ test('hotword detection starts recording directly', async ({ page }) => {
     const log = await getLog(page);
     return log.some((entry) => entry.type === 'recorder' && entry.action === 'start');
   }, { timeout: 5_000 }).toBe(true);
-
-  await expect.poll(async () => page.evaluate(() => {
-    const indicator = document.getElementById('indicator');
-    return Boolean(indicator?.classList.contains('is-recording'));
-  })).toBe(true);
 });
 
 test('hotword runtime pins explicit ONNX wasm asset URLs', async ({ page }) => {
@@ -160,7 +167,8 @@ test('hotword runtime pins explicit ONNX wasm asset URLs', async ({ page }) => {
 
 test('hotword plus speech starts recording', async ({ page }) => {
   await waitReady(page);
-  await setDialogueListenWindowMs(page, 2_500);
+  await setMeetingMode(page);
+  await waitForHotwordStart(page);
   await page.evaluate(() => {
     (window as any).__setVadDbFrames([
       ...Array.from({ length: 8 }, () => -80),
@@ -168,8 +176,6 @@ test('hotword plus speech starts recording', async ({ page }) => {
       ...Array.from({ length: 8 }, () => -80),
     ]);
   });
-  await setDialogueMode(page, true);
-  await waitForHotwordStart(page);
   await clearLog(page);
 
   await triggerHotword(page);
@@ -182,7 +188,8 @@ test('hotword plus speech starts recording', async ({ page }) => {
 
 test('hotword capture tolerates initial pause before user speech', async ({ page }) => {
   await waitReady(page);
-  await setDialogueListenWindowMs(page, 2_500);
+  await setMeetingMode(page);
+  await waitForHotwordStart(page);
   await page.evaluate(() => {
     (window as any).__setVadDbFrames([
       ...Array.from({ length: 36 }, () => -80), // ~1.44s initial pause
@@ -190,8 +197,6 @@ test('hotword capture tolerates initial pause before user speech', async ({ page
       ...Array.from({ length: 40 }, () => -80),
     ]);
   });
-  await setDialogueMode(page, true);
-  await waitForHotwordStart(page);
   await clearLog(page);
 
   await triggerHotword(page);
@@ -206,41 +211,35 @@ test('hotword capture tolerates initial pause before user speech', async ({ page
   expect(log.some((entry) => entry.type === 'recorder' && entry.action === 'stop')).toBe(false);
 });
 
-test('hotword empty transcript re-opens dialogue listen window', async ({ page }) => {
+test('dialogue turn controller finalizes a buffered fragment on timeout', async ({ page }) => {
   await waitReady(page);
-  await setDialogueListenWindowMs(page, 2_500);
-  await setDialogueMode(page, true);
-  await waitForHotwordStart(page);
-  await page.evaluate(() => {
-    (window as any).__setSTTTranscribeResponse({ text: '', reason: 'no_speech_detected' }, 200);
-    (window as any).__setVadDbFrames(Array.from({ length: 200 }, () => -80));
+  const events = await page.evaluate(async () => {
+    const mod = await import('/internal/web/static/dialogue-turn-policy.js');
+    const log: Array<Record<string, unknown>> = [];
+    const controller = new mod.DialogueTurnController({
+      onContinue(decision: Record<string, unknown>) {
+        log.push({ type: 'continue', text: decision.combinedText, reason: decision.reason });
+      },
+      onFinalize(text: string, decision: Record<string, unknown>) {
+        log.push({ type: 'finalize', text, reason: decision.reason });
+      },
+    });
+    controller.consume({ text: 'can you', durationMs: 320, interruptedAssistant: false });
+    await new Promise((resolve) => window.setTimeout(resolve, 720));
+    controller.flush('continuation_timeout');
+    return log;
   });
-  await clearLog(page);
 
-  await triggerHotword(page);
-
-  await expect.poll(async () => {
-    const log = await getLog(page);
-    return log.some((entry) => entry.type === 'recorder' && entry.action === 'start');
-  }, { timeout: 5_000 }).toBe(true);
-
-  await page.keyboard.press('Enter');
-
-  await expect.poll(async () => {
-    const log = await getLog(page);
-    return log.some((entry) => entry.type === 'recorder' && entry.action === 'stop');
-  }, { timeout: 5_000 }).toBe(true);
-
-  await expect.poll(async () => page.evaluate(() => {
-    const app = (window as any)._taburaApp;
-    const s = app?.getState?.();
-    return Boolean(s?.liveSessionDialogueListenActive);
-  }), { timeout: 4_000 }).toBe(true);
+  expect(events).toEqual([
+    { type: 'continue', text: 'can you', reason: 'too_short' },
+    { type: 'finalize', text: 'can you', reason: 'continuation_timeout' },
+  ]);
 });
 
 test('hotword is paused during recording', async ({ page }) => {
   await waitReady(page);
-  await setDialogueListenWindowMs(page, 3_000);
+  await setMeetingMode(page);
+  await waitForHotwordStart(page);
   await page.evaluate(() => {
     (window as any).__setVadDbFrames([
       ...Array.from({ length: 8 }, () => -80),
@@ -248,8 +247,6 @@ test('hotword is paused during recording', async ({ page }) => {
       ...Array.from({ length: 20 }, () => -12),
     ]);
   });
-  await setDialogueMode(page, true);
-  await waitForHotwordStart(page);
   await clearLog(page);
 
   await triggerHotword(page);
@@ -266,9 +263,7 @@ test('hotword is paused during recording', async ({ page }) => {
 
 test('hotword is paused while TTS playback is active', async ({ page }) => {
   await waitReady(page);
-  await setDialogueListenWindowMs(page, 2_500);
   await setDialogueMode(page, true);
-  await waitForHotwordStart(page);
   await page.evaluate(() => {
     (window as any).__setTTSPlaybackDelayMs(500);
   });
@@ -283,7 +278,7 @@ test('hotword is paused while TTS playback is active', async ({ page }) => {
   await expect.poll(async () => page.evaluate(() => (window as any).__isHotwordActive())).toBe(false);
 
   const log = await getLog(page);
-  expect(log.some((entry) => entry.type === 'hotword' && entry.action === 'stop')).toBe(true);
+  expect(log.some((entry) => entry.type === 'hotword' && entry.action === 'start')).toBe(false);
 });
 
 test('Dialogue off keeps hotword disabled', async ({ page }) => {
@@ -319,34 +314,27 @@ test('hotword init failure degrades gracefully with no crash', async ({ page }) 
 
   await triggerVoiceAssistantTTS(page, 'hotword-degrade-1');
   await expect.poll(async () => page.evaluate(() => {
-    const indicator = document.getElementById('indicator');
-    return Boolean(indicator?.classList.contains('is-listening'));
+    const app = (window as any)._taburaApp;
+    const s = app?.getState?.();
+    return Boolean(s?.liveSessionDialogueListenActive) && String(s?.voiceLifecycle || '') === 'listening';
   })).toBe(true);
 });
 
-test('Dialogue with hotword active shows pause indicator', async ({ page }) => {
+test('Dialogue keeps the live listen indicator armed instead of falling back to pause', async ({ page }) => {
   await waitReady(page);
+  await setDialogueListenWindowMs(page, 600);
   await setDialogueMode(page, true);
-  await waitForHotwordStart(page);
 
   await expect.poll(async () => page.evaluate(() => {
-    const indicator = document.getElementById('indicator');
-    return Boolean(indicator?.classList.contains('is-paused'));
+    const app = (window as any)._taburaApp;
+    const s = app?.getState?.();
+    return Boolean(s?.liveSessionDialogueListenActive) && String(s?.voiceLifecycle || '') === 'listening';
   }), { timeout: 4_000 }).toBe(true);
 });
 
 test('meeting mode hotword still starts direct recording', async ({ page }) => {
   await waitReady(page);
-  await switchToTestProject(page);
-  await waitForEdgeButtons(page);
-  await page.evaluate(() => {
-    const button = document.querySelector('#edge-top-models .edge-live-meeting-btn');
-    if (!(button instanceof HTMLButtonElement)) {
-      throw new Error('meeting button not found');
-    }
-    button.click();
-  });
-  await expect(page.locator('#edge-top-models .edge-live-status')).toContainText('Meeting');
+  await setMeetingMode(page);
   await waitForHotwordStart(page);
   await clearLog(page);
 
@@ -358,79 +346,45 @@ test('meeting mode hotword still starts direct recording', async ({ page }) => {
   }, { timeout: 5_000 }).toBe(true);
 });
 
-test('follow-up timeout returns to pause indicator', async ({ page }) => {
+test('dialogue turn controller buffers incomplete fragments until semantic completion', async ({ page }) => {
   await waitReady(page);
-  await setDialogueListenWindowMs(page, 500);
-  await setDialogueMode(page, true);
-  await waitForHotwordStart(page);
-  await page.evaluate(() => {
-    (window as any).__setVadDbFrames(Array.from({ length: 120 }, () => -80));
+  const events = await page.evaluate(async () => {
+    const mod = await import('/internal/web/static/dialogue-turn-policy.js');
+    const log: Array<Record<string, unknown>> = [];
+    const controller = new mod.DialogueTurnController({
+      onContinue(decision: Record<string, unknown>) {
+        log.push({ type: 'continue', text: decision.combinedText, reason: decision.reason });
+      },
+      onFinalize(text: string, decision: Record<string, unknown>) {
+        log.push({ type: 'finalize', text, reason: decision.reason });
+      },
+    });
+    controller.consume({ text: 'can you', durationMs: 420, interruptedAssistant: false });
+    controller.consume({ text: 'help me write the summary', durationMs: 1100, interruptedAssistant: false });
+    return log;
   });
-  await clearLog(page);
 
-  await triggerVoiceAssistantTTS(page, 'pause-return-1');
-
-  await expect.poll(async () => page.evaluate(() => {
-    const indicator = document.getElementById('indicator');
-    return Boolean(indicator?.classList.contains('is-listening'));
-  })).toBe(true);
-
-  await expect.poll(async () => page.evaluate(() => {
-    const indicator = document.getElementById('indicator');
-    return Boolean(indicator?.classList.contains('is-paused'));
-  }), { timeout: 4_000 }).toBe(true);
+  expect(events).toEqual([
+    { type: 'continue', text: 'can you', reason: 'too_short' },
+    { type: 'finalize', text: 'can you help me write the summary', reason: 'semantic_completion' },
+  ]);
 });
 
-test('hotword re-arms after follow-up timeout and starts a second turn', async ({ page }) => {
+test('dialogue turn controller treats short assistant interruptions as backchannels', async ({ page }) => {
   await waitReady(page);
-  await setDialogueListenWindowMs(page, 500);
-  await setDialogueMode(page, true);
-  await waitForHotwordStart(page);
-  await clearLog(page);
+  const events = await page.evaluate(async () => {
+    const mod = await import('/internal/web/static/dialogue-turn-policy.js');
+    const log: Array<Record<string, unknown>> = [];
+    const controller = new mod.DialogueTurnController({
+      onBackchannel(decision: Record<string, unknown>) {
+        log.push({ type: 'backchannel', text: decision.combinedText, reason: decision.reason });
+      },
+    });
+    controller.consume({ text: 'yeah', durationMs: 260, interruptedAssistant: true });
+    return log;
+  });
 
-  await triggerVoiceAssistantTTS(page, 'pause-rearm-1');
-
-  await expect.poll(async () => page.evaluate(() => {
-    const indicator = document.getElementById('indicator');
-    return Boolean(indicator?.classList.contains('is-paused'));
-  }), { timeout: 4_000 }).toBe(true);
-
-  await expect.poll(async () => {
-    const rearmLog = await getLog(page);
-    const sawStop = rearmLog.some((entry) => entry.type === 'hotword' && entry.action === 'stop');
-    const sawStart = rearmLog.some((entry) => entry.type === 'hotword' && entry.action === 'start');
-    return sawStop && sawStart;
-  }, { timeout: 5_000 }).toBe(true);
-
-  await expect.poll(async () => page.evaluate(() => {
-    const app = (window as any)._taburaApp;
-    const s = app?.getState?.();
-    const hotwordActive = Boolean((window as any).__isHotwordActive?.());
-    if (!s) return false;
-    const localActiveTurns = s.assistantActiveTurns?.size || 0;
-    return hotwordActive
-      && Boolean(s.liveSessionActive)
-      && String(s.liveSessionMode || '') === 'dialogue'
-      && !Boolean(s.liveSessionDialogueListenActive)
-      && !Boolean(s.chatVoiceCapture)
-      && !Boolean(s.ttsPlaying)
-      && !Boolean(s.voiceAwaitingTurn)
-      && Number(s.assistantUnknownTurns || 0) === 0
-      && Number(s.assistantRemoteActiveCount || 0) === 0
-      && Number(s.assistantRemoteQueuedCount || 0) === 0
-      && Number(localActiveTurns) === 0
-      && String(s.voiceLifecycle || 'idle') === 'idle';
-  }), { timeout: 5_000 }).toBe(true);
-
-  await clearLog(page);
-  await expect.poll(async () => {
-    await triggerHotword(page);
-    const log = await getLog(page);
-    return log.some((entry) => entry.type === 'hotword' && entry.action === 'detect');
-  }, { timeout: 3_000 }).toBe(true);
-
-  await expect.poll(async () => {
-    const log = await getLog(page);
-    return log.some((entry) => entry.type === 'recorder' && entry.action === 'start');
-  }, { timeout: 7_000 }).toBe(true);
+  expect(events).toEqual([
+    { type: 'backchannel', text: 'yeah', reason: 'assistant_backchannel' },
+  ]);
 });

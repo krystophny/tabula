@@ -26,6 +26,7 @@ const applyCompanionState = (...args) => refs.applyCompanionState(...args);
 const chatHistoryEl = (...args) => refs.chatHistoryEl(...args);
 const scrollChatToBottom = (...args) => refs.scrollChatToBottom(...args);
 const cancelChatVoiceCapture = (...args) => refs.cancelChatVoiceCapture(...args);
+const resetDialogueTurnController = (...args) => refs.resetDialogueTurnController(...args);
 const toggleTTSSilentMode = (...args) => refs.toggleTTSSilentMode(...args);
 const requestHotwordSync = (...args) => refs.requestHotwordSync(...args);
 const clearWelcomeSurface = (...args) => refs.clearWelcomeSurface(...args);
@@ -284,9 +285,6 @@ export async function activateLiveSession(mode) {
     stopLiveSession();
     applyLiveSessionStateSnapshot();
   }
-  if (wasMeeting && normalized !== LIVE_SESSION_MODE_MEETING) {
-    await updateCompanionConfig({ companion_enabled: false }).catch(() => {});
-  }
   if (normalized === LIVE_SESSION_MODE_MEETING) {
     await updateCompanionConfig({ companion_enabled: true });
     try {
@@ -299,6 +297,7 @@ export async function activateLiveSession(mode) {
       throw err;
     }
   }
+  await updateCompanionConfig({ companion_enabled: true }).catch(() => {});
   const started = await startLiveSession(LIVE_SESSION_MODE_DIALOGUE, state.chatWs);
   applyLiveSessionStateSnapshot();
   return started;
@@ -307,6 +306,7 @@ export async function deactivateLiveSession(options: Record<string, any> = {}) {
   const silent = Boolean(options?.silent);
   const disableMeetingConfig = Boolean(options?.disableMeetingConfig);
   const wasMeeting = isMeetingLiveSession();
+  resetDialogueTurnController();
   stopLiveSession();
   applyLiveSessionStateSnapshot();
   if (disableMeetingConfig && wasMeeting) {

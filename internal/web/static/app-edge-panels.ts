@@ -102,7 +102,6 @@ export function edgePanelsAreOpen() {
 }
 
 export function toggleFileSidebarFromEdge() {
-  if (!state.prReviewMode && !state.activeProjectId) return;
   if (!state.prReviewMode) {
     if (state.fileSidebarMode === 'workspace') {
       if (!state.workspaceBrowserLoading && state.workspaceBrowserEntries.length === 0 && !state.workspaceBrowserError) {

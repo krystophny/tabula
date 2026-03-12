@@ -244,10 +244,15 @@ test('Live policy persists from runtime and reacts to websocket policy changes',
   await expect(page.locator('#edge-top-models .edge-live-dialogue-btn')).toHaveAttribute('aria-pressed', 'false');
 });
 
-test('Dialogue shows listening indicator after TTS playback completes', async ({ page }) => {
-  await setDialogueListenWindowMs(page, 1_200);
+test('Dialogue shows listening indicator immediately and after TTS playback', async ({ page }) => {
   await setDialogueMode(page, true);
   await clearLog(page);
+
+  await expect.poll(async () => page.evaluate(() => {
+    const app = (window as any)._taburaApp;
+    const s = app?.getState?.();
+    return Boolean(s?.liveSessionDialogueListenActive) && String(s?.voiceLifecycle || '') === 'listening';
+  })).toBe(true);
 
   await triggerVoiceAssistantTTS(page, 'conv-listening-1');
 
@@ -257,8 +262,9 @@ test('Dialogue shows listening indicator after TTS playback completes', async ({
   }).toBe(true);
 
   await expect.poll(async () => page.evaluate(() => {
-    const indicator = document.getElementById('indicator');
-    return Boolean(indicator?.classList.contains('is-listening'));
+    const app = (window as any)._taburaApp;
+    const s = app?.getState?.();
+    return Boolean(s?.liveSessionDialogueListenActive) && String(s?.voiceLifecycle || '') === 'listening';
   })).toBe(true);
 });
 
@@ -283,7 +289,6 @@ test('Dialogue off does not open listening indicator after TTS', async ({ page }
 });
 
 test('speech onset during dialogue listen starts recording', async ({ page }) => {
-  await setDialogueListenWindowMs(page, 3_000);
   await setDialogueMode(page, true);
   await page.evaluate(() => {
     (window as any).__setVadDbFrames([
@@ -294,53 +299,48 @@ test('speech onset during dialogue listen starts recording', async ({ page }) =>
   });
   await clearLog(page);
 
-  await triggerVoiceAssistantTTS(page, 'conv-speech-1');
-
   await expect.poll(async () => {
     const log = await getLog(page);
     return log.some((entry) => entry.type === 'recorder' && entry.action === 'start');
   }, { timeout: 5_000 }).toBe(true);
 
   await expect.poll(async () => page.evaluate(() => {
-    const indicator = document.getElementById('indicator');
-    return Boolean(indicator?.classList.contains('is-recording'));
+    const app = (window as any)._taburaApp;
+    return Boolean(app?.getState?.().chatVoiceCapture);
   })).toBe(true);
 });
 
-test('dialogue listen timeout hides listening indicator', async ({ page }) => {
-  await setDialogueListenWindowMs(page, 500);
+test('dialogue listen stays armed without a fixed timeout', async ({ page }) => {
   await setDialogueMode(page, true);
   await page.evaluate(() => {
     (window as any).__setVadDbFrames(Array.from({ length: 120 }, () => -80));
   });
   await clearLog(page);
 
-  await triggerVoiceAssistantTTS(page, 'conv-timeout-1');
-
   await expect.poll(async () => page.evaluate(() => {
-    const indicator = document.getElementById('indicator');
-    return Boolean(indicator?.classList.contains('is-listening'));
+    const app = (window as any)._taburaApp;
+    const s = app?.getState?.();
+    return Boolean(s?.liveSessionDialogueListenActive) && String(s?.voiceLifecycle || '') === 'listening';
   })).toBe(true);
 
   await expect.poll(async () => page.evaluate(() => {
-    const indicator = document.getElementById('indicator');
-    return Boolean(indicator?.classList.contains('is-listening'));
-  }), { timeout: 4_000 }).toBe(false);
+    const app = (window as any)._taburaApp;
+    const s = app?.getState?.();
+    return Boolean(s?.liveSessionDialogueListenActive) && String(s?.voiceLifecycle || '') === 'listening';
+  }), { timeout: 4_000 }).toBe(true);
 });
 
 test('tap during dialogue listen cancels listen and starts recording', async ({ page }) => {
-  await setDialogueListenWindowMs(page, 3_000);
   await setDialogueMode(page, true);
   await page.evaluate(() => {
     (window as any).__setVadDbFrames(Array.from({ length: 200 }, () => -80));
   });
   await clearLog(page);
 
-  await triggerVoiceAssistantTTS(page, 'conv-tap-1');
-
   await expect.poll(async () => page.evaluate(() => {
-    const indicator = document.getElementById('indicator');
-    return Boolean(indicator?.classList.contains('is-listening'));
+    const app = (window as any)._taburaApp;
+    const s = app?.getState?.();
+    return Boolean(s?.liveSessionDialogueListenActive) && String(s?.voiceLifecycle || '') === 'listening';
   })).toBe(true);
 
   await page.mouse.click(420, 360);
@@ -349,26 +349,24 @@ test('tap during dialogue listen cancels listen and starts recording', async ({ 
     return log.some((entry) => entry.type === 'recorder' && entry.action === 'start');
   }).toBe(true);
 
-  const indicatorRecording = await page.evaluate(() => {
-    const indicator = document.getElementById('indicator');
-    return Boolean(indicator?.classList.contains('is-recording'));
+  const captureActive = await page.evaluate(() => {
+    const app = (window as any)._taburaApp;
+    return Boolean(app?.getState?.().chatVoiceCapture);
   });
-  expect(indicatorRecording).toBe(true);
+  expect(captureActive).toBe(true);
 });
 
 test('PTT during dialogue listen cancels listen and starts push-to-talk', async ({ page }) => {
-  await setDialogueListenWindowMs(page, 3_000);
   await setDialogueMode(page, true);
   await page.evaluate(() => {
     (window as any).__setVadDbFrames(Array.from({ length: 200 }, () => -80));
   });
   await clearLog(page);
 
-  await triggerVoiceAssistantTTS(page, 'conv-ptt-1');
-
   await expect.poll(async () => page.evaluate(() => {
-    const indicator = document.getElementById('indicator');
-    return Boolean(indicator?.classList.contains('is-listening'));
+    const app = (window as any)._taburaApp;
+    const s = app?.getState?.();
+    return Boolean(s?.liveSessionDialogueListenActive) && String(s?.voiceLifecycle || '') === 'listening';
   })).toBe(true);
 
   await page.keyboard.down('Control');
@@ -417,25 +415,29 @@ test('silent mode with dialogue enabled does not open follow-up listen', async (
   expect(isListening).toBe(false);
 });
 
-test('dialogue listen timeout returns to pause indicator when hotword is active', async ({ page }) => {
-  await setDialogueListenWindowMs(page, 500);
+test('dialogue barge-in interrupts TTS and starts recording', async ({ page }) => {
   await setDialogueMode(page, true);
   await page.evaluate(() => {
-    (window as any).__setVadDbFrames(Array.from({ length: 120 }, () => -80));
+    (window as any).__setTTSPlaybackDelayMs(750);
+    (window as any).__setVadDbFrames([
+      ...Array.from({ length: 8 }, () => -80),
+      ...Array.from({ length: 12 }, () => -12),
+      ...Array.from({ length: 12 }, () => -80),
+    ]);
   });
   await clearLog(page);
 
-  await triggerVoiceAssistantTTS(page, 'conv-pause-1');
+  await triggerVoiceAssistantTTS(page, 'conv-barge-1', 'Please interrupt me if you need to.');
+
+  await expect.poll(async () => {
+    const log = await getLog(page);
+    return log.some((entry) => entry.type === 'recorder' && entry.action === 'start');
+  }, { timeout: 5_000 }).toBe(true);
 
   await expect.poll(async () => page.evaluate(() => {
-    const indicator = document.getElementById('indicator');
-    return Boolean(indicator?.classList.contains('is-listening'));
+    const app = (window as any)._taburaApp;
+    return Boolean(app?.getState?.().chatVoiceCapture);
   })).toBe(true);
-
-  await expect.poll(async () => page.evaluate(() => {
-    const indicator = document.getElementById('indicator');
-    return Boolean(indicator?.classList.contains('is-paused'));
-  }), { timeout: 4_000 }).toBe(true);
 });
 
 test('dialogue listen shows hard error when VAD is unavailable', async ({ page }) => {

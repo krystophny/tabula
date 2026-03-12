@@ -4,16 +4,16 @@ export const LIVE_SESSION_MODE_DIALOGUE = 'dialogue';
 export const LIVE_SESSION_MODE_MEETING = 'meeting';
 export const LIVE_SESSION_HOTWORD_DEFAULT = 'Alexa';
 
-const DIALOGUE_LISTEN_DEFAULT_MS = 6000;
-const DIALOGUE_LISTEN_MIN_MS = 500;
+const BARGE_IN_THRESHOLD = 0.75;
+const BARGE_IN_CONSECUTIVE_FRAMES = 3;
 
 const hooks = {
   canStartDialogueListen: null,
   onStateChange: null,
-  onDialogueListenTimeout: null,
   onDialogueListenError: null,
   onDialogueSpeechDetected: null,
   onDialogueListenCancelled: null,
+  onDialogueBargeIn: null,
   getAudioContext: null,
   acquireMicStream: null,
   requestMicRefresh: null,
@@ -28,10 +28,11 @@ const state = {
   mode: '',
   hotword: LIVE_SESSION_HOTWORD_DEFAULT,
   dialogueListenActive: false,
-  dialogueListenTimer: null,
   dialogueListenSileroVAD: null,
   dialogueSessionToken: 0,
   dialogueRetryCount: 0,
+  ttsBargeInMode: false,
+  bargeInConsecutive: 0,
   meetingCapture: null,
   meetingSessionID: '',
 };
@@ -49,7 +50,6 @@ function liveSessionSnapshot() {
     liveSessionMode: state.mode,
     liveSessionHotword: state.hotword,
     liveSessionDialogueListenActive: state.dialogueListenActive,
-    liveSessionDialogueListenTimer: state.dialogueListenTimer,
     liveSessionMeetingSessionID: state.meetingSessionID,
   };
 }
@@ -60,16 +60,6 @@ function notifyStateChange() {
   }
 }
 
-function resolveDialogueListenWindowMs() {
-  try {
-    const override = Number(window.__taburaConversationListenMs);
-    if (Number.isFinite(override) && override >= DIALOGUE_LISTEN_MIN_MS) {
-      return Math.floor(override);
-    }
-  } catch (_) {}
-  return DIALOGUE_LISTEN_DEFAULT_MS;
-}
-
 function clearDialogueSileroVAD() {
   if (state.dialogueListenSileroVAD) {
     try { state.dialogueListenSileroVAD.destroy(); } catch (_) {}
@@ -77,16 +67,10 @@ function clearDialogueSileroVAD() {
   }
 }
 
-function clearDialogueListenTimer() {
-  if (state.dialogueListenTimer !== null) {
-    window.clearTimeout(state.dialogueListenTimer);
-    state.dialogueListenTimer = null;
-  }
-}
-
 function closeDialogueListenWindow() {
-  clearDialogueListenTimer();
   clearDialogueSileroVAD();
+  state.ttsBargeInMode = false;
+  state.bargeInConsecutive = 0;
   if (state.dialogueListenActive) {
     state.dialogueListenActive = false;
   }
@@ -134,7 +118,27 @@ async function startSileroDialogueMonitor(stream, token) {
       onSpeechStart() {
         if (token !== state.dialogueSessionToken) return;
         if (!state.dialogueListenActive) return;
+        if (state.ttsBargeInMode) return;
         onDialogueSpeechDetected();
+      },
+      onFrameProcessed(probs) {
+        if (token !== state.dialogueSessionToken) return;
+        if (!state.dialogueListenActive) return;
+        if (!state.ttsBargeInMode) {
+          state.bargeInConsecutive = 0;
+          return;
+        }
+        const p = typeof probs === 'number' ? probs
+          : (probs && typeof probs.isSpeech === 'number' ? probs.isSpeech : 0);
+        if (p >= BARGE_IN_THRESHOLD) {
+          state.bargeInConsecutive += 1;
+          if (state.bargeInConsecutive >= BARGE_IN_CONSECUTIVE_FRAMES) {
+            state.bargeInConsecutive = 0;
+            fireBargeIn();
+          }
+        } else {
+          state.bargeInConsecutive = 0;
+        }
       },
     });
 
@@ -151,18 +155,18 @@ async function startSileroDialogueMonitor(stream, token) {
     state.dialogueListenSileroVAD = instance;
     instance.start();
     state.dialogueRetryCount = 0;
-    if (token === state.dialogueSessionToken && state.dialogueListenActive) {
-      state.dialogueListenTimer = window.setTimeout(() => {
-        if (token !== state.dialogueSessionToken) return;
-        onDialogueListenTimeout();
-      }, resolveDialogueListenWindowMs());
-    }
     notifyStateChange();
   } catch (err) {
     if (token === state.dialogueSessionToken && state.dialogueListenActive) {
       const detail = String(err?.message || err || 'unknown error');
       fireDialogueListenError(`speech detection failed: ${detail}`);
     }
+  }
+}
+
+function fireBargeIn() {
+  if (typeof hooks.onDialogueBargeIn === 'function') {
+    hooks.onDialogueBargeIn();
   }
 }
 
@@ -189,7 +193,7 @@ async function openDialogueListenWindow() {
       return;
     }
     if (!canStartDialogueListen()) {
-      onDialogueListenTimeout();
+      closeDialogueListenWindow();
       return;
     }
     void startSileroDialogueMonitor(stream, token);
@@ -209,10 +213,10 @@ function resetMeetingState(capture = null) {
 export function configureLiveSession(config: Record<string, any> = {}) {
   hooks.canStartDialogueListen = config.canStartDialogueListen || null;
   hooks.onStateChange = config.onStateChange || null;
-  hooks.onDialogueListenTimeout = config.onDialogueListenTimeout || null;
   hooks.onDialogueListenError = config.onDialogueListenError || null;
   hooks.onDialogueSpeechDetected = config.onDialogueSpeechDetected || null;
   hooks.onDialogueListenCancelled = config.onDialogueListenCancelled || null;
+  hooks.onDialogueBargeIn = config.onDialogueBargeIn || null;
   hooks.getAudioContext = config.getAudioContext || null;
   hooks.acquireMicStream = config.acquireMicStream || null;
   hooks.requestMicRefresh = config.requestMicRefresh || null;
@@ -309,7 +313,7 @@ export function stopLiveSession() {
 }
 
 export function cancelLiveSessionListen() {
-  if (!state.dialogueListenActive && state.dialogueListenTimer === null && state.dialogueListenSileroVAD === null) {
+  if (!state.dialogueListenActive && state.dialogueListenSileroVAD === null) {
     return;
   }
   nextDialogueToken();
@@ -321,25 +325,39 @@ export function cancelLiveSessionListen() {
 
 export function onLiveSessionTTSPlaybackComplete() {
   if (!canStartDialogueListen()) return;
-  void openDialogueListenWindow();
-}
-
-export function onDialogueListenTimeout() {
-  if (!state.dialogueListenActive) return;
-  nextDialogueToken();
-  closeDialogueListenWindow();
-  if (typeof hooks.onDialogueListenTimeout === 'function') {
-    hooks.onDialogueListenTimeout();
-  }
+  resumeDialogueListen();
 }
 
 export function onDialogueSpeechDetected() {
   if (!state.dialogueListenActive) return;
-  nextDialogueToken();
-  closeDialogueListenWindow();
+  if (state.dialogueListenSileroVAD) {
+    state.dialogueListenSileroVAD.pause();
+  }
+  state.dialogueListenActive = false;
+  state.ttsBargeInMode = false;
+  state.bargeInConsecutive = 0;
+  notifyStateChange();
   if (typeof hooks.onDialogueSpeechDetected === 'function') {
     hooks.onDialogueSpeechDetected();
   }
+}
+
+export function resumeDialogueListen() {
+  if (!canStartDialogueListen()) return;
+  if (state.dialogueListenSileroVAD) {
+    state.dialogueListenActive = true;
+    state.ttsBargeInMode = false;
+    state.bargeInConsecutive = 0;
+    state.dialogueListenSileroVAD.start();
+    notifyStateChange();
+    return;
+  }
+  void openDialogueListenWindow();
+}
+
+export function setDialogueTTSBargeInMode(active) {
+  state.ttsBargeInMode = Boolean(active);
+  state.bargeInConsecutive = 0;
 }
 
 export function handleLiveSessionMessage(message) {

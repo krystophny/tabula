@@ -32,6 +32,8 @@ export {
   LIVE_SESSION_MODE_MEETING,
   onLiveSessionTTSPlaybackComplete,
   cancelLiveSessionListen,
+  resumeDialogueListen,
+  setDialogueTTSBargeInMode,
   startLiveSession,
   stopLiveSession,
 } from './live-session.js';

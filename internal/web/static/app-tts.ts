@@ -1,7 +1,7 @@
 import * as env from './app-env.js';
 import * as context from './app-context.js';
 
-const { marked, apiURL, wsURL, renderCanvas, clearCanvas, getLocationFromSelection, clearLineHighlight, escapeHtml, sanitizeHtml, getActiveArtifactTitle, getActiveTextEventId, getPreviousArtifactText, getUiState, setUiMode, showIndicatorMode, hideIndicator, showTextInput, hideTextInput, showOverlay, hideOverlay, updateOverlay, isOverlayVisible, isTextInputVisible, isRecording, setRecording, getInputAnchor, setInputAnchor, getAnchorFromPoint, buildContextPrefix, getLastInputPosition, setLastInputPosition, configureLiveSession, getLiveSessionSnapshot, handleLiveSessionMessage, isLiveSessionListenActive, LIVE_SESSION_HOTWORD_DEFAULT, LIVE_SESSION_MODE_DIALOGUE, LIVE_SESSION_MODE_MEETING, onLiveSessionTTSPlaybackComplete, cancelLiveSessionListen, startLiveSession, stopLiveSession, initHotword, startHotwordMonitor, stopHotwordMonitor, isHotwordActive, onHotwordDetected, setHotwordThreshold, setHotwordAudioContext, getPreRollAudio, getHotwordMicStream, initVAD, ensureVADLoaded, float32ToWav } = env;
+const { marked, apiURL, wsURL, renderCanvas, clearCanvas, getLocationFromSelection, clearLineHighlight, escapeHtml, sanitizeHtml, getActiveArtifactTitle, getActiveTextEventId, getPreviousArtifactText, getUiState, setUiMode, showIndicatorMode, hideIndicator, showTextInput, hideTextInput, showOverlay, hideOverlay, updateOverlay, isOverlayVisible, isTextInputVisible, isRecording, setRecording, getInputAnchor, setInputAnchor, getAnchorFromPoint, buildContextPrefix, getLastInputPosition, setLastInputPosition, configureLiveSession, getLiveSessionSnapshot, handleLiveSessionMessage, isLiveSessionListenActive, LIVE_SESSION_HOTWORD_DEFAULT, LIVE_SESSION_MODE_DIALOGUE, LIVE_SESSION_MODE_MEETING, onLiveSessionTTSPlaybackComplete, cancelLiveSessionListen, resumeDialogueListen, setDialogueTTSBargeInMode, startLiveSession, stopLiveSession, initHotword, startHotwordMonitor, stopHotwordMonitor, isHotwordActive, onHotwordDetected, setHotwordThreshold, setHotwordAudioContext, getPreRollAudio, getHotwordMicStream, initVAD, ensureVADLoaded, float32ToWav } = env;
 const { refs, state, getState, isVoiceTurn, COMPANION_VIEW_PATH_PREFIX, COMPANION_TRANSCRIPT_VIEW_PATH, COMPANION_SUMMARY_VIEW_PATH, COMPANION_REFERENCES_VIEW_PATH, MEETING_TRANSCRIPT_LABEL, MEETING_SUMMARY_LABEL, MEETING_REFERENCES_LABEL, MEETING_SUMMARY_ITEMS_PANEL_ID, CHAT_CTRL_LONG_PRESS_MS, ARTIFACT_EDIT_LONG_TAP_MS, ITEM_SIDEBAR_VIEWS, ITEM_SIDEBAR_GESTURE_CANCEL_PX, ITEM_SIDEBAR_GESTURE_COMMIT_PX, ITEM_SIDEBAR_GESTURE_LONG_PX, ITEM_SIDEBAR_DEFAULT_LATER_HOUR_UTC, ITEM_SIDEBAR_MENU_ID, DEV_UI_RELOAD_POLL_MS, ASSISTANT_ACTIVITY_POLL_MS, CHAT_WS_STALE_THRESHOLD_MS, ACTIVE_TURN_NO_ID_CLEAR_GRACE_MS, ACTIVE_TURN_ACTIVITY_CLEAR_GRACE_MS, PROJECT_CHAT_MODEL_ALIASES, PROJECT_CHAT_MODEL_REASONING_EFFORTS, TTS_SILENT_STORAGE_KEY, YOLO_MODE_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_ENABLED_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_LAST_SHOWN_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_INTERVAL_MS, ACTIVE_PROJECT_STORAGE_KEY, LAST_VIEW_STORAGE_KEY, RUNTIME_RELOAD_CONTEXT_STORAGE_KEY, SIDEBAR_IMAGE_EXTENSIONS, PANEL_MOTION_WATCH_QUERIES, VOICE_LIFECYCLE, COMPANION_IDLE_SURFACES, COMPANION_RUNTIME_STATES, TOOL_PALETTE_MODES } = context;
 
 const showStatus = (...args) => refs.showStatus(...args);
@@ -191,6 +191,7 @@ export class TTSPlayer {
     }
     this._playing = false;
     this._nextStartTime = 0;
+    setDialogueTTSBargeInMode(false);
     if (state.ttsPlaying) {
       state.ttsPlaying = false;
       updateAssistantActivityIndicator();
@@ -201,6 +202,7 @@ export class TTSPlayer {
     if (this._stopped || this._queue.length === 0) {
       this._playing = false;
       this._nextStartTime = 0;
+      setDialogueTTSBargeInMode(false);
       if (state.ttsPlaying) {
         state.ttsPlaying = false;
         updateAssistantActivityIndicator();
@@ -212,7 +214,7 @@ export class TTSPlayer {
     }
     this._playing = true;
     if (!state.ttsPlaying) {
-      cancelLiveSessionListen();
+      setDialogueTTSBargeInMode(true);
       state.ttsPlaying = true;
       updateAssistantActivityIndicator();
     }
@@ -447,7 +449,7 @@ export function configureHotwordLifecycle() {
     if (!canStartHotwordMonitor()) return;
     stopHotwordMonitor();
     state.hotwordActive = false;
-    beginConversationVoiceCapture();
+    beginConversationVoiceCapture('hotword');
     updateAssistantActivityIndicator();
   });
 }
@@ -491,7 +493,6 @@ export function applyLiveSessionStateSnapshot(snapshot = null) {
   state.interaction.conversation = interactionConversationMode();
   state.liveSessionHotword = String(nextSnapshot.liveSessionHotword || LIVE_SESSION_HOTWORD_DEFAULT).trim() || LIVE_SESSION_HOTWORD_DEFAULT;
   state.liveSessionDialogueListenActive = Boolean(nextSnapshot.liveSessionDialogueListenActive);
-  state.liveSessionDialogueListenTimer = nextSnapshot.liveSessionDialogueListenTimer ?? null;
   requestHotwordSync();
 }
 
@@ -524,6 +525,7 @@ export function stopTTSPlayback() {
   if (ttsSentenceChunker) { ttsSentenceChunker.reset(); ttsSentenceChunker = null; }
   ttsLastSpeakText = '';
   ttsSpeakLang = 'en';
+  setDialogueTTSBargeInMode(false);
   if (state.ttsPlaying) {
     state.ttsPlaying = false;
     updateAssistantActivityIndicator();

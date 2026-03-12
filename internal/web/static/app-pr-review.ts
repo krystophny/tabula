@@ -117,7 +117,12 @@ export function parseUnifiedDiffFiles(diffText) {
 }
 
 export function setPrReviewDrawerOpen(open) {
-  const shouldOpen = Boolean(open) && (state.prReviewMode || Boolean(state.activeProjectId));
+  const canShowSidebar = state.prReviewMode
+    || Boolean(state.activeProjectId)
+    || state.liveSessionActive
+    || state.liveSessionMode === LIVE_SESSION_MODE_DIALOGUE
+    || state.liveSessionMode === LIVE_SESSION_MODE_MEETING;
+  const shouldOpen = Boolean(open) && canShowSidebar;
   state.prReviewDrawerOpen = shouldOpen;
   document.body.classList.toggle('file-sidebar-open', shouldOpen);
   const pane = document.getElementById('pr-file-pane');
@@ -127,7 +132,11 @@ export function setPrReviewDrawerOpen(open) {
 }
 
 export function setFileSidebarAvailability() {
-  const enabled = state.prReviewMode || Boolean(state.activeProjectId);
+  const enabled = state.prReviewMode
+    || Boolean(state.activeProjectId)
+    || state.liveSessionActive
+    || state.liveSessionMode === LIVE_SESSION_MODE_DIALOGUE
+    || state.liveSessionMode === LIVE_SESSION_MODE_MEETING;
   document.body.classList.toggle('file-sidebar-enabled', enabled);
   if (!enabled) {
     setPrReviewDrawerOpen(false);
