@@ -39,7 +39,7 @@ var expectedPlists = []struct {
 	{
 		file:   "io.tabura.web.plist",
 		label:  "io.tabura.web",
-		tokens: []string{"@@BIN_PATH@@", "@@PROJECT_DIR@@", "@@WEB_DATA_DIR@@"},
+		tokens: []string{"@@BIN_PATH@@", "@@PROJECT_DIR@@", "@@WEB_DATA_DIR@@", "@@TABURA_INTENT_LLM_URL@@"},
 	},
 }
 
@@ -151,7 +151,8 @@ func TestLaunchdTemplateTokenSubstitution(t *testing.T) {
 		"@@PIPER_MODEL_DIR@@":  "/tmp/models",
 		"@@LLM_SETUP_SCRIPT@@": "/tmp/setup-llm.sh",
 		"@@LLM_MODEL_DIR@@":    "/tmp/llm-models",
-		"@@STT_SETUP_SCRIPT@@": "/tmp/setup-stt.sh",
+		"@@STT_SETUP_SCRIPT@@":      "/tmp/setup-stt.sh",
+		"@@TABURA_INTENT_LLM_URL@@": "http://127.0.0.1:8426",
 	}
 
 	for _, tc := range expectedPlists {

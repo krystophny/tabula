@@ -29,6 +29,7 @@ LLM_MODEL_DIR=""
 LLM_SETUP_SCRIPT=""
 STT_SETUP_SCRIPT=""
 CODEX_PATH=""
+REUSE_LLM_URL=""
 
 log() {
     printf '[tabura-install] %s\n' "$*"
@@ -71,6 +72,18 @@ have_cmd() {
     command -v "$1" >/dev/null 2>&1
 }
 
+detect_llama_server() {
+    local port url
+    for port in 8080 8081 8426; do
+        url="http://127.0.0.1:${port}"
+        if curl -fsS --max-time 2 "${url}/health" >/dev/null 2>&1; then
+            printf '%s' "$url"
+            return 0
+        fi
+    done
+    return 1
+}
+
 print_help() {
     cat <<USAGE
 Usage: ${SCRIPT_NAME} [options]
@@ -87,6 +100,7 @@ Environment overrides:
   TABURA_INSTALL_SKIP_BROWSER=1
   TABURA_INSTALL_SKIP_STT=1
   TABURA_INSTALL_SKIP_LLM=1
+  TABURA_INTENT_LLM_URL=<url>   Reuse an existing llama-server (skip download/service)
   TABURA_REPO_OWNER / TABURA_REPO_NAME / TABURA_RELEASE_API_BASE
 USAGE
 }
@@ -482,6 +496,23 @@ setup_local_llm() {
         log "skipping local LLM due to TABURA_INSTALL_SKIP_LLM=1"
         return
     fi
+
+    if [ -n "${TABURA_INTENT_LLM_URL:-}" ]; then
+        REUSE_LLM_URL="$TABURA_INTENT_LLM_URL"
+        log "TABURA_INTENT_LLM_URL set to ${REUSE_LLM_URL}; skipping LLM setup"
+        return
+    fi
+
+    local existing_url
+    if existing_url="$(detect_llama_server)"; then
+        log "existing llama-server detected at ${existing_url}"
+        if confirm_default_yes "Reuse existing llama-server at ${existing_url}?"; then
+            REUSE_LLM_URL="$existing_url"
+            log "TABURA_INTENT_LLM_URL will point to ${REUSE_LLM_URL}"
+            return
+        fi
+    fi
+
     cat <<NOTICE
 === Local LLM (Qwen3.5 9B via llama.cpp, optional) ===
 A local coordinator language model for Hub routing and replies.
@@ -611,7 +642,7 @@ RestartSec=2
 WantedBy=default.target
 UNIT
 
-    if [ -x "$LLM_SETUP_SCRIPT" ]; then
+    if [ -x "$LLM_SETUP_SCRIPT" ] && [ -z "$REUSE_LLM_URL" ]; then
         cat >"${systemd_dir}/tabura-llm.service" <<UNIT
 [Unit]
 Description=Tabura Local Coordinator LLM (Qwen3.5 9B)
@@ -632,6 +663,8 @@ WantedBy=default.target
 UNIT
     fi
 
+    local effective_llm_url="${REUSE_LLM_URL:-http://127.0.0.1:8426}"
+
     cat >"${systemd_dir}/tabura-web.service" <<UNIT
 [Unit]
 Description=Tabura Web UI
@@ -640,7 +673,7 @@ Wants=tabura-codex-app-server.service tabura-piper-tts.service
 
 [Service]
 Type=simple
-Environment=TABURA_INTENT_LLM_URL=http://127.0.0.1:8426
+Environment=TABURA_INTENT_LLM_URL=${effective_llm_url}
 Environment=TABURA_INTENT_LLM_MODEL=local
 Environment=TABURA_INTENT_LLM_PROFILE=qwen3.5-9b
 Environment=TABURA_INTENT_LLM_PROFILE_OPTIONS=qwen3.5-9b,qwen3.5-4b
@@ -667,6 +700,7 @@ install_services_linux() {
 
 substitute_launchd_template() {
     local src="$1" dst="$2"
+    local effective_llm_url="${REUSE_LLM_URL:-http://127.0.0.1:8426}"
     sed \
         -e "s|@@BIN_PATH@@|${BIN_PATH}|g" \
         -e "s|@@CODEX_PATH@@|${CODEX_PATH}|g" \
@@ -678,6 +712,7 @@ substitute_launchd_template() {
         -e "s|@@LLM_SETUP_SCRIPT@@|${LLM_SETUP_SCRIPT}|g" \
         -e "s|@@LLM_MODEL_DIR@@|${LLM_MODEL_DIR}|g" \
         -e "s|@@STT_SETUP_SCRIPT@@|${STT_SETUP_SCRIPT}|g" \
+        -e "s|@@TABURA_INTENT_LLM_URL@@|${effective_llm_url}|g" \
         "$src" >"$dst"
 }
 
@@ -699,7 +734,7 @@ write_launchd_plists() {
     substitute_launchd_template "${template_dir}/io.tabura.codex-app-server.plist" "${agent_dir}/io.tabura.codex-app-server.plist"
     substitute_launchd_template "${template_dir}/io.tabura.piper-tts.plist" "${agent_dir}/io.tabura.piper-tts.plist"
 
-    if [ -x "$LLM_SETUP_SCRIPT" ]; then
+    if [ -x "$LLM_SETUP_SCRIPT" ] && [ -z "$REUSE_LLM_URL" ]; then
         substitute_launchd_template "${template_dir}/io.tabura.llm.plist" "${agent_dir}/io.tabura.llm.plist"
     fi
 
@@ -759,6 +794,7 @@ open_browser() {
 
 print_summary() {
     local version="$1"
+    local effective_llm_url="${REUSE_LLM_URL:-http://127.0.0.1:8426}"
     cat <<SUMMARY
 
 Install complete
@@ -770,7 +806,11 @@ Install complete
   Piper venv:    ${VENV_DIR}
   Service mode:  ${TABURA_OS}
   Web URL:       http://127.0.0.1:8420
+  Intent LLM:   ${effective_llm_url}
 SUMMARY
+    if [ -n "$REUSE_LLM_URL" ]; then
+        log "using existing llama-server at ${REUSE_LLM_URL} (no tabura-llm service created)"
+    fi
 }
 
 remove_linux_services() {

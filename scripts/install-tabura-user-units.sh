@@ -7,6 +7,31 @@ PLATFORM="$(uname -s)"
 log() { printf '[tabura-units] %s\n' "$*"; }
 fail() { printf '[tabura-units] ERROR: %s\n' "$*" >&2; exit 1; }
 
+detect_llama_server() {
+    local port url
+    for port in 8080 8081 8426; do
+        url="http://127.0.0.1:${port}"
+        if curl -fsS --max-time 2 "${url}/health" >/dev/null 2>&1; then
+            printf '%s' "$url"
+            return 0
+        fi
+    done
+    return 1
+}
+
+confirm_default_yes() {
+    local prompt="$1"
+    if [ ! -t 0 ]; then return 0; fi
+    local response
+    read -r -p "$prompt [Y/n] " response
+    case "$response" in
+        "" | [Yy] | [Yy][Ee][Ss]) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+REUSE_LLM_URL=""
+
 # --- Platform detection ---
 
 case "$PLATFORM" in
@@ -23,6 +48,19 @@ else
   LLM_MODEL_DIR="${HOME}/.local/share/tabura-llm/models"
 fi
 
+# --- Detect existing llama-server ---
+
+if [ -n "${TABURA_INTENT_LLM_URL:-}" ]; then
+  REUSE_LLM_URL="$TABURA_INTENT_LLM_URL"
+  log "TABURA_INTENT_LLM_URL set to ${REUSE_LLM_URL}; skipping LLM setup"
+elif existing_url="$(detect_llama_server)"; then
+  log "Existing llama-server detected at ${existing_url}"
+  if confirm_default_yes "Reuse existing llama-server at ${existing_url}?"; then
+    REUSE_LLM_URL="$existing_url"
+    log "TABURA_INTENT_LLM_URL will point to ${REUSE_LLM_URL}"
+  fi
+fi
+
 # --- Verify prerequisites ---
 
 HAVE_LLAMA=1
@@ -36,7 +74,9 @@ if ! command -v codex >/dev/null 2>&1; then
   fi
 fi
 
-if ! command -v llama-server >/dev/null 2>&1; then
+if [ -n "$REUSE_LLM_URL" ]; then
+  HAVE_LLAMA=0
+elif ! command -v llama-server >/dev/null 2>&1; then
   HAVE_LLAMA=0
   if [ "$PLATFORM" = "Darwin" ]; then
     log "WARNING: llama-server not in PATH. Install: brew install llama.cpp"
@@ -60,7 +100,7 @@ fi
 
 # --- Bootstrap service dependencies ---
 
-if [ "$HAVE_LLAMA" = "1" ]; then
+if [ "$HAVE_LLAMA" = "1" ] && [ -z "$REUSE_LLM_URL" ]; then
   log "Ensuring LLM model is downloaded"
   MODEL_FILE="Qwen3.5-9B-Q4_K_M.gguf"
   MODEL_URL="https://huggingface.co/lmstudio-community/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf?download=true"
@@ -76,10 +116,18 @@ fi
 install_linux() {
   local unit_src="$REPO_ROOT/deploy/systemd/user"
   local unit_dst="$HOME/.config/systemd/user"
+  local effective_llm_url="${REUSE_LLM_URL:-http://127.0.0.1:8426}"
 
   mkdir -p "$unit_dst"
   for f in "$unit_src"/*.service; do
-    sed "s|@@REPO_ROOT@@|${REPO_ROOT}|g" "$f" > "$unit_dst/$(basename "$f")"
+    local base
+    base="$(basename "$f")"
+    if [ "$base" = "tabura-llm.service" ] && [ -n "$REUSE_LLM_URL" ]; then
+      continue
+    fi
+    sed -e "s|@@REPO_ROOT@@|${REPO_ROOT}|g" \
+        -e "s|@@TABURA_INTENT_LLM_URL@@|${effective_llm_url}|g" \
+        "$f" > "$unit_dst/$base"
   done
   systemctl --user daemon-reload
 
@@ -97,10 +145,12 @@ install_linux() {
     tabura-codex-app-server.service
     tabura-piper-tts.service
     tabura-stt.service
-    tabura-llm.service
     tabura-ptt.service
     tabura-web.service
   )
+  if [ -z "$REUSE_LLM_URL" ]; then
+    units+=(tabura-llm.service)
+  fi
 
   systemctl --user enable --now "${units[@]}"
   log "Enabled: ${units[*]}"
@@ -132,6 +182,7 @@ install_macos() {
   local plist_dst="$HOME/Library/LaunchAgents"
   local data_root="$HOME/Library/Application Support/tabura"
   local bin_path codex_path web_data_dir piper_model_dir piper_venv_dir
+  local effective_llm_url="${REUSE_LLM_URL:-http://127.0.0.1:8426}"
 
   [ -d "$plist_src" ] || fail "launchd templates not found: $plist_src"
 
@@ -151,7 +202,7 @@ install_macos() {
 
   # Determine which agents to install
   local agents=(codex-app-server piper-tts web)
-  if [ "$HAVE_LLAMA" = "1" ]; then
+  if [ "$HAVE_LLAMA" = "1" ] && [ -z "$REUSE_LLM_URL" ]; then
     agents+=(llm)
   fi
   if [ "$HAVE_VOXTYPE" = "1" ]; then
@@ -181,6 +232,7 @@ install_macos() {
       -e "s|@@LLM_SETUP_SCRIPT@@|${REPO_ROOT}/scripts/setup-local-llm.sh|g" \
       -e "s|@@LLM_MODEL_DIR@@|${LLM_MODEL_DIR}|g" \
       -e "s|@@STT_SETUP_SCRIPT@@|${REPO_ROOT}/scripts/setup-voxtype-stt.sh|g" \
+      -e "s|@@TABURA_INTENT_LLM_URL@@|${effective_llm_url}|g" \
       "$src" > "$dst"
     launchctl unload "$dst" >/dev/null 2>&1 || true
     launchctl load -w "$dst"
