@@ -69,6 +69,19 @@ cd "$BUILD_DIR/voxtype"
 
 # --- Build ---
 
+# macOS native crates (mac-notification-sys, core-graphics, etc.) require
+# Apple Clang. Override CC/CXX if they point to non-Apple compilers (e.g.
+# Homebrew gcc) which lack -mmacos-version-min and ObjC framework support.
+if [ -n "${CC:-}" ]; then
+    case "$CC" in
+        *gcc*|*g++*)
+            log "Overriding CC=$CC with /usr/bin/cc (Apple Clang required)"
+            export CC=/usr/bin/cc
+            export CXX=/usr/bin/c++
+            ;;
+    esac
+fi
+
 ARCH="$(uname -m)"
 FEATURES=""
 if [ "$ARCH" = "arm64" ]; then
