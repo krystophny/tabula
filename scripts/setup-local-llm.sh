@@ -25,6 +25,11 @@ if [ ! -s "$MODEL_PATH" ]; then
   mv "$MODEL_PATH.tmp" "$MODEL_PATH"
 fi
 
+if curl -fsS --max-time 2 "http://${HOST}:${PORT}/health" >/dev/null 2>&1; then
+  echo "llama-server already running at http://${HOST}:${PORT}; exiting"
+  exit 0
+fi
+
 echo "Starting local intent LLM at http://$HOST:$PORT"
 exec "$SERVER_BIN" \
   -m "$MODEL_PATH" \

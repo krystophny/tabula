@@ -28,7 +28,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>TABURA_INTENT_LLM_URL</key>
-    <string>http://127.0.0.1:8426</string>
+    <string>@@TABURA_INTENT_LLM_URL@@</string>
     <key>TABURA_INTENT_LLM_MODEL</key>
     <string>local</string>
     <key>TABURA_INTENT_LLM_PROFILE</key>
