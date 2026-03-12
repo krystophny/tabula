@@ -145,10 +145,17 @@ func (s *SyncTeX) normalizeRequestedInput(file string) string {
 
 func (s *SyncTeX) normalizeReturnedInput(file string) string {
 	clean := filepath.Clean(strings.TrimSpace(file))
-	if filepath.IsAbs(clean) {
-		return clean
+	if !filepath.IsAbs(clean) {
+		clean = filepath.Clean(filepath.Join(s.directory, clean))
 	}
-	return filepath.Clean(filepath.Join(s.directory, clean))
+	resolvedDir, errDir := filepath.EvalSymlinks(s.directory)
+	resolvedClean, errClean := filepath.EvalSymlinks(clean)
+	if errDir == nil && errClean == nil {
+		if rel, err := filepath.Rel(resolvedDir, resolvedClean); err == nil && !strings.HasPrefix(rel, "..") {
+			return filepath.Clean(filepath.Join(s.directory, rel))
+		}
+	}
+	return clean
 }
 
 func openSyncTeXReader(file *os.File, path string) (io.Reader, func() error, error) {

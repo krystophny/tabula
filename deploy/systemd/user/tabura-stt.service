@@ -4,12 +4,12 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/code/assi/tabula
+WorkingDirectory=@@REPO_ROOT@@
 Environment=HOME=%h
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=TABURA_STT_LANGUAGE=de,en
 Environment=TABURA_STT_MODEL=large-v3-turbo
-ExecStart=%h/code/assi/tabula/scripts/setup-voxtype-stt.sh
+ExecStart=@@REPO_ROOT@@/scripts/setup-voxtype-stt.sh
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=15

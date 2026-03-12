@@ -29,7 +29,9 @@ fi
 # --- Install unit files ---
 
 mkdir -p "$UNIT_DST"
-cp "$UNIT_SRC"/*.service "$UNIT_DST"/
+for f in "$UNIT_SRC"/*.service; do
+  sed "s|@@REPO_ROOT@@|${REPO_ROOT}|g" "$f" > "$UNIT_DST/$(basename "$f")"
+done
 systemctl --user daemon-reload
 
 # --- Disable legacy units ---

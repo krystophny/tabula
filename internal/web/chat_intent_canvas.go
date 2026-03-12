@@ -238,14 +238,11 @@ func resolveRootTopLevelFile(root, rel string) (string, bool) {
 	if cleanRel == "" || cleanRel == "." || cleanRel == ".." {
 		return "", false
 	}
-	abs := filepath.Clean(filepath.Join(root, cleanRel))
-	if info, err := os.Stat(abs); err == nil && !info.IsDir() {
-		return filepath.ToSlash(cleanRel), true
-	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return "", false
 	}
+	var caseMatch string
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -254,9 +251,15 @@ func resolveRootTopLevelFile(root, rel string) (string, bool) {
 		if name == "" {
 			continue
 		}
-		if strings.EqualFold(name, cleanRel) {
+		if name == cleanRel {
 			return filepath.ToSlash(name), true
 		}
+		if caseMatch == "" && strings.EqualFold(name, cleanRel) {
+			caseMatch = name
+		}
+	}
+	if caseMatch != "" {
+		return filepath.ToSlash(caseMatch), true
 	}
 	return "", false
 }

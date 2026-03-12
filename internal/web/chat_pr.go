@@ -91,7 +91,16 @@ func resolveGitRepoRoot(dir string) string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	result := strings.TrimSpace(string(out))
+	resolvedDir, err := filepath.EvalSymlinks(clean)
+	if err != nil {
+		return result
+	}
+	rel, err := filepath.Rel(resolvedDir, result)
+	if err != nil {
+		return result
+	}
+	return filepath.Clean(filepath.Join(clean, rel))
 }
 
 func resolveGitHubCommandDir(cwd string) string {

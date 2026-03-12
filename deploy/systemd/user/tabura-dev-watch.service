@@ -5,8 +5,8 @@ Wants=tabura-codex-app-server.service tabura-web.service
 
 [Service]
 Type=simple
-WorkingDirectory=%h/code/assi/tabula
-ExecStart=%h/code/assi/tabula/scripts/tabura-dev-watch.sh
+WorkingDirectory=@@REPO_ROOT@@
+ExecStart=@@REPO_ROOT@@/scripts/tabura-dev-watch.sh
 Restart=always
 RestartSec=1
 

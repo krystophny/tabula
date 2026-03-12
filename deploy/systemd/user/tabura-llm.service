@@ -4,11 +4,11 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/code/assi/tabula
+WorkingDirectory=@@REPO_ROOT@@
 Environment=HOME=%h
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=TABURA_LLM_MODEL_DIR=%h/.local/share/tabura-llm/models
-ExecStart=%h/code/assi/tabula/scripts/setup-local-llm.sh
+ExecStart=@@REPO_ROOT@@/scripts/setup-local-llm.sh
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=15

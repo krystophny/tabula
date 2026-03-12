@@ -5,7 +5,7 @@ Wants=tabura-codex-app-server.service tabura-piper-tts.service
 
 [Service]
 Type=simple
-WorkingDirectory=%h/code/assi/tabula
+WorkingDirectory=@@REPO_ROOT@@
 PassEnvironment=DISPLAY WAYLAND_DISPLAY XAUTHORITY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
 Environment=HOME=%h
 Environment=SHELL=/usr/bin/bash
@@ -14,7 +14,7 @@ Environment=TABURA_INTENT_LLM_URL=http://127.0.0.1:8426
 Environment=TABURA_INTENT_LLM_MODEL=local
 Environment=TABURA_INTENT_LLM_PROFILE=qwen3.5-9b
 Environment=TABURA_INTENT_LLM_PROFILE_OPTIONS=qwen3.5-9b,qwen3.5-4b
-ExecStart=/usr/bin/bash -lc 'source ~/.bashrc >/dev/null 2>&1 || true; cd %h/code/assi/tabula; exec /usr/bin/env go run ./cmd/tabura server --project-dir %h/code/assi/tabula --data-dir %h/.local/share/tabura-web --web-host 127.0.0.1 --web-port 8420 --mcp-host 127.0.0.1 --mcp-port 9420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424 --dev-runtime'
+ExecStart=/usr/bin/bash -lc 'source ~/.bashrc >/dev/null 2>&1 || true; cd @@REPO_ROOT@@; exec /usr/bin/env go run ./cmd/tabura server --project-dir @@REPO_ROOT@@ --data-dir %h/.local/share/tabura-web --web-host 127.0.0.1 --web-port 8420 --mcp-host 127.0.0.1 --mcp-port 9420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424 --dev-runtime'
 Restart=on-failure
 RestartSec=2
 TimeoutStopSec=5

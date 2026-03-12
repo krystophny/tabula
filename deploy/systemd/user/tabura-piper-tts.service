@@ -4,10 +4,10 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/code/assi/tabula
+WorkingDirectory=@@REPO_ROOT@@
 Environment=HOME=%h
 Environment=PIPER_MODEL_DIR=%h/.local/share/tabura-piper-tts/models
-ExecStart=%h/.local/share/tabura-piper-tts/venv/bin/uvicorn piper_tts_server:app --app-dir %h/code/assi/tabula/scripts --host 127.0.0.1 --port 8424
+ExecStart=%h/.local/share/tabura-piper-tts/venv/bin/uvicorn piper_tts_server:app --app-dir @@REPO_ROOT@@/scripts --host 127.0.0.1 --port 8424
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=10
