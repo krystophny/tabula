@@ -22,6 +22,48 @@ SH
     chmod +x "${dir}/${name}"
 }
 
+run_llama_helper_checks() {
+    local tmpdir fakebin explicit_bin
+    tmpdir="$(mktemp -d -t tabura-llama-helper-test-XXXXXX)"
+    trap "rm -rf '$tmpdir'" RETURN
+
+    fakebin="${tmpdir}/fakebin"
+    explicit_bin="${tmpdir}/explicit-llama-server"
+    mkdir -p "$fakebin"
+
+    cat >"${fakebin}/llama-server" <<'SH'
+#!/usr/bin/env bash
+echo "error while loading shared libraries: libmtmd.so.0: cannot open shared object file" >&2
+exit 127
+SH
+    chmod +x "${fakebin}/llama-server"
+
+    cat >"${explicit_bin}" <<'SH'
+#!/usr/bin/env bash
+if [ "$1" = "--version" ]; then
+  echo "llama-server test version"
+  exit 0
+fi
+exit 0
+SH
+    chmod +x "${explicit_bin}"
+
+    local resolved
+    resolved="$(
+        PATH="${fakebin}:/usr/bin:/bin" \
+        HOME="${tmpdir}/home" \
+        LLAMA_SERVER_BIN="${explicit_bin}" \
+        bash -c '
+            source "'"${ROOT_DIR}"'/scripts/lib/llama.sh"
+            tabura_find_llama_server
+        '
+    )"
+    if [ "${resolved}" != "${explicit_bin}" ]; then
+        echo "assertion failed: expected explicit LLAMA_SERVER_BIN to win, got ${resolved}" >&2
+        exit 1
+    fi
+}
+
 run_install_sh_dry_run() {
     local tmpdir out_file fakebin home_dir
     tmpdir="$(mktemp -d -t tabura-installer-test-XXXXXX)"
@@ -99,6 +141,7 @@ run_install_ps1_static_checks() {
 
 main() {
     run_install_sh_dry_run
+    run_llama_helper_checks
     run_install_ps1_static_checks
     "${ROOT_DIR}/tests/installers/distribution_artifacts_test.sh"
     echo "installer tests passed"

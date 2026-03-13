@@ -1,5 +1,5 @@
 [Unit]
-Description=Tabura Local Coordinator LLM (Qwen3.5 9B)
+Description=Tabura Local Coordinator LLM (Qwen3 0.6B)
 After=network.target
 
 [Service]
@@ -8,6 +8,7 @@ WorkingDirectory=@@REPO_ROOT@@
 Environment=HOME=%h
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=TABURA_LLM_MODEL_DIR=%h/.local/share/tabura-llm/models
+Environment=LLAMA_SERVER_BIN=@@LLAMA_SERVER_BIN@@
 ExecStart=@@REPO_ROOT@@/scripts/setup-local-llm.sh
 Restart=on-failure
 RestartSec=5

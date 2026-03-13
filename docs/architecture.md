@@ -10,7 +10,7 @@ Runtime stack:
 - `tabura-web.service` runs the Go monolith (`tabura server`)
 - `tabura-codex-app-server.service` runs Codex app-server
 - `tabura-piper-tts.service` runs Piper TTS API on loopback
-- `tabura-llm.service` runs Qwen3.5 9B local coordinator on loopback (`/v1/chat/completions`)
+- `tabura-llm.service` runs the Qwen3 0.6B local coordinator on loopback (`/v1/chat/completions`)
 
 ## Components
 

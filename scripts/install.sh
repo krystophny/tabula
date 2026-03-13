@@ -2,6 +2,39 @@
 set -euo pipefail
 
 SCRIPT_NAME="$(basename "$0")"
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "${SCRIPT_ROOT}/lib/llama.sh" ]; then
+    # shellcheck source=scripts/lib/llama.sh
+    source "${SCRIPT_ROOT}/lib/llama.sh"
+else
+    TABURA_LLAMA_LAST_ERROR=""
+    tabura_llama_prepend_library_dirs() { :; }
+    tabura_find_llama_server() {
+        local candidate
+        TABURA_LLAMA_LAST_ERROR=""
+        if [ -n "${LLAMA_SERVER_BIN:-}" ]; then
+            if [ -x "$LLAMA_SERVER_BIN" ]; then
+                printf '%s' "$LLAMA_SERVER_BIN"
+                return 0
+            fi
+            if candidate="$(command -v "$LLAMA_SERVER_BIN" 2>/dev/null)"; then
+                printf '%s' "$candidate"
+                return 0
+            fi
+        fi
+        if candidate="$(command -v llama-server 2>/dev/null)"; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+        candidate="${HOME}/.local/llama.cpp/llama-server"
+        if [ -x "$candidate" ]; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+        TABURA_LLAMA_LAST_ERROR="llama-server not found"
+        return 1
+    }
+fi
 REPO_OWNER="${TABURA_REPO_OWNER:-krystophny}"
 REPO_NAME="${TABURA_REPO_NAME:-tabura}"
 RELEASE_API_BASE="${TABURA_RELEASE_API_BASE:-https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases}"
@@ -30,6 +63,7 @@ LLM_SETUP_SCRIPT=""
 STT_SETUP_SCRIPT=""
 CODEX_PATH=""
 REUSE_LLM_URL=""
+LLAMA_SERVER_BIN_RESOLVED=""
 
 log() {
     printf '[tabura-install] %s\n' "$*"
@@ -355,6 +389,10 @@ BIN
             echo "#!/usr/bin/env bash" >"${tmpdir}/setup-local-llm.sh"
         fi
         chmod +x "${tmpdir}/setup-local-llm.sh"
+        if [ -f "scripts/lib/llama.sh" ]; then
+            mkdir -p "${tmpdir}/scripts/lib"
+            cp "scripts/lib/llama.sh" "${tmpdir}/scripts/lib/llama.sh"
+        fi
         if [ -f "scripts/setup-voxtype-stt.sh" ]; then
             cp "scripts/setup-voxtype-stt.sh" "${tmpdir}/setup-voxtype-stt.sh"
         else
@@ -392,6 +430,9 @@ BIN
     if [ -f "${tmpdir}/scripts/setup-local-llm.sh" ]; then
         cp "${tmpdir}/scripts/setup-local-llm.sh" "${tmpdir}/setup-local-llm.sh"
     fi
+    if [ -f "${tmpdir}/scripts/lib/llama.sh" ]; then
+        mkdir -p "${tmpdir}/scripts/lib"
+    fi
     if [ -f "${tmpdir}/scripts/setup-voxtype-stt.sh" ]; then
         cp "${tmpdir}/scripts/setup-voxtype-stt.sh" "${tmpdir}/setup-voxtype-stt.sh"
     fi
@@ -407,6 +448,10 @@ install_binary_payload() {
     run_cmd cp "${staging_dir}/tabura" "$BIN_PATH"
     run_cmd chmod +x "$BIN_PATH"
     run_cmd cp "${staging_dir}/piper_tts_server.py" "$PIPER_SERVER_SCRIPT"
+    if [ -f "${staging_dir}/scripts/lib/llama.sh" ]; then
+        run_cmd mkdir -p "${SCRIPT_DIR}/lib"
+        run_cmd cp "${staging_dir}/scripts/lib/llama.sh" "${SCRIPT_DIR}/lib/llama.sh"
+    fi
     if ! printf ':%s:' "$PATH" | grep -Fq ":${BIN_DIR}:"; then
         log "${BIN_DIR} is not in PATH; add it in your shell profile"
     fi
@@ -482,20 +527,28 @@ setup_piper_tts() {
 }
 
 ensure_llama_server() {
-    if have_cmd llama-server; then
-        return
+    if LLAMA_SERVER_BIN_RESOLVED="$(tabura_find_llama_server)"; then
+        return 0
     fi
     if [ "$TABURA_OS" = "darwin" ]; then
         if ! have_cmd brew; then
             log "llama-server not found; install llama.cpp via Homebrew: brew install llama.cpp"
-            return
+            return 1
         fi
         if confirm_default_yes "Install llama.cpp via Homebrew?"; then
             run_cmd brew install llama.cpp
+            if LLAMA_SERVER_BIN_RESOLVED="$(tabura_find_llama_server)"; then
+                return 0
+            fi
         fi
     else
-        log "llama-server not found; install llama.cpp and ensure llama-server is on PATH"
+        if [ -n "${TABURA_LLAMA_LAST_ERROR:-}" ]; then
+            log "llama-server not usable: ${TABURA_LLAMA_LAST_ERROR}"
+        else
+            log "llama-server not found; install llama.cpp and ensure llama-server is on PATH"
+        fi
     fi
+    return 1
 }
 
 setup_local_llm() {
@@ -521,7 +574,7 @@ setup_local_llm() {
     fi
 
     cat <<NOTICE
-=== Local LLM (Qwen3.5 9B via llama.cpp, optional) ===
+=== Local LLM (Qwen3 0.6B via llama.cpp, optional) ===
 A local coordinator language model for Hub routing and replies.
 Runs as a local HTTP service on port 8426.
 Requires llama.cpp (llama-server binary).
@@ -531,7 +584,10 @@ NOTICE
         return
     fi
 
-    ensure_llama_server
+    if ! ensure_llama_server; then
+        log "skipping local LLM setup"
+        return
+    fi
     run_cmd mkdir -p "$LLM_MODEL_DIR" "$SCRIPT_DIR"
 
     local staging_llm="${1:-}"
@@ -540,12 +596,12 @@ NOTICE
         run_cmd chmod +x "$LLM_SETUP_SCRIPT"
     fi
 
-    local model_file="Qwen3.5-9B-Q4_K_M.gguf"
-    local model_url="https://huggingface.co/lmstudio-community/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf?download=true"
+    local model_file="Qwen3-0.6B-Q4_K_M.gguf"
+    local model_url="https://huggingface.co/lmstudio-community/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf?download=true"
     local model_path="${LLM_MODEL_DIR}/${model_file}"
     if [ -f "$model_path" ]; then
         log "LLM model already present: ${model_file}"
-    elif confirm_default_yes "Download Qwen3.5 9B model (~5.3 GB)?"; then
+    elif confirm_default_yes "Download Qwen3 0.6B model (~462 MB)?"; then
         if [ "$DRY_RUN" = "1" ]; then
             run_cmd curl -fL -o "$model_path" "$model_url"
         else
@@ -676,14 +732,15 @@ UNIT
     if [ -x "$LLM_SETUP_SCRIPT" ] && [ -z "$REUSE_LLM_URL" ]; then
         cat >"${systemd_dir}/tabura-llm.service" <<UNIT
 [Unit]
-Description=Tabura Local Coordinator LLM (Qwen3.5 9B)
+Description=Tabura Local Coordinator LLM (Qwen3 0.6B)
 After=network.target
 
 [Service]
 Type=simple
 Environment=TABURA_LLM_MODEL_DIR=${LLM_MODEL_DIR}
-Environment=TABURA_LLM_MODEL_FILE=Qwen3.5-9B-Q4_K_M.gguf
-Environment=TABURA_LLM_MODEL_URL=https://huggingface.co/lmstudio-community/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf?download=true
+Environment=TABURA_LLM_MODEL_FILE=Qwen3-0.6B-Q4_K_M.gguf
+Environment=TABURA_LLM_MODEL_URL=https://huggingface.co/lmstudio-community/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf?download=true
+Environment=LLAMA_SERVER_BIN=${LLAMA_SERVER_BIN_RESOLVED}
 ExecStart=${LLM_SETUP_SCRIPT}
 Restart=on-failure
 RestartSec=5
@@ -742,6 +799,7 @@ substitute_launchd_template() {
         -e "s|@@PIPER_MODEL_DIR@@|${MODEL_DIR}|g" \
         -e "s|@@LLM_SETUP_SCRIPT@@|${LLM_SETUP_SCRIPT}|g" \
         -e "s|@@LLM_MODEL_DIR@@|${LLM_MODEL_DIR}|g" \
+        -e "s|@@LLAMA_SERVER_BIN@@|${LLAMA_SERVER_BIN_RESOLVED}|g" \
         -e "s|@@STT_SETUP_SCRIPT@@|${STT_SETUP_SCRIPT}|g" \
         -e "s|@@TABURA_INTENT_LLM_URL@@|${effective_llm_url}|g" \
         "$src" >"$dst"

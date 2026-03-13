@@ -29,7 +29,7 @@ var expectedPlists = []struct {
 	{
 		file:   "io.tabura.llm.plist",
 		label:  "io.tabura.llm",
-		tokens: []string{"@@LLM_SETUP_SCRIPT@@", "@@LLM_MODEL_DIR@@"},
+		tokens: []string{"@@LLM_SETUP_SCRIPT@@", "@@LLM_MODEL_DIR@@", "@@LLAMA_SERVER_BIN@@"},
 	},
 	{
 		file:   "io.tabura.stt.plist",
@@ -149,8 +149,9 @@ func TestLaunchdTemplateTokenSubstitution(t *testing.T) {
 		"@@VENV_DIR@@":         "/tmp/venv",
 		"@@SCRIPT_DIR@@":       "/tmp/scripts",
 		"@@PIPER_MODEL_DIR@@":  "/tmp/models",
-		"@@LLM_SETUP_SCRIPT@@": "/tmp/setup-llm.sh",
-		"@@LLM_MODEL_DIR@@":    "/tmp/llm-models",
+		"@@LLM_SETUP_SCRIPT@@":      "/tmp/setup-llm.sh",
+		"@@LLM_MODEL_DIR@@":         "/tmp/llm-models",
+		"@@LLAMA_SERVER_BIN@@":      "/tmp/llama-server",
 		"@@STT_SETUP_SCRIPT@@":      "/tmp/setup-stt.sh",
 		"@@TABURA_INTENT_LLM_URL@@": "http://127.0.0.1:8426",
 	}

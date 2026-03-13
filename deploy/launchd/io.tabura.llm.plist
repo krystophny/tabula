@@ -12,6 +12,8 @@
   <dict>
     <key>TABURA_LLM_MODEL_DIR</key>
     <string>@@LLM_MODEL_DIR@@</string>
+    <key>LLAMA_SERVER_BIN</key>
+    <string>@@LLAMA_SERVER_BIN@@</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

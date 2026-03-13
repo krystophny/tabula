@@ -3,6 +3,8 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLATFORM="$(uname -s)"
+# shellcheck source=scripts/lib/llama.sh
+source "${REPO_ROOT}/scripts/lib/llama.sh"
 
 log() { printf '[tabura-units] %s\n' "$*"; }
 fail() { printf '[tabura-units] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -31,6 +33,7 @@ confirm_default_yes() {
 }
 
 REUSE_LLM_URL=""
+LLAMA_SERVER_BIN_RESOLVED=""
 
 # --- Platform detection ---
 
@@ -76,11 +79,16 @@ fi
 
 if [ -n "$REUSE_LLM_URL" ]; then
   HAVE_LLAMA=0
-elif ! command -v llama-server >/dev/null 2>&1 && [ ! -x "${HOME}/.local/llama.cpp/llama-server" ]; then
+elif LLAMA_SERVER_BIN_RESOLVED="$(tabura_find_llama_server)"; then
+  HAVE_LLAMA=1
+else
   HAVE_LLAMA=0
   if [ "$PLATFORM" = "Darwin" ]; then
     log "WARNING: llama-server not found. Install: brew install llama.cpp"
   else
+    if [ -n "${TABURA_LLAMA_LAST_ERROR:-}" ]; then
+      fail "llama-server not usable: ${TABURA_LLAMA_LAST_ERROR}"
+    fi
     fail "llama-server not found. Build llama.cpp and install to ~/.local/bin"
   fi
 fi
@@ -104,6 +112,15 @@ install_linux() {
   local unit_src="$REPO_ROOT/deploy/systemd/user"
   local unit_dst="$HOME/.config/systemd/user"
   local effective_llm_url="${REUSE_LLM_URL:-http://127.0.0.1:8426}"
+  local -a core_units=(
+    tabura-codex-app-server.service
+    tabura-piper-tts.service
+    tabura-stt.service
+    tabura-web.service
+  )
+  local -a optional_units=(
+    tabura-ptt.service
+  )
 
   mkdir -p "$unit_dst"
   for f in "$unit_src"/*.service; do
@@ -113,6 +130,7 @@ install_linux() {
       continue
     fi
     sed -e "s|@@REPO_ROOT@@|${REPO_ROOT}|g" \
+        -e "s|@@LLAMA_SERVER_BIN@@|${LLAMA_SERVER_BIN_RESOLVED}|g" \
         -e "s|@@TABURA_INTENT_LLM_URL@@|${effective_llm_url}|g" \
         "$f" > "$unit_dst/$base"
   done
@@ -128,28 +146,38 @@ install_linux() {
     >/dev/null 2>&1 || true
 
   # Enable and start all services
-  local units=(
-    tabura-codex-app-server.service
-    tabura-piper-tts.service
-    tabura-stt.service
-    tabura-ptt.service
-    tabura-web.service
-  )
+  local units=("${core_units[@]}" "${optional_units[@]}")
   if [ -z "$REUSE_LLM_URL" ]; then
     units+=(tabura-llm.service)
+    core_units+=(tabura-llm.service)
   fi
 
   systemctl --user enable --now "${units[@]}"
   log "Enabled: ${units[*]}"
 
-  # Verify all services are running
+  # Verify all core services are running. Optional helpers are best-effort.
   sleep 3
   local failed=()
-  for unit in "${units[@]}"; do
+  local optional_failed=()
+  local unit
+  for unit in "${core_units[@]}"; do
     if ! systemctl --user is-active "$unit" >/dev/null 2>&1; then
       failed+=("$unit")
     fi
   done
+
+  for unit in "${optional_units[@]}"; do
+    if ! systemctl --user is-active "$unit" >/dev/null 2>&1; then
+      optional_failed+=("$unit")
+    fi
+  done
+
+  if ((${#optional_failed[@]} > 0)); then
+    log "Optional services inactive: ${optional_failed[*]}"
+    for unit in "${optional_failed[@]}"; do
+      systemctl --user status "$unit" --no-pager -n 10 2>&1 || true
+    done
+  fi
 
   if ((${#failed[@]} > 0)); then
     log "FAILED services: ${failed[*]}"
@@ -243,6 +271,7 @@ install_macos() {
       -e "s|@@PIPER_MODEL_DIR@@|${piper_model_dir}|g" \
       -e "s|@@LLM_SETUP_SCRIPT@@|${REPO_ROOT}/scripts/setup-local-llm.sh|g" \
       -e "s|@@LLM_MODEL_DIR@@|${LLM_MODEL_DIR}|g" \
+      -e "s|@@LLAMA_SERVER_BIN@@|${LLAMA_SERVER_BIN_RESOLVED}|g" \
       -e "s|@@STT_SETUP_SCRIPT@@|${REPO_ROOT}/scripts/setup-voxtype-stt.sh|g" \
       -e "s|@@TABURA_INTENT_LLM_URL@@|${effective_llm_url}|g" \
       "$src" > "$dst"
@@ -316,6 +345,7 @@ activate_direct() {
         ;;
       llm)
         TABURA_LLM_MODEL_DIR="$LLM_MODEL_DIR" \
+        LLAMA_SERVER_BIN="$LLAMA_SERVER_BIN_RESOLVED" \
         nohup "$REPO_ROOT/scripts/setup-local-llm.sh" \
           >"$logfile" 2>&1 &
         ;;

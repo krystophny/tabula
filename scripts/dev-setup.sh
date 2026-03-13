@@ -5,6 +5,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLATFORM="$(uname -s)"
 ARCH="$(uname -m)"
 ASSUME_YES="${TABURA_ASSUME_YES:-0}"
+# shellcheck source=scripts/lib/llama.sh
+source "${REPO_ROOT}/scripts/lib/llama.sh"
 
 log()  { printf '[dev-setup] %s\n' "$*"; }
 warn() { printf '[dev-setup] WARNING: %s\n' "$*"; }
@@ -97,14 +99,20 @@ if [ -z "${TABURA_INTENT_LLM_URL:-}" ]; then
 fi
 
 if [ -z "${TABURA_INTENT_LLM_URL:-}" ]; then
-    if ! command -v llama-server >/dev/null 2>&1 && [ ! -x "${HOME}/.local/llama.cpp/llama-server" ]; then
-        warn "llama-server not found; intent LLM will be disabled"
+    if ! LLAMA_SERVER_BIN="$(tabura_find_llama_server)"; then
+        if [ -n "${TABURA_LLAMA_LAST_ERROR:-}" ]; then
+            warn "llama-server not usable (${TABURA_LLAMA_LAST_ERROR}); intent LLM will be disabled"
+        else
+            warn "llama-server not found; intent LLM will be disabled"
+        fi
         if [ "$PLATFORM" = "Darwin" ]; then
             warn "  Install: brew install llama.cpp"
         else
             warn "  Build llama.cpp and place llama-server in ~/.local/bin"
         fi
         export TABURA_INTENT_LLM_URL="off"
+    else
+        export LLAMA_SERVER_BIN
     fi
 fi
 

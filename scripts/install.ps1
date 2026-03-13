@@ -261,7 +261,7 @@ function Setup-LocalLlm {
         Write-Log "skipping local LLM due to TABURA_INSTALL_SKIP_LLM=1"
         return
     }
-    Write-Host "=== Local LLM (Qwen3.5 9B via llama.cpp, optional) ==="
+    Write-Host "=== Local LLM (Qwen3 0.6B via llama.cpp, optional) ==="
     Write-Host "A local coordinator language model for Hub routing and replies."
     Write-Host "Runs as a local HTTP service on port 8426."
     Write-Host "Requires llama.cpp (llama-server binary)."
@@ -285,15 +285,15 @@ function Setup-LocalLlm {
         }
     }
 
-    $modelFile = "Qwen3.5-9B-Q4_K_M.gguf"
+    $modelFile = "Qwen3-0.6B-Q4_K_M.gguf"
     $modelPath = Join-Path $LlmModelDir $modelFile
     if (Test-Path $modelPath) {
         Write-Log "LLM model already present: $modelFile"
-    } elseif (Confirm-DefaultYes "Download Qwen3.5 9B model (~5.3 GB)?") {
+    } elseif (Confirm-DefaultYes "Download Qwen3 0.6B model (~462 MB)?") {
         if ($DryRun.IsPresent) {
             Invoke-Step -Display "Download $modelFile" -Action {}
         } else {
-            $modelUrl = "https://huggingface.co/lmstudio-community/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf?download=true"
+            $modelUrl = "https://huggingface.co/lmstudio-community/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf?download=true"
             Invoke-WebRequest -Uri $modelUrl -OutFile $modelPath
         }
     }
@@ -309,7 +309,7 @@ function Write-TaskFiles {
     $llamaPath = (Get-Command llama-server -ErrorAction SilentlyContinue)
     $llmCmd = ""
     if ($llamaPath) {
-        $llmCmd = '"' + $llamaPath.Source + '" -m "' + (Join-Path $LlmModelDir "Qwen3.5-9B-Q4_K_M.gguf") + '" --host 127.0.0.1 --port 8426 -c 2048 --threads 4 -ngl 99'
+        $llmCmd = '"' + $llamaPath.Source + '" -m "' + (Join-Path $LlmModelDir "Qwen3-0.6B-Q4_K_M.gguf") + '" --host 127.0.0.1 --port 8426 -c 2048 --threads 4 -ngl 99'
     }
 
     if ($DryRun.IsPresent) {
