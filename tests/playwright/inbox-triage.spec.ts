@@ -26,9 +26,9 @@ async function refreshItemSidebarCounts(page: Page) {
 }
 
 async function clickSphereButton(page: Page, sphere: 'work' | 'private') {
-  await page.evaluate((nextSphere) => {
-    const button = document.querySelector(`#edge-top-models .edge-sphere-btn[data-sphere="${nextSphere}"]`);
-    if (button instanceof HTMLButtonElement) button.click();
+  await page.evaluate(async (nextSphere) => {
+    const mod = await import('../../internal/web/static/app-workspace-runtime.js');
+    await mod.setActiveSphere(nextSphere);
   }, sphere);
 }
 

@@ -86,12 +86,6 @@ function visibleProjectsForSphere(sphere = state.activeSphere) {
   return state.projects.filter((project) => projectMatchesSphere(project, sphere));
 }
 
-function currentExecutionPolicy(project = activeProject()) {
-  if (state.yoloMode) return 'autonomous';
-  const mode = String(project?.chat_mode || 'chat').trim().toLowerCase();
-  if (mode === 'plan' || mode === 'review') return 'reviewed';
-  return 'default';
-}
 export async function refreshWorkspaceRuntimeState() {
   const [focusResp, busyResp] = await Promise.all([
     fetch(apiURL('workspace/focus'), { cache: 'no-store' }),
@@ -245,16 +239,6 @@ function normalizeLivePolicy(policy) {
     ? LIVE_SESSION_MODE_MEETING
     : LIVE_SESSION_MODE_DIALOGUE;
 }
-
-let runtimeMenuOpen = false;
-let runtimeMenuCleanup: null | (() => void) = null;
-
-function teardownRuntimeMenu() {
-  if (typeof runtimeMenuCleanup === 'function') {
-    runtimeMenuCleanup();
-  }
-  runtimeMenuCleanup = null;
-}
 export async function updateLivePolicy(policy) {
   const nextPolicy = normalizeLivePolicy(policy);
   const resp = await fetch(apiURL('live-policy'), {
@@ -271,19 +255,6 @@ export async function updateLivePolicy(policy) {
   renderEdgeTopModelButtons();
   updateAssistantActivityIndicator();
   return payload;
-}
-export async function toggleCompanionIdleSurfacePreference() {
-  const nextSurface = state.companionIdleSurface === COMPANION_IDLE_SURFACES.BLACK
-    ? COMPANION_IDLE_SURFACES.ROBOT
-    : COMPANION_IDLE_SURFACES.BLACK;
-  try {
-    await updateCompanionConfig({ idle_surface: nextSurface });
-    showStatus(nextSurface === COMPANION_IDLE_SURFACES.BLACK ? 'black mode on' : 'black mode off');
-  } catch (err) {
-    const message = String(err?.message || err || 'idle surface update failed');
-    appendPlainMessage('system', `Idle surface update failed: ${message}`);
-    showStatus(`idle surface failed: ${message}`);
-  }
 }
 export async function activateLiveSession(mode) {
   const normalized = String(mode || '').trim().toLowerCase();
@@ -404,125 +375,82 @@ export function renderEdgeTopProjects() {
 export function renderEdgeTopModelButtons() {
   const host = document.getElementById('edge-top-models');
   if (!(host instanceof HTMLElement)) return;
-  teardownRuntimeMenu();
   host.innerHTML = '';
-  const sphereWrap = document.createElement('div');
-  sphereWrap.className = 'edge-sphere-toggle';
-  for (const option of SPHERE_OPTIONS) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'edge-project-btn edge-model-btn edge-sphere-btn';
-    button.textContent = option.label;
-    button.dataset.sphere = option.id;
-    button.setAttribute('aria-pressed', state.activeSphere === option.id ? 'true' : 'false');
-    if (state.activeSphere === option.id) {
-      button.classList.add('is-active');
-    }
-    button.disabled = state.projectSwitchInFlight || state.projectModelSwitchInFlight;
-    button.addEventListener('click', () => {
-      void setActiveSphere(option.id);
-    });
-    sphereWrap.appendChild(button);
-  }
-  host.appendChild(sphereWrap);
-
-  const workspaceStatusWrap = document.createElement('div');
-  workspaceStatusWrap.className = 'edge-workspace-status-wrap';
-  const focusSnapshot = normalizeWorkspaceFocusSnapshot(state.workspaceFocus);
-  if (focusSnapshot.anchor) {
-    const anchorBadge = document.createElement('span');
-    anchorBadge.className = 'edge-project-btn edge-workspace-status edge-workspace-anchor';
-    anchorBadge.textContent = `Anchor ${workspaceDisplayName(focusSnapshot.anchor)}`;
-    const anchorPath = String(focusSnapshot.anchor?.dir_path || '').trim();
-    anchorBadge.title = anchorPath
-      ? `Daily anchor: ${workspaceDisplayName(focusSnapshot.anchor)} (${anchorPath})`
-      : `Daily anchor: ${workspaceDisplayName(focusSnapshot.anchor)}`;
-    workspaceStatusWrap.appendChild(anchorBadge);
-  }
-  if (focusSnapshot.focus) {
-    const focusBadge = document.createElement('span');
-    focusBadge.className = 'edge-project-btn edge-workspace-status edge-workspace-focus';
-    focusBadge.textContent = focusSnapshot.explicit
-      ? `Focus ${workspaceDisplayName(focusSnapshot.focus)}`
-      : 'Focus anchor';
-    const focusPath = String(focusSnapshot.focus?.dir_path || '').trim();
-    focusBadge.title = focusSnapshot.explicit
-      ? (focusPath
-        ? `Focused workspace: ${workspaceDisplayName(focusSnapshot.focus)} (${focusPath})`
-        : `Focused workspace: ${workspaceDisplayName(focusSnapshot.focus)}`)
-      : 'Focused workspace follows the anchor until you explicitly switch it.';
-    workspaceStatusWrap.appendChild(focusBadge);
-  }
-  const busyBadge = document.createElement('span');
-  const hasBusyWork = normalizeWorkspaceBusyStates(state.workspaceBusyStates).some((entry) => entry.status !== 'idle');
-  busyBadge.className = `edge-project-btn edge-workspace-status edge-workspace-busy${hasBusyWork ? ' is-busy' : ''}`;
-  busyBadge.textContent = workspaceBusyBadgeText(state.workspaceBusyStates);
-  busyBadge.title = workspaceBusyBadgeTitle(focusSnapshot, state.workspaceBusyStates);
-  workspaceStatusWrap.appendChild(busyBadge);
-  host.appendChild(workspaceStatusWrap);
-
   const project = activeProject();
-  const selectedAlias = activeProjectChatModelAlias();
-  const selectedEffort = activeProjectChatModelReasoningEffort();
-  const effortOptions = reasoningEffortOptionsForAlias(selectedAlias);
-  for (const alias of PROJECT_CHAT_MODEL_ALIASES) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'edge-project-btn edge-model-btn';
-    button.textContent = alias;
-    if (alias === selectedAlias) {
-      button.classList.add('is-active');
-    }
-    button.disabled = !project || state.projectSwitchInFlight || state.projectModelSwitchInFlight;
-    button.addEventListener('click', () => {
-      void switchProjectChatModel(alias);
-    });
-    host.appendChild(button);
-  }
+  const focusSnapshot = normalizeWorkspaceFocusSnapshot(state.workspaceFocus);
+  const hasBusyWork = normalizeWorkspaceBusyStates(state.workspaceBusyStates).some((entry) => entry.status !== 'idle');
+  const shell = document.createElement('div');
+  shell.className = 'edge-runtime-shell';
 
-  const effortWrap = document.createElement('div');
-  effortWrap.className = 'edge-model-effort-wrap';
-  const effortSelect = document.createElement('select');
-  effortSelect.className = 'edge-model-select edge-reasoning-effort-select';
-  effortSelect.setAttribute('aria-label', 'Reasoning effort');
-  for (const effort of effortOptions) {
-    const option = document.createElement('option');
-    option.value = effort;
-    option.textContent = effort === 'xhigh' || effort === 'extra_high' ? 'xhigh' : effort.replace(/_/g, ' ');
-    effortSelect.appendChild(option);
+  const summary = document.createElement('div');
+  summary.className = 'edge-runtime-summary';
+
+  const kicker = document.createElement('div');
+  kicker.className = 'edge-runtime-kicker';
+  kicker.textContent = 'Today';
+  summary.appendChild(kicker);
+
+  const title = document.createElement('div');
+  title.className = 'edge-runtime-title';
+  title.textContent = String(project?.name || project?.id || 'No workspace selected').trim() || 'No workspace selected';
+  summary.appendChild(title);
+
+  const detail = document.createElement('div');
+  detail.className = 'edge-runtime-detail';
+  const detailParts = [];
+  if (focusSnapshot.focus) {
+    detailParts.push(focusSnapshot.explicit
+      ? `Focus ${workspaceDisplayName(focusSnapshot.focus)}`
+      : `Anchor ${workspaceDisplayName(focusSnapshot.focus)}`);
+  } else if (focusSnapshot.anchor) {
+    detailParts.push(`Anchor ${workspaceDisplayName(focusSnapshot.anchor)}`);
   }
-  effortSelect.value = effortOptions.includes(selectedEffort) ? selectedEffort : (effortOptions[0] || '');
-  effortSelect.disabled = !project || state.projectSwitchInFlight || state.projectModelSwitchInFlight;
-  effortSelect.addEventListener('change', () => {
-    const nextEffort = normalizeProjectChatModelReasoningEffort(effortSelect.value, selectedAlias);
-    void switchProjectChatModel(selectedAlias, nextEffort);
-  });
-  effortWrap.appendChild(effortSelect);
-  host.appendChild(effortWrap);
+  detailParts.push(workspaceBusyBadgeText(state.workspaceBusyStates));
+  const detailPath = String(
+    focusSnapshot.focus?.dir_path
+      || focusSnapshot.anchor?.dir_path
+      || project?.root_path
+      || '',
+  ).trim();
+  if (detailPath) {
+    detailParts.push(detailPath);
+  }
+  detail.textContent = detailParts.join(' • ');
+  detail.title = workspaceBusyBadgeTitle(focusSnapshot, state.workspaceBusyStates);
+  summary.appendChild(detail);
+
+  const busy = document.createElement('span');
+  busy.className = `edge-runtime-busy${hasBusyWork ? ' is-busy' : ''}`;
+  busy.textContent = workspaceBusyBadgeText(state.workspaceBusyStates);
+  busy.title = workspaceBusyBadgeTitle(focusSnapshot, state.workspaceBusyStates);
+  summary.appendChild(busy);
+
+  const actions = document.createElement('div');
+  actions.className = 'edge-runtime-actions';
 
   const liveDisabled = !project || state.projectSwitchInFlight || state.projectModelSwitchInFlight;
   if (state.liveSessionActive) {
     const liveStatus = document.createElement('span');
-    liveStatus.className = 'edge-project-btn edge-model-btn edge-live-status';
+    liveStatus.className = 'edge-live-status';
     liveStatus.textContent = liveSessionStatusSummary();
     if (state.hotwordEnabled) {
       liveStatus.title = `Live session hotword: ${state.liveSessionHotword || LIVE_SESSION_HOTWORD_DEFAULT}`;
     }
-    host.appendChild(liveStatus);
+    actions.appendChild(liveStatus);
 
     const stopButton = document.createElement('button');
     stopButton.type = 'button';
-    stopButton.className = 'edge-project-btn edge-model-btn edge-live-stop-btn';
+    stopButton.className = 'edge-project-btn edge-live-stop-btn';
     stopButton.textContent = 'Stop';
     stopButton.disabled = liveDisabled;
     stopButton.addEventListener('click', () => {
       void deactivateLiveSession({ disableMeetingConfig: true });
     });
-    host.appendChild(stopButton);
+    actions.appendChild(stopButton);
   } else {
     const dialogueButton = document.createElement('button');
     dialogueButton.type = 'button';
-    dialogueButton.className = 'edge-project-btn edge-model-btn edge-live-dialogue-btn';
+    dialogueButton.className = 'edge-project-btn edge-live-dialogue-btn';
     dialogueButton.textContent = 'Dialogue';
     dialogueButton.setAttribute('aria-pressed', state.livePolicy === LIVE_SESSION_MODE_DIALOGUE ? 'true' : 'false');
     if (state.livePolicy === LIVE_SESSION_MODE_DIALOGUE) {
@@ -543,11 +471,11 @@ export function renderEdgeTopModelButtons() {
           showStatus(`live dialogue failed: ${message}`);
         });
     });
-    host.appendChild(dialogueButton);
+    actions.appendChild(dialogueButton);
 
     const meetingButton = document.createElement('button');
     meetingButton.type = 'button';
-    meetingButton.className = 'edge-project-btn edge-model-btn edge-live-meeting-btn';
+    meetingButton.className = 'edge-project-btn edge-live-meeting-btn';
     meetingButton.textContent = 'Meeting';
     meetingButton.setAttribute('aria-pressed', state.livePolicy === LIVE_SESSION_MODE_MEETING ? 'true' : 'false');
     if (state.livePolicy === LIVE_SESSION_MODE_MEETING) {
@@ -569,175 +497,28 @@ export function renderEdgeTopModelButtons() {
           showStatus(`live meeting failed: ${message}`);
         });
     });
-    host.appendChild(meetingButton);
+    actions.appendChild(meetingButton);
   }
 
-  const silentButton = document.createElement('button');
-  silentButton.type = 'button';
-  silentButton.className = 'edge-project-btn edge-model-btn edge-silent-btn';
-  silentButton.textContent = 'silent';
-  silentButton.setAttribute('aria-pressed', state.ttsSilent ? 'true' : 'false');
-  if (state.ttsSilent) {
-    silentButton.classList.add('is-active');
-  }
-  silentButton.disabled = !state.ttsEnabled || state.projectSwitchInFlight || state.projectModelSwitchInFlight;
-  silentButton.addEventListener('click', () => {
-    toggleTTSSilentMode();
-  });
-  host.appendChild(silentButton);
-
-  const runtimeMore = document.createElement('div');
-  runtimeMore.className = 'edge-runtime-more';
-  const runtimeMoreButton = document.createElement('button');
-  runtimeMoreButton.type = 'button';
-  runtimeMoreButton.className = 'edge-project-btn edge-model-btn edge-runtime-more-btn';
-  runtimeMoreButton.textContent = 'More';
-  runtimeMoreButton.setAttribute('aria-label', 'More runtime controls');
-  runtimeMoreButton.setAttribute('aria-haspopup', 'menu');
-  runtimeMoreButton.setAttribute('aria-expanded', 'false');
-  runtimeMore.appendChild(runtimeMoreButton);
-
-  const runtimeMenu = document.createElement('div');
-  runtimeMenu.className = 'edge-runtime-menu';
-  runtimeMenu.hidden = !runtimeMenuOpen;
-  runtimeMenu.setAttribute('role', 'menu');
-
-  const closeRuntimeMenu = () => {
-    runtimeMenuOpen = false;
-    runtimeMore.classList.remove('is-open');
-    runtimeMoreButton.classList.remove('is-active');
-    runtimeMoreButton.setAttribute('aria-expanded', 'false');
-    runtimeMenu.hidden = true;
-  };
-  const openRuntimeMenu = () => {
-    runtimeMenuOpen = true;
-    runtimeMore.classList.add('is-open');
-    runtimeMoreButton.classList.add('is-active');
-    runtimeMoreButton.setAttribute('aria-expanded', 'true');
-    runtimeMenu.hidden = false;
-  };
-  const toggleRuntimeMenu = () => {
-    if (runtimeMenuOpen) {
-      closeRuntimeMenu();
-      return;
+  if (state.ttsEnabled) {
+    const silentButton = document.createElement('button');
+    silentButton.type = 'button';
+    silentButton.className = 'edge-project-btn edge-silent-btn';
+    silentButton.textContent = 'Silent';
+    silentButton.setAttribute('aria-pressed', state.ttsSilent ? 'true' : 'false');
+    if (state.ttsSilent) {
+      silentButton.classList.add('is-active');
     }
-    openRuntimeMenu();
-  };
-  const appendRuntimeMenuButton = (button) => {
-    button.classList.add('edge-runtime-menu-btn');
-    button.setAttribute('role', 'menuitem');
-    runtimeMenu.appendChild(button);
-  };
-  const hasActiveOverflowSetting = () => state.yoloMode || state.companionIdleSurface === COMPANION_IDLE_SURFACES.BLACK;
-
-  const yoloButton = document.createElement('button');
-  yoloButton.type = 'button';
-  yoloButton.className = 'edge-project-btn edge-model-btn edge-yolo-btn';
-  yoloButton.textContent = 'Auto';
-  yoloButton.title = `Execution policy: ${currentExecutionPolicy(project)}`;
-  yoloButton.setAttribute('aria-label', 'Autonomous execution policy');
-  yoloButton.setAttribute('aria-pressed', state.yoloMode ? 'true' : 'false');
-  if (state.yoloMode) {
-    yoloButton.classList.add('is-active');
-    runtimeMoreButton.classList.add('has-active-menu-item');
-  }
-  yoloButton.disabled = state.projectSwitchInFlight || state.projectModelSwitchInFlight;
-  yoloButton.addEventListener('click', () => {
-    closeRuntimeMenu();
-    toggleYoloMode();
-  });
-  appendRuntimeMenuButton(yoloButton);
-
-  const blackButton = document.createElement('button');
-  blackButton.type = 'button';
-  blackButton.className = 'edge-project-btn edge-model-btn edge-companion-surface-btn';
-  blackButton.textContent = 'black';
-  blackButton.setAttribute('aria-pressed', state.companionIdleSurface === COMPANION_IDLE_SURFACES.BLACK ? 'true' : 'false');
-  if (state.companionIdleSurface === COMPANION_IDLE_SURFACES.BLACK) {
-    blackButton.classList.add('is-active');
-    runtimeMoreButton.classList.add('has-active-menu-item');
-  }
-  blackButton.disabled = !project || state.projectSwitchInFlight || state.projectModelSwitchInFlight;
-  blackButton.addEventListener('click', () => {
-    closeRuntimeMenu();
-    void toggleCompanionIdleSurfacePreference();
-  });
-  appendRuntimeMenuButton(blackButton);
-
-  const temporarySourceProjectID = project ? String(project.id || '').trim() : '';
-  const temporaryButtons = isTemporaryProjectKind(project?.kind)
-    ? [
-        {
-          className: 'edge-temp-persist-btn',
-          label: 'keep',
-          onClick: () => { void persistTemporaryProject(String(project?.id || '').trim()); },
-        },
-        {
-          className: 'edge-temp-discard-btn',
-          label: 'discard',
-          onClick: () => { void discardTemporaryProject(String(project?.id || '').trim()); },
-        },
-      ]
-    : [
-        {
-          className: 'edge-temp-meeting-btn',
-          label: 'meeting',
-          onClick: () => { void createTemporaryProject('meeting', temporarySourceProjectID); },
-        },
-        {
-          className: 'edge-temp-task-btn',
-          label: 'task',
-          onClick: () => { void createTemporaryProject('task', temporarySourceProjectID); },
-        },
-      ];
-  for (const action of temporaryButtons) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = `edge-project-btn edge-model-btn ${action.className}`;
-    button.textContent = action.label;
-    button.disabled = state.projectSwitchInFlight || state.projectModelSwitchInFlight;
-    button.addEventListener('click', () => {
-      closeRuntimeMenu();
-      action.onClick();
+    silentButton.disabled = state.projectSwitchInFlight || state.projectModelSwitchInFlight;
+    silentButton.addEventListener('click', () => {
+      toggleTTSSilentMode();
     });
-    appendRuntimeMenuButton(button);
+    actions.appendChild(silentButton);
   }
 
-  runtimeMore.appendChild(runtimeMenu);
-  host.appendChild(runtimeMore);
-  if (runtimeMenuOpen) {
-    openRuntimeMenu();
-  } else {
-    closeRuntimeMenu();
-  }
-  if (hasActiveOverflowSetting()) {
-    runtimeMoreButton.classList.add('has-active-menu-item');
-  }
-  const handleRuntimeMenuDocumentClick = (event) => {
-    if (!runtimeMore.contains(event.target as Node)) {
-      closeRuntimeMenu();
-    }
-  };
-  const handleRuntimeMenuKeydown = (event) => {
-    if (event.key === 'Escape') {
-      closeRuntimeMenu();
-    }
-  };
-  runtimeMoreButton.addEventListener('click', (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    toggleRuntimeMenu();
-  });
-  runtimeMenu.addEventListener('click', (event) => {
-    event.stopPropagation();
-  });
-  document.addEventListener('click', handleRuntimeMenuDocumentClick);
-  document.addEventListener('keydown', handleRuntimeMenuKeydown);
-  runtimeMenuCleanup = () => {
-    document.removeEventListener('click', handleRuntimeMenuDocumentClick);
-    document.removeEventListener('keydown', handleRuntimeMenuKeydown);
-  };
-  renderToolPalette();
+  shell.appendChild(summary);
+  shell.appendChild(actions);
+  host.appendChild(shell);
 }
 
 export async function switchProjectChatModel(modelAlias, reasoningEffort = '') {

@@ -39,7 +39,6 @@ func TestTryDeterministicFastPathRegistry(t *testing.T) {
 		{name: "project", text: "what project is this?", wantMatch: "project", wantAction: "show_workspace_project"},
 		{name: "runtime silent", text: "be quiet", wantMatch: "runtime_control", wantAction: "toggle_silent"},
 		{name: "runtime status", text: "status?", wantMatch: "runtime_control", wantAction: "show_status"},
-		{name: "runtime model", text: "switch model to gpt high", wantMatch: "runtime_control", wantAction: "switch_model"},
 	}
 
 	for _, tc := range tests {
@@ -96,7 +95,7 @@ func TestDeterministicFastPathCatalogIncludesRuntimeAndUIControls(t *testing.T) 
 	if runtime.Route != "text" {
 		t.Fatalf("runtime route = %q, want text", runtime.Route)
 	}
-	for _, action := range []string{"toggle_silent", "toggle_live_dialogue", "cancel_work", "show_status", "switch_model"} {
+	for _, action := range []string{"toggle_silent", "toggle_live_dialogue", "cancel_work", "show_status"} {
 		if !containsExactString(runtime.Actions, action) {
 			t.Fatalf("runtime actions = %#v, missing %q", runtime.Actions, action)
 		}
@@ -186,50 +185,6 @@ func TestClassifyAndExecuteSystemActionRuntimeControlBypassesIntentLLM(t *testin
 	}
 	if len(payloads) != 1 || strFromAny(payloads[0]["type"]) != "toggle_silent" {
 		t.Fatalf("payloads = %#v, want toggle_silent payload", payloads)
-	}
-}
-
-func TestClassifyAndExecuteSystemActionSwitchModelFastPathBypassesIntentLLM(t *testing.T) {
-	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
-	if err != nil {
-		t.Fatalf("ensure default project: %v", err)
-	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
-	if err != nil {
-		t.Fatalf("chat session: %v", err)
-	}
-
-	var llmCalls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		llmCalls.Add(1)
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer server.Close()
-	app.intentLLMURL = server.URL
-
-	message, payloads, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "switch model to gpt high")
-	if !handled {
-		t.Fatal("expected runtime control fast path to switch model")
-	}
-	if llmCalls.Load() != 0 {
-		t.Fatalf("intent llm calls = %d, want 0", llmCalls.Load())
-	}
-	if !strings.Contains(message, "Model for ") {
-		t.Fatalf("message = %q, want model switch confirmation", message)
-	}
-	if len(payloads) != 1 || strFromAny(payloads[0]["type"]) != "switch_model" {
-		t.Fatalf("payloads = %#v, want switch_model payload", payloads)
-	}
-	updatedProject, err := app.store.GetProjectByProjectKey(project.ProjectKey)
-	if err != nil {
-		t.Fatalf("reload project: %v", err)
-	}
-	if updatedProject.ChatModel != "gpt" {
-		t.Fatalf("chat model = %q, want gpt", updatedProject.ChatModel)
-	}
-	if updatedProject.ChatModelReasoningEffort != "high" {
-		t.Fatalf("reasoning effort = %q, want high", updatedProject.ChatModelReasoningEffort)
 	}
 }
 

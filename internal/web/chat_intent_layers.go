@@ -43,7 +43,6 @@ var intentPromptSystemCommands = []string{
 	"list_project_workspaces",
 	"link_workspace_artifact",
 	"list_linked_artifacts",
-	"switch_model",
 	"toggle_silent",
 	"toggle_live_dialogue",
 	"cancel_work",

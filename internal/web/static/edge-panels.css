@@ -163,161 +163,111 @@ body.panel-motion-enabled {
 
 #edge-top-models {
   padding: 0.45rem 0.65rem;
+  display: block;
+}
+
+.edge-runtime-shell {
   display: flex;
-  gap: 0.35rem;
   align-items: center;
-  flex-wrap: wrap;
-  overflow-x: hidden;
-  overflow-y: auto;
+  justify-content: space-between;
+  gap: 0.9rem;
+  padding: 0.85rem 1rem;
+  border: 1.5px solid #111827;
+  border-radius: 1.1rem;
+  background:
+    linear-gradient(135deg, rgba(241, 245, 249, 0.96), rgba(255, 255, 255, 0.98)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94));
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.08);
 }
 
-.edge-sphere-toggle {
+.edge-runtime-summary {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+}
+
+.edge-runtime-kicker {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.edge-runtime-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.edge-runtime-detail {
+  font-size: 0.9rem;
+  color: #334155;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.edge-runtime-busy {
   display: inline-flex;
-  gap: 0.25rem;
-  margin-right: 0.35rem;
-}
-
-.edge-sphere-btn {
-  text-transform: none;
-}
-
-.edge-workspace-status-wrap {
-  display: inline-flex;
-  gap: 0.35rem;
+  align-self: flex-start;
   align-items: center;
-  flex-wrap: wrap;
+  margin-top: 0.18rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 0.82rem;
+  font-weight: 600;
 }
 
-.edge-model-btn {
-  text-transform: lowercase;
-}
-
-.edge-workspace-status {
-  text-transform: none;
-  cursor: default;
-}
-
-.edge-workspace-anchor {
-  border-color: #0f766e;
-  color: #0f766e;
-}
-
-.edge-workspace-focus {
-  border-color: #1d4ed8;
-  color: #1d4ed8;
-}
-
-.edge-workspace-busy {
-  border-color: #6b7280;
-  color: #374151;
-}
-
-.edge-workspace-busy.is-busy {
-  border-color: #b45309;
+.edge-runtime-busy.is-busy {
   background: #fef3c7;
   color: #92400e;
 }
 
-.edge-model-effort-wrap {
+.edge-runtime-actions {
   display: flex;
   align-items: center;
-  margin-left: auto;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.45rem;
 }
 
-.edge-model-select {
-  height: 1.9rem;
+.edge-live-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.7rem;
   border-radius: 999px;
-  padding: 0.2rem 0.62rem;
-  background: #f3f4f6;
-  border: 1px solid #111827;
-  color: #111827;
-  font-size: 1rem;
-  line-height: 1;
-}
-
-.edge-silent-btn {
-  margin-left: 0.35rem;
-}
-
-.edge-live-status,
-.edge-live-stop-btn,
-.edge-live-dialogue-btn,
-.edge-live-meeting-btn {
-  margin-left: 0.35rem;
-}
-
-.edge-live-status {
-  cursor: default;
-}
-
-.edge-live-status {
   background: #111827;
-  border-color: #111827;
   color: #f9fafb;
-}
-
-.edge-runtime-more {
-  position: relative;
-  margin-left: 0.35rem;
-}
-
-.edge-runtime-more.is-open > .edge-runtime-more-btn {
-  background: #111827;
-  border-color: #111827;
-  color: #f9fafb;
-}
-
-.edge-runtime-more > .edge-runtime-more-btn.has-active-menu-item:not(.is-active) {
-  border-color: #0f766e;
-  color: #0f766e;
-}
-
-.edge-runtime-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 0.4rem);
-  min-width: 9.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.45rem;
-  border: 1px solid rgba(17, 24, 39, 0.16);
-  border-radius: 1rem;
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 18px 40px rgba(17, 24, 39, 0.16);
-  z-index: 20;
-}
-
-.edge-runtime-menu-btn {
-  margin-left: 0;
-  width: 100%;
-  justify-content: flex-start;
-  text-align: left;
-}
-
-.edge-yolo-btn.is-active {
-  background: #7f1d1d;
-  border-color: #7f1d1d;
-  color: #fee2e2;
+  font-size: 0.95rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 #edge-top-projects {
-  flex: 1;
-  overflow: auto;
-  padding: 0.5rem 0.65rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 0.65rem 0.65rem;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  align-content: flex-start;
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+  align-items: center;
 }
 
 .edge-project-btn {
-  padding: 0.3rem 0.72rem;
+  padding: 0.36rem 0.8rem;
   border: 1px solid #111827;
   border-radius: 999px;
-  background: #f3f4f6;
+  background: rgba(255, 255, 255, 0.92);
   color: #111827;
-  font-size: 1rem;
+  font-size: 0.95rem;
+  font-weight: 500;
   line-height: 1.2;
   white-space: nowrap;
 }

@@ -78,16 +78,6 @@ async function refreshWorkspaceRuntimeState(page: Page) {
   });
 }
 
-async function openRuntimeMore(page: Page) {
-  await page.evaluate(() => {
-    const button = document.querySelector('#edge-top-models .edge-runtime-more-btn');
-    if (!(button instanceof HTMLButtonElement)) {
-      throw new Error('more button missing');
-    }
-    button.click();
-  });
-}
-
 test.beforeEach(async ({ page }) => {
   await page.goto('/tests/playwright/harness.html');
   await page.waitForFunction(() => {
@@ -203,11 +193,11 @@ test('workspace runtime badges show anchor, focus, and busy overview from fetch 
   });
   await refreshWorkspaceRuntimeState(page);
 
-  await expect(page.locator('#edge-top-models .edge-workspace-anchor')).toHaveText('Anchor 2026/03/11');
-  await expect(page.locator('#edge-top-models .edge-workspace-focus')).toHaveText('Focus Plasma');
-  await expect(page.locator('#edge-top-models .edge-workspace-busy')).toHaveText('Busy 2 active');
-  await expect(page.locator('#edge-top-models .edge-workspace-busy')).toHaveAttribute('title', /Plasma \(focus\): running \(1 active, 2 queued\)/);
-  await expect(page.locator('#edge-top-models .edge-workspace-busy')).toHaveAttribute('title', /Notes: queued \(1 queued\)/);
+  await expect(page.locator('#edge-top-models .edge-runtime-title')).toHaveText('Test');
+  await expect(page.locator('#edge-top-models .edge-runtime-detail')).toContainText('Focus Plasma');
+  await expect(page.locator('#edge-top-models .edge-runtime-busy')).toHaveText('Busy 2 active');
+  await expect(page.locator('#edge-top-models .edge-runtime-busy')).toHaveAttribute('title', /Plasma \(focus\): running \(1 active, 2 queued\)/);
+  await expect(page.locator('#edge-top-models .edge-runtime-busy')).toHaveAttribute('title', /Notes: queued \(1 queued\)/);
 
   await injectChatEvent(page, {
     type: 'workspace_focus_changed',
@@ -232,9 +222,9 @@ test('workspace runtime badges show anchor, focus, and busy overview from fetch 
     ],
   });
 
-  await expect(page.locator('#edge-top-models .edge-workspace-focus')).toHaveText('Focus anchor');
-  await expect(page.locator('#edge-top-models .edge-workspace-busy')).toHaveText('Busy idle');
-  await expect(page.locator('#edge-top-models .edge-workspace-busy')).toHaveAttribute('title', /Focus: 2026\/03\/11 \(follows anchor\)/);
+  await expect(page.locator('#edge-top-models .edge-runtime-detail')).toContainText('Anchor 2026/03/11');
+  await expect(page.locator('#edge-top-models .edge-runtime-busy')).toHaveText('Busy idle');
+  await expect(page.locator('#edge-top-models .edge-runtime-busy')).toHaveAttribute('title', /Focus: 2026\/03\/11 \(follows anchor\)/);
 });
 
 test('system actions route through ordinary projects', async ({ page }) => {
@@ -259,14 +249,16 @@ test('system actions route through ordinary projects', async ({ page }) => {
 
 test('temporary tasks discard back to the remaining active project', async ({ page }) => {
   await seedTwoProjects(page);
-  await openRuntimeMore(page);
-  await expect(page.locator('#edge-top-models .edge-temp-task-btn')).toBeVisible();
-
-  await page.locator('#edge-top-models .edge-temp-task-btn').click();
+  await page.evaluate(async () => {
+    const mod = await import('../../internal/web/static/app-workspace-runtime.js');
+    await mod.createTemporaryProject('task', 'test');
+  });
   await expect(page.locator('#edge-top-projects .edge-project-btn.is-active')).toContainText('Task 1');
 
-  await openRuntimeMore(page);
-  await page.locator('#edge-top-models .edge-temp-discard-btn').click();
+  await page.evaluate(async () => {
+    const mod = await import('../../internal/web/static/app-workspace-runtime.js');
+    await mod.discardTemporaryProject('task-1');
+  });
 
   await expect.poll(async () => {
     const log = await getLog(page);

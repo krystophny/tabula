@@ -269,8 +269,8 @@ var deterministicFastPaths = []deterministicFastPathParser{
 		Spec: deterministicFastPathSpec{
 			Name:     "runtime_control",
 			Route:    "text",
-			Actions:  []string{"toggle_silent", "toggle_live_dialogue", "cancel_work", "show_status", "switch_model"},
-			Triggers: []string{"be quiet", "toggle live dialogue", "cancel work", "status?", "switch model to gpt high"},
+			Actions:  []string{"toggle_silent", "toggle_live_dialogue", "cancel_work", "show_status"},
+			Triggers: []string{"be quiet", "toggle live dialogue", "cancel work", "status?"},
 		},
 		Parse: func(text string, _ deterministicFastPathContext) *deterministicFastPathMatch {
 			action := parseInlineRuntimeControlIntent(text)
@@ -286,8 +286,8 @@ var deterministicFastPathUIControls = []deterministicFastPathSpec{
 	{
 		Name:     "ui_runtime_controls",
 		Route:    "ui",
-		Actions:  []string{"toggle_silent", "toggle_live_dialogue", "switch_model"},
-		Triggers: []string{"system_action:toggle_silent", "system_action:toggle_live_dialogue", "system_action:switch_model"},
+		Actions:  []string{"toggle_silent", "toggle_live_dialogue"},
+		Triggers: []string{"system_action:toggle_silent", "system_action:toggle_live_dialogue"},
 	},
 	{
 		Name:     "ui_push_to_talk",

@@ -170,16 +170,6 @@ async function pinEdgeTop(page: Page) {
   });
 }
 
-async function openRuntimeMore(page: Page) {
-  await page.evaluate(() => {
-    const button = document.querySelector('#edge-top-models .edge-runtime-more-btn');
-    if (!(button instanceof HTMLButtonElement)) {
-      throw new Error('more button missing');
-    }
-    button.click();
-  });
-}
-
 async function switchSidebarToFiles(page: Page) {
   await page.getByRole('button', { name: 'Files' }).click();
   await expect(page.locator('.sidebar-tab.is-active')).toContainText('Files');
@@ -311,7 +301,7 @@ test('meeting tap stays cursor-only and does not start local capture', async ({ 
   await expect(page.locator('#edge-top-models .edge-live-status')).toContainText('Meeting');
 });
 
-test('black mode toggle updates the meeting idle surface preference', async ({ page }) => {
+test('top panel omits legacy meeting surface controls', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await waitReady(page);
   await pinEdgeTop(page);
@@ -321,18 +311,7 @@ test('black mode toggle updates the meeting idle surface preference', async ({ p
   await page.evaluate(() => {
     (window as any)._taburaApp?.syncCompanionIdleSurface?.();
   });
-
-  await openRuntimeMore(page);
-  const blackButton = page.locator('#edge-top-models .edge-companion-surface-btn');
-  await expect(blackButton).toHaveAttribute('aria-pressed', 'false');
-  await page.evaluate(() => {
-    const button = document.querySelector('#edge-top-models .edge-companion-surface-btn');
-    if (!(button instanceof HTMLButtonElement)) {
-      throw new Error('black button missing');
-    }
-    button.click();
-  });
-
-  await waitForMeetingSurface(page, 'idle', 'black');
-  await expect(blackButton).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#edge-top-models .edge-companion-surface-btn')).toHaveCount(0);
+  await expect(page.locator('#edge-top-models .edge-runtime-more-btn')).toHaveCount(0);
+  await waitForMeetingSurface(page, 'idle', 'robot');
 });
