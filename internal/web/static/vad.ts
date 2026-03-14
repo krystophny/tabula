@@ -87,6 +87,7 @@ export async function initVAD(options: Record<string, any> = {}) {
 
   try {
     const micVADOptions: Record<string, any> = {
+      model: 'v5',
       baseAssetPath: VAD_ASSET_PATH,
       onnxWASMBasePath: VAD_ASSET_PATH,
       positiveSpeechThreshold,

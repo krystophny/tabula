@@ -163,6 +163,7 @@ async function startSileroDialogueMonitor(stream, token) {
       }
       onDialogueSpeechDetected();
     };
+    let initErrorMessage = '';
     const instance = await initVAD({
       stream: vadStream,
       audioContext: vadAudioContext,
@@ -179,8 +180,9 @@ async function startSileroDialogueMonitor(stream, token) {
         }
       },
       onError(err) {
+        initErrorMessage = String(err?.message || err || 'unknown error');
         emitDialogueServerDiagnostic('dialogue_listen_vad_error', {
-          message: String(err?.message || err || 'unknown error'),
+          message: initErrorMessage,
         });
       },
     });
@@ -191,7 +193,8 @@ async function startSileroDialogueMonitor(stream, token) {
     }
 
     if (!instance) {
-      fireDialogueListenError('speech detection unavailable (VAD failed to load — run scripts/fetch-vad-assets.sh)');
+      const detail = initErrorMessage || 'speech detection unavailable';
+      fireDialogueListenError(`speech detection unavailable: ${detail}`);
       return;
     }
 
