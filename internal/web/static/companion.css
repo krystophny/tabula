@@ -10,7 +10,7 @@
   inset: 0;
   z-index: 18;
   pointer-events: none;
-  background: var(--companion-bg);
+  background: #ffffff !important;
   color: var(--companion-copy);
 }
 
@@ -33,7 +33,7 @@
     calc(1.5rem + var(--safe-area-right))
     calc(2rem + var(--safe-area-bottom))
     calc(1.5rem + var(--safe-area-left));
-  background: #ffffff;
+  background: #ffffff !important;
 }
 
 .companion-idle-frame {
@@ -45,7 +45,7 @@
   padding: 0;
   border: 0;
   border-radius: 0;
-  background: transparent;
+  background: #ffffff !important;
   backdrop-filter: none;
   box-shadow: none;
 }
