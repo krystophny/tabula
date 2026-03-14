@@ -1044,7 +1044,7 @@ export async function stopVoiceCaptureAndSend() {
   setRecording(false);
   setVoiceLifecycle(VOICE_LIFECYCLE.STOPPING_RECORDING, 'voice-capture-stop-send');
   state.voiceAwaitingTurn = true;
-  setVoiceLifecycle(VOICE_LIFECYCLE.AWAITING_TURN, 'voice-awaiting-turn');
+  setVoiceLifecycle(VOICE_LIFECYCLE.LISTENING, 'voice-stt-start');
   state.indicatorSuppressedByCanvasUpdate = false;
   updateAssistantActivityIndicator();
   showStatus('transcribing...');
