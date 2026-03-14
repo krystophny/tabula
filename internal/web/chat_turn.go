@@ -612,8 +612,8 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 }
 
 // finalizeAssistantResponse handles post-processing shared by both turn paths:
-// voice mode stays chat-only, while silent mode mirrors assistant text to canvas,
-// then persists final content and broadcasts assistant_output.
+// voice mode stays chat-first, but explicit file-backed canvas output is still
+// honored; silent mode can additionally mirror plain assistant text to canvas.
 func (a *App) finalizeAssistantResponse(
 	sessionID, projectKey, text string,
 	persistedID *int64, persistedText *string,
@@ -672,13 +672,18 @@ func (a *App) finalizeAssistantResponseWithMetadata(
 	canvasSessionID := a.resolveCanvasSessionID(projectKey)
 	autoCanvas := false
 	renderOnCanvas := false
+	content := strings.TrimSpace(text)
+	blocks, cleaned := parseFileBlocks(content)
 	if isVoiceOutputMode(outputMode) {
-		_, cleaned := parseFileBlocks(text)
+		if len(blocks) > 0 && canvasSessionID != "" {
+			if a.isResearchTurn(sessionID) {
+				blocks = normalizeResearchFileBlocks(blocks, researchArtifactRoot(sessionID))
+			}
+			renderOnCanvas = a.executeFileBlocks(projectKey, canvasSessionID, blocks)
+		}
 		text = cleaned
 	} else {
 		canvasCtx := a.resolveCanvasContext(projectKey)
-		content := strings.TrimSpace(text)
-		blocks, cleaned := parseFileBlocks(content)
 		if len(blocks) > 0 && canvasSessionID != "" {
 			if a.isResearchTurn(sessionID) {
 				blocks = normalizeResearchFileBlocks(blocks, researchArtifactRoot(sessionID))

@@ -42,13 +42,14 @@ Do not return metadata-only chat.
 Write naturally for speech. Avoid raw paths, URLs, or code in prose.
 Use [lang:de] at the start of your answer when responding in German. Default is English.
 
-Voice mode is chat-only:
-- Do not emit :::file blocks.
+Voice mode is chat-first:
+- Do not emit :::file blocks unless the user explicitly asks to show/open/render content on canvas.
 - Do not emit :::canvas blocks.
-- Do not render chat output on canvas.
+- Do not mirror ordinary chat output on canvas.
 - Keep spoken responses concise.
 
 When user asks to show/open an existing file, do NOT paste that file body into chat. Use canvas_artifact_show with a brief spoken confirmation.
+When user explicitly asks you to show/render content on canvas, you may emit :::file blocks for that file-backed canvas output.
 
 Line references: when the user mentions [Line N of "file"], apply changes at that location.
 
@@ -59,13 +60,14 @@ When asked to review a PR, open PR view via gh CLI, read the diff, and respond w
 Publish exactly one file block at path .tabura/artifacts/pr/pr-<number>.diff with the patch content.
 `
 
-const defaultVoiceTurnPrompt = `Voice mode is chat-only:
+const defaultVoiceTurnPrompt = `Voice mode is chat-first:
 - Reply with spoken chat text only.
-- Do not emit :::file blocks.
+- Do not emit :::file blocks unless the user explicitly asks to show/open/render content on canvas.
 - Do not emit :::canvas blocks.
-- Do not render chat output on canvas.
+- Do not mirror ordinary chat output on canvas.
 
 When user asks to show/open an existing file, do NOT paste file body into chat; use canvas_artifact_show and keep chat text brief.
+When user explicitly asks you to show/render content on canvas, you may emit :::file blocks for that file-backed canvas output.
 
 When you need the user to tap or click a location, emit exactly [[request_position:Tap where you want it]] on its own line.
 

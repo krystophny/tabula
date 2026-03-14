@@ -162,20 +162,23 @@ func TestBuildPromptFromHistory_IncludesSystemPrompt(t *testing.T) {
 	if !strings.Contains(prompt, "You are Tabura") {
 		t.Error("prompt should contain system identity")
 	}
-	if !strings.Contains(prompt, "Voice mode is chat-only") {
-		t.Error("prompt should define chat-only voice mode")
+	if !strings.Contains(prompt, "Voice mode is chat-first") {
+		t.Error("prompt should define chat-first voice mode")
 	}
-	if !strings.Contains(prompt, "Do not emit :::file blocks.") {
-		t.Error("prompt should explicitly disallow :::file blocks")
+	if !strings.Contains(prompt, "Do not emit :::file blocks unless the user explicitly asks to show/open/render content on canvas.") {
+		t.Error("prompt should explicitly limit :::file blocks to explicit canvas requests")
 	}
 	if !strings.Contains(prompt, "Do not emit :::canvas blocks.") {
 		t.Error("prompt should explicitly disallow :::canvas blocks")
 	}
-	if !strings.Contains(prompt, "Do not render chat output on canvas.") {
-		t.Error("prompt should explicitly disallow rendering chat output on canvas")
+	if !strings.Contains(prompt, "Do not mirror ordinary chat output on canvas.") {
+		t.Error("prompt should explicitly disallow mirroring ordinary chat output on canvas")
 	}
 	if !strings.Contains(prompt, "show/open an existing file") {
 		t.Error("prompt should define existing-file canvas behavior")
+	}
+	if !strings.Contains(prompt, "you may emit :::file blocks for that file-backed canvas output") {
+		t.Error("prompt should allow explicit canvas rendering in voice mode")
 	}
 	if !strings.Contains(prompt, "do NOT paste that file body into chat") {
 		t.Error("prompt should forbid inlining existing file bodies")
@@ -740,6 +743,63 @@ func TestFinalizeAssistantResponse_SilentOverwritesScratchArtifact(t *testing.T)
 	}
 	if strings.TrimSpace(string(b)) != "second response" {
 		t.Fatalf("expected scratch file content updated, got %q", string(b))
+	}
+}
+
+func TestFinalizeAssistantResponse_VoiceExecutesExplicitFileBlocks(t *testing.T) {
+	app := newAuthedTestApp(t)
+	project, err := app.ensureDefaultProjectRecord()
+	if err != nil {
+		t.Fatalf("ensure default project: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	if err != nil {
+		t.Fatalf("chat session: %v", err)
+	}
+
+	mock := &canvasMCPMock{}
+	server := mock.setupServer(t)
+	defer server.Close()
+	port, err := extractPort(server.URL)
+	if err != nil {
+		t.Fatalf("extract port: %v", err)
+	}
+	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+
+	var persistedID int64
+	var persistedText string
+	response := app.finalizeAssistantResponse(
+		session.ID,
+		project.ProjectKey,
+		`I put it on canvas.
+
+:::file{path=".tabura/artifacts/tmp/voice-note.md"}
+# Voice Note
+
+Shown from dialogue mode.
+:::`,
+		&persistedID,
+		&persistedText,
+		"",
+		"",
+		"",
+		turnOutputModeVoice,
+	)
+
+	if got := atomic.LoadInt32(&mock.artifactShow); got != 1 {
+		t.Fatalf("expected one canvas_artifact_show call for explicit voice canvas output, got %d", got)
+	}
+	if strings.TrimSpace(mock.lastShownTitle) != ".tabura/artifacts/tmp/voice-note.md" {
+		t.Fatalf("expected explicit voice canvas title, got %q", mock.lastShownTitle)
+	}
+	if !strings.Contains(mock.lastShownContent, "Shown from dialogue mode.") {
+		t.Fatalf("expected explicit voice canvas content, got %q", mock.lastShownContent)
+	}
+	if strings.Contains(response, ":::file{") {
+		t.Fatalf("expected spoken response without raw file block, got %q", response)
+	}
+	if !strings.Contains(response, "I put it on canvas.") {
+		t.Fatalf("expected spoken confirmation to remain in chat, got %q", response)
 	}
 }
 
