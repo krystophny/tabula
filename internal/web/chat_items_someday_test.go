@@ -76,7 +76,7 @@ func TestClassifyAndExecuteSystemActionReviewSomedayList(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateItem(someday) error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestClassifyAndExecuteSystemActionTriageSomedayUsesCanvasItem(t *testing.T)
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestClassifyAndExecuteSystemActionPromoteSomedayPreservesActor(t *testing.T
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestClassifyAndExecuteSystemActionPromoteDoneEmailRestoresRemoteInbox(t *te
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestClassifyAndExecuteSystemActionToggleSomedayReminder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}

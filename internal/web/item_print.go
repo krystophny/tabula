@@ -420,7 +420,7 @@ func (a *App) resolvePrintItemTarget(session store.ChatSession, action *SystemAc
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return store.Item{}, err
 	}
-	if workspace, err := a.fallbackWorkspaceForProjectKey(session.ProjectKey); err != nil {
+	if workspace, err := a.fallbackWorkspaceForWorkspacePath(session.WorkspacePath); err != nil {
 		return store.Item{}, err
 	} else if workspace != nil {
 		items, listErr := a.listOpenWorkspaceItems(workspace.ID)
@@ -448,7 +448,7 @@ func (a *App) resolveCanvasConversationItem(project store.Project) (store.Item, 
 	}
 	cwd := strings.TrimSpace(project.RootPath)
 	if cwd == "" {
-		cwd = strings.TrimSpace(a.cwdForProjectKey(project.ProjectKey))
+		cwd = strings.TrimSpace(a.cwdForWorkspacePath(project.WorkspacePath))
 	}
 	resolvedPath := ""
 	if path := resolveConversationArtifactPath(cwd, canvas); path != nil {

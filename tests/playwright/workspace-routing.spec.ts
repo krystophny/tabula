@@ -39,7 +39,7 @@ async function seedTwoProjects(page: Page) {
         name: 'Test',
         kind: 'managed',
         sphere: 'private',
-        project_key: '/tmp/test',
+        workspace_path: '/tmp/test',
         root_path: '/tmp/test',
         chat_session_id: 'chat-1',
         canvas_session_id: 'local',
@@ -55,7 +55,7 @@ async function seedTwoProjects(page: Page) {
         name: 'Notes',
         kind: 'managed',
         sphere: 'private',
-        project_key: '/tmp/notes',
+        workspace_path: '/tmp/notes',
         root_path: '/tmp/notes',
         chat_session_id: 'chat-2',
         canvas_session_id: 'notes',
@@ -108,7 +108,7 @@ test('clicking another project activates it', async ({ page }) => {
     return log.some(
       (entry) => entry.type === 'api_fetch'
         && entry.action === 'project_activate'
-        && String(entry.payload?.project_id || '') === 'notes',
+        && String(entry.payload?.workspace_id || '') === 'notes',
     );
   }, { timeout: 5_000 }).toBe(true);
 
@@ -232,8 +232,8 @@ test('system actions route through ordinary projects', async ({ page }) => {
   await injectChatEvent(page, {
     type: 'system_action',
     action: {
-      type: 'switch_project',
-      project_id: 'notes',
+      type: 'switch_workspace',
+      workspace_id: 'notes',
     },
   });
 
@@ -242,7 +242,7 @@ test('system actions route through ordinary projects', async ({ page }) => {
     return log.some(
       (entry) => entry.type === 'api_fetch'
         && entry.action === 'project_activate'
-        && String(entry.payload?.project_id || '') === 'notes',
+        && String(entry.payload?.workspace_id || '') === 'notes',
     );
   }, { timeout: 5_000 }).toBe(true);
 });
@@ -265,7 +265,7 @@ test('temporary tasks discard back to the remaining active project', async ({ pa
     return log.some(
       (entry) => entry.type === 'api_fetch'
         && entry.action === 'project_discard'
-        && String(entry.payload?.project_id || '') === 'task-1',
+        && String(entry.payload?.workspace_id || '') === 'task-1',
     );
   }, { timeout: 5_000 }).toBe(true);
 

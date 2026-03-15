@@ -138,18 +138,18 @@ func resolveCanvasFilePath(cwd, requested string) (absolutePath, canvasTitle str
 	return abs, filepath.ToSlash(rel), nil
 }
 
-func (a *App) executeFileBlocks(projectKey, canvasSessionID string, blocks []fileBlock) bool {
+func (a *App) executeFileBlocks(workspacePath, canvasSessionID string, blocks []fileBlock) bool {
 	wroteAny := false
 	for _, block := range blocks {
-		if a.writeCanvasFileBlock(projectKey, canvasSessionID, block) {
+		if a.writeCanvasFileBlock(workspacePath, canvasSessionID, block) {
 			wroteAny = true
 		}
 	}
 	return wroteAny
 }
 
-func (a *App) writeCanvasFileBlock(projectKey, canvasSessionID string, block fileBlock) bool {
-	cwd := a.cwdForProjectKey(projectKey)
+func (a *App) writeCanvasFileBlock(workspacePath, canvasSessionID string, block fileBlock) bool {
+	cwd := a.cwdForWorkspacePath(workspacePath)
 	port, ok := a.tunnels.getPort(canvasSessionID)
 	if !ok {
 		return false
@@ -172,7 +172,7 @@ func (a *App) writeCanvasFileBlock(projectKey, canvasSessionID string, block fil
 	}); err != nil {
 		return false
 	}
-	a.markProjectOutput(projectKey)
+	a.markProjectOutput(workspacePath)
 	return true
 }
 
@@ -217,12 +217,12 @@ type canvasRefreshTarget struct {
 // resolveCanvasRefreshTarget resolves the active canvas artifact to a source on
 // disk. It supports plain text artifacts and document-source PDFs rendered via
 // open_file_canvas.
-func (a *App) resolveCanvasRefreshTarget(projectKey string) *canvasRefreshTarget {
-	key := strings.TrimSpace(projectKey)
+func (a *App) resolveCanvasRefreshTarget(workspacePath string) *canvasRefreshTarget {
+	key := strings.TrimSpace(workspacePath)
 	if key == "" {
 		return nil
 	}
-	project, err := a.store.GetProjectByProjectKey(key)
+	project, err := a.store.GetProjectByWorkspacePath(key)
 	if err != nil {
 		return nil
 	}
@@ -244,7 +244,7 @@ func (a *App) resolveCanvasRefreshTarget(projectKey string) *canvasRefreshTarget
 	if title == "" {
 		return nil
 	}
-	cwd := a.cwdForProjectKey(key)
+	cwd := a.cwdForWorkspacePath(key)
 	kind, _ := active["kind"].(string)
 	switch strings.TrimSpace(kind) {
 	case "text_artifact", "text":
@@ -283,22 +283,22 @@ func (a *App) resolveCanvasRefreshTarget(projectKey string) *canvasRefreshTarget
 
 // refreshCanvasFromDisk does a single check: reads the file, compares with
 // the canvas text, and pushes if different. Returns true if an update was pushed.
-func (a *App) refreshCanvasFromDisk(projectKey string) bool {
-	t := a.resolveCanvasRefreshTarget(projectKey)
+func (a *App) refreshCanvasFromDisk(workspacePath string) bool {
+	t := a.resolveCanvasRefreshTarget(workspacePath)
 	if t == nil {
 		return false
 	}
 	switch t.kind {
 	case canvasRefreshKindText:
-		return a.pushCanvasFileIfChanged(projectKey, t)
+		return a.pushCanvasFileIfChanged(workspacePath, t)
 	case canvasRefreshKindDocumentPDF:
-		return a.pushCanvasDocumentIfChanged(projectKey, t)
+		return a.pushCanvasDocumentIfChanged(workspacePath, t)
 	default:
 		return false
 	}
 }
 
-func (a *App) pushCanvasFileIfChanged(projectKey string, t *canvasRefreshTarget) bool {
+func (a *App) pushCanvasFileIfChanged(workspacePath string, t *canvasRefreshTarget) bool {
 	diskBytes, err := os.ReadFile(t.sourcePath)
 	if err != nil {
 		return false
@@ -322,7 +322,7 @@ func (a *App) pushCanvasFileIfChanged(projectKey string, t *canvasRefreshTarget)
 		"title":            t.title,
 		"markdown_or_text": diskContent,
 	})
-	a.markProjectOutput(projectKey)
+	a.markProjectOutput(workspacePath)
 	return true
 }
 
@@ -341,11 +341,11 @@ func canvasDocumentNeedsRefresh(sourcePath, renderedAbsPath string) bool {
 	return sourceInfo.ModTime().After(renderedInfo.ModTime())
 }
 
-func (a *App) pushCanvasDocumentIfChanged(projectKey string, t *canvasRefreshTarget) bool {
+func (a *App) pushCanvasDocumentIfChanged(workspacePath string, t *canvasRefreshTarget) bool {
 	if t == nil || t.kind != canvasRefreshKindDocumentPDF {
 		return false
 	}
-	projectRoot := strings.TrimSpace(a.cwdForProjectKey(projectKey))
+	projectRoot := strings.TrimSpace(a.cwdForWorkspacePath(workspacePath))
 	if projectRoot == "" || !canvasDocumentNeedsRefresh(t.sourcePath, t.renderedAbsPath) {
 		return false
 	}
@@ -363,15 +363,15 @@ func (a *App) pushCanvasDocumentIfChanged(projectKey string, t *canvasRefreshTar
 	}
 	t.renderedPath = renderedPath
 	t.renderedAbsPath = resolveArtifactFilePath(projectRoot, renderedPath)
-	a.markProjectOutput(projectKey)
+	a.markProjectOutput(workspacePath)
 	return true
 }
 
 // watchCanvasFile uses fsnotify to watch the disk file backing the active
 // canvas artifact. On every write, it reads the new content and pushes it
 // to the canvas via MCP. Blocks until ctx is cancelled.
-func (a *App) watchCanvasFile(ctx context.Context, projectKey string) {
-	t := a.resolveCanvasRefreshTarget(projectKey)
+func (a *App) watchCanvasFile(ctx context.Context, workspacePath string) {
+	t := a.resolveCanvasRefreshTarget(workspacePath)
 	if t == nil {
 		return
 	}
@@ -425,7 +425,7 @@ func (a *App) watchCanvasFile(ctx context.Context, projectKey string) {
 					"title":            t.title,
 					"markdown_or_text": content,
 				})
-				a.markProjectOutput(projectKey)
+				a.markProjectOutput(workspacePath)
 			case canvasRefreshKindDocumentPDF:
 				info, err := os.Stat(t.sourcePath)
 				if err != nil || info.IsDir() {
@@ -435,7 +435,7 @@ func (a *App) watchCanvasFile(ctx context.Context, projectKey string) {
 					continue
 				}
 				lastModTime = info.ModTime()
-				_ = a.pushCanvasDocumentIfChanged(projectKey, t)
+				_ = a.pushCanvasDocumentIfChanged(workspacePath, t)
 			}
 		case _, ok := <-watcher.Errors:
 			if !ok {

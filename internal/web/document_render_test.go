@@ -45,7 +45,7 @@ printf '%%PDF-1.4\n' > "$out"
 	t.Setenv("TEST_LOG", logPath)
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}

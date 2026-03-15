@@ -155,7 +155,7 @@ func gmailTokenPathForAccount(account store.ExternalAccount, cfg emailSyncAccoun
 	if strings.TrimSpace(cfg.TokenFile) != "" {
 		return filepath.Join(configDir, "tokens", strings.TrimSpace(cfg.TokenFile))
 	}
-	return store.ExternalAccountTokenPath(configDir, account.Provider, account.Label)
+	return store.ExternalAccountTokenPath(configDir, account.Provider, account.AccountName)
 }
 
 func gmailCredentialsPathForAccount(cfg emailSyncAccountConfig) string {
@@ -196,7 +196,7 @@ func (a *App) emailProviderForAccount(ctx context.Context, account store.Externa
 			return nil, err
 		}
 		useTLS := cfg.TLS || cfg.Port == 993
-		client := email.NewIMAPClient(account.Label, cfg.Host, cfg.Port, cfg.Username, password, useTLS, cfg.StartTLS)
+		client := email.NewIMAPClient(account.AccountName, cfg.Host, cfg.Port, cfg.Username, password, useTLS, cfg.StartTLS)
 		smtpPassword, err := a.smtpPasswordForAccount(ctx, account, cfg)
 		if err != nil && strings.TrimSpace(cfg.SMTPHost) != "" {
 			return nil, err

@@ -682,7 +682,7 @@ func (a *App) handleWorkspaceWatchList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) executeWorkspaceWatchAction(session store.ChatSession, action *SystemAction) (string, map[string]interface{}, error) {
-	workspace, err := a.resolveWorkspaceReference(session.ProjectKey, systemActionWorkspaceRef(action.Params))
+	workspace, err := a.resolveWorkspaceReference(session.WorkspacePath, systemActionWorkspaceRef(action.Params))
 	if err != nil {
 		return "", nil, err
 	}

@@ -12,7 +12,7 @@ import (
 func TestInkSubmitWritesArtifacts(t *testing.T) {
 	app := newAuthedTestApp(t)
 
-	rrProjects := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects", nil)
+	rrProjects := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces", nil)
 	if rrProjects.Code != http.StatusOK {
 		t.Fatalf("projects status=%d body=%s", rrProjects.Code, rrProjects.Body.String())
 	}
@@ -23,10 +23,10 @@ func TestInkSubmitWritesArtifacts(t *testing.T) {
 	if len(listPayload.Projects) == 0 {
 		t.Fatalf("expected at least one project")
 	}
-	projectID := listPayload.Projects[0].ID
+	workspaceID := listPayload.Projects[0].ID
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/ink/submit", map[string]any{
-		"project_id":     projectID,
+		"workspace_id":   workspaceID,
 		"artifact_kind":  "text",
 		"artifact_title": "README.md",
 		"artifact_path":  "README.md",
@@ -60,7 +60,7 @@ func TestInkSubmitWritesArtifacts(t *testing.T) {
 		t.Fatalf("expected ink paths in response: %v", payload)
 	}
 
-	project, err := app.store.GetProject(projectID)
+	project, err := app.store.GetProject(workspaceID)
 	if err != nil {
 		t.Fatalf("get project: %v", err)
 	}

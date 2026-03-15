@@ -16,7 +16,7 @@ func TestLocalSystemActionTurnPublishesLocalProviderMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestFinalizeAssistantResponseWithMetadataPublishesProviderMetadata(t *testi
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestFinalizeAssistantResponseWithMetadataPublishesProviderMetadata(t *testi
 	}
 	response := app.finalizeAssistantResponseWithMetadata(
 		session.ID,
-		project.ProjectKey,
+		project.WorkspacePath,
 		"OpenAI reply.",
 		&persistedAssistantID,
 		&persistedAssistantText,
@@ -179,7 +179,7 @@ func TestChatSessionHistoryIncludesProviderMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}

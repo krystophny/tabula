@@ -18,15 +18,15 @@ const (
 )
 
 func (a *App) handleTTSSpeak(sessionID string, conn *chatWSConn, seq int64, text, lang string) {
-	projectKey := ""
+	workspacePath := ""
 	if session, err := a.store.GetChatSession(sessionID); err == nil {
-		projectKey = session.ProjectKey
-		if strings.TrimSpace(projectKey) != "" {
-			a.broadcastCompanionRuntimeState(projectKey, companionRuntimeSnapshot{
-				State:      companionRuntimeStateTalking,
-				Reason:     "tts_started",
-				ProjectKey: projectKey,
-				OutputMode: turnOutputModeVoice,
+		workspacePath = session.WorkspacePath
+		if strings.TrimSpace(workspacePath) != "" {
+			a.broadcastCompanionRuntimeState(workspacePath, companionRuntimeSnapshot{
+				State:         companionRuntimeStateTalking,
+				Reason:        "tts_started",
+				WorkspacePath: workspacePath,
+				OutputMode:    turnOutputModeVoice,
 			})
 		}
 	}
@@ -35,13 +35,13 @@ func (a *App) handleTTSSpeak(sessionID string, conn *chatWSConn, seq int64, text
 	for _, result := range ready {
 		if result.err != "" {
 			log.Printf("tts emit error: session=%s seq=%d err=%s", sessionID, result.seq, result.err)
-			if projectKey != "" {
-				a.broadcastCompanionRuntimeState(projectKey, companionRuntimeSnapshot{
-					State:      companionRuntimeStateError,
-					Reason:     "tts_failed",
-					Error:      result.err,
-					ProjectKey: projectKey,
-					OutputMode: turnOutputModeVoice,
+			if workspacePath != "" {
+				a.broadcastCompanionRuntimeState(workspacePath, companionRuntimeSnapshot{
+					State:         companionRuntimeStateError,
+					Reason:        "tts_failed",
+					Error:         result.err,
+					WorkspacePath: workspacePath,
+					OutputMode:    turnOutputModeVoice,
 				})
 			}
 			_ = conn.writeJSON(map[string]string{"type": "tts_error", "error": result.err})
@@ -49,21 +49,21 @@ func (a *App) handleTTSSpeak(sessionID string, conn *chatWSConn, seq int64, text
 		}
 		if err := conn.writeBinary(result.audio); err != nil {
 			log.Printf("tts websocket write error: session=%s seq=%d bytes=%d err=%v", sessionID, result.seq, len(result.audio), err)
-			if projectKey != "" {
-				a.broadcastCompanionRuntimeState(projectKey, companionRuntimeSnapshot{
-					State:      companionRuntimeStateError,
-					Reason:     "tts_delivery_failed",
-					Error:      err.Error(),
-					ProjectKey: projectKey,
-					OutputMode: turnOutputModeVoice,
+			if workspacePath != "" {
+				a.broadcastCompanionRuntimeState(workspacePath, companionRuntimeSnapshot{
+					State:         companionRuntimeStateError,
+					Reason:        "tts_delivery_failed",
+					Error:         err.Error(),
+					WorkspacePath: workspacePath,
+					OutputMode:    turnOutputModeVoice,
 				})
 			}
 			continue
 		}
 		log.Printf("tts delivered: session=%s seq=%d bytes=%d", sessionID, result.seq, len(result.audio))
-		if projectKey != "" {
-			if project, err := a.store.GetProjectByProjectKey(projectKey); err == nil {
-				a.settleCompanionRuntimeState(projectKey, a.loadCompanionConfig(project), "tts_completed")
+		if workspacePath != "" {
+			if project, err := a.store.GetProjectByWorkspacePath(workspacePath); err == nil {
+				a.settleCompanionRuntimeState(workspacePath, a.loadCompanionConfig(project), "tts_completed")
 			}
 		}
 	}

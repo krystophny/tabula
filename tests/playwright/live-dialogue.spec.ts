@@ -82,7 +82,7 @@ async function switchToTestProject(page: Page) {
     const app = (window as any)._taburaApp;
     const state = app?.getState?.();
     const wsOpen = (window as any).WebSocket.OPEN;
-    if (String(state?.activeProjectId || '') !== 'test') return '';
+    if (String(state?.activeWorkspaceId || '') !== 'test') return '';
     return state?.chatWs?.readyState === wsOpen ? 'ready' : 'waiting';
   })).toBe('ready');
 }
@@ -211,7 +211,7 @@ test('Live policy persists from runtime and reacts to websocket policy changes',
     const app = (window as any)._taburaApp;
     const state = app?.getState?.();
     return {
-      activeProjectId: String(state?.activeProjectId || ''),
+      activeWorkspaceId: String(state?.activeWorkspaceId || ''),
       chatSessionId: String(state?.chatSessionId || ''),
       chatMode: String(state?.chatMode || ''),
     };
@@ -238,7 +238,7 @@ test('Live policy persists from runtime and reacts to websocket policy changes',
     const app = (window as any)._taburaApp;
     const state = app?.getState?.();
     return {
-      activeProjectId: String(state?.activeProjectId || ''),
+      activeWorkspaceId: String(state?.activeWorkspaceId || ''),
       chatSessionId: String(state?.chatSessionId || ''),
       chatMode: String(state?.chatMode || ''),
     };

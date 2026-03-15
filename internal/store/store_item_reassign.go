@@ -2,35 +2,13 @@ package store
 
 import (
 	"database/sql"
-	"strings"
 )
-
-func normalizeOptionalProjectID(value *string) any {
-	if value == nil {
-		return nil
-	}
-	clean := strings.TrimSpace(*value)
-	if clean == "" {
-		return nil
-	}
-	return clean
-}
 
 func (s *Store) SetItemWorkspace(id int64, workspaceID *int64) error {
 	args := []any{nullablePositiveID(valueOrZeroInt64(workspaceID)), id}
 	query := `UPDATE items
 		 SET workspace_id = ?, updated_at = datetime('now')
 		 WHERE id = ?`
-	if workspaceID != nil && *workspaceID > 0 {
-		workspace, err := s.GetWorkspace(*workspaceID)
-		if err != nil {
-			return err
-		}
-		query = `UPDATE items
-		 SET workspace_id = ?, project_id = COALESCE(project_id, ?), updated_at = datetime('now')
-		 WHERE id = ?`
-		args = []any{*workspaceID, normalizeOptionalProjectID(workspace.ProjectID), id}
-	}
 	res, err := s.db.Exec(query, args...)
 	if err != nil {
 		return err
@@ -44,27 +22,6 @@ func (s *Store) SetItemWorkspace(id int64, workspaceID *int64) error {
 	}
 	if err := s.syncItemDateContext(id, workspaceID); err != nil {
 		return err
-	}
-	return nil
-}
-
-func (s *Store) SetItemProject(id int64, projectID *string) error {
-	res, err := s.db.Exec(
-		`UPDATE items
-		 SET project_id = ?, updated_at = datetime('now')
-		 WHERE id = ?`,
-		normalizeOptionalProjectID(projectID),
-		id,
-	)
-	if err != nil {
-		return err
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return sql.ErrNoRows
 	}
 	return nil
 }

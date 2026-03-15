@@ -33,11 +33,7 @@ func TestStoreSinkUpsertItemUsesContainerMappingAndBinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	project, err := s.CreateProject("Program", "program", filepath.Join(t.TempDir(), "program"), "managed", "", "", false)
-	if err != nil {
-		t.Fatalf("CreateProject() error: %v", err)
-	}
-	if _, err := s.SetContainerMapping(account.Provider, "project", "alpha", &workspace.ID, &project.ID, nil); err != nil {
+	if _, err := s.SetContainerMapping(account.Provider, "project", "alpha", &workspace.ID, nil); err != nil {
 		t.Fatalf("SetContainerMapping() error: %v", err)
 	}
 
@@ -55,9 +51,6 @@ func TestStoreSinkUpsertItemUsesContainerMappingAndBinding(t *testing.T) {
 	}
 	if item.WorkspaceID == nil || *item.WorkspaceID != workspace.ID {
 		t.Fatalf("item.WorkspaceID = %v, want %d", item.WorkspaceID, workspace.ID)
-	}
-	if item.ProjectID == nil || *item.ProjectID != project.ID {
-		t.Fatalf("item.ProjectID = %v, want %q", item.ProjectID, project.ID)
 	}
 	if item.Sphere != store.SphereWork {
 		t.Fatalf("item.Sphere = %q, want %q", item.Sphere, store.SphereWork)
@@ -107,7 +100,7 @@ func TestStoreSinkUpsertArtifactLinksWorkspaceAndTracksBinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	if _, err := s.SetContainerMapping(account.Provider, "folder", "inbox", &workspace.ID, nil, nil); err != nil {
+	if _, err := s.SetContainerMapping(account.Provider, "folder", "inbox", &workspace.ID, nil); err != nil {
 		t.Fatalf("SetContainerMapping() error: %v", err)
 	}
 

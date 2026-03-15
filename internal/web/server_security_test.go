@@ -209,7 +209,7 @@ func TestCapturePageUsesCanonicalItemAndArtifactAPIs(t *testing.T) {
 			t.Fatalf("capture.js missing canonical API %q", required)
 		}
 	}
-	for _, forbidden := range []string{"./api/chat", "./api/projects", "./api/capture"} {
+	for _, forbidden := range []string{"./api/chat", "./api/runtime/workspaces", "./api/capture"} {
 		if strings.Contains(source, forbidden) {
 			t.Fatalf("capture.js contains parallel surface API %q", forbidden)
 		}
@@ -375,7 +375,7 @@ func TestPrivacyNoChatMessageAudioContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}

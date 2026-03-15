@@ -50,10 +50,10 @@ func (a *App) appServerModelProfileForProject(project store.Project) appServerMo
 
 }
 
-func (a *App) appServerModelProfileForProjectKey(projectKey string) appServerModelProfile {
-	cleanKey := strings.TrimSpace(projectKey)
+func (a *App) appServerModelProfileForWorkspacePath(workspacePath string) appServerModelProfile {
+	cleanKey := strings.TrimSpace(workspacePath)
 	if cleanKey != "" {
-		if project, err := a.store.GetProjectByProjectKey(cleanKey); err == nil {
+		if project, err := a.store.GetProjectByWorkspacePath(cleanKey); err == nil {
 			return a.appServerModelProfileForProject(project)
 		}
 	}
@@ -68,12 +68,12 @@ func (a *App) appServerModelProfileForProjectKey(projectKey string) appServerMod
 	}
 }
 
-func (a *App) resetProjectChatAppSession(projectKey string) {
-	key := strings.TrimSpace(projectKey)
+func (a *App) resetProjectChatAppSession(workspacePath string) {
+	key := strings.TrimSpace(workspacePath)
 	if key == "" {
 		return
 	}
-	session, err := a.chatSessionForProjectKey(key)
+	session, err := a.chatSessionForWorkspacePath(key)
 	if err != nil {
 		return
 	}

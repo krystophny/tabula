@@ -13,7 +13,7 @@ func testSessionForCanvasPosition(t *testing.T, app *App) string {
 		t.Fatalf("ListProjects: %v", err)
 	}
 	for _, project := range projects {
-		session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+		session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 		if err != nil {
 			t.Fatalf("GetOrCreateChatSession: %v", err)
 		}
@@ -111,15 +111,15 @@ func TestFinalizeAssistantResponse_StripsPositionMarkerBeforePersist(t *testing.
 	if err != nil {
 		t.Fatalf("ListProjects: %v", err)
 	}
-	var projectKey string
+	var workspacePath string
 	for _, project := range projects {
-		projectKey = project.ProjectKey
+		workspacePath = project.WorkspacePath
 		break
 	}
-	if projectKey == "" {
+	if workspacePath == "" {
 		t.Fatal("missing non-hub project")
 	}
-	session, err := app.store.GetOrCreateChatSession(projectKey)
+	session, err := app.store.GetOrCreateChatSession(workspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestFinalizeAssistantResponse_StripsPositionMarkerBeforePersist(t *testing.
 	var persistedText string
 	app.finalizeAssistantResponse(
 		session.ID,
-		projectKey,
+		workspacePath,
 		"Tap once.\n\n[[request_position:Tap where the change should land.]]",
 		&persistedID,
 		&persistedText,

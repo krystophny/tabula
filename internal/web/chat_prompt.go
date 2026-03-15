@@ -12,20 +12,20 @@ import (
 	"github.com/krystophny/tabura/internal/store"
 )
 
-func (a *App) cwdForProjectKey(projectKey string) string {
-	key := strings.TrimSpace(projectKey)
+func (a *App) cwdForWorkspacePath(workspacePath string) string {
+	key := strings.TrimSpace(workspacePath)
 	if focused, explicit, err := a.focusedWorkspace(); err == nil && explicit {
 		if key == "" || key == focused.DirPath {
 			return strings.TrimSpace(focused.DirPath)
 		}
 		if project, projectErr := a.projectForWorkspace(focused); projectErr == nil && project != nil {
-			if key == strings.TrimSpace(project.ProjectKey) {
+			if key == strings.TrimSpace(project.WorkspacePath) {
 				return strings.TrimSpace(focused.DirPath)
 			}
 		}
 	}
 	if key != "" {
-		if project, err := a.store.GetProjectByProjectKey(key); err == nil {
+		if project, err := a.store.GetProjectByWorkspacePath(key); err == nil {
 			if workspaces, workspaceErr := a.store.ListWorkspacesForProject(project.ID); workspaceErr == nil {
 				for _, workspace := range workspaces {
 					if dirPath := strings.TrimSpace(workspace.DirPath); dirPath != "" {
@@ -67,24 +67,24 @@ func normalizeAssistantError(err error) string {
 	return errText
 }
 
-func (a *App) resolveCanvasSessionID(projectKey string) string {
-	key := strings.TrimSpace(projectKey)
+func (a *App) resolveCanvasSessionID(workspacePath string) string {
+	key := strings.TrimSpace(workspacePath)
 	if key == "" {
 		return ""
 	}
-	project, err := a.store.GetProjectByProjectKey(key)
+	project, err := a.store.GetProjectByWorkspacePath(key)
 	if err != nil {
 		return ""
 	}
 	return a.canvasSessionIDForProject(project)
 }
 
-func (a *App) resolveCanvasContext(projectKey string) *canvasContext {
-	key := strings.TrimSpace(projectKey)
+func (a *App) resolveCanvasContext(workspacePath string) *canvasContext {
+	key := strings.TrimSpace(workspacePath)
 	if key == "" {
 		return nil
 	}
-	project, err := a.store.GetProjectByProjectKey(key)
+	project, err := a.store.GetProjectByWorkspacePath(key)
 	if err != nil {
 		return nil
 	}

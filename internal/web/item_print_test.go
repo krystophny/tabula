@@ -183,7 +183,7 @@ func TestClassifyAndExecuteSystemActionPrintItemUsesActiveWorkspaceItem(t *testi
 	if err != nil {
 		t.Fatalf("CreateItem() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession() error: %v", err)
 	}

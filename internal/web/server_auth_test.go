@@ -125,7 +125,7 @@ func TestNoPasswordBlocksAccess(t *testing.T) {
 		t.Fatalf("no-password app must not auto-authenticate, got: %s", body)
 	}
 
-	req2 := httptest.NewRequest(http.MethodGet, "/api/projects", nil)
+	req2 := httptest.NewRequest(http.MethodGet, "/api/runtime/workspaces", nil)
 	rr2 := httptest.NewRecorder()
 	app.Router().ServeHTTP(rr2, req2)
 

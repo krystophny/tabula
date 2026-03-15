@@ -195,8 +195,8 @@ func (a *App) handleProjectWelcome(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
-	projectID := strings.TrimSpace(chi.URLParam(r, "project_id"))
-	project, err := a.resolveProjectByIDOrActive(projectID)
+	workspaceID := strings.TrimSpace(chi.URLParam(r, "workspace_id"))
+	project, err := a.resolveProjectByIDOrActive(workspaceID)
 	if err != nil {
 		if isNoRows(err) {
 			http.Error(w, "project not found", http.StatusNotFound)
@@ -212,11 +212,11 @@ func (a *App) handleProjectWelcome(w http.ResponseWriter, r *http.Request) {
 	}
 	sections := a.buildProjectWelcomeSections(project)
 	writeJSON(w, projectWelcomeResponse{
-		OK:        true,
-		ProjectID: project.ID,
-		Project:   item,
-		Scope:     "project",
-		Title:     strings.TrimSpace(project.Name),
-		Sections:  sections,
+		OK:          true,
+		WorkspaceID: project.ID,
+		Project:     item,
+		Scope:       "workspace",
+		Title:       strings.TrimSpace(project.Name),
+		Sections:    sections,
 	})
 }

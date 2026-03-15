@@ -77,17 +77,17 @@ type scanNormBounds struct {
 }
 
 type scanUploadPayload struct {
-	ProjectID  string
-	ItemID     int64
-	ArtifactID int64
-	Filename   string
-	MIMEType   string
-	Image      []byte
+	WorkspaceID string
+	ItemID      int64
+	ArtifactID  int64
+	Filename    string
+	MIMEType    string
+	Image       []byte
 }
 
 type scanArtifactMeta struct {
 	Status               string                 `json:"status"`
-	ProjectID            string                 `json:"project_id,omitempty"`
+	WorkspaceID          string                 `json:"workspace_id,omitempty"`
 	ItemID               int64                  `json:"item_id,omitempty"`
 	SourceArtifactID     int64                  `json:"source_artifact_id,omitempty"`
 	Summary              string                 `json:"summary,omitempty"`
@@ -100,7 +100,7 @@ type scanArtifactMeta struct {
 }
 
 type scanConfirmRequest struct {
-	ProjectID      string                 `json:"project_id"`
+	WorkspaceID    string                 `json:"workspace_id"`
 	ItemID         int64                  `json:"item_id"`
 	ArtifactID     int64                  `json:"artifact_id"`
 	ScanArtifactID int64                  `json:"scan_artifact_id"`
@@ -129,7 +129,7 @@ func (a *App) handleScanUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	project, item, artifact, err := a.resolveScanContext(payload.ProjectID, payload.ItemID, payload.ArtifactID)
+	project, item, artifact, err := a.resolveScanContext(payload.WorkspaceID, payload.ItemID, payload.ArtifactID)
 	if err != nil {
 		switch {
 		case isNoRows(err):
@@ -194,7 +194,7 @@ func (a *App) handleScanUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	meta := scanArtifactMeta{
 		Status:      "uploaded",
-		ProjectID:   project.ID,
+		WorkspaceID: project.ID,
 		Summary:     strings.TrimSpace(result.Summary),
 		SummaryPath: summaryPath,
 		ScanPath:    relImagePath,
@@ -228,7 +228,7 @@ func (a *App) handleScanUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeAPIData(w, http.StatusCreated, map[string]any{
-		"project_id":    project.ID,
+		"workspace_id":  project.ID,
 		"item_id":       itemIDValue(item),
 		"artifact_id":   artifactIDValue(artifact),
 		"scan_artifact": scanArtifact,
@@ -250,7 +250,7 @@ func (a *App) handleScanConfirm(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "scan_artifact_id is required")
 		return
 	}
-	project, item, artifact, err := a.resolveScanContext(req.ProjectID, req.ItemID, req.ArtifactID)
+	project, item, artifact, err := a.resolveScanContext(req.WorkspaceID, req.ItemID, req.ArtifactID)
 	if err != nil {
 		switch {
 		case isNoRows(err):
@@ -298,7 +298,7 @@ func (a *App) handleScanConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	reviewMeta := scanArtifactMeta{
 		Status:           "confirmed",
-		ProjectID:        project.ID,
+		WorkspaceID:      project.ID,
 		ItemID:           itemIDValue(item),
 		SourceArtifactID: artifactIDValue(artifact),
 		Summary:          strings.TrimSpace(meta.Summary),
@@ -343,7 +343,7 @@ func (a *App) handleScanConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeAPIData(w, http.StatusCreated, map[string]any{
-		"project_id":       project.ID,
+		"workspace_id":     project.ID,
 		"item_id":          itemIDValue(item),
 		"artifact_id":      artifactIDValue(artifact),
 		"scan_artifact_id": scanArtifact.ID,
@@ -353,8 +353,8 @@ func (a *App) handleScanConfirm(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (a *App) resolveScanContext(projectID string, itemID, artifactID int64) (store.Project, *store.Item, *store.Artifact, error) {
-	project, err := a.resolveProjectByIDOrActive(projectID)
+func (a *App) resolveScanContext(workspaceID string, itemID, artifactID int64) (store.Project, *store.Item, *store.Artifact, error) {
+	project, err := a.resolveProjectByIDOrActive(workspaceID)
 	if err != nil {
 		return store.Project{}, nil, nil, err
 	}
@@ -430,12 +430,12 @@ func readScanUploadMultipart(w http.ResponseWriter, r *http.Request) (scanUpload
 			out.Image = raw
 			out.Filename = strings.TrimSpace(part.FileName())
 			out.MIMEType = strings.TrimSpace(mimeType)
-		case "project_id":
+		case "workspace_id":
 			value, err := io.ReadAll(io.LimitReader(part, scanMultipartFieldLimit))
 			if err != nil {
 				return scanUploadPayload{}, errInvalidMultipartPayload
 			}
-			out.ProjectID = strings.TrimSpace(string(value))
+			out.WorkspaceID = strings.TrimSpace(string(value))
 		case "item_id":
 			id, err := readMultipartInt64(part)
 			if err != nil {

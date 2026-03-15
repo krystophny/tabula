@@ -61,7 +61,7 @@ func evernoteClientForAccount(account store.ExternalAccount) (*evernote.Client, 
 	if strings.TrimSpace(cfg.BaseURL) != "" {
 		opts = append(opts, evernote.WithBaseURL(cfg.BaseURL))
 	}
-	return evernote.NewClientFromEnv(account.Label, opts...)
+	return evernote.NewClientFromEnv(account.AccountName, opts...)
 }
 
 func (a *App) activeEvernoteAccounts() ([]store.ExternalAccount, error) {
@@ -143,8 +143,8 @@ func (a *App) evernoteProjectHintFromTags(tags []string) *string {
 		if err != nil {
 			continue
 		}
-		projectID := project.ID
-		return &projectID
+		workspaceID := project.ID
+		return &workspaceID
 	}
 	return nil
 }
@@ -253,43 +253,7 @@ func (a *App) upsertEvernoteArtifact(account store.ExternalAccount, note evernot
 	return artifact, nil
 }
 
-func evernoteTaskProjectID(mapping *store.ExternalContainerMapping, inferredProjectID *string) *string {
-	if mapping != nil && mapping.ProjectID != nil {
-		projectID := strings.TrimSpace(*mapping.ProjectID)
-		return &projectID
-	}
-	if inferredProjectID == nil {
-		return nil
-	}
-	projectID := strings.TrimSpace(*inferredProjectID)
-	if projectID == "" {
-		return nil
-	}
-	return &projectID
-}
-
-func mappedProjectUpdateWithFallback(mapping *store.ExternalContainerMapping, fallback *string) *string {
-	if mapping != nil {
-		if mapping.ProjectID != nil {
-			return mappedProjectUpdate(mapping)
-		}
-		if fallback == nil {
-			return nil
-		}
-		projectID := strings.TrimSpace(*fallback)
-		if projectID == "" {
-			return nil
-		}
-		return &projectID
-	}
-	if fallback == nil {
-		return nil
-	}
-	projectID := strings.TrimSpace(*fallback)
-	return &projectID
-}
-
-func (a *App) persistEvernoteTask(account store.ExternalAccount, artifact store.Artifact, task evernote.Task, sourceRef string, mapping *store.ExternalContainerMapping, inferredProjectID *string, remoteUpdatedAt *string) (store.Item, error) {
+func (a *App) persistEvernoteTask(account store.ExternalAccount, artifact store.Artifact, task evernote.Task, sourceRef string, mapping *store.ExternalContainerMapping, inferredWorkspaceID *string, remoteUpdatedAt *string) (store.Item, error) {
 	title := strings.TrimSpace(task.Text)
 	if title == "" {
 		return store.Item{}, errors.New("evernote task text is required")
@@ -302,9 +266,6 @@ func (a *App) persistEvernoteTask(account store.ExternalAccount, artifact store.
 		}
 		if mapping != nil {
 			updates.WorkspaceID = mappedWorkspaceUpdate(mapping)
-		}
-		if projectID := mappedProjectUpdateWithFallback(mapping, inferredProjectID); projectID != nil {
-			updates.ProjectID = projectID
 		}
 		if mapping == nil || mapping.WorkspaceID == nil {
 			sphere := account.Sphere
@@ -353,7 +314,6 @@ func (a *App) persistEvernoteTask(account store.ExternalAccount, artifact store.
 
 	opts := store.ItemOptions{
 		State:      desiredState,
-		ProjectID:  evernoteTaskProjectID(mapping, inferredProjectID),
 		Sphere:     &account.Sphere,
 		ArtifactID: &artifact.ID,
 		Source:     optionalStringPointer(store.ExternalProviderEvernote),
@@ -390,7 +350,7 @@ func (a *App) persistEvernoteNote(account store.ExternalAccount, note evernote.N
 		return evernoteSyncResult{}, err
 	}
 	a.linkEvernoteArtifactWorkspace(artifact.ID, mapping)
-	inferredProjectID := a.evernoteProjectHintFromTags(note.TagNames)
+	inferredWorkspaceID := a.evernoteProjectHintFromTags(note.TagNames)
 
 	result := evernoteSyncResult{NoteCount: 1}
 	remoteUpdatedAt := optionalStringPointer(note.UpdatedAt)
@@ -399,7 +359,7 @@ func (a *App) persistEvernoteNote(account store.ExternalAccount, note evernote.N
 			continue
 		}
 		sourceRef := evernoteTaskSourceRef(note.ID, i+1)
-		if _, err := a.persistEvernoteTask(account, artifact, task, sourceRef, mapping, inferredProjectID, remoteUpdatedAt); err != nil {
+		if _, err := a.persistEvernoteTask(account, artifact, task, sourceRef, mapping, inferredWorkspaceID, remoteUpdatedAt); err != nil {
 			return evernoteSyncResult{}, err
 		}
 		result.TaskCount++

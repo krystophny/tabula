@@ -139,8 +139,8 @@ export function maybeShowSomedayReviewNudge() {
 }
 
 export async function refreshItemSidebarCounts() {
-  const projectID = String(state.activeProjectId || '').trim();
-  if (!projectID) {
+  const workspaceID = String(state.activeWorkspaceId || '').trim();
+  if (!workspaceID) {
     applyItemSidebarCounts(defaultItemSidebarCounts());
     return false;
   }
@@ -150,7 +150,7 @@ export async function refreshItemSidebarCounts() {
     throw new Error(detail);
   }
   const payload = await resp.json();
-  if (projectID !== String(state.activeProjectId || '').trim()) return false;
+  if (workspaceID !== String(state.activeWorkspaceId || '').trim()) return false;
   applyItemSidebarCounts(payload?.counts);
   return true;
 }

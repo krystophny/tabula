@@ -11,8 +11,7 @@ import (
 )
 
 var (
-	itemAssignTargetPattern   = regexp.MustCompile(`(?i)^(?:move|assign|reassign)(?:\s+(?:this|it))?\s+to\s+(.+?)$`)
-	itemBelongsProjectPattern = regexp.MustCompile(`(?i)^this\s+belongs\s+to\s+(.+?)$`)
+	itemAssignTargetPattern = regexp.MustCompile(`(?i)^(?:move|assign|reassign)(?:\s+(?:this|it))?\s+to\s+(.+?)$`)
 )
 
 func parseInlineItemReassignmentIntent(text string) *SystemAction {
@@ -20,13 +19,6 @@ func parseInlineItemReassignmentIntent(text string) *SystemAction {
 	switch normalized {
 	case "remove workspace from this item", "remove workspace from this", "clear workspace for this item", "clear workspace":
 		return &SystemAction{Action: "clear_workspace", Params: map[string]interface{}{}}
-	case "remove project from this item", "remove project from this", "clear project for this item", "clear project":
-		return &SystemAction{Action: "clear_project", Params: map[string]interface{}{}}
-	}
-	if match := itemBelongsProjectPattern.FindStringSubmatch(strings.TrimSpace(text)); len(match) == 2 {
-		if ref := cleanWorkspaceReference(match[1]); ref != "" {
-			return &SystemAction{Action: "reassign_project", Params: map[string]interface{}{"project": ref}}
-		}
 	}
 	if match := itemAssignTargetPattern.FindStringSubmatch(strings.TrimSpace(text)); len(match) == 2 {
 		target := cleanWorkspaceReference(match[1])
@@ -37,9 +29,6 @@ func parseInlineItemReassignmentIntent(text string) *SystemAction {
 		if strings.HasSuffix(lower, " workspace") {
 			return &SystemAction{Action: "reassign_workspace", Params: map[string]interface{}{"workspace": trimAssignmentSuffix(target, " workspace")}}
 		}
-		if strings.HasSuffix(lower, " project") {
-			return &SystemAction{Action: "reassign_project", Params: map[string]interface{}{"project": trimAssignmentSuffix(target, " project")}}
-		}
 		if looksLikeWorkspaceReference(target) {
 			return &SystemAction{Action: "reassign_workspace", Params: map[string]interface{}{"workspace": target}}
 		}
@@ -48,7 +37,7 @@ func parseInlineItemReassignmentIntent(text string) *SystemAction {
 }
 
 func systemActionAssignmentTarget(params map[string]interface{}) string {
-	for _, key := range []string{"workspace", "project", "target", "name", "path"} {
+	for _, key := range []string{"workspace", "target", "name", "path"} {
 		value := strings.TrimSpace(fmt.Sprint(params[key]))
 		if value != "" && value != "<nil>" {
 			return value
@@ -72,7 +61,7 @@ func (a *App) resolveConversationTargetItem(session store.ChatSession, project s
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return store.Item{}, err
 	}
-	if workspace, err := a.fallbackWorkspaceForProjectKey(session.ProjectKey); err != nil {
+	if workspace, err := a.fallbackWorkspaceForWorkspacePath(session.WorkspacePath); err != nil {
 		return store.Item{}, err
 	} else if workspace != nil {
 		items, listErr := a.listOpenWorkspaceItems(workspace.ID)
@@ -108,7 +97,7 @@ func (a *App) executeItemReassignmentAction(session store.ChatSession, action *S
 	}
 	switch strings.ToLower(strings.TrimSpace(action.Action)) {
 	case "reassign_workspace":
-		workspace, err := a.resolveWorkspaceReference(session.ProjectKey, systemActionAssignmentTarget(action.Params))
+		workspace, err := a.resolveWorkspaceReference(session.WorkspacePath, systemActionAssignmentTarget(action.Params))
 		if err != nil {
 			return "", nil, err
 		}
@@ -146,28 +135,6 @@ func (a *App) executeItemReassignmentAction(session store.ChatSession, action *S
 			"item_id":      item.ID,
 			"workspace_id": nil,
 			"warning":      warning,
-		}, nil
-	case "reassign_project":
-		project, err := a.resolveProjectReference(systemActionAssignmentTarget(action.Params))
-		if err != nil {
-			return "", nil, err
-		}
-		if err := a.store.SetItemProject(item.ID, &project.ID); err != nil {
-			return "", nil, err
-		}
-		return fmt.Sprintf("Assigned item %q to project %s.", item.Title, project.Name), map[string]interface{}{
-			"type":       "item_reassigned",
-			"item_id":    item.ID,
-			"project_id": project.ID,
-		}, nil
-	case "clear_project":
-		if err := a.store.SetItemProject(item.ID, nil); err != nil {
-			return "", nil, err
-		}
-		return fmt.Sprintf("Cleared the project for item %q.", item.Title), map[string]interface{}{
-			"type":       "item_reassigned",
-			"item_id":    item.ID,
-			"project_id": nil,
 		}, nil
 	default:
 		return "", nil, fmt.Errorf("unsupported item reassignment action: %s", action.Action)

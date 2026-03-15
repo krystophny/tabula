@@ -103,7 +103,7 @@ func TestClassifyAndExecuteSystemActionMakeItemCreatesInboxItemFromAssistantCont
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestClassifyAndExecuteSystemActionDelegateItemUsesActorAndCanvasArtifact(t 
 	if err != nil {
 		t.Fatalf("CreateActor() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestClassifyAndExecuteSystemActionSnoozeItemCreatesWaitingItem(t *testing.T
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestClassifyAndExecuteSystemActionCaptureIdeaCreatesInboxItemFromUserInput(
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestRunAssistantTurnCaptureIdeaPersistsAssistantConfirmation(t *testing.T) 
 	if _, err := app.store.CreateWorkspace("Default", project.RootPath); err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -392,7 +392,7 @@ func TestClassifyAndExecuteSystemActionRefineIdeaUpdatesArtifactAndCanvas(t *tes
 	if _, err := app.store.CreateWorkspace("Default", project.RootPath); err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -496,7 +496,7 @@ func TestClassifyAndExecuteSystemActionSplitItemsCreatesMultipleItems(t *testing
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -532,7 +532,7 @@ func TestClassifyAndExecuteSystemActionDelegateItemSurfacesMissingActor(t *testi
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -566,7 +566,7 @@ func TestClassifyAndExecuteSystemActionArtifactConfirmationCanBeCanceled(t *test
 	if _, err := app.store.CreateActor("Codex", store.ActorKindAgent); err != nil {
 		t.Fatalf("CreateActor() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}

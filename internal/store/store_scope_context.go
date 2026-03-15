@@ -80,27 +80,6 @@ func (s *Store) syncScopedContextLinkTx(tx *sql.Tx, linkTable, entityColumn stri
 	if err := s.ensureScopedContextsTx(tx); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`CREATE TEMP TABLE context_items_existing AS SELECT context_id, item_id FROM context_items`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`CREATE TEMP TABLE context_workspaces_existing AS SELECT context_id, workspace_id FROM context_workspaces`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DROP TABLE context_items`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DROP TABLE context_workspaces`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DROP TABLE IF EXISTS context_external_accounts`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DROP TABLE IF EXISTS context_external_container_mappings`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DROP TABLE IF EXISTS context_time_entries`); err != nil {
-		return err
-	}
 	contextID, err := scopeContextIDTx(tx, cleanScope)
 	if err != nil {
 		return err
@@ -224,8 +203,9 @@ WHERE lower(trim(sphere)) IN ('work', 'private')`); err != nil {
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
   dir_path TEXT NOT NULL UNIQUE,
-  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
   is_active INTEGER NOT NULL DEFAULT 0,
+  is_daily INTEGER NOT NULL DEFAULT 0,
+  daily_date TEXT,
   mcp_url TEXT NOT NULL DEFAULT '',
   canvas_session_id TEXT NOT NULL DEFAULT '',
   chat_model TEXT NOT NULL DEFAULT '',
@@ -237,10 +217,10 @@ WHERE lower(trim(sphere)) IN ('work', 'private')`); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`INSERT INTO workspaces (
-	id, name, dir_path, project_id, is_active, mcp_url, canvas_session_id, chat_model, chat_model_reasoning_effort, companion_config_json, created_at, updated_at
+	id, name, dir_path, is_active, is_daily, daily_date, mcp_url, canvas_session_id, chat_model, chat_model_reasoning_effort, companion_config_json, created_at, updated_at
 )
 SELECT
-	id, name, dir_path, project_id, is_active, mcp_url, canvas_session_id, chat_model, chat_model_reasoning_effort, '{}', created_at, updated_at
+	id, name, dir_path, is_active, COALESCE(is_daily, 0), daily_date, mcp_url, canvas_session_id, chat_model, chat_model_reasoning_effort, '{}', created_at, updated_at
 FROM workspaces_scope_legacy`); err != nil {
 			return err
 		}
@@ -273,7 +253,6 @@ WHERE lower(trim(sphere)) IN ('work', 'private')`); err != nil {
   title TEXT NOT NULL,
   state TEXT NOT NULL DEFAULT 'inbox' CHECK (state IN ('inbox', 'waiting', 'someday', 'done')),
   workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
-  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
   artifact_id INTEGER REFERENCES artifacts(id) ON DELETE SET NULL,
   actor_id INTEGER REFERENCES actors(id) ON DELETE SET NULL,
   visible_after TEXT,
@@ -289,10 +268,10 @@ WHERE lower(trim(sphere)) IN ('work', 'private')`); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`INSERT INTO items (
-	id, title, state, workspace_id, project_id, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
+	id, title, state, workspace_id, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 )
 SELECT
-	id, title, state, workspace_id, project_id, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
+	id, title, state, workspace_id, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 FROM items_scope_legacy`); err != nil {
 			return err
 		}
@@ -323,7 +302,6 @@ WHERE lower(trim(sphere)) IN ('work', 'private')`); err != nil {
 		if _, err := tx.Exec(`CREATE TABLE time_entries (
   id INTEGER PRIMARY KEY,
   workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
-  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
   started_at TEXT NOT NULL,
   ended_at TEXT,
   activity TEXT NOT NULL DEFAULT '',
@@ -332,10 +310,10 @@ WHERE lower(trim(sphere)) IN ('work', 'private')`); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`INSERT INTO time_entries (
-	id, workspace_id, project_id, started_at, ended_at, activity, notes
+	id, workspace_id, started_at, ended_at, activity, notes
 )
 SELECT
-	id, workspace_id, project_id, started_at, ended_at, activity, notes
+	id, workspace_id, started_at, ended_at, activity, notes
 FROM time_entries_scope_legacy`); err != nil {
 			return err
 		}
@@ -411,16 +389,15 @@ WHERE lower(trim(sphere)) IN ('work', 'private')`); err != nil {
   provider TEXT NOT NULL,
   container_type TEXT NOT NULL,
   container_ref TEXT NOT NULL,
-  workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
-  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL
+  workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL
 )`); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`INSERT INTO external_container_mappings (
-	id, provider, container_type, container_ref, workspace_id, project_id
+	id, provider, container_type, container_ref, workspace_id
 )
 SELECT
-	id, provider, container_type, container_ref, workspace_id, project_id
+	id, provider, container_type, container_ref, workspace_id
 FROM external_container_mappings_scope_legacy`); err != nil {
 			return err
 		}

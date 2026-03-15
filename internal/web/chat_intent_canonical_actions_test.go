@@ -35,7 +35,7 @@ func TestClassifyAndExecuteSystemActionForTurnSuggestsCanonicalActionsForLowConf
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession() error: %v", err)
 	}

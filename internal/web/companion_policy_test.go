@@ -11,7 +11,7 @@ func TestEvaluateCompanionInteractionPolicyRespondsToDirectAddress(t *testing.T)
 	cfg.CompanionEnabled = true
 	cfg.DirectedSpeechGateEnabled = true
 
-	session := &store.ParticipantSession{ID: "psess-1", ProjectKey: "proj"}
+	session := &store.ParticipantSession{ID: "psess-1", WorkspacePath: "proj"}
 	segments := []store.ParticipantSegment{
 		{ID: 1, SessionID: session.ID, Text: "Tabura, draft the summary.", CommittedAt: 100},
 	}
@@ -30,7 +30,7 @@ func TestEvaluateCompanionInteractionPolicySuppressesNoise(t *testing.T) {
 	cfg.CompanionEnabled = true
 	cfg.DirectedSpeechGateEnabled = true
 
-	session := &store.ParticipantSession{ID: "psess-1", ProjectKey: "proj"}
+	session := &store.ParticipantSession{ID: "psess-1", WorkspacePath: "proj"}
 	segments := []store.ParticipantSegment{
 		{ID: 2, SessionID: session.ID, Text: "Tabura, okay", CommittedAt: 100},
 	}
@@ -49,7 +49,7 @@ func TestEvaluateCompanionInteractionPolicyAppliesCooldown(t *testing.T) {
 	cfg.CompanionEnabled = true
 	cfg.DirectedSpeechGateEnabled = true
 
-	session := &store.ParticipantSession{ID: "psess-1", ProjectKey: "proj"}
+	session := &store.ParticipantSession{ID: "psess-1", WorkspacePath: "proj"}
 	segments := []store.ParticipantSegment{
 		{ID: 3, SessionID: session.ID, Text: "Tabura, summarize that.", CommittedAt: 203},
 	}
@@ -72,7 +72,7 @@ func TestEvaluateCompanionInteractionPolicyInterruptsPendingResponse(t *testing.
 	cfg.CompanionEnabled = true
 	cfg.DirectedSpeechGateEnabled = true
 
-	session := &store.ParticipantSession{ID: "psess-1", ProjectKey: "proj"}
+	session := &store.ParticipantSession{ID: "psess-1", WorkspacePath: "proj"}
 	segments := []store.ParticipantSegment{
 		{ID: 1, SessionID: session.ID, Text: "Tabura, summarize that.", CommittedAt: 100},
 		{ID: 2, SessionID: session.ID, Text: "Tabura, stop and open the transcript.", CommittedAt: 102},

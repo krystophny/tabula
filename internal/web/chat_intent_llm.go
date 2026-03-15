@@ -183,7 +183,7 @@ func (a *App) buildIntentLLMUserPrompt(sessionID string, session store.ChatSessi
 	lines = append(lines, "Current UTC time: "+now.Format(time.RFC3339))
 
 	if a != nil {
-		if workspaceCtx := a.loadWorkspacePromptContext(session.ProjectKey); workspaceCtx != nil {
+		if workspaceCtx := a.loadWorkspacePromptContext(session.WorkspacePath); workspaceCtx != nil {
 			lines = append(lines, fmt.Sprintf("Active workspace: %s (%s)", workspaceCtx.AnchorWorkspace.Name, workspaceCtx.AnchorWorkspace.DirPath))
 			lines = append(lines, fmt.Sprintf("Focused target workspace: %s (%s)", workspaceCtx.FocusWorkspace.Name, workspaceCtx.FocusWorkspace.DirPath))
 			lines = append(lines, fmt.Sprintf("Open items in focused workspace: %d", workspaceCtx.OpenItemCount))

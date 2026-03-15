@@ -52,11 +52,11 @@ type archiveManifest struct {
 }
 
 type archiveWorkspaceManifest struct {
-	ID        int64   `json:"id"`
-	Name      string  `json:"name"`
-	DirPath   string  `json:"dir_path"`
-	Sphere    string  `json:"sphere"`
-	ProjectID *string `json:"project_id,omitempty"`
+	ID          int64   `json:"id"`
+	Name        string  `json:"name"`
+	DirPath     string  `json:"dir_path"`
+	Sphere      string  `json:"sphere"`
+	WorkspaceID *string `json:"workspace_id,omitempty"`
 }
 
 type archiveArtifactEntry struct {
@@ -83,7 +83,6 @@ type archiveItemEntry struct {
 	Title       string   `json:"title"`
 	State       string   `json:"state"`
 	WorkspaceID *int64   `json:"workspace_id,omitempty"`
-	ProjectID   *string  `json:"project_id,omitempty"`
 	ArtifactID  *int64   `json:"artifact_id,omitempty"`
 	Source      *string  `json:"source,omitempty"`
 	SourceRef   *string  `json:"source_ref,omitempty"`
@@ -208,11 +207,10 @@ func archiveWorkspace(st *store.Store, workspacePath string) (archiveResult, err
 
 	manifest := archiveManifest{
 		Workspace: archiveWorkspaceManifest{
-			ID:        workspace.ID,
-			Name:      workspace.Name,
-			DirPath:   workspace.DirPath,
-			Sphere:    workspace.Sphere,
-			ProjectID: workspace.ProjectID,
+			ID:      workspace.ID,
+			Name:    workspace.Name,
+			DirPath: workspace.DirPath,
+			Sphere:  workspace.Sphere,
 		},
 		Artifacts: make([]archiveArtifactEntry, 0, len(results)),
 		Items:     make([]archiveItemEntry, 0, len(items)),
@@ -245,7 +243,6 @@ func archiveWorkspace(st *store.Store, workspacePath string) (archiveResult, err
 			Title:       item.Title,
 			State:       item.State,
 			WorkspaceID: item.WorkspaceID,
-			ProjectID:   item.ProjectID,
 			ArtifactID:  item.ArtifactID,
 			Source:      item.Source,
 			SourceRef:   item.SourceRef,
@@ -299,30 +296,19 @@ func buildArchiveArtifactEntry(st *store.Store, workspace store.Workspace, resul
 }
 
 func itemArchiveLabels(item store.Item) []string {
-	labels := make([]string, 0, 1)
-	if item.ProjectID != nil && strings.TrimSpace(*item.ProjectID) != "" {
-		labels = append(labels, strings.TrimSpace(*item.ProjectID))
-	}
-	return labels
+	return nil
 }
 
 func artifactArchiveLabels(st *store.Store, workspace store.Workspace, artifact store.Artifact) []string {
 	seen := map[string]struct{}{}
 	labels := []string{}
-	if workspace.ProjectID != nil {
-		if clean := strings.TrimSpace(*workspace.ProjectID); clean != "" {
-			labels = appendUniqueLabel(labels, seen, clean)
-		}
-	}
 	for _, label := range metaLabels(artifact.MetaJSON) {
 		labels = appendUniqueLabel(labels, seen, label)
 	}
 	items, err := st.ListArtifactItems(artifact.ID)
 	if err == nil {
 		for _, item := range items {
-			if item.ProjectID != nil {
-				labels = appendUniqueLabel(labels, seen, strings.TrimSpace(*item.ProjectID))
-			}
+			_ = item
 		}
 	}
 	return labels
@@ -525,7 +511,7 @@ func renderArtifactMarkdown(artifact store.Artifact, meta map[string]any) string
 	if artifact.RefURL != nil && strings.TrimSpace(*artifact.RefURL) != "" {
 		lines = append(lines, fmt.Sprintf("- Source URL: %s", strings.TrimSpace(*artifact.RefURL)))
 	}
-	for _, key := range []string{"state", "owner_repo", "number", "project", "project_id", "section", "section_id", "priority"} {
+	for _, key := range []string{"state", "owner_repo", "number", "project", "workspace_id", "section", "section_id", "priority"} {
 		if value := metaScalarString(meta, key); value != "" {
 			lines = append(lines, fmt.Sprintf("- %s: %s", humanizeKey(key), value))
 		}

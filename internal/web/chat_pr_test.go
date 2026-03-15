@@ -54,7 +54,7 @@ func TestLoadGitHubPRReview(t *testing.T) {
 		return "", errors.New("unexpected command")
 	}
 
-	review, err := app.loadGitHubPRReview(project.ProjectKey, "17")
+	review, err := app.loadGitHubPRReview(project.WorkspacePath, "17")
 	if err != nil {
 		t.Fatalf("loadGitHubPRReview: %v", err)
 	}

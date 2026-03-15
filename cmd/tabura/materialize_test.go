@@ -127,17 +127,9 @@ func TestMaterializeArtifactWritesCalendarICS(t *testing.T) {
 func TestArchiveWorkspaceWritesManifestAndSelfContainedArtifacts(t *testing.T) {
 	st := newMaterializeTestStore(t)
 	workspaceDir := t.TempDir()
-	projectName := filepath.Base(workspaceDir)
-	project, err := st.CreateProject(projectName, "archive-key", workspaceDir, "managed", "", "", false)
-	if err != nil {
-		t.Fatalf("CreateProject() error: %v", err)
-	}
 	workspace, err := st.CreateWorkspace("Archive Workspace", workspaceDir, store.SphereWork)
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
-	}
-	if workspace.ProjectID == nil || *workspace.ProjectID != project.ID {
-		t.Fatalf("workspace project_id = %v, want %q", workspace.ProjectID, project.ID)
 	}
 
 	emailTitle := "Customer follow-up"
@@ -175,16 +167,13 @@ func TestArchiveWorkspaceWritesManifestAndSelfContainedArtifacts(t *testing.T) {
 		t.Fatalf("LinkArtifactToWorkspace(file) error: %v", err)
 	}
 
-	item, err := st.CreateItem("Follow up on parser", store.ItemOptions{
+	_, err = st.CreateItem("Follow up on parser", store.ItemOptions{
 		State:       store.ItemStateWaiting,
 		WorkspaceID: &workspace.ID,
 		ArtifactID:  &issueArtifact.ID,
 	})
 	if err != nil {
 		t.Fatalf("CreateItem() error: %v", err)
-	}
-	if item.ProjectID == nil || *item.ProjectID != project.ID {
-		t.Fatalf("item project_id = %v, want %q", item.ProjectID, project.ID)
 	}
 
 	result, err := archiveWorkspace(st, workspaceDir)
@@ -223,14 +212,11 @@ func TestArchiveWorkspaceWritesManifestAndSelfContainedArtifacts(t *testing.T) {
 	if err := json.Unmarshal(raw, &manifest); err != nil {
 		t.Fatalf("Unmarshal(manifest) error: %v", err)
 	}
-	if manifest.Workspace.ProjectID == nil || *manifest.Workspace.ProjectID != project.ID {
-		t.Fatalf("manifest workspace project_id = %v, want %q", manifest.Workspace.ProjectID, project.ID)
-	}
 	if len(manifest.Items) != 1 || manifest.Items[0].State != store.ItemStateWaiting {
 		t.Fatalf("manifest items = %+v, want one waiting item", manifest.Items)
 	}
-	if !containsString(manifest.Items[0].Labels, project.ID) {
-		t.Fatalf("manifest item labels = %v, want %q", manifest.Items[0].Labels, project.ID)
+	if len(manifest.Items[0].Labels) != 0 {
+		t.Fatalf("manifest item labels = %v, want empty", manifest.Items[0].Labels)
 	}
 
 	issueEntry := findArchiveArtifact(manifest.Artifacts, issueArtifact.ID)
@@ -240,8 +226,8 @@ func TestArchiveWorkspaceWritesManifestAndSelfContainedArtifacts(t *testing.T) {
 	if !strings.HasSuffix(issueEntry.MaterializedPath, ".md") {
 		t.Fatalf("issue materialized_path = %q, want .md suffix", issueEntry.MaterializedPath)
 	}
-	if !containsString(issueEntry.Labels, "bug") || !containsString(issueEntry.Labels, project.ID) {
-		t.Fatalf("issue labels = %v, want bug and %q", issueEntry.Labels, project.ID)
+	if !containsString(issueEntry.Labels, "bug") {
+		t.Fatalf("issue labels = %v, want bug", issueEntry.Labels)
 	}
 
 	emailEntry := findArchiveArtifact(manifest.Artifacts, emailArtifact.ID)

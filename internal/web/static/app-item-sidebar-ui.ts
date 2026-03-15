@@ -98,7 +98,7 @@ export function stepItemSidebarItem(delta) {
 export async function loadItemSidebarView(view = state.itemSidebarView, filters = null) {
   const normalizedView = normalizeItemSidebarView(view);
   const normalizedFilters = normalizeItemSidebarFilters(filters === null ? state.itemSidebarFilters : filters);
-  const projectID = String(state.activeProjectId || '').trim();
+  const workspaceID = String(state.activeWorkspaceId || '').trim();
   const loadSeq = Number(state.itemSidebarLoadSeq || 0) + 1;
   state.itemSidebarLoadSeq = loadSeq;
   hideItemSidebarMenu();
@@ -113,7 +113,7 @@ export async function loadItemSidebarView(view = state.itemSidebarView, filters 
     state.fileSidebarMode = 'items';
   }
   renderPrReviewFileList();
-  if (!projectID) {
+  if (!workspaceID) {
     state.itemSidebarItems = [];
     state.itemSidebarLoading = false;
     applyItemSidebarCounts(defaultItemSidebarCounts());
@@ -134,7 +134,7 @@ export async function loadItemSidebarView(view = state.itemSidebarView, filters 
       throw new Error(detail);
     }
     const [itemsPayload, countsPayload] = await Promise.all([itemsResp.json(), countsResp.json()]);
-    if (projectID !== String(state.activeProjectId || '').trim()) return false;
+    if (workspaceID !== String(state.activeWorkspaceId || '').trim()) return false;
     if (loadSeq !== Number(state.itemSidebarLoadSeq || 0)) return false;
     state.itemSidebarItems = Array.isArray(itemsPayload?.items) ? itemsPayload.items : [];
     state.itemSidebarLoading = false;
@@ -143,7 +143,7 @@ export async function loadItemSidebarView(view = state.itemSidebarView, filters 
     renderPrReviewFileList();
     return true;
   } catch (err) {
-    if (projectID !== String(state.activeProjectId || '').trim()) return false;
+    if (workspaceID !== String(state.activeWorkspaceId || '').trim()) return false;
     if (loadSeq !== Number(state.itemSidebarLoadSeq || 0)) return false;
     state.itemSidebarItems = [];
     state.itemSidebarLoading = false;

@@ -22,7 +22,7 @@ func TestTimeEntriesTrackProjectWorkspaceAndSphereSwitches(t *testing.T) {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
 
-	rrProject := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/projects/"+project.ID+"/activate", nil)
+	rrProject := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/runtime/workspaces/"+project.ID+"/activate", nil)
 	if rrProject.Code != http.StatusOK {
 		t.Fatalf("project activate status = %d, want 200: %s", rrProject.Code, rrProject.Body.String())
 	}
@@ -63,9 +63,6 @@ func TestTimeEntriesTrackProjectWorkspaceAndSphereSwitches(t *testing.T) {
 	if got := int64(last["workspace_id"].(float64)); got != workspace.ID {
 		t.Fatalf("last workspace_id = %d, want %d", got, workspace.ID)
 	}
-	if got := strFromAny(last["project_id"]); got != project.ID {
-		t.Fatalf("last project_id = %q, want %q", got, project.ID)
-	}
 	if _, ok := last["ended_at"]; ok {
 		t.Fatalf("last ended_at = %#v, want active entry", last["ended_at"])
 	}
@@ -86,10 +83,10 @@ func TestTimeEntrySummaryCSVAndManualStampAPI(t *testing.T) {
 	start := time.Date(2026, 3, 9, 8, 0, 0, 0, time.UTC)
 	middle := start.Add(90 * time.Minute)
 	end := middle.Add(30 * time.Minute)
-	if _, _, err := app.store.SwitchActiveTimeEntry(start, &workspace.ID, &project.ID, store.SphereWork, "workspace_switch", nil); err != nil {
+	if _, _, err := app.store.SwitchActiveTimeEntry(start, &workspace.ID, store.SphereWork, "workspace_switch", nil); err != nil {
 		t.Fatalf("SwitchActiveTimeEntry(first) error: %v", err)
 	}
-	if _, _, err := app.store.SwitchActiveTimeEntry(middle, nil, &project.ID, store.SphereWork, "project_switch", nil); err != nil {
+	if _, _, err := app.store.SwitchActiveTimeEntry(middle, nil, store.SphereWork, "workspace_switch", nil); err != nil {
 		t.Fatalf("SwitchActiveTimeEntry(second) error: %v", err)
 	}
 	if _, err := app.store.StopActiveTimeEntries(end); err != nil {
@@ -129,9 +126,6 @@ func TestTimeEntrySummaryCSVAndManualStampAPI(t *testing.T) {
 		t.Fatalf("summary csv body = %q, want project duration row", rrCSV.Body.String())
 	}
 
-	if err := app.store.SetActiveProjectID(project.ID); err != nil {
-		t.Fatalf("SetActiveProjectID() error: %v", err)
-	}
 	if err := app.store.SetActiveWorkspace(workspace.ID); err != nil {
 		t.Fatalf("SetActiveWorkspace() error: %v", err)
 	}

@@ -119,7 +119,7 @@ func TestParseSystemAction(t *testing.T) {
 		raw        string
 		wantAction string
 	}{
-		{name: "switch project", raw: `{"action":"switch_project","name":"docs"}`, wantAction: "switch_project"},
+		{name: "switch project", raw: `{"action":"switch_workspace","name":"docs"}`, wantAction: "switch_workspace"},
 		{name: "switch workspace", raw: `{"action":"switch_workspace","workspace":"tabula"}`, wantAction: "switch_workspace"},
 		{name: "list workspace items", raw: `{"action":"list_workspace_items","workspace":"tabula"}`, wantAction: "list_workspace_items"},
 		{name: "create workspace from git", raw: `{"action":"create_workspace_from_git","repo_url":"git@github.com:user/repo.git"}`, wantAction: "create_workspace_from_git"},
@@ -185,7 +185,7 @@ func TestExecuteSystemActionShellRunsCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestExecuteSystemActionToggleLiveDialogueReturnsPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestExecuteSystemActionOpenFileCanvasShowsArtifact(t *testing.T) {
 	if err := os.WriteFile(targetFile, []byte("line-one\nline-two"), 0o644); err != nil {
 		t.Fatalf("write target file: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestOpenFileCanvasRendersPresentationAsPDF(t *testing.T) {
 		}
 		return os.WriteFile(outputPath, []byte("%PDF-1.4\n"), 0o644)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -430,22 +430,26 @@ func TestSwitchProjectActionReturnsActivationPayload(t *testing.T) {
 	}
 
 	_, payload, err := app.executeSystemAction(session.ID, session, &SystemAction{
-		Action: "switch_project",
+		Action: "switch_workspace",
 		Params: map[string]interface{}{
 			"name": "note",
 		},
 	})
 	if err != nil {
-		t.Fatalf("execute switch_project: %v", err)
+		t.Fatalf("execute switch_workspace: %v", err)
 	}
 	if payload == nil {
 		t.Fatalf("expected system_action payload")
 	}
-	if got := strings.TrimSpace(payload["type"].(string)); got != "switch_project" {
-		t.Fatalf("action payload type = %q, want switch_project", got)
+	if got := strings.TrimSpace(payload["type"].(string)); got != "switch_workspace" {
+		t.Fatalf("action payload type = %q, want switch_workspace", got)
 	}
-	if got := strings.TrimSpace(payload["project_id"].(string)); got != target.ID {
-		t.Fatalf("action payload project_id = %q, want %q", got, target.ID)
+	gotID, ok := payload["workspace_id"].(int64)
+	if !ok {
+		t.Fatalf("action payload workspace_id type = %T, want int64", payload["workspace_id"])
+	}
+	if gotID != runtimeWorkspaceIDInt64(t, target) {
+		t.Fatalf("action payload workspace_id = %d, want %d", gotID, runtimeWorkspaceIDInt64(t, target))
 	}
 }
 
@@ -552,7 +556,7 @@ func TestRunAssistantTurnExecutesHighConfidenceLocalIntentInProjectSession(t *te
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -585,7 +589,7 @@ func TestRunAssistantTurnPersistsLocalAnswer(t *testing.T) {
 	defer llm.Close()
 	app.intentLLMURL = llm.URL
 
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -652,7 +656,7 @@ func TestRunAssistantTurnOpenReadmeUsesMultiActionPlanAndOpensCanvas(t *testing.
 	}
 	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
 
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -824,7 +828,7 @@ func TestRunAssistantTurnFallsBackToAppServerWhenLocalIntentExecutionFails(t *te
 	defer wsServer.Close()
 	wsURL := "ws" + strings.TrimPrefix(wsServer.URL, "http")
 
-	llm := setupMockIntentLLMServer(t, http.StatusOK, `{"action":"switch_project"}`)
+	llm := setupMockIntentLLMServer(t, http.StatusOK, `{"action":"switch_workspace"}`)
 	defer llm.Close()
 
 	app, err := New(t.TempDir(), "", "", wsURL, "", "", "", false)

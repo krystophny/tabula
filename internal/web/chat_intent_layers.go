@@ -18,7 +18,7 @@ const (
 )
 
 var intentPromptSystemCommands = []string{
-	"switch_project",
+	"switch_workspace",
 	"switch_workspace",
 	"focus_workspace",
 	"clear_focus",
@@ -37,10 +37,6 @@ var intentPromptSystemCommands = []string{
 	"review_policy",
 	"batch_limit",
 	"batch_status",
-	"assign_workspace_project",
-	"show_workspace_project",
-	"create_project",
-	"list_project_workspaces",
 	"link_workspace_artifact",
 	"list_linked_artifacts",
 	"toggle_silent",
@@ -52,7 +48,6 @@ var intentPromptSystemCommands = []string{
 	"open_file_canvas",
 	"show_calendar",
 	"show_briefing",
-	"sync_project",
 	"sync_sources",
 	"map_todoist_project",
 	"sync_todoist",

@@ -36,7 +36,7 @@ const consumeRuntimeReloadContext = (...args) => refs.consumeRuntimeReloadContex
 const fetchRuntimeMeta = (...args) => refs.fetchRuntimeMeta(...args);
 const applyRuntimePreferences = (...args) => refs.applyRuntimePreferences(...args);
 const initHotwordLifecycle = (...args) => refs.initHotwordLifecycle(...args);
-const resolveInitialProjectID = (...args) => refs.resolveInitialProjectID(...args);
+const resolveInitialWorkspaceID = (...args) => refs.resolveInitialWorkspaceID(...args);
 const applyRuntimeReasoningEffortOptions = (...args) => refs.applyRuntimeReasoningEffortOptions(...args);
 const fetchProjects = (...args) => refs.fetchProjects(...args);
 const startRuntimeReloadWatcher = (...args) => refs.startRuntimeReloadWatcher(...args);

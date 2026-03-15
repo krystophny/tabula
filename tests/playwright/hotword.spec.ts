@@ -80,7 +80,7 @@ async function switchToTestProject(page: Page) {
     const app = (window as any)._taburaApp;
     const state = app?.getState?.();
     const wsOpen = (window as any).WebSocket.OPEN;
-    if (String(state?.activeProjectId || '') !== 'test') return '';
+    if (String(state?.activeWorkspaceId || '') !== 'test') return '';
     return state?.chatWs?.readyState === wsOpen ? 'ready' : 'waiting';
   })).toBe('ready');
 }

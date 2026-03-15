@@ -129,7 +129,7 @@ func TestClassifyAndExecuteSystemActionFastPathBypassesIntentLLM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestClassifyAndExecuteSystemActionRuntimeControlBypassesIntentLLM(t *testin
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestClassifyAndExecuteSystemActionStatusFastPathBypassesIntentLLM(t *testin
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}

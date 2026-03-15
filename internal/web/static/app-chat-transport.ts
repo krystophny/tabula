@@ -37,11 +37,11 @@ const takeAnyPendingRow = (...args) => refs.takeAnyPendingRow(...args);
 const updateAssistantRow = (...args) => refs.updateAssistantRow(...args);
 const trackAssistantTurnStarted = (...args) => refs.trackAssistantTurnStarted(...args);
 const trackAssistantTurnFinished = (...args) => refs.trackAssistantTurnFinished(...args);
-const activeProjectKey = (...args) => refs.activeProjectKey(...args);
+const activeWorkspacePath = (...args) => refs.activeWorkspacePath(...args);
 const setChatMode = (...args) => refs.setChatMode(...args);
 const resetCompanionState = (...args) => refs.resetCompanionState(...args);
 const applyCompanionState = (...args) => refs.applyCompanionState(...args);
-const setActiveProjectID = (...args) => refs.setActiveProjectID(...args);
+const setActiveWorkspaceID = (...args) => refs.setActiveWorkspaceID(...args);
 const activateProject = (...args) => refs.activateProject(...args);
 const showCanvasColumn = (...args) => refs.showCanvasColumn(...args);
 const hideCanvasColumn = (...args) => refs.hideCanvasColumn(...args);
@@ -354,9 +354,9 @@ export function handleChatEvent(payload) {
   }
 
   if (type === 'companion_state') {
-    const projectKey = String(payload?.project_key || '').trim();
-    const currentProjectKey = activeProjectKey();
-    if (!projectKey || !currentProjectKey || projectKey === currentProjectKey) {
+    const workspacePath = String(payload?.workspace_path || payload?.workspace_path || '').trim();
+    const currentWorkspacePath = activeWorkspacePath();
+    if (!workspacePath || !currentWorkspacePath || workspacePath === currentWorkspacePath) {
       applyCompanionState(payload);
       updateAssistantActivityIndicator();
     }
@@ -390,9 +390,9 @@ export function handleChatEvent(payload) {
   if (type === 'mode_changed') {
     const nextMode = String(payload.mode || 'chat').trim().toLowerCase();
     setChatMode(nextMode);
-    const activeProjectID = String(state.activeProjectId || '').trim();
-    if (activeProjectID) {
-      const existing = state.projects.find((item) => item.id === activeProjectID);
+    const activeWorkspaceID = String(state.activeWorkspaceId || '').trim();
+    if (activeWorkspaceID) {
+      const existing = state.projects.find((item) => item.id === activeWorkspaceID);
       if (existing) {
         upsertProject({
           ...existing,
@@ -420,10 +420,10 @@ export function handleChatEvent(payload) {
   if (type === 'system_action') {
     const action = payload && typeof payload.action === 'object' ? payload.action : {};
     const actionType = String(action?.type || '').trim();
-    if (actionType === 'switch_project') {
-      const projectID = String(action?.project_id || '').trim();
-      if (projectID) {
-        void switchProject(projectID);
+    if (actionType === 'switch_workspace' || actionType === 'switch_workspace') {
+      const workspaceID = String(action?.workspace_id || action?.workspace_id || '').trim();
+      if (workspaceID) {
+        void switchProject(workspaceID);
       }
     } else if (actionType === 'toggle_silent') {
       toggleTTSSilentMode();
@@ -810,11 +810,11 @@ export function handleChatEvent(payload) {
   }
 }
 
-export async function switchProject(projectID) {
-  const nextProjectID = String(projectID || '').trim();
-  if (!nextProjectID) return;
+export async function switchProject(workspaceID) {
+  const nextWorkspaceID = String(workspaceID || '').trim();
+  if (!nextWorkspaceID) return;
   if (state.projectSwitchInFlight) return;
-  if (nextProjectID === state.activeProjectId && state.chatSessionId) return;
+  if (nextWorkspaceID === state.activeWorkspaceId && state.chatSessionId) return;
 
   state.projectSwitchInFlight = true;
   showStatus('switching workspace...');
@@ -845,9 +845,9 @@ export async function switchProject(projectID) {
   hideOverlay();
   hideTextInput();
   resetAssistantTurnTracking({ clearError: true });
-  setActiveProjectID(nextProjectID);
+  setActiveWorkspaceID(nextWorkspaceID);
   try {
-    const project = await activateProject(nextProjectID);
+    const project = await activateProject(nextWorkspaceID);
     state.chatWsHasConnected = false;
     upsertProject(project);
     renderEdgeTopProjects();

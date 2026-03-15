@@ -688,7 +688,7 @@ func TestFinalizeAssistantResponse_SilentOverwritesScratchArtifact(t *testing.T)
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -705,7 +705,7 @@ func TestFinalizeAssistantResponse_SilentOverwritesScratchArtifact(t *testing.T)
 		t.Fatalf("extract port: %v", err)
 	}
 	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
-	ctx := app.resolveCanvasContext(project.ProjectKey)
+	ctx := app.resolveCanvasContext(project.WorkspacePath)
 	if ctx == nil {
 		t.Fatal("expected canvas context")
 	}
@@ -717,7 +717,7 @@ func TestFinalizeAssistantResponse_SilentOverwritesScratchArtifact(t *testing.T)
 	var persistedText string
 	_ = app.finalizeAssistantResponse(
 		session.ID,
-		project.ProjectKey,
+		project.WorkspacePath,
 		"second response",
 		&persistedID,
 		&persistedText,
@@ -752,7 +752,7 @@ func TestFinalizeAssistantResponse_VoiceExecutesExplicitFileBlocks(t *testing.T)
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -770,7 +770,7 @@ func TestFinalizeAssistantResponse_VoiceExecutesExplicitFileBlocks(t *testing.T)
 	var persistedText string
 	response := app.finalizeAssistantResponse(
 		session.ID,
-		project.ProjectKey,
+		project.WorkspacePath,
 		`I put it on canvas.
 
 :::file{path=".tabura/artifacts/tmp/voice-note.md"}
@@ -809,7 +809,7 @@ func TestFinalizeAssistantResponse_SilentFallsBackToScratchForWorkspaceArtifact(
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -838,7 +838,7 @@ func TestFinalizeAssistantResponse_SilentFallsBackToScratchForWorkspaceArtifact(
 	var persistedText string
 	_ = app.finalizeAssistantResponse(
 		session.ID,
-		project.ProjectKey,
+		project.WorkspacePath,
 		"assistant follow-up",
 		&persistedID,
 		&persistedText,
@@ -883,7 +883,7 @@ func TestFinalizeAssistantResponse_SilentFallsBackWhenOverwritePathEscapesProjec
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -905,7 +905,7 @@ func TestFinalizeAssistantResponse_SilentFallsBackWhenOverwritePathEscapesProjec
 	var persistedText string
 	_ = app.finalizeAssistantResponse(
 		session.ID,
-		project.ProjectKey,
+		project.WorkspacePath,
 		"fresh response",
 		&persistedID,
 		&persistedText,
@@ -935,7 +935,7 @@ func TestFinalizeAssistantResponse_SilentResearchWritesMultipleArtifacts(t *test
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -970,7 +970,7 @@ func TestFinalizeAssistantResponse_SilentResearchWritesMultipleArtifacts(t *test
 	var persistedText string
 	result := app.finalizeAssistantResponse(
 		session.ID,
-		project.ProjectKey,
+		project.WorkspacePath,
 		response,
 		&persistedID,
 		&persistedText,
@@ -1019,7 +1019,7 @@ func TestFinalizeAssistantResponse_SilentFileBlocksKeepExplicitPathsOutsideResea
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -1046,7 +1046,7 @@ diff --git a/a.go b/a.go
 	var persistedText string
 	_ = app.finalizeAssistantResponse(
 		session.ID,
-		project.ProjectKey,
+		project.WorkspacePath,
 		response,
 		&persistedID,
 		&persistedText,

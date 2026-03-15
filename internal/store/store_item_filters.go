@@ -1,9 +1,6 @@
 package store
 
-import (
-	"errors"
-	"strings"
-)
+import "errors"
 
 func normalizeItemListFilter(filter ItemListFilter) (ItemListFilter, error) {
 	normalized := ItemListFilter{
@@ -24,12 +21,6 @@ func normalizeItemListFilter(filter ItemListFilter) (ItemListFilter, error) {
 	}
 	if normalized.WorkspaceID != nil && normalized.WorkspaceUnassigned {
 		return ItemListFilter{}, errors.New("workspace_id cannot be combined with workspace_id=null")
-	}
-	if filter.ProjectID != nil {
-		projectID := strings.TrimSpace(*filter.ProjectID)
-		if projectID != "" {
-			normalized.ProjectID = &projectID
-		}
 	}
 	normalized.Label = normalizeOptionalContextQuery(filter.Label)
 	if filter.LabelID != nil {
@@ -74,9 +65,6 @@ func appendItemFilterClauses(parts []string, args []any, filter ItemListFilter, 
 		}
 		return alias + name
 	}
-	workspaceProjectColumn := func() string {
-		return `(SELECT project_id FROM workspaces WHERE id = ` + outerColumn("workspace_id") + `)`
-	}
 	if filter.Sphere != "" {
 		parts = append(parts, scopedContextFilter("context_items", "item_id", outerColumn("id")))
 		args = append(args, filter.Sphere)
@@ -91,10 +79,6 @@ func appendItemFilterClauses(parts []string, args []any, filter ItemListFilter, 
 	}
 	if filter.WorkspaceUnassigned {
 		parts = append(parts, column("workspace_id")+" IS NULL")
-	}
-	if filter.ProjectID != nil {
-		parts = append(parts, `COALESCE(`+column("project_id")+`, `+workspaceProjectColumn()+`) = ?`)
-		args = append(args, *filter.ProjectID)
 	}
 	if filter.labelResolved {
 		if len(filter.resolvedLabelGroups) == 0 {

@@ -36,7 +36,7 @@ export const YOLO_MODE_STORAGE_KEY = 'tabura.yoloMode';
 export const SOMEDAY_REVIEW_NUDGE_ENABLED_STORAGE_KEY = 'tabura.somedayReviewNudgeEnabled';
 export const SOMEDAY_REVIEW_NUDGE_LAST_SHOWN_STORAGE_KEY = 'tabura.somedayReviewNudgeLastShownAt';
 export const SOMEDAY_REVIEW_NUDGE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
-export const ACTIVE_PROJECT_STORAGE_KEY = 'tabura.activeProjectId';
+export const ACTIVE_PROJECT_STORAGE_KEY = 'tabura.activeWorkspaceId';
 export const ACTIVE_SPHERE_STORAGE_KEY = 'tabura.activeSphere';
 export const LAST_VIEW_STORAGE_KEY = 'tabura.lastView';
 export const RUNTIME_RELOAD_CONTEXT_STORAGE_KEY = 'tabura.runtimeReloadContext';
@@ -111,9 +111,9 @@ export const state = {
   chatMode: 'chat',
   hasArtifact: false,
   projects: [],
-  defaultProjectId: '',
+  defaultWorkspaceId: '',
   serverActiveProjectId: '',
-  activeProjectId: '',
+  activeWorkspaceId: '',
   activeSphere: 'private',
   workspaceFocus: {
     anchor: null,
@@ -262,7 +262,7 @@ export const state = {
   companionIdleSurface: 'robot',
   companionRuntimeState: 'idle',
   companionRuntimeReason: 'idle',
-  companionProjectKey: '',
+  companionWorkspacePath: '',
   assistantActivityTimer: null,
   assistantActivityInFlight: false,
   projectRunStatesInFlight: false,

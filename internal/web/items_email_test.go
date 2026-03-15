@@ -64,7 +64,6 @@ func stringPointer(value string) *string {
 
 type exchangeEmailSyncFixture struct {
 	app         *App
-	projectID   string
 	workspaceID int64
 }
 
@@ -288,15 +287,11 @@ func newExchangeEmailSyncFixture(t *testing.T) exchangeEmailSyncFixture {
 	if err != nil {
 		t.Fatalf("CreateExternalAccount(exchange) error: %v", err)
 	}
-	project, err := app.store.CreateProject("Contracts", "contracts", filepath.Join(t.TempDir(), "contracts"), "managed", "", "", false)
-	if err != nil {
-		t.Fatalf("CreateProject() error: %v", err)
-	}
 	workspace, err := app.store.CreateWorkspace("Contracts", filepath.Join(t.TempDir(), "workspace", "contracts"), store.SphereWork)
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	if _, err := app.store.SetContainerMapping(store.ExternalProviderExchange, "label", "Contracts", &workspace.ID, &project.ID, nil); err != nil {
+	if _, err := app.store.SetContainerMapping(store.ExternalProviderExchange, "label", "Contracts", &workspace.ID, nil); err != nil {
 		t.Fatalf("SetContainerMapping() error: %v", err)
 	}
 	provider := exchangeEmailSyncProvider()
@@ -315,7 +310,6 @@ func newExchangeEmailSyncFixture(t *testing.T) exchangeEmailSyncFixture {
 	app.sourceSync = app.newSourceSyncRunner()
 	return exchangeEmailSyncFixture{
 		app:         app,
-		projectID:   project.ID,
 		workspaceID: workspace.ID,
 	}
 }
@@ -363,9 +357,6 @@ func assertExchangeEmailSyncArtifacts(t *testing.T, fixture exchangeEmailSyncFix
 	}
 	if item.WorkspaceID == nil || *item.WorkspaceID != fixture.workspaceID {
 		t.Fatalf("exchange item workspace_id = %v, want %d", item.WorkspaceID, fixture.workspaceID)
-	}
-	if item.ProjectID == nil || *item.ProjectID != fixture.projectID {
-		t.Fatalf("exchange item project_id = %v, want %q", item.ProjectID, fixture.projectID)
 	}
 	itemArtifacts, err := fixture.app.store.ListItemArtifacts(item.ID)
 	if err != nil {
@@ -467,15 +458,11 @@ func TestSyncEmailAccountUsesMappedNonPrimaryLabelForAssignment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateExternalAccount() error: %v", err)
 	}
-	project, err := app.store.CreateProject("Contracts", "contracts", filepath.Join(t.TempDir(), "contracts"), "managed", "", "", false)
-	if err != nil {
-		t.Fatalf("CreateProject() error: %v", err)
-	}
 	workspace, err := app.store.CreateWorkspace("Contracts", filepath.Join(t.TempDir(), "workspace", "contracts"), store.SphereWork)
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	if _, err := app.store.SetContainerMapping(store.ExternalProviderGmail, "label", "Contracts", &workspace.ID, &project.ID, nil); err != nil {
+	if _, err := app.store.SetContainerMapping(store.ExternalProviderGmail, "label", "Contracts", &workspace.ID, nil); err != nil {
 		t.Fatalf("SetContainerMapping() error: %v", err)
 	}
 
@@ -519,10 +506,6 @@ func TestSyncEmailAccountUsesMappedNonPrimaryLabelForAssignment(t *testing.T) {
 	if item.WorkspaceID == nil || *item.WorkspaceID != workspace.ID {
 		t.Fatalf("item workspace_id = %v, want %d", item.WorkspaceID, workspace.ID)
 	}
-	if item.ProjectID == nil || *item.ProjectID != project.ID {
-		t.Fatalf("item project_id = %v, want %q", item.ProjectID, project.ID)
-	}
-
 	binding, err := app.store.GetBindingByRemote(account.ID, store.ExternalProviderGmail, emailBindingObjectType, "gmail-contracts")
 	if err != nil {
 		t.Fatalf("GetBindingByRemote(email) error: %v", err)

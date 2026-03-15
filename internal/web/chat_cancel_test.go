@@ -95,7 +95,7 @@ func TestExecuteChatCommandStopCancelsWork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("create chat session: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestExecuteChatCommandStatusUsesAppServerStatusOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("create chat session: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestHandleChatSessionCommandStatusUsesAppServerStatusOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("create chat session: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestHandleChatSessionCommandStopCancelsWork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("create chat session: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestHandleChatSessionCancelEndpointStopsWork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("create chat session: %v", err)
 	}
@@ -376,7 +376,7 @@ func TestHandleChatSessionCancelStopsActiveTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("create chat session: %v", err)
 	}
@@ -428,7 +428,7 @@ func TestHandleChatSessionActivityReportsActiveTurns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("create chat session: %v", err)
 	}
@@ -490,7 +490,7 @@ func TestHandleChatSessionCancelClearsQueuedTurns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("create chat session: %v", err)
 	}
@@ -527,7 +527,7 @@ func TestExecuteChatCommandClearAllResetsChatContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	s1, err := app.store.GetOrCreateChatSession(projectOne.ProjectKey)
+	s1, err := app.store.GetOrCreateChatSession(projectOne.WorkspacePath)
 	if err != nil {
 		t.Fatalf("create chat session 1: %v", err)
 	}
@@ -536,7 +536,7 @@ func TestExecuteChatCommandClearAllResetsChatContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProject(project 2) error: %v", err)
 	}
-	s2, err := app.store.GetOrCreateChatSession(projectTwo.ProjectKey)
+	s2, err := app.store.GetOrCreateChatSession(projectTwo.WorkspacePath)
 	if err != nil {
 		t.Fatalf("create chat session 2: %v", err)
 	}

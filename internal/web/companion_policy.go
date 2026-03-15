@@ -279,23 +279,23 @@ func (a *App) finishCompanionPendingTurn(chatSessionID, eventType string) {
 	if err != nil {
 		return
 	}
-	project, err := a.store.GetProjectByProjectKey(session.ProjectKey)
+	project, err := a.store.GetProjectByWorkspacePath(session.WorkspacePath)
 	if err != nil {
 		return
 	}
 	switch strings.TrimSpace(eventType) {
 	case "assistant_turn_cancelled":
-		a.settleCompanionRuntimeState(session.ProjectKey, a.loadCompanionConfig(project), "assistant_turn_cancelled")
+		a.settleCompanionRuntimeState(session.WorkspacePath, a.loadCompanionConfig(project), "assistant_turn_cancelled")
 	case "assistant_turn_failed":
-		a.broadcastCompanionRuntimeState(session.ProjectKey, companionRuntimeSnapshot{
+		a.broadcastCompanionRuntimeState(session.WorkspacePath, companionRuntimeSnapshot{
 			State:                companionRuntimeStateError,
 			Reason:               "assistant_turn_failed",
-			ProjectKey:           session.ProjectKey,
+			WorkspacePath:        session.WorkspacePath,
 			ParticipantSessionID: pending.participantSessionID,
 			ParticipantSegmentID: pending.segmentID,
 		})
 	case "assistant_turn_completed":
-		a.settleCompanionRuntimeState(session.ProjectKey, a.loadCompanionConfig(project), "assistant_turn_completed")
+		a.settleCompanionRuntimeState(session.WorkspacePath, a.loadCompanionConfig(project), "assistant_turn_completed")
 	}
 }
 
@@ -323,9 +323,9 @@ func (a *App) interruptCompanionPendingTurn(chatSessionID, participantSessionID 
 	if err != nil {
 		return
 	}
-	project, err := a.store.GetProjectByProjectKey(session.ProjectKey)
+	project, err := a.store.GetProjectByWorkspacePath(session.WorkspacePath)
 	if err != nil {
 		return
 	}
-	a.settleCompanionRuntimeState(session.ProjectKey, a.loadCompanionConfig(project), "assistant_interrupted")
+	a.settleCompanionRuntimeState(session.WorkspacePath, a.loadCompanionConfig(project), "assistant_interrupted")
 }

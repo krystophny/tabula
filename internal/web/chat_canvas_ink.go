@@ -282,7 +282,7 @@ func (a *App) persistChatCanvasInkSnapshot(sessionID, raw string) string {
 	if err != nil {
 		return ""
 	}
-	project, err := a.store.GetProjectByProjectKey(session.ProjectKey)
+	project, err := a.store.GetProjectByWorkspacePath(session.WorkspacePath)
 	if err != nil {
 		return ""
 	}

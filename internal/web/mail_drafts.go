@@ -10,6 +10,7 @@ import (
 	"net/mail"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -339,14 +340,14 @@ func (a *App) handleMailDraftSend(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) activeMailDraftProject() (store.Project, error) {
-	projectID, err := a.store.ActiveProjectID()
+	workspaceID, err := a.store.ActiveWorkspaceID()
 	if err != nil {
 		return store.Project{}, err
 	}
-	if strings.TrimSpace(projectID) == "" {
+	if strings.TrimSpace(workspaceID) == "" {
 		return store.Project{}, errors.New("mail draft requires an active project")
 	}
-	return a.store.GetProject(projectID)
+	return a.store.GetProject(workspaceID)
 }
 
 func (a *App) resolveMailDraftAccount(ctx context.Context, accountID int64) (store.ExternalAccount, emailSyncAccountConfig, error) {
@@ -406,7 +407,7 @@ func (a *App) persistMailDraft(project store.Project, account store.ExternalAcco
 	}
 	meta := mailDraftArtifactMeta{
 		AccountID:        account.ID,
-		AccountLabel:     account.Label,
+		AccountLabel:     account.AccountName,
 		Provider:         account.Provider,
 		RemoteDraftID:    strings.TrimSpace(remote.ID),
 		ReplyToMessageID: strings.TrimSpace(replyToMessageID),
@@ -426,14 +427,17 @@ func (a *App) persistMailDraft(project store.Project, account store.ExternalAcco
 	if err != nil {
 		return mailDraftPayload{}, err
 	}
-	projectID := project.ID
+	workspaceID, err := strconv.ParseInt(strings.TrimSpace(project.ID), 10, 64)
+	if err != nil || workspaceID <= 0 {
+		return mailDraftPayload{}, errors.New("workspace id is invalid")
+	}
 	source := account.Provider
 	sourceRef := strings.TrimSpace(remote.ID)
 	item, err := a.store.CreateItem(title, store.ItemOptions{
-		ProjectID:  &projectID,
-		ArtifactID: &artifact.ID,
-		Source:     &source,
-		SourceRef:  &sourceRef,
+		WorkspaceID: &workspaceID,
+		ArtifactID:  &artifact.ID,
+		Source:      &source,
+		SourceRef:   &sourceRef,
 	})
 	if err != nil {
 		return mailDraftPayload{}, err
@@ -578,8 +582,8 @@ func (ctx mailDraftContext) payload() mailDraftPayload {
 }
 
 func (a *App) projectForItem(item store.Item) (store.Project, error) {
-	if item.ProjectID != nil && strings.TrimSpace(*item.ProjectID) != "" {
-		return a.store.GetProject(strings.TrimSpace(*item.ProjectID))
+	if item.WorkspaceID != nil && *item.WorkspaceID > 0 {
+		return a.store.GetProject(strconv.FormatInt(*item.WorkspaceID, 10))
 	}
 	return a.activeMailDraftProject()
 }

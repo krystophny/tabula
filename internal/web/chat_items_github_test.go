@@ -60,7 +60,7 @@ func TestClassifyAndExecuteSystemActionCreateGitHubIssuePromotesExistingItem(t *
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestClassifyAndExecuteSystemActionCreateGitHubIssueCreatesLinkedItem(t *tes
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestClassifyAndExecuteSystemActionCreateGitHubIssueRejectsMissingWorkspace(
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestClassifyAndExecuteSystemActionCreateGitHubIssueRejectsMissingRemote(t *
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestClassifyAndExecuteSystemActionCreateGitHubIssueSurfacesCreateFailure(t 
 	if _, err := app.store.CreateWorkspace("Default", project.RootPath); err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestClassifyAndExecuteSystemActionCreateGitHubIssueRejectsDuplicateLinkedIt
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}

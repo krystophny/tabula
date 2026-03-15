@@ -25,7 +25,7 @@ type reviewSubmitComment struct {
 }
 
 type reviewSubmitRequest struct {
-	ProjectID       string                `json:"project_id"`
+	WorkspaceID     string                `json:"workspace_id"`
 	ArtifactKind    string                `json:"artifact_kind"`
 	ArtifactTitle   string                `json:"artifact_title"`
 	ArtifactPath    string                `json:"artifact_path"`
@@ -54,7 +54,7 @@ func (a *App) handleReviewSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	project, err := a.resolveProjectByIDOrActive(req.ProjectID)
+	project, err := a.resolveProjectByIDOrActive(req.WorkspaceID)
 	if err != nil {
 		if isNoRows(err) {
 			http.Error(w, "project not found", http.StatusNotFound)
@@ -157,7 +157,7 @@ func (a *App) handleReviewSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]interface{}{
 		"ok":                     true,
-		"project_id":             project.ID,
+		"workspace_id":           project.ID,
 		"review_markdown_path":   filepath.ToSlash(relMarkdownPath),
 		"pdf_export_path":        pdfExportRel,
 		"revision_manifest_path": revisionManifestPath,

@@ -44,24 +44,18 @@ func normalizeRenderFormat(format string) string {
 const chatSessionSelect = `
 SELECT cs.id,
        cs.workspace_id,
-       COALESCE(NULLIF(trim(p.project_key), ''), w.dir_path, '') AS project_key,
+       w.dir_path AS workspace_path,
        cs.app_thread_id,
        cs.mode,
        cs.created_at,
        cs.updated_at
   FROM chat_sessions cs
   JOIN workspaces w ON w.id = cs.workspace_id
-  LEFT JOIN projects p ON p.id = w.project_id
 `
 
 func (s *Store) resolveChatSessionWorkspace(ref string) (Workspace, error) {
 	cleanRef := strings.TrimSpace(ref)
 	if cleanRef != "" {
-		if project, err := s.GetProjectByProjectKey(cleanRef); err == nil {
-			return s.workspaceForProject(project)
-		} else if !errors.Is(err, sql.ErrNoRows) {
-			return Workspace{}, err
-		}
 		if workspace, err := s.GetWorkspaceByPath(cleanRef); err == nil {
 			return workspace, nil
 		} else if !errors.Is(err, sql.ErrNoRows) {
@@ -86,7 +80,7 @@ func scanChatSession(scanner interface{ Scan(...any) error }) (ChatSession, erro
 	err := scanner.Scan(
 		&out.ID,
 		&out.WorkspaceID,
-		&out.ProjectKey,
+		&out.WorkspacePath,
 		&out.AppThreadID,
 		&out.Mode,
 		&out.CreatedAt,
@@ -95,7 +89,8 @@ func scanChatSession(scanner interface{ Scan(...any) error }) (ChatSession, erro
 	if err != nil {
 		return ChatSession{}, err
 	}
-	out.ProjectKey = strings.TrimSpace(out.ProjectKey)
+	out.WorkspacePath = strings.TrimSpace(out.WorkspacePath)
+	out.WorkspacePath = out.WorkspacePath
 	out.Mode = normalizeChatMode(out.Mode)
 	return out, nil
 }
@@ -127,7 +122,7 @@ func (s *Store) GetOrCreateChatSessionForWorkspace(workspaceID int64) (ChatSessi
 	return s.GetChatSession(id)
 }
 
-func (s *Store) GetChatSessionByProjectKey(ref string) (ChatSession, error) {
+func (s *Store) GetChatSessionByWorkspacePath(ref string) (ChatSession, error) {
 	workspace, err := s.resolveChatSessionWorkspace(ref)
 	if err != nil {
 		return ChatSession{}, err
@@ -198,51 +193,51 @@ func (s *Store) migrateChatSessionWorkspaceKey() error {
 		return err
 	}
 	columns := tableColumns["chat_sessions"]
-	if columns["workspace_id"] && !columns["project_key"] {
+	if columns["workspace_id"] && !columns["workspace_path"] {
 		return nil
 	}
 
 	type legacySession struct {
-		ID          string
-		WorkspaceID int64
-		ProjectKey  string
-		AppThreadID string
-		Mode        string
-		CreatedAt   int64
-		UpdatedAt   int64
+		ID            string
+		WorkspaceID   int64
+		WorkspacePath string
+		AppThreadID   string
+		Mode          string
+		CreatedAt     int64
+		UpdatedAt     int64
 	}
 
 	legacy := make([]legacySession, 0, 16)
 	switch {
-	case columns["workspace_id"] && columns["project_key"]:
-		rows, err := s.db.Query(`SELECT id, workspace_id, project_key, app_thread_id, mode, created_at, updated_at FROM chat_sessions ORDER BY created_at ASC, id ASC`)
+	case columns["workspace_id"] && columns["workspace_path"]:
+		rows, err := s.db.Query(`SELECT id, workspace_id, workspace_path, app_thread_id, mode, created_at, updated_at FROM chat_sessions ORDER BY created_at ASC, id ASC`)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var item legacySession
-			if err := rows.Scan(&item.ID, &item.WorkspaceID, &item.ProjectKey, &item.AppThreadID, &item.Mode, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			if err := rows.Scan(&item.ID, &item.WorkspaceID, &item.WorkspacePath, &item.AppThreadID, &item.Mode, &item.CreatedAt, &item.UpdatedAt); err != nil {
 				return err
 			}
-			item.ProjectKey = strings.TrimSpace(item.ProjectKey)
+			item.WorkspacePath = strings.TrimSpace(item.WorkspacePath)
 			legacy = append(legacy, item)
 		}
 		if err := rows.Err(); err != nil {
 			return err
 		}
 	default:
-		rows, err := s.db.Query(`SELECT id, project_key, app_thread_id, mode, created_at, updated_at FROM chat_sessions ORDER BY created_at ASC, id ASC`)
+		rows, err := s.db.Query(`SELECT id, workspace_path, app_thread_id, mode, created_at, updated_at FROM chat_sessions ORDER BY created_at ASC, id ASC`)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var item legacySession
-			if err := rows.Scan(&item.ID, &item.ProjectKey, &item.AppThreadID, &item.Mode, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			if err := rows.Scan(&item.ID, &item.WorkspacePath, &item.AppThreadID, &item.Mode, &item.CreatedAt, &item.UpdatedAt); err != nil {
 				return err
 			}
-			item.ProjectKey = strings.TrimSpace(item.ProjectKey)
+			item.WorkspacePath = strings.TrimSpace(item.WorkspacePath)
 			legacy = append(legacy, item)
 		}
 		if err := rows.Err(); err != nil {
@@ -254,7 +249,7 @@ func (s *Store) migrateChatSessionWorkspaceKey() error {
 		if legacy[i].WorkspaceID > 0 {
 			continue
 		}
-		workspace, err := s.resolveChatSessionWorkspace(legacy[i].ProjectKey)
+		workspace, err := s.resolveChatSessionWorkspace(legacy[i].WorkspacePath)
 		if err != nil {
 			return fmt.Errorf("resolve chat session workspace for %q: %w", legacy[i].ID, err)
 		}

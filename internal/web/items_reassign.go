@@ -32,11 +32,11 @@ func (a *App) ensureWorkspaceExists(workspaceID int64) error {
 	return nil
 }
 
-func (a *App) ensureProjectExists(projectID string) error {
-	if strings.TrimSpace(projectID) == "" {
+func (a *App) ensureProjectExists(workspaceID string) error {
+	if strings.TrimSpace(workspaceID) == "" {
 		return errItemProjectNotFound
 	}
-	if _, err := a.store.GetProject(projectID); err != nil {
+	if _, err := a.store.GetProject(workspaceID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return errItemProjectNotFound
 		}

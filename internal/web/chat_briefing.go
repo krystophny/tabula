@@ -74,7 +74,7 @@ func (a *App) executeBriefingAction(session store.ChatSession, action *SystemAct
 	}
 	cwd := strings.TrimSpace(targetProject.RootPath)
 	if cwd == "" {
-		cwd = strings.TrimSpace(a.cwdForProjectKey(targetProject.ProjectKey))
+		cwd = strings.TrimSpace(a.cwdForWorkspacePath(targetProject.WorkspacePath))
 	}
 	if cwd == "" {
 		return "", nil, fmt.Errorf("briefing cwd is not available")
@@ -124,7 +124,7 @@ func (a *App) executeBriefingAction(session store.ChatSession, action *SystemAct
 	}); err != nil {
 		return "", nil, err
 	}
-	a.markProjectOutput(targetProject.ProjectKey)
+	a.markProjectOutput(targetProject.WorkspacePath)
 
 	return fmt.Sprintf("Opened %s on canvas.", artifactTitle), map[string]interface{}{
 		"type":                 "show_briefing",
@@ -204,7 +204,7 @@ func (a *App) collectBriefingSnapshot(req briefingRequest) (briefingSnapshot, er
 		store.SpherePrivate: 0,
 	}
 	workspaceNames := map[int64]string{}
-	projectNames := map[string]string{}
+	projectNames := map[int64]string{}
 	var (
 		urgentItems      []briefingOpenItem
 		unreadEmailItems []briefingOpenItem
@@ -223,7 +223,7 @@ func (a *App) collectBriefingSnapshot(req briefingRequest) (briefingSnapshot, er
 			Title:     strings.TrimSpace(item.Title),
 			Sphere:    sphere,
 			Workspace: calendarWorkspaceName(a, item.WorkspaceID, workspaceNames),
-			Project:   calendarProjectName(a, item.ProjectID, projectNames),
+			Project:   calendarProjectName(a, item.WorkspaceID, projectNames),
 		}
 		if item.State == store.ItemStateInbox {
 			inboxCounts[sphere]++

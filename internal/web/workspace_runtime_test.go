@@ -16,10 +16,10 @@ import (
 )
 
 type projectsListResponse struct {
-	OK               bool               `json:"ok"`
-	DefaultProjectID string             `json:"default_project_id"`
-	ActiveProjectID  string             `json:"active_project_id"`
-	Projects         []projectListEntry `json:"projects"`
+	OK                 bool               `json:"ok"`
+	DefaultWorkspaceID string             `json:"default_workspace_id"`
+	ActiveWorkspaceID  string             `json:"active_workspace_id"`
+	Projects           []projectListEntry `json:"workspaces"`
 }
 
 type projectListEntry struct {
@@ -27,7 +27,7 @@ type projectListEntry struct {
 	Name            string `json:"name"`
 	Kind            string `json:"kind"`
 	Sphere          string `json:"sphere"`
-	ProjectKey      string `json:"project_key"`
+	WorkspacePath   string `json:"workspace_path"`
 	ChatSessionID   string `json:"chat_session_id"`
 	ChatModel       string `json:"chat_model"`
 	ReasoningEffort string `json:"chat_model_reasoning_effort"`
@@ -46,7 +46,7 @@ type projectListEntry struct {
 type projectsActivityResponse struct {
 	OK       bool `json:"ok"`
 	Projects []struct {
-		ProjectID     string `json:"project_id"`
+		WorkspaceID   string `json:"workspace_id"`
 		ChatSessionID string `json:"chat_session_id"`
 		ChatMode      string `json:"chat_mode"`
 		Unread        bool   `json:"unread"`
@@ -57,7 +57,7 @@ type projectsActivityResponse struct {
 			IsWorking   bool   `json:"is_working"`
 			Status      string `json:"status"`
 		} `json:"run_state"`
-	} `json:"projects"`
+	} `json:"workspaces"`
 }
 
 type workspaceFilesListResponse struct {
@@ -75,7 +75,7 @@ type workspaceFilesListResponse struct {
 func TestProjectsListIncludesActiveAndSessions(t *testing.T) {
 	app := newAuthedTestApp(t)
 
-	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects", map[string]any{})
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces", map[string]any{})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -86,34 +86,34 @@ func TestProjectsListIncludesActiveAndSessions(t *testing.T) {
 	if !payload.OK {
 		t.Fatalf("expected ok=true")
 	}
-	if payload.DefaultProjectID == "" {
-		t.Fatalf("expected default project id")
+	if payload.DefaultWorkspaceID == "" {
+		t.Fatalf("expected default workspace id")
 	}
-	if payload.ActiveProjectID == "" {
-		t.Fatalf("expected active project id")
+	if payload.ActiveWorkspaceID == "" {
+		t.Fatalf("expected active workspace id")
 	}
 	if len(payload.Projects) == 0 {
-		t.Fatalf("expected at least one project")
+		t.Fatalf("expected at least one workspace")
 	}
 	first := payload.Projects[0]
 	if first.ChatSessionID == "" {
-		t.Fatalf("expected project chat session id")
+		t.Fatalf("expected workspace chat session id")
 	}
 	if first.CanvasSessionID == "" {
-		t.Fatalf("expected project canvas session id")
+		t.Fatalf("expected workspace canvas session id")
 	}
 	if first.ChatModel == "" {
-		t.Fatalf("expected project chat model")
+		t.Fatalf("expected workspace chat model")
 	}
 	if first.RunState.Status == "" {
-		t.Fatalf("expected project run state status")
+		t.Fatalf("expected workspace run state status")
 	}
 }
 
 func TestProjectsListUsesDailyWorkspaceWhenNoneExist(t *testing.T) {
 	app := newAuthedTestApp(t)
 
-	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects", map[string]any{})
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces", map[string]any{})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("projects list status = %d, want 200: %s", rr.Code, rr.Body.String())
 	}
@@ -121,7 +121,7 @@ func TestProjectsListUsesDailyWorkspaceWhenNoneExist(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if strings.TrimSpace(payload.ActiveProjectID) == "" {
+	if strings.TrimSpace(payload.ActiveWorkspaceID) == "" {
 		t.Fatal("expected active project id")
 	}
 	workspace, err := app.store.ActiveWorkspace()
@@ -170,12 +170,9 @@ func TestResolveChatSessionTargetRollsOverDailyWorkspace(t *testing.T) {
 		return nextDate
 	}
 
-	workspace, project, err := app.resolveChatSessionTarget("", "", nil)
+	workspace, err := app.resolveChatSessionTarget("", nil)
 	if err != nil {
 		t.Fatalf("resolveChatSessionTarget() error: %v", err)
-	}
-	if project != nil {
-		t.Fatalf("resolved project = %#v, want nil", project)
 	}
 	if !workspace.IsDaily {
 		t.Fatal("rollover workspace is_daily = false, want true")
@@ -285,19 +282,16 @@ func TestNewAppPrefersLocalProjectWorkspaceOnStartup(t *testing.T) {
 	if workspace.DirPath != localProjectDir {
 		t.Fatalf("active workspace dir_path = %q, want %q", workspace.DirPath, localProjectDir)
 	}
-	activeProjectID, err := app.store.ActiveProjectID()
+	activeWorkspaceID, err := app.store.ActiveWorkspaceID()
 	if err != nil {
-		t.Fatalf("ActiveProjectID() error: %v", err)
+		t.Fatalf("ActiveWorkspaceID() error: %v", err)
 	}
-	if activeProjectID != project.ID {
-		t.Fatalf("active project id = %q, want %q", activeProjectID, project.ID)
+	if activeWorkspaceID != project.ID {
+		t.Fatalf("active project id = %q, want %q", activeWorkspaceID, project.ID)
 	}
-	workspace, resolvedProject, err := app.resolveChatSessionTarget("", "", nil)
+	workspace, err = app.resolveChatSessionTarget("", nil)
 	if err != nil {
 		t.Fatalf("resolveChatSessionTarget() error: %v", err)
-	}
-	if resolvedProject == nil || resolvedProject.ID != project.ID {
-		t.Fatalf("resolved project = %#v, want %q", resolvedProject, project.ID)
 	}
 	if workspace.DirPath != localProjectDir {
 		t.Fatalf("resolved workspace dir_path = %q, want %q", workspace.DirPath, localProjectDir)
@@ -338,7 +332,7 @@ func TestProjectsListIncludesWorkspaceSphere(t *testing.T) {
 		t.Fatalf("MkdirAll(projectPath) error: %v", err)
 	}
 
-	rrCreate := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/projects", map[string]any{
+	rrCreate := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/runtime/workspaces", map[string]any{
 		"name": "linked-work-project",
 		"kind": "linked",
 		"path": projectPath,
@@ -347,7 +341,7 @@ func TestProjectsListIncludesWorkspaceSphere(t *testing.T) {
 		t.Fatalf("create project status = %d, want 200: %s", rrCreate.Code, rrCreate.Body.String())
 	}
 
-	rrList := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects", map[string]any{})
+	rrList := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces", map[string]any{})
 	if rrList.Code != http.StatusOK {
 		t.Fatalf("list projects status = %d, want 200: %s", rrList.Code, rrList.Body.String())
 	}
@@ -398,8 +392,8 @@ func TestProjectsListPrefersLastUsedWorkspaceProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord() error: %v", err)
 	}
-	if err := app.store.SetActiveProjectID(defaultProject.ID); err != nil {
-		t.Fatalf("SetActiveProjectID(default) error: %v", err)
+	if err := app.store.SetActiveWorkspaceID(defaultProject.ID); err != nil {
+		t.Fatalf("SetActiveWorkspaceID(default) error: %v", err)
 	}
 	if err := app.setActiveWorkspaceTracked(alphaWorkspace.ID, "workspace_switch"); err != nil {
 		t.Fatalf("setActiveWorkspaceTracked(alpha) error: %v", err)
@@ -408,7 +402,7 @@ func TestProjectsListPrefersLastUsedWorkspaceProject(t *testing.T) {
 		t.Fatalf("setActiveWorkspaceTracked(beta) error: %v", err)
 	}
 
-	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects", map[string]any{})
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces", map[string]any{})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("projects list status = %d, want 200: %s", rr.Code, rr.Body.String())
 	}
@@ -416,8 +410,8 @@ func TestProjectsListPrefersLastUsedWorkspaceProject(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.ActiveProjectID != betaProject.ID {
-		t.Fatalf("active_project_id = %q, want %q", payload.ActiveProjectID, betaProject.ID)
+	if payload.ActiveWorkspaceID != betaProject.ID {
+		t.Fatalf("active_workspace_id = %q, want %q", payload.ActiveWorkspaceID, betaProject.ID)
 	}
 }
 
@@ -434,7 +428,7 @@ func TestCreateActivateProjectAffectsChatSessionCreation(t *testing.T) {
 	app := newAuthedTestApp(t)
 
 	linkedDir := t.TempDir()
-	rrCreate := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/projects", map[string]any{
+	rrCreate := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/runtime/workspaces", map[string]any{
 		"name":     "linked-repo",
 		"kind":     "linked",
 		"path":     filepath.Clean(linkedDir),
@@ -460,16 +454,16 @@ func TestCreateActivateProjectAffectsChatSessionCreation(t *testing.T) {
 		t,
 		app.Router(),
 		http.MethodPost,
-		"/api/projects/"+createPayload.Project.ID+"/activate",
+		"/api/runtime/workspaces/"+createPayload.Project.ID+"/activate",
 		map[string]any{},
 	)
 	if rrActivate.Code != http.StatusOK {
 		t.Fatalf("expected activate 200, got %d: %s", rrActivate.Code, rrActivate.Body.String())
 	}
 	var activatePayload struct {
-		OK              bool   `json:"ok"`
-		ActiveProjectID string `json:"active_project_id"`
-		Project         struct {
+		OK                bool   `json:"ok"`
+		ActiveWorkspaceID string `json:"active_workspace_id"`
+		Project           struct {
 			ID string `json:"id"`
 		} `json:"project"`
 	}
@@ -479,8 +473,8 @@ func TestCreateActivateProjectAffectsChatSessionCreation(t *testing.T) {
 	if !activatePayload.OK {
 		t.Fatalf("expected activate ok=true")
 	}
-	if activatePayload.ActiveProjectID != createPayload.Project.ID {
-		t.Fatalf("expected active project %q, got %q", createPayload.Project.ID, activatePayload.ActiveProjectID)
+	if activatePayload.ActiveWorkspaceID != createPayload.Project.ID {
+		t.Fatalf("expected active project %q, got %q", createPayload.Project.ID, activatePayload.ActiveWorkspaceID)
 	}
 
 	rrSession := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/chat/sessions", map[string]any{})
@@ -491,7 +485,6 @@ func TestCreateActivateProjectAffectsChatSessionCreation(t *testing.T) {
 		OK          bool   `json:"ok"`
 		SessionID   string `json:"session_id"`
 		WorkspaceID int64  `json:"workspace_id"`
-		ProjectID   string `json:"project_id"`
 	}
 	if err := json.Unmarshal(rrSession.Body.Bytes(), &sessionPayload); err != nil {
 		t.Fatalf("decode chat session response: %v", err)
@@ -499,8 +492,9 @@ func TestCreateActivateProjectAffectsChatSessionCreation(t *testing.T) {
 	if !sessionPayload.OK {
 		t.Fatalf("expected chat session create ok=true")
 	}
-	if sessionPayload.ProjectID != createPayload.Project.ID {
-		t.Fatalf("expected chat session project %q, got %q", createPayload.Project.ID, sessionPayload.ProjectID)
+	expectedWorkspaceID := runtimeWorkspaceIDInt64FromString(t, createPayload.Project.ID)
+	if sessionPayload.WorkspaceID != expectedWorkspaceID {
+		t.Fatalf("expected chat session workspace %d, got %d", expectedWorkspaceID, sessionPayload.WorkspaceID)
 	}
 	if sessionPayload.WorkspaceID <= 0 {
 		t.Fatalf("expected workspace-backed chat session, got workspace_id=%d", sessionPayload.WorkspaceID)
@@ -533,8 +527,8 @@ func TestCreateChatSessionWithoutSelectionStaysOnActiveWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProject() error: %v", err)
 	}
-	if err := app.store.SetActiveProjectID(project.ID); err != nil {
-		t.Fatalf("SetActiveProjectID() error: %v", err)
+	if err := app.store.SetActiveWorkspaceID(project.ID); err != nil {
+		t.Fatalf("SetActiveWorkspaceID() error: %v", err)
 	}
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/chat/sessions", map[string]any{})
@@ -545,7 +539,6 @@ func TestCreateChatSessionWithoutSelectionStaysOnActiveWorkspace(t *testing.T) {
 		OK          bool   `json:"ok"`
 		SessionID   string `json:"session_id"`
 		WorkspaceID int64  `json:"workspace_id"`
-		ProjectID   string `json:"project_id"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -555,9 +548,6 @@ func TestCreateChatSessionWithoutSelectionStaysOnActiveWorkspace(t *testing.T) {
 	}
 	if payload.WorkspaceID != anchor.ID {
 		t.Fatalf("workspace_id = %d, want anchor %d", payload.WorkspaceID, anchor.ID)
-	}
-	if payload.ProjectID != "" {
-		t.Fatalf("project_id = %q, want empty daily workspace binding", payload.ProjectID)
 	}
 }
 
@@ -592,14 +582,14 @@ func TestProjectsListRehomesActiveProjectIntoActiveSphere(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProject(work) error: %v", err)
 	}
-	if err := app.store.SetActiveProjectID(workProject.ID); err != nil {
-		t.Fatalf("SetActiveProjectID(work) error: %v", err)
+	if err := app.store.SetActiveWorkspaceID(workProject.ID); err != nil {
+		t.Fatalf("SetActiveWorkspaceID(work) error: %v", err)
 	}
 	if err := app.store.SetActiveSphere(store.SpherePrivate); err != nil {
 		t.Fatalf("SetActiveSphere(private) error: %v", err)
 	}
 
-	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects", map[string]any{})
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces", map[string]any{})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list projects status = %d, want 200: %s", rr.Code, rr.Body.String())
 	}
@@ -607,15 +597,15 @@ func TestProjectsListRehomesActiveProjectIntoActiveSphere(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if payload.ActiveProjectID != privateProject.ID {
-		t.Fatalf("active_project_id = %q, want %q", payload.ActiveProjectID, privateProject.ID)
+	if payload.ActiveWorkspaceID != privateProject.ID {
+		t.Fatalf("active_workspace_id = %q, want %q", payload.ActiveWorkspaceID, privateProject.ID)
 	}
-	activeProjectID, err := app.store.ActiveProjectID()
+	activeWorkspaceID, err := app.store.ActiveWorkspaceID()
 	if err != nil {
-		t.Fatalf("ActiveProjectID() error: %v", err)
+		t.Fatalf("ActiveWorkspaceID() error: %v", err)
 	}
-	if activeProjectID != privateProject.ID {
-		t.Fatalf("stored active project = %q, want %q", activeProjectID, privateProject.ID)
+	if activeWorkspaceID != privateProject.ID {
+		t.Fatalf("stored active project = %q, want %q", activeWorkspaceID, privateProject.ID)
 	}
 }
 
@@ -645,16 +635,16 @@ func TestProjectActivateUpdatesActiveSphere(t *testing.T) {
 		t,
 		app.Router(),
 		http.MethodPost,
-		"/api/projects/"+project.ID+"/activate",
+		"/api/runtime/workspaces/"+project.ID+"/activate",
 		map[string]any{},
 	)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("activate status = %d, want 200: %s", rr.Code, rr.Body.String())
 	}
 	var payload struct {
-		OK              bool   `json:"ok"`
-		ActiveProjectID string `json:"active_project_id"`
-		ActiveSphere    string `json:"active_sphere"`
+		OK                bool   `json:"ok"`
+		ActiveWorkspaceID string `json:"active_workspace_id"`
+		ActiveSphere      string `json:"active_sphere"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode activate response: %v", err)
@@ -662,8 +652,8 @@ func TestProjectActivateUpdatesActiveSphere(t *testing.T) {
 	if !payload.OK {
 		t.Fatal("expected ok=true")
 	}
-	if payload.ActiveProjectID != project.ID {
-		t.Fatalf("active_project_id = %q, want %q", payload.ActiveProjectID, project.ID)
+	if payload.ActiveWorkspaceID != project.ID {
+		t.Fatalf("active_workspace_id = %q, want %q", payload.ActiveWorkspaceID, project.ID)
 	}
 	if payload.ActiveSphere != store.SphereWork {
 		t.Fatalf("active_sphere = %q, want %q", payload.ActiveSphere, store.SphereWork)
@@ -680,7 +670,7 @@ func TestProjectActivateUpdatesActiveSphere(t *testing.T) {
 func TestProjectChatModelUpdate(t *testing.T) {
 	app := newAuthedTestApp(t)
 
-	rrList := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects", map[string]any{})
+	rrList := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces", map[string]any{})
 	if rrList.Code != http.StatusOK {
 		t.Fatalf("expected list 200, got %d: %s", rrList.Code, rrList.Body.String())
 	}
@@ -691,8 +681,8 @@ func TestProjectChatModelUpdate(t *testing.T) {
 	if len(listPayload.Projects) == 0 {
 		t.Fatalf("expected at least one project")
 	}
-	projectID := listPayload.Projects[0].ID
-	if projectID == "" {
+	workspaceID := listPayload.Projects[0].ID
+	if workspaceID == "" {
 		t.Fatalf("expected project id")
 	}
 
@@ -700,7 +690,7 @@ func TestProjectChatModelUpdate(t *testing.T) {
 		t,
 		app.Router(),
 		http.MethodPost,
-		"/api/projects/"+projectID+"/chat-model",
+		"/api/runtime/workspaces/"+workspaceID+"/chat-model",
 		map[string]any{"model": "gpt"},
 	)
 	if rrUpdate.Code != http.StatusBadRequest {
@@ -714,7 +704,7 @@ func TestProjectChatModelUpdate(t *testing.T) {
 		t,
 		app.Router(),
 		http.MethodPost,
-		"/api/projects/"+projectID+"/chat-model",
+		"/api/runtime/workspaces/"+workspaceID+"/chat-model",
 		map[string]any{"model": "spark"},
 	)
 	if rrSpark.Code != http.StatusOK {
@@ -734,8 +724,8 @@ func TestProjectChatModelUpdate(t *testing.T) {
 	if !updatePayload.OK {
 		t.Fatalf("expected update ok=true")
 	}
-	if updatePayload.Project.ID != projectID {
-		t.Fatalf("expected updated project id %q, got %q", projectID, updatePayload.Project.ID)
+	if updatePayload.Project.ID != workspaceID {
+		t.Fatalf("expected updated project id %q, got %q", workspaceID, updatePayload.Project.ID)
 	}
 	if updatePayload.Project.ChatModel != "spark" {
 		t.Fatalf("expected chat model spark, got %q", updatePayload.Project.ChatModel)
@@ -748,7 +738,7 @@ func TestProjectChatModelUpdate(t *testing.T) {
 		t,
 		app.Router(),
 		http.MethodPost,
-		"/api/projects/"+projectID+"/chat-model",
+		"/api/runtime/workspaces/"+workspaceID+"/chat-model",
 		map[string]any{
 			"model":            "spark",
 			"reasoning_effort": "extra_high",
@@ -778,7 +768,7 @@ func TestProjectChatModelUpdate(t *testing.T) {
 		t,
 		app.Router(),
 		http.MethodPost,
-		"/api/projects/"+projectID+"/chat-model",
+		"/api/runtime/workspaces/"+workspaceID+"/chat-model",
 		map[string]any{"model": "invalid"},
 	)
 	if rrInvalid.Code != http.StatusBadRequest {
@@ -789,7 +779,7 @@ func TestProjectChatModelUpdate(t *testing.T) {
 func TestProjectsListMatchesStoredProjects(t *testing.T) {
 	app := newAuthedTestApp(t)
 
-	rrList := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects", map[string]any{})
+	rrList := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces", map[string]any{})
 	if rrList.Code != http.StatusOK {
 		t.Fatalf("expected list 200, got %d: %s", rrList.Code, rrList.Body.String())
 	}
@@ -825,7 +815,7 @@ func TestProjectsListIncludesRunState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -834,7 +824,7 @@ func TestProjectsListIncludesRunState(t *testing.T) {
 	app.turns.queue[session.ID] = 2
 	app.turns.mu.Unlock()
 
-	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects", map[string]any{})
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces", map[string]any{})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected list 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -872,7 +862,7 @@ func TestProjectsActivityListsPerProjectRunState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -880,7 +870,7 @@ func TestProjectsActivityListsPerProjectRunState(t *testing.T) {
 	app.turns.queue[session.ID] = 3
 	app.turns.mu.Unlock()
 
-	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects/activity", map[string]any{})
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces/activity", map[string]any{})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected activity 200, got %d: %s", rr.Code, rr.Body.String())
 	}
@@ -889,7 +879,7 @@ func TestProjectsActivityListsPerProjectRunState(t *testing.T) {
 		t.Fatalf("decode activity response: %v", err)
 	}
 	for _, item := range payload.Projects {
-		if item.ProjectID != project.ID {
+		if item.WorkspaceID != project.ID {
 			continue
 		}
 		if item.ChatSessionID != session.ID {
@@ -916,7 +906,7 @@ func TestProjectsActivityUnreadClearsOnActivate(t *testing.T) {
 	app := newAuthedTestApp(t)
 
 	linkedDir := t.TempDir()
-	rrCreate := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/projects", map[string]any{
+	rrCreate := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/runtime/workspaces", map[string]any{
 		"name":     "Unread Test",
 		"kind":     "linked",
 		"path":     filepath.Clean(linkedDir),
@@ -938,11 +928,11 @@ func TestProjectsActivityUnreadClearsOnActivate(t *testing.T) {
 		t.Fatalf("get project: %v", err)
 	}
 
-	app.markProjectOutput(project.ProjectKey)
+	app.markProjectOutput(project.WorkspacePath)
 
 	findActivity := func() projectsActivityResponse {
 		t.Helper()
-		rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects/activity", map[string]any{})
+		rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces/activity", map[string]any{})
 		if rr.Code != http.StatusOK {
 			t.Fatalf("expected activity 200, got %d: %s", rr.Code, rr.Body.String())
 		}
@@ -956,7 +946,7 @@ func TestProjectsActivityUnreadClearsOnActivate(t *testing.T) {
 	initial := findActivity()
 	foundUnread := false
 	for _, item := range initial.Projects {
-		if item.ProjectID != project.ID {
+		if item.WorkspaceID != project.ID {
 			continue
 		}
 		foundUnread = true
@@ -975,7 +965,7 @@ func TestProjectsActivityUnreadClearsOnActivate(t *testing.T) {
 		t,
 		app.Router(),
 		http.MethodPost,
-		"/api/projects/"+project.ID+"/activate",
+		"/api/runtime/workspaces/"+project.ID+"/activate",
 		map[string]any{},
 	)
 	if rrActivate.Code != http.StatusOK {
@@ -984,7 +974,7 @@ func TestProjectsActivityUnreadClearsOnActivate(t *testing.T) {
 
 	afterActivate := findActivity()
 	for _, item := range afterActivate.Projects {
-		if item.ProjectID != project.ID {
+		if item.WorkspaceID != project.ID {
 			continue
 		}
 		if item.Unread {
@@ -1009,7 +999,7 @@ func TestProjectChatModelUpdateAllowsDefaultProject(t *testing.T) {
 		t,
 		app.Router(),
 		http.MethodPost,
-		"/api/projects/"+project.ID+"/chat-model",
+		"/api/runtime/workspaces/"+project.ID+"/chat-model",
 		map[string]any{"model": "gpt"},
 	)
 	if rr.Code != http.StatusBadRequest {
@@ -1132,7 +1122,7 @@ func TestProjectFilesListRejectsTraversal(t *testing.T) {
 func TestProjectWelcomeListsDocsAndRecentFiles(t *testing.T) {
 	app := newAuthedTestApp(t)
 
-	rrList := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects", map[string]any{})
+	rrList := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces", map[string]any{})
 	if rrList.Code != http.StatusOK {
 		t.Fatalf("expected list 200, got %d: %s", rrList.Code, rrList.Body.String())
 	}
@@ -1143,8 +1133,8 @@ func TestProjectWelcomeListsDocsAndRecentFiles(t *testing.T) {
 	if len(listPayload.Projects) == 0 {
 		t.Fatalf("expected at least one project")
 	}
-	projectID := listPayload.Projects[0].ID
-	project, err := app.store.GetProject(projectID)
+	workspaceID := listPayload.Projects[0].ID
+	project, err := app.store.GetProject(workspaceID)
 	if err != nil {
 		t.Fatalf("get project: %v", err)
 	}
@@ -1155,7 +1145,7 @@ func TestProjectWelcomeListsDocsAndRecentFiles(t *testing.T) {
 		t.Fatalf("write notes.txt: %v", err)
 	}
 
-	rrWelcome := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects/"+projectID+"/welcome", nil)
+	rrWelcome := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces/"+workspaceID+"/welcome", nil)
 	if rrWelcome.Code != http.StatusOK {
 		t.Fatalf("expected welcome 200, got %d: %s", rrWelcome.Code, rrWelcome.Body.String())
 	}
@@ -1182,7 +1172,7 @@ func TestProjectWelcomeListsDocsAndRecentFiles(t *testing.T) {
 func TestProjectWelcomeIncludesRuntimeCards(t *testing.T) {
 	app := newAuthedTestApp(t)
 
-	rrList := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects", map[string]any{})
+	rrList := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces", map[string]any{})
 	if rrList.Code != http.StatusOK {
 		t.Fatalf("expected list 200, got %d: %s", rrList.Code, rrList.Body.String())
 	}
@@ -1193,9 +1183,9 @@ func TestProjectWelcomeIncludesRuntimeCards(t *testing.T) {
 	if len(listPayload.Projects) == 0 {
 		t.Fatalf("expected at least one project")
 	}
-	projectID := listPayload.Projects[0].ID
+	workspaceID := listPayload.Projects[0].ID
 
-	rrWelcome := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects/"+projectID+"/welcome", nil)
+	rrWelcome := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces/"+workspaceID+"/welcome", nil)
 	if rrWelcome.Code != http.StatusOK {
 		t.Fatalf("expected project welcome 200, got %d: %s", rrWelcome.Code, rrWelcome.Body.String())
 	}
@@ -1227,9 +1217,9 @@ func TestTemporaryProjectCreationCopiesSourceSettingsAndPersist(t *testing.T) {
 		t.Fatalf("UpdateProjectCompanionConfig() error: %v", err)
 	}
 
-	rrCreate := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/projects", map[string]any{
-		"kind":              "meeting",
-		"source_project_id": source.ID,
+	rrCreate := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/runtime/workspaces", map[string]any{
+		"kind":                "meeting",
+		"source_workspace_id": source.ID,
 	})
 	if rrCreate.Code != http.StatusOK {
 		t.Fatalf("expected create 200, got %d: %s", rrCreate.Code, rrCreate.Body.String())
@@ -1287,7 +1277,7 @@ func TestTemporaryProjectCreationCopiesSourceSettingsAndPersist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateArtifact() error: %v", err)
 	}
-	participantSession, err := app.store.AddParticipantSession(created.ProjectKey, "{}")
+	participantSession, err := app.store.AddParticipantSession(created.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("AddParticipantSession() error: %v", err)
 	}
@@ -1297,7 +1287,7 @@ func TestTemporaryProjectCreationCopiesSourceSettingsAndPersist(t *testing.T) {
 		t,
 		app.Router(),
 		http.MethodPost,
-		"/api/projects/"+createPayload.Project.ID+"/persist",
+		"/api/runtime/workspaces/"+createPayload.Project.ID+"/persist",
 		map[string]any{
 			"name": "Focused Meeting",
 			"path": targetPath,
@@ -1356,8 +1346,8 @@ func TestTemporaryProjectCreationCopiesSourceSettingsAndPersist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetParticipantSession(updated) error: %v", err)
 	}
-	if updatedParticipantSession.ProjectKey != targetPath {
-		t.Fatalf("participant session project_key = %q, want %q", updatedParticipantSession.ProjectKey, targetPath)
+	if updatedParticipantSession.WorkspacePath != targetPath {
+		t.Fatalf("participant session workspace_path = %q, want %q", updatedParticipantSession.WorkspacePath, targetPath)
 	}
 }
 
@@ -1368,7 +1358,7 @@ func TestTemporaryProjectDiscardRemovesProjectDataAndFallsBackToDefaultProject(t
 		t.Fatalf("ensure default project: %v", err)
 	}
 
-	rrCreate := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/projects", map[string]any{
+	rrCreate := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/runtime/workspaces", map[string]any{
 		"kind": "task",
 	})
 	if rrCreate.Code != http.StatusOK {
@@ -1376,9 +1366,9 @@ func TestTemporaryProjectDiscardRemovesProjectDataAndFallsBackToDefaultProject(t
 	}
 	var createPayload struct {
 		Project struct {
-			ID         string `json:"id"`
-			ProjectKey string `json:"project_key"`
-			RootPath   string `json:"root_path"`
+			ID            string `json:"id"`
+			WorkspacePath string `json:"workspace_path"`
+			RootPath      string `json:"root_path"`
 		} `json:"project"`
 	}
 	if err := json.Unmarshal(rrCreate.Body.Bytes(), &createPayload); err != nil {
@@ -1390,7 +1380,7 @@ func TestTemporaryProjectDiscardRemovesProjectDataAndFallsBackToDefaultProject(t
 	if err := os.WriteFile(filepath.Join(createPayload.Project.RootPath, "run-output.md"), []byte("saved output"), 0o644); err != nil {
 		t.Fatalf("WriteFile(run-output.md) error: %v", err)
 	}
-	chatSession, err := app.store.GetOrCreateChatSession(createPayload.Project.ProjectKey)
+	chatSession, err := app.store.GetOrCreateChatSession(createPayload.Project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession() error: %v", err)
 	}
@@ -1405,7 +1395,7 @@ func TestTemporaryProjectDiscardRemovesProjectDataAndFallsBackToDefaultProject(t
 	if err != nil {
 		t.Fatalf("CreateItem() error: %v", err)
 	}
-	participantSession, err := app.store.AddParticipantSession(createPayload.Project.ProjectKey, "{}")
+	participantSession, err := app.store.AddParticipantSession(createPayload.Project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("AddParticipantSession() error: %v", err)
 	}
@@ -1426,16 +1416,16 @@ func TestTemporaryProjectDiscardRemovesProjectDataAndFallsBackToDefaultProject(t
 		t,
 		app.Router(),
 		http.MethodPost,
-		"/api/projects/"+createPayload.Project.ID+"/discard",
+		"/api/runtime/workspaces/"+createPayload.Project.ID+"/discard",
 		map[string]any{},
 	)
 	if rrDiscard.Code != http.StatusOK {
 		t.Fatalf("expected discard 200, got %d: %s", rrDiscard.Code, rrDiscard.Body.String())
 	}
 	var discardPayload struct {
-		OK              bool   `json:"ok"`
-		ActiveProjectID string `json:"active_project_id"`
-		ActiveProject   struct {
+		OK                bool   `json:"ok"`
+		ActiveWorkspaceID string `json:"active_workspace_id"`
+		ActiveProject     struct {
 			ID   string `json:"id"`
 			Kind string `json:"kind"`
 		} `json:"active_project"`
@@ -1446,8 +1436,8 @@ func TestTemporaryProjectDiscardRemovesProjectDataAndFallsBackToDefaultProject(t
 	if !discardPayload.OK {
 		t.Fatalf("expected discard ok=true")
 	}
-	if discardPayload.ActiveProjectID != defaultProject.ID {
-		t.Fatalf("active_project_id = %q, want %q", discardPayload.ActiveProjectID, defaultProject.ID)
+	if discardPayload.ActiveWorkspaceID != defaultProject.ID {
+		t.Fatalf("active_workspace_id = %q, want %q", discardPayload.ActiveWorkspaceID, defaultProject.ID)
 	}
 	if discardPayload.ActiveProject.Kind != defaultProject.Kind {
 		t.Fatalf("active project kind = %q, want %q", discardPayload.ActiveProject.Kind, defaultProject.Kind)
@@ -1474,8 +1464,8 @@ func TestTemporaryProjectDiscardRemovesProjectDataAndFallsBackToDefaultProject(t
 	if survivingItem.WorkspaceID != nil {
 		t.Fatalf("surviving item workspace_id = %v, want nil", survivingItem.WorkspaceID)
 	}
-	if survivingItem.ProjectID != nil {
-		t.Fatalf("surviving item project_id = %v, want nil", survivingItem.ProjectID)
+	if survivingItem.WorkspaceID != nil {
+		t.Fatalf("surviving item workspace_id = %v, want nil", survivingItem.WorkspaceID)
 	}
 	if survivingItem.Sphere != store.SpherePrivate {
 		t.Fatalf("surviving item sphere = %q, want %q", survivingItem.Sphere, store.SpherePrivate)

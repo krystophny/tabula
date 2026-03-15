@@ -15,12 +15,12 @@ import (
 )
 
 type projectCreateRequest struct {
-	Name            string `json:"name"`
-	Kind            string `json:"kind"`
-	Path            string `json:"path"`
-	MCPURL          string `json:"mcp_url"`
-	SourceProjectID string `json:"source_project_id"`
-	Activate        *bool  `json:"activate"`
+	Name              string `json:"name"`
+	Kind              string `json:"kind"`
+	Path              string `json:"path"`
+	MCPURL            string `json:"mcp_url"`
+	SourceWorkspaceID string `json:"source_workspace_id"`
+	Activate          *bool  `json:"activate"`
 }
 
 type projectAPIModel struct {
@@ -29,7 +29,7 @@ type projectAPIModel struct {
 	Kind                     string          `json:"kind"`
 	RootPath                 string          `json:"root_path"`
 	Sphere                   string          `json:"sphere,omitempty"`
-	ProjectKey               string          `json:"project_key"`
+	WorkspacePath            string          `json:"workspace_path"`
 	MCPURL                   string          `json:"mcp_url,omitempty"`
 	IsDefault                bool            `json:"is_default"`
 	ChatSessionID            string          `json:"chat_session_id"`
@@ -55,7 +55,7 @@ type projectFileEntry struct {
 
 type projectWelcomeAction struct {
 	Type          string `json:"type"`
-	ProjectID     string `json:"project_id,omitempty"`
+	WorkspaceID   string `json:"workspace_id,omitempty"`
 	Path          string `json:"path,omitempty"`
 	SilentMode    *bool  `json:"silent_mode,omitempty"`
 	StartupTarget string `json:"startup_behavior,omitempty"`
@@ -76,17 +76,17 @@ type projectWelcomeSection struct {
 }
 
 type projectWelcomeResponse struct {
-	OK        bool                    `json:"ok"`
-	ProjectID string                  `json:"project_id"`
-	Project   projectAPIModel         `json:"project"`
-	Scope     string                  `json:"scope"`
-	Title     string                  `json:"title"`
-	Sections  []projectWelcomeSection `json:"sections"`
+	OK          bool                    `json:"ok"`
+	WorkspaceID string                  `json:"workspace_id"`
+	Project     projectAPIModel         `json:"workspace"`
+	Scope       string                  `json:"scope"`
+	Title       string                  `json:"title"`
+	Sections    []projectWelcomeSection `json:"sections"`
 }
 
 type projectActivityItem struct {
-	ProjectID     string          `json:"project_id"`
-	ProjectKey    string          `json:"project_key"`
+	WorkspaceID   string          `json:"workspace_id"`
+	WorkspacePath string          `json:"workspace_path"`
 	Name          string          `json:"name"`
 	Kind          string          `json:"kind"`
 	ChatSessionID string          `json:"chat_session_id"`
@@ -277,18 +277,18 @@ func (a *App) ensureStartupWorkspace() (store.Workspace, error) {
 }
 
 func (a *App) ensureDefaultProjectRecord() (store.Project, error) {
-	localProjectKey := strings.TrimSpace(a.localProjectDir)
-	if localProjectKey != "" {
-		existing, err := a.store.GetProjectByProjectKey(localProjectKey)
+	localWorkspacePath := strings.TrimSpace(a.localProjectDir)
+	if localWorkspacePath != "" {
+		existing, err := a.store.GetProjectByWorkspacePath(localWorkspacePath)
 		if err == nil {
 			canvasID := a.canvasSessionIDForProject(existing)
 			mcpURL := strings.TrimSpace(existing.MCPURL)
-			targetName := defaultProjectNameForPath(localProjectKey)
+			targetName := defaultProjectNameForPath(localWorkspacePath)
 			if mcpURL == "" {
 				mcpURL = strings.TrimSpace(a.localMCPURL)
 			}
 			if strings.TrimSpace(existing.Name) != targetName {
-				_ = a.store.UpdateProjectLocation(existing.ID, targetName, existing.ProjectKey, existing.RootPath, existing.Kind)
+				_ = a.store.UpdateProjectLocation(existing.ID, targetName, existing.WorkspacePath, existing.RootPath, existing.Kind)
 			}
 			if canvasID != strings.TrimSpace(existing.CanvasSessionID) || mcpURL != strings.TrimSpace(existing.MCPURL) || strings.TrimSpace(existing.Name) != targetName {
 				_ = a.store.UpdateProjectRuntime(existing.ID, mcpURL, canvasID)
@@ -325,9 +325,9 @@ func (a *App) ensureDefaultProjectRecord() (store.Project, error) {
 	kind := "managed"
 	rootPath := filepath.Join(a.dataDir, "projects", "default")
 	name := "Default Project"
-	if localProjectKey != "" {
+	if localWorkspacePath != "" {
 		kind = "linked"
-		rootPath = localProjectKey
+		rootPath = localWorkspacePath
 		name = defaultProjectNameForPath(rootPath)
 	}
 	absRoot, err := filepath.Abs(rootPath)
@@ -346,11 +346,11 @@ func (a *App) ensureDefaultProjectRecord() (store.Project, error) {
 		absRoot = filepath.Clean(boot.Paths.ProjectDir)
 		name = defaultProjectNameForPath(absRoot)
 	}
-	projectKey := absRoot
-	if existing, err := a.store.GetProjectByProjectKey(projectKey); err == nil {
+	workspacePath := absRoot
+	if existing, err := a.store.GetProjectByWorkspacePath(workspacePath); err == nil {
 		targetName := defaultProjectNameForPath(absRoot)
 		if strings.TrimSpace(existing.Name) != targetName {
-			_ = a.store.UpdateProjectLocation(existing.ID, targetName, existing.ProjectKey, existing.RootPath, existing.Kind)
+			_ = a.store.UpdateProjectLocation(existing.ID, targetName, existing.WorkspacePath, existing.RootPath, existing.Kind)
 			if refreshed, refreshErr := a.store.GetProject(existing.ID); refreshErr == nil {
 				existing = refreshed
 			}
@@ -362,7 +362,7 @@ func (a *App) ensureDefaultProjectRecord() (store.Project, error) {
 	if existing, err := a.store.GetProjectByRootPath(absRoot); err == nil {
 		targetName := defaultProjectNameForPath(absRoot)
 		if strings.TrimSpace(existing.Name) != targetName {
-			_ = a.store.UpdateProjectLocation(existing.ID, targetName, existing.ProjectKey, existing.RootPath, existing.Kind)
+			_ = a.store.UpdateProjectLocation(existing.ID, targetName, existing.WorkspacePath, existing.RootPath, existing.Kind)
 			if refreshed, refreshErr := a.store.GetProject(existing.ID); refreshErr == nil {
 				existing = refreshed
 			}
@@ -374,7 +374,7 @@ func (a *App) ensureDefaultProjectRecord() (store.Project, error) {
 
 	created, err := a.store.CreateProject(
 		name,
-		projectKey,
+		workspacePath,
 		absRoot,
 		kind,
 		strings.TrimSpace(a.localMCPURL),
@@ -383,7 +383,7 @@ func (a *App) ensureDefaultProjectRecord() (store.Project, error) {
 	)
 	if err != nil {
 		if isUniqueConstraint(err) {
-			if existing, lookupErr := a.store.GetProjectByProjectKey(projectKey); lookupErr == nil {
+			if existing, lookupErr := a.store.GetProjectByWorkspacePath(workspacePath); lookupErr == nil {
 				return existing, nil
 			}
 		}
@@ -420,8 +420,8 @@ func (a *App) chooseActiveProject(projects []store.Project, defaultProject store
 			activeSphere = cleanSphere
 		}
 		for _, project := range projects {
-			if workspace.ProjectID != nil && project.ID == strings.TrimSpace(*workspace.ProjectID) {
-				if err := a.store.SetActiveProjectID(project.ID); err != nil {
+			if project.ID == fmt.Sprintf("%d", workspace.ID) {
+				if err := a.store.SetActiveWorkspaceID(project.ID); err != nil {
 					return store.Project{}, err
 				}
 				return project, nil
@@ -430,7 +430,7 @@ func (a *App) chooseActiveProject(projects []store.Project, defaultProject store
 	} else if !isNoRows(err) {
 		return store.Project{}, err
 	}
-	activeID, err := a.store.ActiveProjectID()
+	activeID, err := a.store.ActiveWorkspaceID()
 	if err != nil {
 		return store.Project{}, err
 	}
@@ -471,7 +471,7 @@ func (a *App) chooseActiveProject(projects []store.Project, defaultProject store
 	} else if strings.TrimSpace(fallback.ID) == "" {
 		fallback = projects[0]
 	}
-	if err := a.store.SetActiveProjectID(fallback.ID); err != nil {
+	if err := a.store.SetActiveWorkspaceID(fallback.ID); err != nil {
 		return store.Project{}, err
 	}
 	return fallback, nil
@@ -505,10 +505,10 @@ func (a *App) handleProjectsList(w http.ResponseWriter, r *http.Request) {
 		items = append(items, item)
 	}
 	writeJSON(w, map[string]interface{}{
-		"ok":                 true,
-		"default_project_id": defaultProject.ID,
-		"active_project_id":  activeProject.ID,
-		"projects":           items,
+		"ok":                   true,
+		"default_workspace_id": defaultProject.ID,
+		"active_workspace_id":  activeProject.ID,
+		"workspaces":           items,
 	})
 }
 
@@ -531,8 +531,8 @@ func (a *App) handleProjectsActivity(w http.ResponseWriter, r *http.Request) {
 		items = append(items, item)
 	}
 	writeJSON(w, map[string]interface{}{
-		"ok":       true,
-		"projects": items,
+		"ok":         true,
+		"workspaces": items,
 	})
 }
 

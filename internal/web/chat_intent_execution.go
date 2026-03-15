@@ -81,9 +81,9 @@ func (a *App) systemActionTargetProject(session store.ChatSession) (store.Projec
 			return *project, nil
 		}
 	}
-	projectKey := strings.TrimSpace(session.ProjectKey)
-	if projectKey != "" {
-		project, err := a.store.GetProjectByProjectKey(projectKey)
+	workspacePath := strings.TrimSpace(session.WorkspacePath)
+	if workspacePath != "" {
+		project, err := a.store.GetProjectByWorkspacePath(workspacePath)
 		if err == nil {
 			return project, nil
 		}
@@ -101,7 +101,7 @@ func (a *App) systemActionTargetCWD(session store.ChatSession, targetProject sto
 		if cwd := strings.TrimSpace(targetProject.RootPath); cwd != "" {
 			return cwd
 		}
-		if cwd := strings.TrimSpace(a.cwdForProjectKey(targetProject.ProjectKey)); cwd != "" {
+		if cwd := strings.TrimSpace(a.cwdForWorkspacePath(targetProject.WorkspacePath)); cwd != "" {
 			return cwd
 		}
 	}
@@ -228,22 +228,8 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 		}()
 	}
 	switch action.Action {
-	case "switch_project":
-		targetName := systemActionStringParam(action.Params, "name")
-		project, err := a.findProjectByName(targetName)
-		if err != nil {
-			return "", nil, err
-		}
-		activated, err := a.activateProject(project.ID)
-		if err != nil {
-			return "", nil, err
-		}
-		return fmt.Sprintf("Switched to %s.", activated.Name), map[string]interface{}{
-			"type":       "switch_project",
-			"project_id": activated.ID,
-		}, nil
 	case "switch_workspace":
-		workspace, err := a.resolveWorkspaceReference(session.ProjectKey, systemActionWorkspaceRef(action.Params))
+		workspace, err := a.resolveWorkspaceReference(session.WorkspacePath, systemActionWorkspaceRef(action.Params))
 		if err != nil {
 			return "", nil, err
 		}
@@ -257,7 +243,7 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 			"dir_path":     workspace.DirPath,
 		}, nil
 	case "focus_workspace":
-		workspace, err := a.resolveWorkspaceReference(session.ProjectKey, systemActionWorkspaceRef(action.Params))
+		workspace, err := a.resolveWorkspaceReference(session.WorkspacePath, systemActionWorkspaceRef(action.Params))
 		if err != nil {
 			return "", nil, err
 		}
@@ -296,10 +282,8 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 		return a.executeWorkspaceWatchAction(session, action)
 	case "batch_work", "batch_configure", "review_policy", "batch_limit", "batch_status":
 		return a.executeBatchAction(session, action)
-	case "assign_workspace_project", "show_workspace_project", "create_project", "list_project_workspaces", "sync_project":
-		return a.executeProjectAction(session, action)
 	case "list_workspace_items":
-		workspace, err := a.resolveWorkspaceReference(session.ProjectKey, systemActionWorkspaceRef(action.Params))
+		workspace, err := a.resolveWorkspaceReference(session.WorkspacePath, systemActionWorkspaceRef(action.Params))
 		if err != nil {
 			return "", nil, err
 		}
@@ -354,7 +338,7 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 		}
 		return message, nil, nil
 	case "show_status":
-		status, err := a.fetchCodexStatusMessage(session.ProjectKey)
+		status, err := a.fetchCodexStatusMessage(session.WorkspacePath)
 		if err != nil {
 			return "", nil, err
 		}
@@ -407,13 +391,13 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 		execResult := executeShellCommand(command, cwd)
 		if execResult.TimedOut {
 			return fmt.Sprintf("Shell command timed out after %s.\n\n%s", systemActionShellTimeout, execResult.Output), map[string]interface{}{
-				"type":       "shell",
-				"command":    command,
-				"cwd":        cwd,
-				"exit_code":  -1,
-				"timed_out":  true,
-				"output":     execResult.Output,
-				"project_id": targetProject.ID,
+				"type":         "shell",
+				"command":      command,
+				"cwd":          cwd,
+				"exit_code":    -1,
+				"timed_out":    true,
+				"output":       execResult.Output,
+				"workspace_id": targetProject.ID,
 			}, nil
 		}
 		if execResult.RunErr != nil && execResult.ExitCode == 0 {
@@ -430,28 +414,28 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 						"cwd":                 cwd,
 						"exit_code":           0,
 						"output":              retryResult.Output,
-						"project_id":          targetProject.ID,
+						"workspace_id":        targetProject.ID,
 						"auto_corrected":      true,
 						"auto_correct_reason": fixReason,
 					}, nil
 				}
 			}
 			return fmt.Sprintf("Shell command failed (exit %d).\n\n%s", execResult.ExitCode, execResult.Output), map[string]interface{}{
-				"type":       "shell",
-				"command":    command,
-				"cwd":        cwd,
-				"exit_code":  execResult.ExitCode,
-				"output":     execResult.Output,
-				"project_id": targetProject.ID,
+				"type":         "shell",
+				"command":      command,
+				"cwd":          cwd,
+				"exit_code":    execResult.ExitCode,
+				"output":       execResult.Output,
+				"workspace_id": targetProject.ID,
 			}, nil
 		}
 		return execResult.Output, map[string]interface{}{
-			"type":       "shell",
-			"command":    command,
-			"cwd":        cwd,
-			"exit_code":  execResult.ExitCode,
-			"output":     execResult.Output,
-			"project_id": targetProject.ID,
+			"type":         "shell",
+			"command":      command,
+			"cwd":          cwd,
+			"exit_code":    execResult.ExitCode,
+			"output":       execResult.Output,
+			"workspace_id": targetProject.ID,
 		}, nil
 	case "open_file_canvas":
 		targetProject, err := a.systemActionTargetProject(session)
@@ -501,7 +485,7 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 			return fmt.Sprintf("Opened %s on canvas as PDF.", canvasTitle), map[string]interface{}{
 				"type":          "open_file_canvas",
 				"path":          canvasTitle,
-				"project_id":    targetProject.ID,
+				"workspace_id":  targetProject.ID,
 				"rendered_path": renderedPath,
 			}, nil
 		}
@@ -521,7 +505,7 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 			return fmt.Sprintf("Opened %s on canvas as PDF.", canvasTitle), map[string]interface{}{
 				"type":          "open_file_canvas",
 				"path":          canvasTitle,
-				"project_id":    targetProject.ID,
+				"workspace_id":  targetProject.ID,
 				"rendered_path": renderedPath,
 			}, nil
 		}
@@ -535,9 +519,9 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 				return "", nil, err
 			}
 			return fmt.Sprintf("Opened %s on canvas.", canvasTitle), map[string]interface{}{
-				"type":       "open_file_canvas",
-				"path":       canvasTitle,
-				"project_id": targetProject.ID,
+				"type":         "open_file_canvas",
+				"path":         canvasTitle,
+				"workspace_id": targetProject.ID,
 			}, nil
 		}
 		if info.Size() > systemActionOpenFileSizeLimit {
@@ -556,9 +540,9 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 			return "", nil, err
 		}
 		return fmt.Sprintf("Opened %s on canvas.", canvasTitle), map[string]interface{}{
-			"type":       "open_file_canvas",
-			"path":       canvasTitle,
-			"project_id": targetProject.ID,
+			"type":         "open_file_canvas",
+			"path":         canvasTitle,
+			"workspace_id": targetProject.ID,
 		}, nil
 	case "show_calendar":
 		return a.executeCalendarAction(session, action)

@@ -45,7 +45,7 @@ func queuedUserMessage(messages []store.ChatMessage, messageID int64) string {
 }
 
 func (a *App) preferredProject() (store.Project, error) {
-	activeID, err := a.store.ActiveProjectID()
+	activeID, err := a.store.ActiveWorkspaceID()
 	if err == nil && strings.TrimSpace(activeID) != "" {
 		if project, getErr := a.store.GetProject(activeID); getErr == nil {
 			return project, nil

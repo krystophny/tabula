@@ -20,8 +20,8 @@ func newProjectAttentionTracker() *projectAttentionTracker {
 	}
 }
 
-func (t *projectAttentionTracker) markSeen(projectKey string, at int64) {
-	key := strings.TrimSpace(projectKey)
+func (t *projectAttentionTracker) markSeen(workspacePath string, at int64) {
+	key := strings.TrimSpace(workspacePath)
 	if key == "" || at <= 0 {
 		return
 	}
@@ -32,8 +32,8 @@ func (t *projectAttentionTracker) markSeen(projectKey string, at int64) {
 	}
 }
 
-func (t *projectAttentionTracker) markCanvasChange(projectKey string, at int64) {
-	key := strings.TrimSpace(projectKey)
+func (t *projectAttentionTracker) markCanvasChange(workspacePath string, at int64) {
+	key := strings.TrimSpace(workspacePath)
 	if key == "" || at <= 0 {
 		return
 	}
@@ -44,8 +44,8 @@ func (t *projectAttentionTracker) markCanvasChange(projectKey string, at int64) 
 	}
 }
 
-func (t *projectAttentionTracker) markReviewSubmitted(projectKey string, at int64) {
-	key := strings.TrimSpace(projectKey)
+func (t *projectAttentionTracker) markReviewSubmitted(workspacePath string, at int64) {
+	key := strings.TrimSpace(workspacePath)
 	if key == "" || at <= 0 {
 		return
 	}
@@ -56,8 +56,8 @@ func (t *projectAttentionTracker) markReviewSubmitted(projectKey string, at int6
 	}
 }
 
-func (t *projectAttentionTracker) snapshot(projectKey string) (lastSeenAt, lastCanvasChangeAt, lastReviewSubmitAt int64) {
-	key := strings.TrimSpace(projectKey)
+func (t *projectAttentionTracker) snapshot(workspacePath string) (lastSeenAt, lastCanvasChangeAt, lastReviewSubmitAt int64) {
+	key := strings.TrimSpace(workspacePath)
 	if key == "" {
 		return 0, 0, 0
 	}

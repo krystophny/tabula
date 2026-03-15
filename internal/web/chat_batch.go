@@ -494,7 +494,7 @@ func (a *App) executeBatchStatusAction(workspace store.Workspace) (string, map[s
 }
 
 func (a *App) executeBatchAction(session store.ChatSession, action *SystemAction) (string, map[string]interface{}, error) {
-	workspace, err := a.resolveWorkspaceReference(session.ProjectKey, systemActionWorkspaceRef(action.Params))
+	workspace, err := a.resolveWorkspaceReference(session.WorkspacePath, systemActionWorkspaceRef(action.Params))
 	if err != nil {
 		return "", nil, err
 	}

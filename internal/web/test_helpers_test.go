@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/krystophny/tabura/internal/store"
 )
 
 const testAuthToken = "token-test"
@@ -28,6 +30,28 @@ func newAuthedTestApp(t *testing.T) *App {
 		_ = app.Shutdown(context.Background())
 	})
 	return app
+}
+
+func runtimeWorkspaceIDInt64(t *testing.T, project store.Project) int64 {
+	t.Helper()
+	id, err := strconv.ParseInt(strings.TrimSpace(project.ID), 10, 64)
+	if err != nil || id <= 0 {
+		t.Fatalf("invalid workspace id %q", project.ID)
+	}
+	return id
+}
+
+func runtimeWorkspaceIDInt64FromString(t *testing.T, raw string) int64 {
+	t.Helper()
+	id, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || id <= 0 {
+		t.Fatalf("invalid workspace id %q", raw)
+	}
+	return id
+}
+
+func int64Pointer(value int64) *int64 {
+	return &value
 }
 
 func setLivePolicyForTest(t *testing.T, app *App, policy LivePolicy) {

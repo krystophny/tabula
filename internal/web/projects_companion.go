@@ -48,8 +48,8 @@ type companionConfigPatch struct {
 
 type companionStateResponse struct {
 	OK                 bool                            `json:"ok"`
-	ProjectID          string                          `json:"project_id"`
-	ProjectKey         string                          `json:"project_key"`
+	WorkspaceID        string                          `json:"workspace_id"`
+	WorkspacePath      string                          `json:"workspace_path"`
 	State              string                          `json:"state"`
 	Runtime            companionRuntimeSnapshot        `json:"runtime"`
 	CompanionEnabled   bool                            `json:"companion_enabled"`
@@ -240,7 +240,7 @@ func (a *App) activeCompanionWorkspace() (store.Workspace, error) {
 
 func (a *App) companionKeyForWorkspace(workspace store.Workspace) string {
 	if project, err := a.projectForWorkspace(workspace); err == nil && project != nil {
-		return strings.TrimSpace(project.ProjectKey)
+		return strings.TrimSpace(project.WorkspacePath)
 	}
 	return strings.TrimSpace(workspace.DirPath)
 }
@@ -268,19 +268,19 @@ func (a *App) resolveParticipantProject(chatSessionID string) (string, companion
 	if session, err := a.store.GetChatSession(cleanSessionID); err == nil {
 		if session.WorkspaceID > 0 {
 			if workspace, err := a.store.GetWorkspace(session.WorkspaceID); err == nil {
-				return strings.TrimSpace(session.ProjectKey), a.loadCompanionConfig(workspace)
+				return strings.TrimSpace(session.WorkspacePath), a.loadCompanionConfig(workspace)
 			}
 		}
 	}
 	if workspace, err := a.store.GetWorkspaceByPath(cleanSessionID); err == nil {
 		return a.companionKeyForWorkspace(workspace), a.loadCompanionConfig(workspace)
 	}
-	if project, err := a.store.GetProjectByProjectKey(cleanSessionID); err == nil {
+	if project, err := a.store.GetProjectByWorkspacePath(cleanSessionID); err == nil {
 		workspace, workspaceErr := a.ensureWorkspaceForProject(project, false)
 		if workspaceErr == nil {
-			return project.ProjectKey, a.loadCompanionConfig(workspace)
+			return project.WorkspacePath, a.loadCompanionConfig(workspace)
 		}
-		return project.ProjectKey, defaultCompanionConfig()
+		return project.WorkspacePath, defaultCompanionConfig()
 	}
 	return cleanSessionID, defaultCompanionConfig()
 }
@@ -417,17 +417,17 @@ func (a *App) handleWorkspaceCompanionState(w http.ResponseWriter, r *http.Reque
 		gateSession = latestSession
 	}
 	companionKey := a.companionKeyForWorkspace(workspace)
-	projectID := ""
+	workspaceID := ""
 	if project != nil {
-		projectID = project.ID
+		workspaceID = project.ID
 	}
 	runtime := a.currentCompanionRuntimeState(companionKey, cfg)
 	gate := a.loadCompanionDirectedSpeechGate(cfg, gateSession)
 	policy := a.loadCompanionInteractionPolicy(cfg, gateSession)
 	writeJSON(w, companionStateResponse{
 		OK:                 true,
-		ProjectID:          projectID,
-		ProjectKey:         companionKey,
+		WorkspaceID:        workspaceID,
+		WorkspacePath:      companionKey,
 		State:              runtime.State,
 		Runtime:            runtime,
 		CompanionEnabled:   cfg.CompanionEnabled,
@@ -447,7 +447,7 @@ func (a *App) stopParticipantCaptureSessions(match func(store.ParticipantSession
 	if a == nil || a.store == nil || match == nil {
 		return
 	}
-	affectedProjectKeys := map[string]struct{}{}
+	affectedWorkspacePaths := map[string]struct{}{}
 	if a.hub != nil {
 		a.hub.forEachChatConn(func(conn *chatWSConn) {
 			conn.participantMu.Lock()
@@ -461,7 +461,7 @@ func (a *App) stopParticipantCaptureSessions(match func(store.ParticipantSession
 			if err != nil || !match(session) {
 				return
 			}
-			affectedProjectKeys[session.ProjectKey] = struct{}{}
+			affectedWorkspacePaths[session.WorkspacePath] = struct{}{}
 			stoppedSessionID, ok := releaseParticipantSession(a, conn)
 			if !ok {
 				return
@@ -479,27 +479,27 @@ func (a *App) stopParticipantCaptureSessions(match func(store.ParticipantSession
 		if session.EndedAt != 0 || !match(session) {
 			continue
 		}
-		affectedProjectKeys[session.ProjectKey] = struct{}{}
+		affectedWorkspacePaths[session.WorkspacePath] = struct{}{}
 		_ = a.store.EndParticipantSession(session.ID)
 		_ = a.store.AddParticipantEvent(session.ID, 0, "session_stopped", fmt.Sprintf(`{"reason":%q}`, strings.TrimSpace(reason)))
 		a.syncProjectCompanionArtifactsBySessionID(session.ID)
 	}
-	for projectKey := range affectedProjectKeys {
-		a.broadcastCompanionRuntimeState(projectKey, companionRuntimeSnapshot{
-			State:      companionRuntimeStateIdle,
-			Reason:     strings.TrimSpace(reason),
-			ProjectKey: projectKey,
+	for workspacePath := range affectedWorkspacePaths {
+		a.broadcastCompanionRuntimeState(workspacePath, companionRuntimeSnapshot{
+			State:         companionRuntimeStateIdle,
+			Reason:        strings.TrimSpace(reason),
+			WorkspacePath: workspacePath,
 		})
 	}
 }
 
-func (a *App) disableCompanionCapture(projectKey string) {
-	cleanProjectKey := strings.TrimSpace(projectKey)
-	if cleanProjectKey == "" {
+func (a *App) disableCompanionCapture(workspacePath string) {
+	cleanWorkspacePath := strings.TrimSpace(workspacePath)
+	if cleanWorkspacePath == "" {
 		return
 	}
 	a.stopParticipantCaptureSessions(func(session store.ParticipantSession) bool {
-		return session.ProjectKey == cleanProjectKey
+		return session.WorkspacePath == cleanWorkspacePath
 	}, "companion_disabled", "meeting mode is disabled")
 }
 

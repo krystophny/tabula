@@ -17,7 +17,7 @@ func seedProjectCompanionSession(t *testing.T, app *App) (store.Project, store.P
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
-	session, err := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	session, err := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("AddParticipantSession: %v", err)
 	}
@@ -54,8 +54,8 @@ func TestProjectCompanionTranscriptAPIAndExports(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode transcript payload: %v", err)
 	}
-	if payload.ProjectID != project.ID {
-		t.Fatalf("project_id = %q, want %q", payload.ProjectID, project.ID)
+	if payload.WorkspaceID != project.ID {
+		t.Fatalf("workspace_id = %q, want %q", payload.WorkspaceID, project.ID)
 	}
 	if payload.Session == nil || payload.Session.ID != session.ID {
 		t.Fatalf("selected session = %#v, want %q", payload.Session, session.ID)
@@ -294,7 +294,7 @@ func TestProjectCompanionRoomMemoryIsProjectScoped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProject other: %v", err)
 	}
-	otherSession, err := app.store.AddParticipantSession(otherProject.ProjectKey, "{}")
+	otherSession, err := app.store.AddParticipantSession(otherProject.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("AddParticipantSession other: %v", err)
 	}

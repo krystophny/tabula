@@ -30,8 +30,8 @@ type proposedMeetingItem struct {
 
 type projectMeetingItemsResponse struct {
 	OK            bool                       `json:"ok"`
-	ProjectID     string                     `json:"project_id"`
-	ProjectKey    string                     `json:"project_key"`
+	WorkspaceID   string                     `json:"workspace_id"`
+	WorkspacePath string                     `json:"workspace_path"`
 	Sessions      []store.ParticipantSession `json:"sessions"`
 	Session       *store.ParticipantSession  `json:"session,omitempty"`
 	SummaryText   string                     `json:"summary_text"`
@@ -51,8 +51,8 @@ type createMeetingItemsRequest struct {
 
 type createMeetingItemsResponse struct {
 	OK            bool                      `json:"ok"`
-	ProjectID     string                    `json:"project_id"`
-	ProjectKey    string                    `json:"project_key"`
+	WorkspaceID   string                    `json:"workspace_id"`
+	WorkspacePath string                    `json:"workspace_path"`
 	Session       *store.ParticipantSession `json:"session,omitempty"`
 	CreatedItems  []createdMeetingItem      `json:"created_items"`
 	ProposedItems []proposedMeetingItem     `json:"proposed_items"`
@@ -200,13 +200,13 @@ func (a *App) extractMeetingItems(summary string) []proposedMeetingItem {
 }
 
 func meetingPayloadProject(workspace store.Workspace, project *store.Project) (string, string) {
-	projectID := ""
-	projectKey := strings.TrimSpace(workspace.DirPath)
+	workspaceID := ""
+	workspacePath := strings.TrimSpace(workspace.DirPath)
 	if project != nil {
-		projectID = project.ID
-		projectKey = strings.TrimSpace(project.ProjectKey)
+		workspaceID = project.ID
+		workspacePath = strings.TrimSpace(project.WorkspacePath)
 	}
-	return projectID, projectKey
+	return workspaceID, workspacePath
 }
 
 func (a *App) loadWorkspaceMeetingItems(w http.ResponseWriter, r *http.Request) (store.Workspace, *store.Project, []store.ParticipantSession, *store.ParticipantSession, string, []proposedMeetingItem, bool) {
@@ -234,11 +234,11 @@ func (a *App) handleWorkspaceMeetingItemsGet(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return
 	}
-	projectID, projectKey := meetingPayloadProject(workspace, project)
+	workspaceID, workspacePath := meetingPayloadProject(workspace, project)
 	writeJSON(w, projectMeetingItemsResponse{
 		OK:            true,
-		ProjectID:     projectID,
-		ProjectKey:    projectKey,
+		WorkspaceID:   workspaceID,
+		WorkspacePath: workspacePath,
 		Sessions:      sessions,
 		Session:       session,
 		SummaryText:   summaryText,
@@ -254,14 +254,14 @@ func (a *App) ensureMeetingSummaryArtifact(workspace store.Workspace, project *s
 		return store.Artifact{}, err
 	}
 	summaryPath := filepath.Join(companionArtifactDir(workspace, session), "summary.md")
-	projectID, projectKey := meetingPayloadProject(workspace, project)
+	workspaceID, workspacePath := meetingPayloadProject(workspace, project)
 	title := "Meeting Summary"
 	metaPayload := map[string]any{
-		"source":      meetingSummaryItemSource,
-		"summary":     strings.TrimSpace(summaryText),
-		"session_id":  session.ID,
-		"project_id":  projectID,
-		"project_key": projectKey,
+		"source":         meetingSummaryItemSource,
+		"summary":        strings.TrimSpace(summaryText),
+		"session_id":     session.ID,
+		"workspace_id":   workspaceID,
+		"workspace_path": workspacePath,
 	}
 	raw, err := json.Marshal(metaPayload)
 	if err != nil {
@@ -389,11 +389,11 @@ func (a *App) handleWorkspaceMeetingItemsCreate(w http.ResponseWriter, r *http.R
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	projectID, projectKey := meetingPayloadProject(workspace, project)
+	workspaceID, workspacePath := meetingPayloadProject(workspace, project)
 	writeJSON(w, createMeetingItemsResponse{
 		OK:            true,
-		ProjectID:     projectID,
-		ProjectKey:    projectKey,
+		WorkspaceID:   workspaceID,
+		WorkspacePath: workspacePath,
 		Session:       session,
 		CreatedItems:  created,
 		ProposedItems: proposed,

@@ -82,7 +82,7 @@ func trimSecretOutput(raw string) string {
 func externalAccountCredentialCacheKey(account ExternalAccount, credentialRef string) string {
 	return strings.Join([]string{
 		strings.TrimSpace(account.Provider),
-		strings.TrimSpace(account.Label),
+		strings.TrimSpace(account.AccountName),
 		strings.TrimSpace(credentialRef),
 	}, "\x00")
 }
@@ -148,7 +148,7 @@ func (s *Store) ResolveExternalAccountPassword(ctx context.Context, accountID in
 }
 
 func (s *Store) ResolveExternalAccountPasswordForAccount(ctx context.Context, account ExternalAccount) (string, string, error) {
-	envVar := ExternalAccountPasswordEnvVar(account.Provider, account.Label)
+	envVar := ExternalAccountPasswordEnvVar(account.Provider, account.AccountName)
 	config, err := decodeExternalAccountConfigJSON(account.ConfigJSON)
 	if err != nil {
 		return "", "", err

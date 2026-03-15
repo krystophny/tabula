@@ -22,7 +22,6 @@ func TestContainerMappingCRUDAPI(t *testing.T) {
 		"container_type": "project",
 		"container_ref":  " Tabura ",
 		"workspace_id":   workspace.ID,
-		"project_id":     project.ID,
 		"sphere":         "work",
 	})
 	if rrCreate.Code != http.StatusCreated {
@@ -37,8 +36,8 @@ func TestContainerMappingCRUDAPI(t *testing.T) {
 	if got := mappingPayload["container_ref"]; got != "Tabura" {
 		t.Fatalf("container_ref = %#v, want %q", got, "Tabura")
 	}
-	if got := mappingPayload["project_id"]; got != project.ID {
-		t.Fatalf("project_id = %#v, want %q", got, project.ID)
+	if got := mappingPayload["workspace_id"]; got != project.ID {
+		t.Fatalf("workspace_id = %#v, want %q", got, project.ID)
 	}
 
 	rrList := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/container-mappings?provider=todoist", nil)
@@ -71,8 +70,8 @@ func TestContainerMappingCRUDAPI(t *testing.T) {
 	if _, ok := updatedMapping["workspace_id"]; ok {
 		t.Fatalf("updated mapping should clear workspace_id: %#v", updatedMapping)
 	}
-	if _, ok := updatedMapping["project_id"]; ok {
-		t.Fatalf("updated mapping should clear project_id: %#v", updatedMapping)
+	if _, ok := updatedMapping["workspace_id"]; ok {
+		t.Fatalf("updated mapping should clear workspace_id: %#v", updatedMapping)
 	}
 	if got := updatedMapping["sphere"]; got != "private" {
 		t.Fatalf("updated sphere = %#v, want private", got)

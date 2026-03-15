@@ -187,7 +187,7 @@ func TestCompanionResponseTriggerExecutesAssistantTurn(t *testing.T) {
 	}
 	setLivePolicyForTest(t, app, LivePolicyMeeting)
 
-	participantSession, err := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	participantSession, err := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("add participant session: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestCompanionResponseTriggerExecutesAssistantTurn(t *testing.T) {
 
 	app.maybeTriggerCompanionResponse(participantSession.ID, seg)
 
-	chatSession, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("get chat session: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestCompanionResponseTriggerSkipsWhenCompanionDisabled(t *testing.T) {
 	}
 	setLivePolicyForTest(t, app, LivePolicyMeeting)
 
-	participantSession, err := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	participantSession, err := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("add participant session: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestCompanionResponseTriggerSkipsWhenCompanionDisabled(t *testing.T) {
 
 	app.maybeTriggerCompanionResponse(participantSession.ID, seg)
 
-	chatSession, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("get chat session: %v", err)
 	}
@@ -321,7 +321,7 @@ func TestCompanionResponseTriggerSkipsFalseTriggerTranscript(t *testing.T) {
 	}
 	setLivePolicyForTest(t, app, LivePolicyMeeting)
 
-	participantSession, err := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	participantSession, err := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("add participant session: %v", err)
 	}
@@ -345,7 +345,7 @@ func TestCompanionResponseTriggerSkipsFalseTriggerTranscript(t *testing.T) {
 
 	app.maybeTriggerCompanionResponse(participantSession.ID, seg)
 
-	chatSession, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("get chat session: %v", err)
 	}
@@ -387,7 +387,7 @@ func TestCompanionResponseTriggerUsesSilentModeOutputQueue(t *testing.T) {
 	}
 	setLivePolicyForTest(t, app, LivePolicyMeeting)
 
-	participantSession, err := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	participantSession, err := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("add participant session: %v", err)
 	}
@@ -411,7 +411,7 @@ func TestCompanionResponseTriggerUsesSilentModeOutputQueue(t *testing.T) {
 
 	app.maybeTriggerCompanionResponse(participantSession.ID, seg)
 
-	chatSession, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("get chat session: %v", err)
 	}
@@ -438,7 +438,7 @@ func TestCompanionResponseTriggerDoesNotDuplicateSegment(t *testing.T) {
 	}
 	setLivePolicyForTest(t, app, LivePolicyMeeting)
 
-	participantSession, err := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	participantSession, err := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("add participant session: %v", err)
 	}
@@ -463,7 +463,7 @@ func TestCompanionResponseTriggerDoesNotDuplicateSegment(t *testing.T) {
 	app.maybeTriggerCompanionResponse(participantSession.ID, seg)
 	app.maybeTriggerCompanionResponse(participantSession.ID, seg)
 
-	chatSession, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("get chat session: %v", err)
 	}
@@ -494,7 +494,7 @@ func TestCompanionResponseTriggerInterruptsPendingTurn(t *testing.T) {
 	}
 	setLivePolicyForTest(t, app, LivePolicyMeeting)
 
-	participantSession, err := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	participantSession, err := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("add participant session: %v", err)
 	}
@@ -516,7 +516,7 @@ func TestCompanionResponseTriggerInterruptsPendingTurn(t *testing.T) {
 		t.Fatalf("add first participant committed event: %v", err)
 	}
 
-	chatSession, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("get chat session: %v", err)
 	}
@@ -605,7 +605,7 @@ func TestCompanionResponseTriggerIncludesProjectScopedCompanionContext(t *testin
 	}
 	setLivePolicyForTest(t, app, LivePolicyMeeting)
 
-	participantSession, err := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	participantSession, err := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("add participant session: %v", err)
 	}
@@ -638,7 +638,7 @@ func TestCompanionResponseTriggerIncludesProjectScopedCompanionContext(t *testin
 	if err != nil {
 		t.Fatalf("create other project: %v", err)
 	}
-	otherSession, err := app.store.AddParticipantSession(otherProject.ProjectKey, "{}")
+	otherSession, err := app.store.AddParticipantSession(otherProject.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("add other participant session: %v", err)
 	}
@@ -674,7 +674,7 @@ func TestCompanionResponseTriggerIncludesProjectScopedCompanionContext(t *testin
 
 	app.maybeTriggerCompanionResponse(participantSession.ID, seg)
 
-	chatSession, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("get chat session: %v", err)
 	}
@@ -739,7 +739,7 @@ func TestCompanionResponseTriggerUsesWorkspaceDirForAppSession(t *testing.T) {
 		t.Fatalf("SetActiveWorkspace() error: %v", err)
 	}
 
-	participantSession, err := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	participantSession, err := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("add participant session: %v", err)
 	}

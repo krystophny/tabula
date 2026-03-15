@@ -140,7 +140,6 @@ func (s *StoreSink) UpsertArtifact(_ context.Context, artifact store.Artifact, b
 
 type assignment struct {
 	WorkspaceID *int64
-	ProjectID   *string
 	Sphere      *string
 }
 
@@ -243,7 +242,6 @@ func (s *StoreSink) lookupAssignment(provider string, containerRef *string) (ass
 		}
 		return assignment{
 			WorkspaceID: mapping.WorkspaceID,
-			ProjectID:   mapping.ProjectID,
 			Sphere:      mapping.Sphere,
 		}, nil
 	}
@@ -264,7 +262,6 @@ func (s *StoreSink) itemCreateOptions(account store.ExternalAccount, item store.
 		SourceRef:    item.SourceRef,
 	}
 	opts.WorkspaceID = firstInt64(item.WorkspaceID, assignment.WorkspaceID)
-	opts.ProjectID = firstString(item.ProjectID, assignment.ProjectID)
 	if opts.WorkspaceID == nil {
 		sphere := strings.TrimSpace(item.Sphere)
 		if sphere == "" {
@@ -294,9 +291,6 @@ func (s *StoreSink) itemUpdate(account store.ExternalAccount, item store.Item, a
 	}
 	if workspaceID := firstInt64(item.WorkspaceID, assignment.WorkspaceID); workspaceID != nil {
 		update.WorkspaceID = int64Pointer(*workspaceID)
-	}
-	if projectID := firstString(item.ProjectID, assignment.ProjectID); projectID != nil {
-		update.ProjectID = stringPointer(*projectID)
 	}
 	if update.WorkspaceID == nil {
 		sphere := strings.TrimSpace(item.Sphere)

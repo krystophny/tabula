@@ -19,7 +19,7 @@ const closeChatWs = (...args) => refs.closeChatWs(...args);
 const appendPlainMessage = (...args) => refs.appendPlainMessage(...args);
 const appendRenderedAssistant = (...args) => refs.appendRenderedAssistant(...args);
 const activeProject = (...args) => refs.activeProject(...args);
-const activeProjectKey = (...args) => refs.activeProjectKey(...args);
+const activeWorkspacePath = (...args) => refs.activeWorkspacePath(...args);
 const setChatMode = (...args) => refs.setChatMode(...args);
 const resetCompanionState = (...args) => refs.resetCompanionState(...args);
 const applyCompanionState = (...args) => refs.applyCompanionState(...args);
@@ -38,7 +38,7 @@ const isVoiceTranscriptSubmitPending = (...args) => refs.isVoiceTranscriptSubmit
 const applyLiveSessionStateSnapshot = (...args) => refs.applyLiveSessionStateSnapshot(...args);
 const isMeetingLiveSession = (...args) => refs.isMeetingLiveSession(...args);
 const liveSessionStatusSummary = (...args) => refs.liveSessionStatusSummary(...args);
-const readPersistedProjectID = (...args) => refs.readPersistedProjectID(...args);
+const readPersistedWorkspaceID = (...args) => refs.readPersistedWorkspaceID(...args);
 const toggleYoloMode = (...args) => refs.toggleYoloMode(...args);
 const updateRuntimePreferences = (...args) => refs.updateRuntimePreferences(...args);
 const normalizeActiveSphere = (...args) => refs.normalizeActiveSphere(...args);
@@ -56,10 +56,10 @@ const shouldRenderAssistantHistoryInChat = (...args) => refs.shouldRenderAssista
 const hasLocalAssistantWork = (...args) => refs.hasLocalAssistantWork(...args);
 export { applyWorkspaceBusyStates, applyWorkspaceFocusSnapshot } from './app-workspace-status.js';
 export async function fetchProjects() {
-  const resp = await fetch(apiURL('projects'), { cache: 'no-store' });
-  if (!resp.ok) throw new Error(`projects list failed: HTTP ${resp.status}`);
+  const resp = await fetch(apiURL('runtime/workspaces'), { cache: 'no-store' });
+  if (!resp.ok) throw new Error(`workspaces list failed: HTTP ${resp.status}`);
   const payload = await resp.json();
-  const projects = Array.isArray(payload?.projects) ? payload.projects : [];
+  const projects = Array.isArray(payload?.workspaces) ? payload.workspaces : [];
   state.projects = projects.map((project) => ({
     ...project,
     id: String(project?.id || ''),
@@ -70,8 +70,8 @@ export async function fetchProjects() {
     unread: Boolean(project?.unread),
     review_pending: Boolean(project?.review_pending),
   })).filter((project) => project.id);
-  state.defaultProjectId = String(payload?.default_project_id || '').trim();
-  state.serverActiveProjectId = String(payload?.active_project_id || '').trim();
+  state.defaultWorkspaceId = String(payload?.default_workspace_id || '').trim();
+  state.serverActiveProjectId = String(payload?.active_workspace_id || '').trim();
   await refreshWorkspaceRuntimeState().catch(() => {});
   renderEdgeTopProjects();
   renderEdgeTopModelButtons();
@@ -193,8 +193,8 @@ export function upsertProject(project) {
   }
   renderEdgeTopModelButtons();
 }
-export async function refreshCompanionState(projectID = state.activeProjectId) {
-  const project = state.projects.find((item) => item.id === String(projectID || '').trim()) || null;
+export async function refreshCompanionState(workspaceID = state.activeWorkspaceId) {
+  const project = state.projects.find((item) => item.id === String(workspaceID || '').trim()) || null;
   if (!project) {
     resetCompanionState();
     return null;
@@ -224,7 +224,7 @@ export async function updateCompanionConfig(patch) {
   }
   const payload = await resp.json();
   applyCompanionState({
-    project_key: activeProjectKey(),
+    workspace_path: activeWorkspacePath(),
     companion_enabled: payload?.companion_enabled,
     idle_surface: payload?.idle_surface,
     state: state.companionRuntimeState,
@@ -270,7 +270,7 @@ export async function activateLiveSession(mode) {
   }
   if (normalized === LIVE_SESSION_MODE_MEETING) {
     applyCompanionState({
-      project_key: activeProjectKey(),
+      workspace_path: activeWorkspacePath(),
       companion_enabled: true,
       idle_surface: state.companionIdleSurface,
       state: state.companionRuntimeState,
@@ -288,7 +288,7 @@ export async function activateLiveSession(mode) {
     }
   }
   applyCompanionState({
-    project_key: activeProjectKey(),
+    workspace_path: activeWorkspacePath(),
     companion_enabled: true,
     idle_surface: state.companionIdleSurface,
     state: state.companionRuntimeState,
@@ -316,20 +316,20 @@ export async function deactivateLiveSession(options: Record<string, any> = {}) {
   }
 }
 
-export function resolveInitialProjectID() {
-  const reloadProjectID = String(state.pendingRuntimeReloadContext?.activeProjectId || '').trim();
-  if (reloadProjectID && state.projects.some((project) => project.id === reloadProjectID)) {
-    return reloadProjectID;
+export function resolveInitialWorkspaceID() {
+  const reloadWorkspaceID = String(state.pendingRuntimeReloadContext?.activeWorkspaceId || '').trim();
+  if (reloadWorkspaceID && state.projects.some((project) => project.id === reloadWorkspaceID)) {
+    return reloadWorkspaceID;
   }
   if (state.serverActiveProjectId && state.projects.some((project) => project.id === state.serverActiveProjectId)) {
     return state.serverActiveProjectId;
   }
-  const persisted = readPersistedProjectID();
+  const persisted = readPersistedWorkspaceID();
   if (persisted && state.projects.some((project) => project.id === persisted)) {
     return persisted;
   }
-  if (state.defaultProjectId && state.projects.some((project) => project.id === state.defaultProjectId)) {
-    return state.defaultProjectId;
+  if (state.defaultWorkspaceId && state.projects.some((project) => project.id === state.defaultWorkspaceId)) {
+    return state.defaultWorkspaceId;
   }
   return state.projects[0]?.id || '';
 }
@@ -343,7 +343,7 @@ export function renderEdgeTopProjects() {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'edge-project-btn';
-    if (project.id === state.activeProjectId) {
+    if (project.id === state.activeWorkspaceId) {
       button.classList.add('is-active');
     }
     if (runState.is_working) {
@@ -365,7 +365,7 @@ export function renderEdgeTopProjects() {
     button.title = rootPath ? `${summary} | ${rootPath}` : summary;
     button.setAttribute('aria-label', `${String(project.name || project.id || 'Workspace')}: ${summary}`);
     button.addEventListener('click', () => {
-      if (project.id === state.activeProjectId) return;
+      if (project.id === state.activeWorkspaceId) return;
       void switchProject(project.id);
     });
     host.appendChild(button);
@@ -542,7 +542,7 @@ export async function switchProjectChatModel(modelAlias, reasoningEffort = '') {
     if (includeEffort) {
       payload.reasoning_effort = nextEffort;
     }
-    const resp = await fetch(apiURL(`projects/${encodeURIComponent(project.id)}/chat-model`), {
+    const resp = await fetch(apiURL(`runtime/workspaces/${encodeURIComponent(project.id)}/chat-model`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -552,7 +552,7 @@ export async function switchProjectChatModel(modelAlias, reasoningEffort = '') {
       throw new Error(detail);
     }
     const responsePayload = await resp.json();
-    const updatedProject = responsePayload?.project || {};
+    const updatedProject = responsePayload?.workspace || {};
     upsertProject(updatedProject);
     renderEdgeTopProjects();
     renderEdgeTopModelButtons();
@@ -567,7 +567,7 @@ export async function switchProjectChatModel(modelAlias, reasoningEffort = '') {
   }
 }
 
-export async function createTemporaryProject(kind, sourceProjectID = '') {
+export async function createTemporaryProject(kind, sourceWorkspaceID = '') {
   const projectKind = String(kind || '').trim().toLowerCase();
   if (!isTemporaryProjectKind(projectKind)) return;
   if (state.projectSwitchInFlight || state.projectModelSwitchInFlight) return;
@@ -576,12 +576,12 @@ export async function createTemporaryProject(kind, sourceProjectID = '') {
     kind: projectKind,
     activate: true,
   };
-  const sourceID = String(sourceProjectID || '').trim();
+  const sourceID = String(sourceWorkspaceID || '').trim();
   if (sourceID) {
-    payload.source_project_id = sourceID;
+    payload.source_workspace_id = sourceID;
   }
   try {
-    const resp = await fetch(apiURL('projects'), {
+    const resp = await fetch(apiURL('runtime/workspaces'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -591,11 +591,11 @@ export async function createTemporaryProject(kind, sourceProjectID = '') {
       throw new Error(detail);
     }
     const responsePayload = await resp.json();
-    const project = responsePayload?.project || {};
-    const projectID = String(project?.id || '').trim();
+    const project = responsePayload?.workspace || {};
+    const workspaceID = String(project?.id || '').trim();
     await fetchProjects();
-    if (projectID) {
-      await switchProject(projectID);
+    if (workspaceID) {
+      await switchProject(workspaceID);
       return;
     }
     showStatus(`${projectKind} ready`);
@@ -606,20 +606,20 @@ export async function createTemporaryProject(kind, sourceProjectID = '') {
   }
 }
 
-export async function persistTemporaryProject(projectID) {
-  const id = String(projectID || '').trim();
+export async function persistTemporaryProject(workspaceID) {
+  const id = String(workspaceID || '').trim();
   if (!id) return;
   if (state.projectSwitchInFlight || state.projectModelSwitchInFlight) return;
   showStatus('saving session...');
   try {
-    const resp = await fetch(apiURL(`projects/${encodeURIComponent(id)}/persist`), { method: 'POST' });
+    const resp = await fetch(apiURL(`runtime/workspaces/${encodeURIComponent(id)}/persist`), { method: 'POST' });
     if (!resp.ok) {
       const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
       throw new Error(detail);
     }
     const payload = await resp.json();
-    if (payload?.project) {
-      upsertProject(payload.project);
+    if (payload?.workspace) {
+      upsertProject(payload.workspace);
     }
     await fetchProjects();
     renderEdgeTopProjects();
@@ -632,22 +632,22 @@ export async function persistTemporaryProject(projectID) {
   }
 }
 
-export async function discardTemporaryProject(projectID) {
-  const id = String(projectID || '').trim();
+export async function discardTemporaryProject(workspaceID) {
+  const id = String(workspaceID || '').trim();
   if (!id) return;
   if (state.projectSwitchInFlight || state.projectModelSwitchInFlight) return;
   showStatus('discarding session...');
   try {
-    const resp = await fetch(apiURL(`projects/${encodeURIComponent(id)}/discard`), { method: 'POST' });
+    const resp = await fetch(apiURL(`runtime/workspaces/${encodeURIComponent(id)}/discard`), { method: 'POST' });
     if (!resp.ok) {
       const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
       throw new Error(detail);
     }
     const payload = await resp.json();
-    const nextProjectID = String(payload?.active_project_id || '').trim() || state.defaultProjectId || state.projects[0]?.id || '';
+    const nextWorkspaceID = String(payload?.active_workspace_id || '').trim() || state.defaultWorkspaceId || state.projects[0]?.id || '';
     await fetchProjects();
-    if (nextProjectID) {
-      await switchProject(nextProjectID);
+    if (nextWorkspaceID) {
+      await switchProject(nextWorkspaceID);
       return;
     }
     renderEdgeTopProjects();
@@ -660,14 +660,14 @@ export async function discardTemporaryProject(projectID) {
   }
 }
 
-export async function activateProject(projectID) {
-  const resp = await fetch(apiURL(`projects/${encodeURIComponent(projectID)}/activate`), { method: 'POST' });
+export async function activateProject(workspaceID) {
+  const resp = await fetch(apiURL(`runtime/workspaces/${encodeURIComponent(workspaceID)}/activate`), { method: 'POST' });
   if (!resp.ok) {
     const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
     throw new Error(detail);
   }
   const payload = await resp.json();
-  const project = payload?.project || {};
+  const project = payload?.workspace || {};
   const activeSphere = normalizeActiveSphere(payload?.active_sphere || state.activeSphere);
   if (activeSphere) {
     state.activeSphere = activeSphere;
@@ -770,14 +770,14 @@ export async function refreshProjectRunStates() {
   if (state.projectRunStatesInFlight) return;
   state.projectRunStatesInFlight = true;
   try {
-    const resp = await fetch(apiURL('projects/activity'), { cache: 'no-store' });
+    const resp = await fetch(apiURL('runtime/workspaces/activity'), { cache: 'no-store' });
     if (!resp.ok) return;
     const payload = await resp.json();
-    const items = Array.isArray(payload?.projects) ? payload.projects : [];
+    const items = Array.isArray(payload?.workspaces) ? payload.workspaces : [];
     for (const item of items) {
-      const projectID = String(item?.project_id || '').trim();
-      if (!projectID) continue;
-      const existing = state.projects.find((project) => project.id === projectID);
+      const workspaceID = String(item?.workspace_id || '').trim();
+      if (!workspaceID) continue;
+      const existing = state.projects.find((project) => project.id === workspaceID);
       if (!existing) continue;
       upsertProject({
         ...existing,

@@ -33,7 +33,7 @@ async function seedTwoProjects(page: Page) {
         name: 'Test',
         kind: 'managed',
         sphere: 'private',
-        project_key: '/tmp/test',
+        workspace_path: '/tmp/test',
         root_path: '/tmp/test',
         chat_session_id: 'chat-1',
         canvas_session_id: 'local',
@@ -49,7 +49,7 @@ async function seedTwoProjects(page: Page) {
         name: 'Notes',
         kind: 'managed',
         sphere: 'private',
-        project_key: '/tmp/notes',
+        workspace_path: '/tmp/notes',
         root_path: '/tmp/notes',
         chat_session_id: 'chat-2',
         canvas_session_id: 'notes',
@@ -330,7 +330,7 @@ test.describe('runtime refresh', () => {
     });
 
     await expect.poll(async () => {
-      return page.evaluate(() => (window as any)._taburaApp?.getState?.().activeProjectId || '');
+      return page.evaluate(() => (window as any)._taburaApp?.getState?.().activeWorkspaceId || '');
     }, { timeout: 5_000 }).toBe('test');
 
     await page.evaluate(() => {
@@ -341,7 +341,7 @@ test.describe('runtime refresh', () => {
     await waitWsReady(page);
 
     await expect.poll(async () => {
-      return page.evaluate(() => (window as any)._taburaApp?.getState?.().activeProjectId || '');
+      return page.evaluate(() => (window as any)._taburaApp?.getState?.().activeWorkspaceId || '');
     }, { timeout: 5_000 }).toBe('test');
     await expect(page.locator('#status-label')).toHaveText('Bug fix applied.');
 
@@ -870,7 +870,7 @@ test.describe('floating tool palette', () => {
         },
       });
       (window as any).__setScanUploadResponse({
-        project_id: 'test',
+        workspace_id: 'test',
         item_id: 904,
         artifact_id: 701,
         scan_artifact: { id: 990, kind: 'image', title: 'Scanned annotations' },
@@ -879,7 +879,7 @@ test.describe('floating tool palette', () => {
         ],
       });
       (window as any).__setScanConfirmResponse({
-        project_id: 'test',
+        workspace_id: 'test',
         item_id: 904,
         artifact_id: 701,
         scan_artifact_id: 990,
@@ -938,7 +938,7 @@ test.describe('floating tool palette', () => {
         },
       });
       (window as any).__setScanUploadResponse({
-        project_id: 'test',
+        workspace_id: 'test',
         item_id: 905,
         artifact_id: 702,
         scan_artifact: { id: 992, kind: 'image', title: 'Scanned email annotations' },
@@ -947,7 +947,7 @@ test.describe('floating tool palette', () => {
         ],
       });
       (window as any).__setScanConfirmResponse({
-        project_id: 'test',
+        workspace_id: 'test',
         item_id: 905,
         artifact_id: 702,
         scan_artifact_id: 992,
@@ -1044,7 +1044,7 @@ test.describe('floating tool palette', () => {
       const app = (window as any)._taburaApp;
       const state = app?.getState?.();
       const wsOpen = (window as any).WebSocket.OPEN;
-      if (String(state?.activeProjectId || '') !== 'test') return '';
+      if (String(state?.activeWorkspaceId || '') !== 'test') return '';
       return state?.chatWs?.readyState === wsOpen ? 'ready' : 'waiting';
     })).toBe('ready');
 
@@ -1425,7 +1425,7 @@ test.describe('Live Dialogue multi-turn', () => {
       const app = (window as any)._taburaApp;
       const state = app?.getState?.();
       const wsOpen = (window as any).WebSocket.OPEN;
-      if (String(state?.activeProjectId || '') !== 'test') return '';
+      if (String(state?.activeWorkspaceId || '') !== 'test') return '';
       return state?.chatWs?.readyState === wsOpen ? 'ready' : 'waiting';
     })).toBe('ready');
   }
@@ -1592,7 +1592,7 @@ test.describe('project state persistence', () => {
       const app = (window as any)._taburaApp;
       const state = app?.getState?.();
       const wsOpen = (window as any).WebSocket.OPEN;
-      if (String(state?.activeProjectId || '') !== 'test') return '';
+      if (String(state?.activeWorkspaceId || '') !== 'test') return '';
       return state?.chatWs?.readyState === wsOpen ? 'ready' : 'waiting';
     })).toBe('ready');
 
@@ -1626,15 +1626,15 @@ test.describe('system_action model and project switching', () => {
     await waitReady(page);
   });
 
-  test('switch_project triggers project activate API', async ({ page }) => {
+  test('switch_workspace triggers project activate API', async ({ page }) => {
     await seedTwoProjects(page);
     await clearLog(page);
 
     await injectChatEvent(page, {
       type: 'system_action',
       action: {
-        type: 'switch_project',
-        project_id: 'notes',
+        type: 'switch_workspace',
+        workspace_id: 'notes',
       },
     });
 
@@ -1643,12 +1643,12 @@ test.describe('system_action model and project switching', () => {
       return log.some(
         (entry) => entry.type === 'api_fetch'
           && entry.action === 'project_activate'
-          && String(entry.payload?.project_id || '') === 'notes',
+          && String(entry.payload?.workspace_id || '') === 'notes',
       );
     }, { timeout: 5_000 }).toBe(true);
 
     await expect.poll(async () => {
-      return page.evaluate(() => (window as any)._taburaApp?.getState?.().activeProjectId || '');
+      return page.evaluate(() => (window as any)._taburaApp?.getState?.().activeWorkspaceId || '');
     }, { timeout: 5_000 }).toBe('notes');
   });
 });

@@ -20,7 +20,7 @@ type companionRuntimeSnapshot struct {
 	State                string `json:"state"`
 	Reason               string `json:"reason,omitempty"`
 	Error                string `json:"error,omitempty"`
-	ProjectKey           string `json:"project_key,omitempty"`
+	WorkspacePath        string `json:"workspace_path,omitempty"`
 	ChatSessionID        string `json:"chat_session_id,omitempty"`
 	ParticipantSessionID string `json:"participant_session_id,omitempty"`
 	ParticipantSegmentID int64  `json:"participant_segment_id,omitempty"`
@@ -40,12 +40,12 @@ func newCompanionRuntimeTracker() *companionRuntimeTracker {
 	}
 }
 
-func (t *companionRuntimeTracker) set(projectKey string, snapshot companionRuntimeSnapshot) companionRuntimeSnapshot {
-	cleanProjectKey := strings.TrimSpace(projectKey)
-	if cleanProjectKey == "" {
+func (t *companionRuntimeTracker) set(workspacePath string, snapshot companionRuntimeSnapshot) companionRuntimeSnapshot {
+	cleanWorkspacePath := strings.TrimSpace(workspacePath)
+	if cleanWorkspacePath == "" {
 		return companionRuntimeSnapshot{}
 	}
-	snapshot.ProjectKey = cleanProjectKey
+	snapshot.WorkspacePath = cleanWorkspacePath
 	snapshot.State = normalizeCompanionRuntimeState(snapshot.State)
 	snapshot.Reason = strings.TrimSpace(snapshot.Reason)
 	snapshot.Error = strings.TrimSpace(snapshot.Error)
@@ -58,18 +58,18 @@ func (t *companionRuntimeTracker) set(projectKey string, snapshot companionRunti
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.states[cleanProjectKey] = snapshot
+	t.states[cleanWorkspacePath] = snapshot
 	return snapshot
 }
 
-func (t *companionRuntimeTracker) get(projectKey string) (companionRuntimeSnapshot, bool) {
-	cleanProjectKey := strings.TrimSpace(projectKey)
-	if cleanProjectKey == "" {
+func (t *companionRuntimeTracker) get(workspacePath string) (companionRuntimeSnapshot, bool) {
+	cleanWorkspacePath := strings.TrimSpace(workspacePath)
+	if cleanWorkspacePath == "" {
 		return companionRuntimeSnapshot{}, false
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	snapshot, ok := t.states[cleanProjectKey]
+	snapshot, ok := t.states[cleanWorkspacePath]
 	return snapshot, ok
 }
 
@@ -90,10 +90,10 @@ func normalizeCompanionRuntimeState(raw string) string {
 
 func (s companionRuntimeSnapshot) payload(eventType string) map[string]interface{} {
 	payload := map[string]interface{}{
-		"type":        strings.TrimSpace(eventType),
-		"state":       s.State,
-		"project_key": s.ProjectKey,
-		"updated_at":  s.UpdatedAt,
+		"type":           strings.TrimSpace(eventType),
+		"state":          s.State,
+		"workspace_path": s.WorkspacePath,
+		"updated_at":     s.UpdatedAt,
 	}
 	if s.Reason != "" {
 		payload["reason"] = s.Reason
@@ -119,34 +119,34 @@ func (s companionRuntimeSnapshot) payload(eventType string) map[string]interface
 	return payload
 }
 
-func (a *App) chatSessionIDForProjectKey(projectKey string) (string, bool) {
+func (a *App) chatSessionIDForWorkspacePath(workspacePath string) (string, bool) {
 	if a == nil || a.store == nil {
 		return "", false
 	}
-	session, err := a.chatSessionForProjectKey(strings.TrimSpace(projectKey))
+	session, err := a.chatSessionForWorkspacePath(strings.TrimSpace(workspacePath))
 	if err != nil {
 		return "", false
 	}
 	return session.ID, true
 }
 
-func (a *App) currentCompanionRuntimeState(projectKey string, cfg companionConfig) companionRuntimeSnapshot {
-	projectKey = strings.TrimSpace(projectKey)
-	if projectKey == "" {
+func (a *App) currentCompanionRuntimeState(workspacePath string, cfg companionConfig) companionRuntimeSnapshot {
+	workspacePath = strings.TrimSpace(workspacePath)
+	if workspacePath == "" {
 		return companionRuntimeSnapshot{State: companionRuntimeStateIdle}
 	}
 	if a != nil && a.companionRuntime != nil {
-		if snapshot, ok := a.companionRuntime.get(projectKey); ok {
+		if snapshot, ok := a.companionRuntime.get(workspacePath); ok {
 			return snapshot
 		}
 	}
-	return a.companionSteadyState(projectKey, cfg, "")
+	return a.companionSteadyState(workspacePath, cfg, "")
 }
 
-func (a *App) companionSteadyState(projectKey string, cfg companionConfig, reason string) companionRuntimeSnapshot {
+func (a *App) companionSteadyState(workspacePath string, cfg companionConfig, reason string) companionRuntimeSnapshot {
 	state := companionRuntimeStateIdle
 	if cfg.CompanionEnabled {
-		if activeSessions := a.activeCompanionSessionCount(projectKey); activeSessions > 0 {
+		if activeSessions := a.activeCompanionSessionCount(workspacePath); activeSessions > 0 {
 			state = companionRuntimeStateListening
 			if strings.TrimSpace(reason) == "" {
 				reason = "participant_capture_active"
@@ -161,17 +161,17 @@ func (a *App) companionSteadyState(projectKey string, cfg companionConfig, reaso
 		}
 	}
 	return companionRuntimeSnapshot{
-		State:      state,
-		Reason:     strings.TrimSpace(reason),
-		ProjectKey: strings.TrimSpace(projectKey),
+		State:         state,
+		Reason:        strings.TrimSpace(reason),
+		WorkspacePath: strings.TrimSpace(workspacePath),
 	}
 }
 
-func (a *App) activeCompanionSessionCount(projectKey string) int {
+func (a *App) activeCompanionSessionCount(workspacePath string) int {
 	if a == nil || a.store == nil {
 		return 0
 	}
-	sessions, err := a.store.ListParticipantSessions(strings.TrimSpace(projectKey))
+	sessions, err := a.store.ListParticipantSessions(strings.TrimSpace(workspacePath))
 	if err != nil {
 		return 0
 	}
@@ -184,11 +184,11 @@ func (a *App) activeCompanionSessionCount(projectKey string) int {
 	return activeSessions
 }
 
-func (a *App) setCompanionRuntimeState(projectKey string, snapshot companionRuntimeSnapshot) companionRuntimeSnapshot {
+func (a *App) setCompanionRuntimeState(workspacePath string, snapshot companionRuntimeSnapshot) companionRuntimeSnapshot {
 	if a == nil || a.companionRuntime == nil {
 		return companionRuntimeSnapshot{}
 	}
-	return a.companionRuntime.set(projectKey, snapshot)
+	return a.companionRuntime.set(workspacePath, snapshot)
 }
 
 func (a *App) companionPendingTurnForChatSession(chatSessionID string) (companionPendingTurn, bool) {
@@ -198,46 +198,46 @@ func (a *App) companionPendingTurnForChatSession(chatSessionID string) (companio
 	return a.companionTurns.get(chatSessionID)
 }
 
-func (a *App) broadcastCompanionRuntimeState(projectKey string, snapshot companionRuntimeSnapshot) {
-	projectKey = strings.TrimSpace(projectKey)
-	if projectKey == "" {
+func (a *App) broadcastCompanionRuntimeState(workspacePath string, snapshot companionRuntimeSnapshot) {
+	workspacePath = strings.TrimSpace(workspacePath)
+	if workspacePath == "" {
 		return
 	}
-	sessionID, ok := a.chatSessionIDForProjectKey(projectKey)
+	sessionID, ok := a.chatSessionIDForWorkspacePath(workspacePath)
 	if !ok {
 		return
 	}
 	snapshot.ChatSessionID = sessionID
-	snapshot = a.setCompanionRuntimeState(projectKey, snapshot)
+	snapshot = a.setCompanionRuntimeState(workspacePath, snapshot)
 	a.broadcastChatEvent(sessionID, snapshot.payload(companionEventState))
 }
 
-func (a *App) settleCompanionRuntimeState(projectKey string, cfg companionConfig, reason string) {
-	a.broadcastCompanionRuntimeState(projectKey, a.companionSteadyState(projectKey, cfg, reason))
+func (a *App) settleCompanionRuntimeState(workspacePath string, cfg companionConfig, reason string) {
+	a.broadcastCompanionRuntimeState(workspacePath, a.companionSteadyState(workspacePath, cfg, reason))
 }
 
-func (a *App) broadcastCompanionTranscriptEvent(projectKey string, payload map[string]interface{}) {
-	projectKey = strings.TrimSpace(projectKey)
-	if projectKey == "" {
+func (a *App) broadcastCompanionTranscriptEvent(workspacePath string, payload map[string]interface{}) {
+	workspacePath = strings.TrimSpace(workspacePath)
+	if workspacePath == "" {
 		return
 	}
-	sessionID, ok := a.chatSessionIDForProjectKey(projectKey)
+	sessionID, ok := a.chatSessionIDForWorkspacePath(workspacePath)
 	if !ok {
 		return
 	}
-	payload["project_key"] = projectKey
+	payload["workspace_path"] = workspacePath
 	a.broadcastChatEvent(sessionID, payload)
 }
 
-func (a *App) markCompanionThinking(sessionID, projectKey, turnID, outputMode, reason string) {
+func (a *App) markCompanionThinking(sessionID, workspacePath, turnID, outputMode, reason string) {
 	pending, ok := a.companionPendingTurnForChatSession(sessionID)
 	if !ok {
 		return
 	}
-	a.broadcastCompanionRuntimeState(projectKey, companionRuntimeSnapshot{
+	a.broadcastCompanionRuntimeState(workspacePath, companionRuntimeSnapshot{
 		State:                companionRuntimeStateThinking,
 		Reason:               strings.TrimSpace(reason),
-		ProjectKey:           strings.TrimSpace(projectKey),
+		WorkspacePath:        strings.TrimSpace(workspacePath),
 		ParticipantSessionID: pending.participantSessionID,
 		ParticipantSegmentID: pending.segmentID,
 		TurnID:               strings.TrimSpace(turnID),

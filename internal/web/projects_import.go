@@ -58,8 +58,8 @@ func (a *App) nextTemporaryProjectPath(kind, name string) (string, error) {
 	return "", errors.New("unable to allocate temporary project path")
 }
 
-func (a *App) projectSourceByID(projectID string) (store.Project, bool, error) {
-	id := strings.TrimSpace(projectID)
+func (a *App) projectSourceByID(workspaceID string) (store.Project, bool, error) {
+	id := strings.TrimSpace(workspaceID)
 	if id == "" {
 		return store.Project{}, false, nil
 	}
@@ -93,7 +93,7 @@ func (a *App) createProject(req projectCreateRequest) (store.Project, bool, erro
 	kind := normalizeProjectKindInput(req.Kind, req.Path)
 	name := strings.TrimSpace(req.Name)
 	mcpURL := strings.TrimSpace(req.MCPURL)
-	sourceProject, hasSource, err := a.projectSourceByID(req.SourceProjectID)
+	sourceProject, hasSource, err := a.projectSourceByID(req.SourceWorkspaceID)
 	if err != nil {
 		return store.Project{}, false, err
 	}
@@ -158,9 +158,9 @@ func (a *App) createProject(req projectCreateRequest) (store.Project, bool, erro
 	if name == "" {
 		name = defaultProjectNameFromPath(absRoot)
 	}
-	projectKey := absRoot
+	workspacePath := absRoot
 
-	if existing, err := a.store.GetProjectByProjectKey(projectKey); err == nil {
+	if existing, err := a.store.GetProjectByWorkspacePath(workspacePath); err == nil {
 		return existing, false, nil
 	} else if !isNoRows(err) {
 		return store.Project{}, false, err
@@ -171,10 +171,10 @@ func (a *App) createProject(req projectCreateRequest) (store.Project, bool, erro
 		return store.Project{}, false, err
 	}
 
-	created, err := a.store.CreateProject(name, projectKey, absRoot, kind, mcpURL, "", false)
+	created, err := a.store.CreateProject(name, workspacePath, absRoot, kind, mcpURL, "", false)
 	if err != nil {
 		if isUniqueConstraint(err) {
-			if existing, lookupErr := a.store.GetProjectByProjectKey(projectKey); lookupErr == nil {
+			if existing, lookupErr := a.store.GetProjectByWorkspacePath(workspacePath); lookupErr == nil {
 				return existing, false, nil
 			}
 		}
@@ -254,8 +254,8 @@ func (a *App) updateWorkspaceArtifactPaths(workspaceID int64, oldRoot, newRoot s
 	return nil
 }
 
-func (a *App) persistTemporaryProject(projectID string, req temporaryProjectPersistRequest) (store.Project, error) {
-	project, err := a.store.GetProject(strings.TrimSpace(projectID))
+func (a *App) persistTemporaryProject(workspaceID string, req temporaryProjectPersistRequest) (store.Project, error) {
+	project, err := a.store.GetProject(strings.TrimSpace(workspaceID))
 	if err != nil {
 		return store.Project{}, err
 	}
@@ -303,9 +303,9 @@ func (a *App) temporaryProjectDiscardRoot(project store.Project) string {
 	return root
 }
 
-func (a *App) fallbackProjectAfterDiscard(discardedProjectID string) (store.Project, error) {
+func (a *App) fallbackProjectAfterDiscard(discardedWorkspaceID string) (store.Project, error) {
 	defaultProject, err := a.ensureDefaultProjectRecord()
-	if err == nil && defaultProject.ID != strings.TrimSpace(discardedProjectID) {
+	if err == nil && defaultProject.ID != strings.TrimSpace(discardedWorkspaceID) {
 		return defaultProject, nil
 	}
 	projects, err := a.store.ListProjects()
@@ -313,15 +313,15 @@ func (a *App) fallbackProjectAfterDiscard(discardedProjectID string) (store.Proj
 		return store.Project{}, err
 	}
 	for _, project := range projects {
-		if project.ID != strings.TrimSpace(discardedProjectID) {
+		if project.ID != strings.TrimSpace(discardedWorkspaceID) {
 			return project, nil
 		}
 	}
 	return store.Project{}, sql.ErrNoRows
 }
 
-func (a *App) discardTemporaryProject(projectID string) (store.Project, error) {
-	project, err := a.store.GetProject(strings.TrimSpace(projectID))
+func (a *App) discardTemporaryProject(workspaceID string) (store.Project, error) {
+	project, err := a.store.GetProject(strings.TrimSpace(workspaceID))
 	if err != nil {
 		return store.Project{}, err
 	}
@@ -400,7 +400,7 @@ func (a *App) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
 		"ok":        true,
 		"created":   created,
 		"activated": activate,
-		"project":   item,
+		"workspace": item,
 	})
 }
 
@@ -408,9 +408,9 @@ func (a *App) handleTemporaryProjectPersist(w http.ResponseWriter, r *http.Reque
 	if !a.requireAuth(w, r) {
 		return
 	}
-	projectID := strings.TrimSpace(chi.URLParam(r, "project_id"))
-	if projectID == "" {
-		http.Error(w, "project_id is required", http.StatusBadRequest)
+	workspaceID := strings.TrimSpace(chi.URLParam(r, "workspace_id"))
+	if workspaceID == "" {
+		http.Error(w, "workspace_id is required", http.StatusBadRequest)
 		return
 	}
 	var req temporaryProjectPersistRequest
@@ -420,7 +420,7 @@ func (a *App) handleTemporaryProjectPersist(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
-	project, err := a.persistTemporaryProject(projectID, req)
+	project, err := a.persistTemporaryProject(workspaceID, req)
 	if err != nil {
 		if isNoRows(err) {
 			http.Error(w, "project not found", http.StatusNotFound)
@@ -435,8 +435,8 @@ func (a *App) handleTemporaryProjectPersist(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, map[string]interface{}{
-		"ok":      true,
-		"project": item,
+		"ok":        true,
+		"workspace": item,
 	})
 }
 
@@ -444,12 +444,12 @@ func (a *App) handleTemporaryProjectDiscard(w http.ResponseWriter, r *http.Reque
 	if !a.requireAuth(w, r) {
 		return
 	}
-	projectID := strings.TrimSpace(chi.URLParam(r, "project_id"))
-	if projectID == "" {
-		http.Error(w, "project_id is required", http.StatusBadRequest)
+	workspaceID := strings.TrimSpace(chi.URLParam(r, "workspace_id"))
+	if workspaceID == "" {
+		http.Error(w, "workspace_id is required", http.StatusBadRequest)
 		return
 	}
-	activeProject, err := a.discardTemporaryProject(projectID)
+	activeProject, err := a.discardTemporaryProject(workspaceID)
 	if err != nil {
 		if isNoRows(err) {
 			http.Error(w, "project not found", http.StatusNotFound)
@@ -464,9 +464,9 @@ func (a *App) handleTemporaryProjectDiscard(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, map[string]interface{}{
-		"ok":                true,
-		"discarded_project": projectID,
-		"active_project_id": activeProject.ID,
-		"active_project":    item,
+		"ok":                  true,
+		"discarded_workspace": workspaceID,
+		"active_workspace_id": activeProject.ID,
+		"active_workspace":    item,
 	})
 }

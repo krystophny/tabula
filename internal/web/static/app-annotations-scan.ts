@@ -141,7 +141,7 @@ function buildImportedScanAnnotation(entry, index, payload, deps) {
     scan_artifact_id: Number(payload?.scan_artifact?.id || payload?.scan_artifact_id || 0),
     scan_item_id: Number(payload?.item_id || 0),
     source_artifact_id: Number(payload?.artifact_id || 0),
-    project_id: safeText(payload?.project_id),
+    workspace_id: safeText(payload?.workspace_id),
   };
   if (currentKind === 'pdf_artifact') {
     return {
@@ -237,7 +237,7 @@ export function createScanAnnotationController(deps) {
       showStatus('select an item before importing a scan');
       return false;
     }
-    if (!safeText(state.activeProjectId)) {
+    if (!safeText(state.activeWorkspaceId)) {
       showStatus('scan import requires an active workspace');
       return false;
     }
@@ -249,7 +249,7 @@ export function createScanAnnotationController(deps) {
     try {
       await openSidebarArtifactItem(item);
       const form = new FormData();
-      form.set('project_id', safeText(state.activeProjectId));
+      form.set('workspace_id', safeText(state.activeWorkspaceId));
       form.set('item_id', String(Number(item?.id || 0)));
       form.set('artifact_id', String(Number(item?.artifact_id || 0)));
       form.set('file', file, file.name || 'scan.png');
@@ -285,7 +285,7 @@ export function createScanAnnotationController(deps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          project_id: safeText(first?.project_id || state.activeProjectId),
+          workspace_id: safeText(first?.workspace_id || state.activeWorkspaceId),
           item_id: Number(first?.scan_item_id || 0),
           artifact_id: Number(first?.source_artifact_id || 0),
           scan_artifact_id: Number(first?.scan_artifact_id || 0),

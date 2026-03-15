@@ -13,7 +13,6 @@ import (
 
 type timeTrackingContext struct {
 	WorkspaceID *int64
-	ProjectID   *string
 	Sphere      string
 }
 
@@ -74,15 +73,11 @@ func timeEntryListFilterFromRequest(r *http.Request) (store.TimeEntryListFilter,
 }
 
 func csvSummaryRows(rows []store.TimeEntrySummary) [][]string {
-	out := [][]string{{"key", "label", "seconds", "duration", "entry_count", "sphere", "workspace_id", "project_id"}}
+	out := [][]string{{"key", "label", "seconds", "duration", "entry_count", "sphere", "workspace_id"}}
 	for _, row := range rows {
 		workspaceID := ""
 		if row.WorkspaceID != nil {
 			workspaceID = strconv.FormatInt(*row.WorkspaceID, 10)
-		}
-		projectID := ""
-		if row.ProjectID != nil {
-			projectID = *row.ProjectID
 		}
 		out = append(out, []string{
 			row.Key,
@@ -92,7 +87,6 @@ func csvSummaryRows(rows []store.TimeEntrySummary) [][]string {
 			strconv.Itoa(row.EntryCount),
 			row.Sphere,
 			workspaceID,
-			projectID,
 		})
 	}
 	return out
@@ -107,14 +101,6 @@ func (a *App) currentTimeTrackingContext() (timeTrackingContext, error) {
 	if err == nil {
 		ctx.WorkspaceID = &workspace.ID
 	}
-	projectID, err := a.store.ActiveProjectID()
-	if err != nil {
-		return timeTrackingContext{}, err
-	}
-	projectID = strings.TrimSpace(projectID)
-	if projectID != "" {
-		ctx.ProjectID = &projectID
-	}
 	return ctx, nil
 }
 
@@ -123,7 +109,7 @@ func (a *App) syncTimeTrackingContext(activity string) (store.TimeEntry, bool, e
 	if err != nil {
 		return store.TimeEntry{}, false, err
 	}
-	return a.store.SwitchActiveTimeEntry(time.Now().UTC(), ctx.WorkspaceID, ctx.ProjectID, ctx.Sphere, activity, nil)
+	return a.store.SwitchActiveTimeEntry(time.Now().UTC(), ctx.WorkspaceID, ctx.Sphere, activity, nil)
 }
 
 func (a *App) startTimeTrackingEntry(activity string) (store.TimeEntry, bool, error) {
@@ -138,7 +124,7 @@ func (a *App) startTimeTrackingEntry(activity string) (store.TimeEntry, bool, er
 	if active != nil && strings.TrimSpace(activity) == "stamp_in" && timeEntryContextMatches(*active, ctx) {
 		return *active, false, nil
 	}
-	return a.store.SwitchActiveTimeEntry(time.Now().UTC(), ctx.WorkspaceID, ctx.ProjectID, ctx.Sphere, activity, nil)
+	return a.store.SwitchActiveTimeEntry(time.Now().UTC(), ctx.WorkspaceID, ctx.Sphere, activity, nil)
 }
 
 func (a *App) setActiveWorkspaceTracked(id int64, activity string) error {
@@ -259,11 +245,11 @@ func timeEntryContextMatches(entry store.TimeEntry, ctx timeTrackingContext) boo
 		return false
 	}
 	switch {
-	case entry.ProjectID == nil && ctx.ProjectID != nil:
+	case entry.WorkspaceID == nil && ctx.WorkspaceID != nil:
 		return false
-	case entry.ProjectID != nil && ctx.ProjectID == nil:
+	case entry.WorkspaceID != nil && ctx.WorkspaceID == nil:
 		return false
-	case entry.ProjectID != nil && ctx.ProjectID != nil && *entry.ProjectID != *ctx.ProjectID:
+	case entry.WorkspaceID != nil && ctx.WorkspaceID != nil && *entry.WorkspaceID != *ctx.WorkspaceID:
 		return false
 	}
 	return true

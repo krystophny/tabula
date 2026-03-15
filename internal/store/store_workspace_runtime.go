@@ -11,7 +11,7 @@ func (s *Store) UpdateWorkspaceChatModel(id int64, chatModel string) error {
 	}
 	res, err := s.db.Exec(
 		`UPDATE workspaces SET chat_model = ?, updated_at = datetime('now') WHERE id = ?`,
-		normalizeProjectChatModel(chatModel),
+		normalizeWorkspaceChatModel(chatModel),
 		id,
 	)
 	if err != nil {
@@ -33,7 +33,7 @@ func (s *Store) UpdateWorkspaceChatModelReasoningEffort(id int64, effort string)
 	}
 	res, err := s.db.Exec(
 		`UPDATE workspaces SET chat_model_reasoning_effort = ?, updated_at = datetime('now') WHERE id = ?`,
-		normalizeProjectChatModelReasoningEffort(effort),
+		normalizeWorkspaceChatModelReasoningEffort(effort),
 		id,
 	)
 	if err != nil {

@@ -46,7 +46,7 @@ func TestProjectCompanionConfigPutAndState(t *testing.T) {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
 	workspace := requireWorkspaceForProject(t, app, project)
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
@@ -111,11 +111,11 @@ func TestProjectCompanionConfigPutAndState(t *testing.T) {
 	if err := json.Unmarshal(rrState.Body.Bytes(), &state); err != nil {
 		t.Fatalf("decode companion state: %v", err)
 	}
-	if state.ProjectID != project.ID {
-		t.Fatalf("project_id = %q, want %q", state.ProjectID, project.ID)
+	if state.WorkspaceID != project.ID {
+		t.Fatalf("workspace_id = %q, want %q", state.WorkspaceID, project.ID)
 	}
-	if state.ProjectKey != project.ProjectKey {
-		t.Fatalf("project_key = %q, want %q", state.ProjectKey, project.ProjectKey)
+	if state.WorkspacePath != project.WorkspacePath {
+		t.Fatalf("workspace_path = %q, want %q", state.WorkspacePath, project.WorkspacePath)
 	}
 	if state.State != companionRuntimeStateIdle {
 		t.Fatalf("state = %q, want %q", state.State, companionRuntimeStateIdle)
@@ -159,7 +159,7 @@ func TestProjectCompanionStateReportsListeningWhenEnabled(t *testing.T) {
 		t.Fatalf("save companion config: %v", err)
 	}
 	setLivePolicyForTest(t, app, LivePolicyMeeting)
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestProjectCompanionStateExposesDirectedSpeechGateMetadata(t *testing.T) {
 	}
 	setLivePolicyForTest(t, app, LivePolicyMeeting)
 
-	sess, err := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	sess, err := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("AddParticipantSession: %v", err)
 	}

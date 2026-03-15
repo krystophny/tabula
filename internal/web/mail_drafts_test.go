@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -184,14 +185,17 @@ func TestMailDraftReplyAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateArtifact() error: %v", err)
 	}
-	projectID := project.ID
+	workspaceID, err := strconv.ParseInt(project.ID, 10, 64)
+	if err != nil || workspaceID <= 0 {
+		t.Fatalf("invalid workspace id %q", project.ID)
+	}
 	source := store.ExternalProviderGmail
 	sourceRef := "remote-1"
 	item, err := app.store.CreateItem("Reply to client", store.ItemOptions{
-		ProjectID:  &projectID,
-		ArtifactID: &artifact.ID,
-		Source:     &source,
-		SourceRef:  &sourceRef,
+		WorkspaceID: &workspaceID,
+		ArtifactID:  &artifact.ID,
+		Source:      &source,
+		SourceRef:   &sourceRef,
 	})
 	if err != nil {
 		t.Fatalf("CreateItem() error: %v", err)
@@ -248,12 +252,12 @@ func TestMailDraftReplyThreadAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateArtifact() error: %v", err)
 	}
-	projectID := project.ID
+	workspaceID := runtimeWorkspaceIDInt64(t, project)
 	source := store.ExternalProviderGmail
 	item, err := app.store.CreateItem("Reply to thread", store.ItemOptions{
-		ProjectID:  &projectID,
-		ArtifactID: &artifact.ID,
-		Source:     &source,
+		WorkspaceID: &workspaceID,
+		ArtifactID:  &artifact.ID,
+		Source:      &source,
 	})
 	if err != nil {
 		t.Fatalf("CreateItem() error: %v", err)
@@ -352,14 +356,14 @@ func TestMailDraftForwardAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateArtifact() error: %v", err)
 	}
-	projectID := project.ID
+	workspaceID := runtimeWorkspaceIDInt64(t, project)
 	source := store.ExternalProviderGmail
 	sourceRef := "remote-fwd-1"
 	item, err := app.store.CreateItem("Forward test", store.ItemOptions{
-		ProjectID:  &projectID,
-		ArtifactID: &artifact.ID,
-		Source:     &source,
-		SourceRef:  &sourceRef,
+		WorkspaceID: &workspaceID,
+		ArtifactID:  &artifact.ID,
+		Source:      &source,
+		SourceRef:   &sourceRef,
 	})
 	if err != nil {
 		t.Fatalf("CreateItem() error: %v", err)
@@ -416,12 +420,12 @@ func TestMailDraftForwardThreadAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateArtifact() error: %v", err)
 	}
-	projectID := project.ID
+	workspaceID := runtimeWorkspaceIDInt64(t, project)
 	source := store.ExternalProviderGmail
 	item, err := app.store.CreateItem("Forward thread", store.ItemOptions{
-		ProjectID:  &projectID,
-		ArtifactID: &artifact.ID,
-		Source:     &source,
+		WorkspaceID: &workspaceID,
+		ArtifactID:  &artifact.ID,
+		Source:      &source,
 	})
 	if err != nil {
 		t.Fatalf("CreateItem() error: %v", err)
@@ -481,12 +485,12 @@ func TestMailDraftSendAppendsToThread(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateArtifact(thread) error: %v", err)
 	}
-	projectID := project.ID
+	workspaceID := runtimeWorkspaceIDInt64(t, project)
 	source := store.ExternalProviderGmail
 	threadItem, err := app.store.CreateItem("Discussion thread", store.ItemOptions{
-		ProjectID:  &projectID,
-		ArtifactID: &threadArtifact.ID,
-		Source:     &source,
+		WorkspaceID: &workspaceID,
+		ArtifactID:  &threadArtifact.ID,
+		Source:      &source,
 	})
 	if err != nil {
 		t.Fatalf("CreateItem(thread) error: %v", err)
@@ -578,14 +582,18 @@ func TestMailDraftReplyAllAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateArtifact() error: %v", err)
 	}
-	projectID, _ := app.store.ActiveProjectID()
+	workspaceID, _ := app.store.ActiveWorkspaceID()
+	workspaceNumericID, err := strconv.ParseInt(workspaceID, 10, 64)
+	if err != nil || workspaceNumericID <= 0 {
+		t.Fatalf("invalid workspace id %q", workspaceID)
+	}
 	source := store.ExternalProviderGmail
 	sourceRef := "remote-ra-1"
 	item, err := app.store.CreateItem("Team update", store.ItemOptions{
-		ProjectID:  &projectID,
-		ArtifactID: &artifact.ID,
-		Source:     &source,
-		SourceRef:  &sourceRef,
+		WorkspaceID: &workspaceNumericID,
+		ArtifactID:  &artifact.ID,
+		Source:      &source,
+		SourceRef:   &sourceRef,
 	})
 	if err != nil {
 		t.Fatalf("CreateItem() error: %v", err)
@@ -638,8 +646,8 @@ func mustCreateProject(t *testing.T, app *App) store.Project {
 	if err != nil {
 		t.Fatalf("CreateProject() error: %v", err)
 	}
-	if err := app.store.SetActiveProjectID(project.ID); err != nil {
-		t.Fatalf("SetActiveProjectID() error: %v", err)
+	if err := app.store.SetActiveWorkspaceID(project.ID); err != nil {
+		t.Fatalf("SetActiveWorkspaceID() error: %v", err)
 	}
 	return project
 }

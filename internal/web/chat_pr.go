@@ -123,12 +123,12 @@ func countUnifiedDiffFiles(diff string) int {
 	return count
 }
 
-func (a *App) loadGitHubPRReview(projectKey, selector string) (ghPRReview, error) {
+func (a *App) loadGitHubPRReview(workspacePath, selector string) (ghPRReview, error) {
 	runner := a.ghCommandRunner
 	if runner == nil {
 		runner = runGitHubCLI
 	}
-	cwd := strings.TrimSpace(a.cwdForProjectKey(projectKey))
+	cwd := strings.TrimSpace(a.cwdForWorkspacePath(workspacePath))
 	if cwd == "" {
 		cwd = "."
 	}

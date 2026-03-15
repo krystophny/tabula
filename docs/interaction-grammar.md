@@ -90,13 +90,13 @@ How real entities map to the five nouns:
 | Entity | Workspace | Artifact | Item | Labels |
 |---|---|---|---|---|
 | Scientific data (`~/data/`) | One workspace (whole git-lfs repo) | Files become artifacts when opened | Items when action needed | work/w7x, work/DEMO-2025 |
-| Code project (`~/code/tabula/`) | One workspace per repo | GitHub issues/PRs synced as artifacts | Issues/PRs are items tracked here | work/tabura, work/plasma-codes |
+| Code workspace (`~/code/tabula/`) | One workspace per repo | GitHub issues/PRs synced as artifacts | Issues/PRs are items tracked here | work/tabura, work/plasma-codes |
 | Paper (`~/write/DEMO-2025/`) | Composed workspace (symlinks to data+code) | Paper draft, figures, linked data | "Redo figure 3", "address reviewer 2" | work/DEMO-2025, work/DEMO-2025/EURATOM |
 | Documentation (`~/Nextcloud/plasma/DOCUMENTS/`) | One workspace | Reports, slides when opened | Rarely — mostly reference | work, per-topic |
 | Management (`~/Nextcloud/plasma_orga/`) | One workspace | Budgets, contracts, receipts | "Process invoice", "submit claim" | work, work/budget, work/personnel |
 | Email (Exchange work) | No workspace by default. Assigned manually during triage. | Email body+metadata. Materializable as .eml. | Inbox item. | work + auto from folder mappings |
 | Email (personal Gmail) | No workspace by default. | Email body+metadata. Materializable as .eml. | Inbox item. | private + auto from folder mappings |
-| Tasks (Todoist) | Assigned manually or left floating | Often bare (no artifact) | The item IS the task | Auto from Todoist project mappings |
+| Tasks (Todoist) | Assigned manually or left floating | Often bare (no artifact) | The item IS the task | Auto from Todoist workspace mappings |
 | Calendar (Google) | Assigned manually | Meeting agenda/notes. Transcript after meeting. | Meeting event. Transitions to Meeting live session. | Auto from calendar mappings |
 | GitHub issues/PRs | Tracked in code workspace | Issue/PR content as artifact | Item in code workspace | work/tabura, topic labels |
 

@@ -9,12 +9,12 @@ import (
 )
 
 type ParticipantSession struct {
-	ID          string `json:"id"`
-	WorkspaceID int64  `json:"workspace_id"`
-	ProjectKey  string `json:"project_key"`
-	StartedAt   int64  `json:"started_at"`
-	EndedAt     int64  `json:"ended_at"`
-	ConfigJSON  string `json:"config_json"`
+	ID            string `json:"id"`
+	WorkspaceID   int64  `json:"workspace_id"`
+	WorkspacePath string `json:"workspace_path"`
+	StartedAt     int64  `json:"started_at"`
+	EndedAt       int64  `json:"ended_at"`
+	ConfigJSON    string `json:"config_json"`
 }
 
 type ParticipantSegment struct {
@@ -53,13 +53,12 @@ var ErrParticipantSessionEnded = errors.New("participant session is ended")
 const participantSessionSelect = `
 SELECT ps.id,
        ps.workspace_id,
-       COALESCE(NULLIF(trim(p.project_key), ''), w.dir_path, '') AS project_key,
+       w.dir_path AS workspace_path,
        ps.started_at,
        ps.ended_at,
        ps.config_json
   FROM participant_sessions ps
   JOIN workspaces w ON w.id = ps.workspace_id
-  LEFT JOIN projects p ON p.id = w.project_id
 `
 
 func scanParticipantSession(scanner interface{ Scan(...any) error }) (ParticipantSession, error) {
@@ -67,14 +66,15 @@ func scanParticipantSession(scanner interface{ Scan(...any) error }) (Participan
 	if err := scanner.Scan(
 		&out.ID,
 		&out.WorkspaceID,
-		&out.ProjectKey,
+		&out.WorkspacePath,
 		&out.StartedAt,
 		&out.EndedAt,
 		&out.ConfigJSON,
 	); err != nil {
 		return ParticipantSession{}, err
 	}
-	out.ProjectKey = strings.TrimSpace(out.ProjectKey)
+	out.WorkspacePath = strings.TrimSpace(out.WorkspacePath)
+	out.WorkspacePath = out.WorkspacePath
 	out.ConfigJSON = strings.TrimSpace(out.ConfigJSON)
 	return out, nil
 }
@@ -83,11 +83,6 @@ func (s *Store) resolveParticipantSessionWorkspace(ref string) (Workspace, error
 	cleanRef := strings.TrimSpace(ref)
 	if cleanRef == "" {
 		return Workspace{}, sql.ErrNoRows
-	}
-	if project, err := s.GetProjectByProjectKey(cleanRef); err == nil {
-		return s.workspaceForProject(project)
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return Workspace{}, err
 	}
 	if workspace, err := s.GetWorkspaceByPath(cleanRef); err == nil {
 		return workspace, nil
@@ -147,11 +142,6 @@ func (s *Store) ListParticipantSessions(ref string) ([]ParticipantSession, error
 			participantSessionSelect + ` ORDER BY ps.started_at DESC, ps.id DESC`,
 		)
 	}
-	if project, err := s.GetProjectByProjectKey(cleanRef); err == nil {
-		return s.ListParticipantSessionsForProject(project.ID)
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
-	}
 	workspace, err := s.resolveParticipantSessionWorkspace(cleanRef)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -169,17 +159,6 @@ func (s *Store) ListParticipantSessionsForWorkspace(workspaceID int64) ([]Partic
 	return s.listParticipantSessionsQuery(
 		participantSessionSelect+` WHERE ps.workspace_id = ? ORDER BY ps.started_at DESC, ps.id DESC`,
 		workspaceID,
-	)
-}
-
-func (s *Store) ListParticipantSessionsForProject(projectID string) ([]ParticipantSession, error) {
-	cleanProjectID := strings.TrimSpace(projectID)
-	if cleanProjectID == "" {
-		return nil, errors.New("project id is required")
-	}
-	return s.listParticipantSessionsQuery(
-		participantSessionSelect+` WHERE w.project_id = ? ORDER BY ps.started_at DESC, ps.id DESC`,
-		cleanProjectID,
 	)
 }
 
@@ -216,7 +195,7 @@ func (s *Store) migrateParticipantSessionWorkspaceKey() error {
 		return err
 	}
 	columns := tableColumns["participant_sessions"]
-	if columns["workspace_id"] && !columns["project_key"] {
+	if columns["workspace_id"] && !columns["workspace_path"] {
 		return nil
 	}
 
@@ -247,7 +226,7 @@ func (s *Store) migrateParticipantSessionWorkspaceKey() error {
 			return err
 		}
 	} else {
-		rows, err := s.db.Query(`SELECT id, project_key, started_at, ended_at, config_json FROM participant_sessions ORDER BY started_at ASC, id ASC`)
+		rows, err := s.db.Query(`SELECT id, workspace_path, started_at, ended_at, config_json FROM participant_sessions ORDER BY started_at ASC, id ASC`)
 		if err != nil {
 			return err
 		}

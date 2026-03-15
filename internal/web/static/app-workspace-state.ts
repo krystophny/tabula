@@ -19,14 +19,14 @@ export function activeProjectChatModelReasoningEffort() {
   return normalizeProjectChatModelReasoningEffort(activeProject()?.chat_model_reasoning_effort, alias);
 }
 
-export function persistActiveProjectID(projectID) {
-  if (!projectID) return;
+export function persistActiveWorkspaceID(workspaceID) {
+  if (!workspaceID) return;
   try {
-    window.localStorage.setItem(ACTIVE_PROJECT_STORAGE_KEY, projectID);
+    window.localStorage.setItem(ACTIVE_PROJECT_STORAGE_KEY, workspaceID);
   } catch (_) {}
 }
 
-export function readPersistedProjectID() {
+export function readPersistedWorkspaceID() {
   try {
     return String(window.localStorage.getItem(ACTIVE_PROJECT_STORAGE_KEY) || '').trim();
   } catch (_) {
@@ -48,10 +48,10 @@ export function readPersistedLastView() {
   }
 }
 
-export function setActiveProjectID(projectID) {
-  state.activeProjectId = String(projectID || '').trim();
-  if (state.activeProjectId) {
-    persistActiveProjectID(state.activeProjectId);
+export function setActiveWorkspaceID(workspaceID) {
+  state.activeWorkspaceId = String(workspaceID || '').trim();
+  if (state.activeWorkspaceId) {
+    persistActiveWorkspaceID(state.activeWorkspaceId);
   }
   setFileSidebarAvailability();
   renderEdgeTopProjects();

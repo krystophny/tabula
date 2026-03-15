@@ -98,7 +98,7 @@
           local_session: 'local',
         }), { status: 200 });
       }
-      if (u.includes('/api/projects') && u.includes('/activate')) {
+      if (u.includes('/api/runtime/workspaces') && u.includes('/activate')) {
         return new Response(JSON.stringify({
           project: {
             id: 'test', name: 'Test', kind: 'managed', root_path: '/tmp',
@@ -106,11 +106,11 @@
           },
         }), { status: 200 });
       }
-      if (u.includes('/api/projects')) {
+      if (u.includes('/api/runtime/workspaces')) {
         return new Response(JSON.stringify({
           projects: [{ id: 'test', name: 'Test', kind: 'managed', root_path: '/tmp' }],
-          default_project_id: 'test',
-          active_project_id: 'test',
+          default_workspace_id: 'test',
+          active_workspace_id: 'test',
         }), { status: 200 });
       }
       if (u.includes('/api/chat/') && u.includes('/messages') && opts?.method === 'POST') {

@@ -101,13 +101,13 @@ func (a *App) applyPluginHook(ctx context.Context, req plugins.HookRequest) plug
 	return plugins.HookResult{Text: text}
 }
 
-func (a *App) applyPreAssistantPromptHook(ctx context.Context, sessionID, projectKey, outputMode, mode, prompt string) (string, error) {
+func (a *App) applyPreAssistantPromptHook(ctx context.Context, sessionID, workspacePath, outputMode, mode, prompt string) (string, error) {
 	result := a.applyPluginHook(ctx, plugins.HookRequest{
-		Hook:       plugins.HookChatPreAssistantPrompt,
-		SessionID:  sessionID,
-		ProjectKey: projectKey,
-		OutputMode: outputMode,
-		Text:       prompt,
+		Hook:          plugins.HookChatPreAssistantPrompt,
+		SessionID:     sessionID,
+		WorkspacePath: workspacePath,
+		OutputMode:    outputMode,
+		Text:          prompt,
 		Metadata: map[string]interface{}{
 			"mode": mode,
 		},
@@ -127,9 +127,8 @@ func (a *App) handleChatSessionCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		WorkspaceID *int64 `json:"workspace_id"`
-		ProjectKey  string `json:"project_key"`
-		ProjectID   string `json:"project_id"`
+		WorkspaceID   *int64 `json:"workspace_id"`
+		WorkspacePath string `json:"workspace_path"`
 	}
 	if r.ContentLength > 0 {
 		if err := decodeJSON(r, &req); err != nil {
@@ -137,7 +136,7 @@ func (a *App) handleChatSessionCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	workspace, resolvedProject, err := a.resolveChatSessionTarget(req.ProjectID, req.ProjectKey, req.WorkspaceID)
+	workspace, err := a.resolveChatSessionTarget(req.WorkspacePath, req.WorkspaceID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -147,27 +146,19 @@ func (a *App) handleChatSessionCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	canvasSessionID := LocalSessionID
-	projectID := ""
-	if resolvedProject != nil {
-		projectID = resolvedProject.ID
-		canvasSessionID = a.canvasSessionIDForProject(*resolvedProject)
-		if err := a.store.SetActiveProjectID(resolvedProject.ID); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		_ = a.markProjectSeen(*resolvedProject)
-		if err := a.ensureProjectCanvasReady(*resolvedProject); err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
+	canvasSessionID := strings.TrimSpace(workspace.CanvasSessionID)
+	if canvasSessionID == "" {
+		canvasSessionID = LocalSessionID
+	}
+	if err := a.store.SetActiveWorkspace(workspace.ID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	writeJSON(w, map[string]interface{}{
 		"ok":                true,
 		"session_id":        session.ID,
 		"workspace_id":      session.WorkspaceID,
-		"project_key":       session.ProjectKey,
-		"project_id":        projectID,
+		"workspace_path":    session.WorkspacePath,
 		"mode":              session.Mode,
 		"canvas_session_id": canvasSessionID,
 	})
@@ -297,11 +288,11 @@ func (a *App) handleChatSessionMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pluginResult := a.applyPluginHook(r.Context(), plugins.HookRequest{
-		Hook:       plugins.HookChatPreUserMessage,
-		SessionID:  sessionID,
-		ProjectKey: session.ProjectKey,
-		OutputMode: outputMode,
-		Text:       text,
+		Hook:          plugins.HookChatPreUserMessage,
+		SessionID:     sessionID,
+		WorkspacePath: session.WorkspacePath,
+		OutputMode:    outputMode,
+		Text:          text,
 		Metadata: map[string]interface{}{
 			"local_only": req.LocalOnly,
 		},
@@ -431,7 +422,7 @@ func (a *App) executeChatCommand(sessionID, raw string) (map[string]interface{},
 			"message":         message,
 		}, nil
 	case "status":
-		message, err := a.fetchCodexStatusMessage(session.ProjectKey)
+		message, err := a.fetchCodexStatusMessage(session.WorkspacePath)
 		if err != nil {
 			return nil, err
 		}
@@ -444,16 +435,16 @@ func (a *App) executeChatCommand(sessionID, raw string) (map[string]interface{},
 		if len(parts) > 1 {
 			selector = strings.TrimSpace(strings.Join(parts[1:], " "))
 		}
-		review, err := a.loadGitHubPRReview(session.ProjectKey, selector)
+		review, err := a.loadGitHubPRReview(session.WorkspacePath, selector)
 		if err != nil {
 			return nil, err
 		}
-		canvasSessionID := strings.TrimSpace(a.resolveCanvasSessionID(session.ProjectKey))
+		canvasSessionID := strings.TrimSpace(a.resolveCanvasSessionID(session.WorkspacePath))
 		if canvasSessionID == "" {
 			return nil, errors.New("canvas session is not available")
 		}
 		artifactPath := filepath.ToSlash(filepath.Join(".tabura", "artifacts", "pr", fmt.Sprintf("pr-%d.diff", review.View.Number)))
-		if !a.writeCanvasFileBlock(session.ProjectKey, canvasSessionID, fileBlock{
+		if !a.writeCanvasFileBlock(session.WorkspacePath, canvasSessionID, fileBlock{
 			Path:    artifactPath,
 			Content: review.Diff,
 		}) {
@@ -517,15 +508,15 @@ func (a *App) executeChatCommand(sessionID, raw string) (map[string]interface{},
 	}
 }
 
-func (a *App) fetchCodexStatusMessage(projectKey string) (string, error) {
+func (a *App) fetchCodexStatusMessage(workspacePath string) (string, error) {
 	if a.appServerClient == nil {
 		return "", errors.New("app-server is not configured")
 	}
-	cwd := strings.TrimSpace(a.cwdForProjectKey(projectKey))
+	cwd := strings.TrimSpace(a.cwdForWorkspacePath(workspacePath))
 	if cwd == "" {
 		cwd = "."
 	}
-	profile := a.appServerModelProfileForProjectKey(projectKey)
+	profile := a.appServerModelProfileForWorkspacePath(workspacePath)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	resp, err := a.appServerClient.SendPrompt(ctx, appserver.PromptRequest{

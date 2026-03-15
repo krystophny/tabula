@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -108,11 +110,11 @@ func TestClassifyAndExecuteSystemActionWithCursorDeletesPointedItem(t *testing.T
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
-	if err != nil {
-		t.Fatalf("ensure default project: %v", err)
+	workspaceDir := filepath.Join(t.TempDir(), "default")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(default): %v", err)
 	}
-	workspace, err := app.store.CreateWorkspace("Default", project.RootPath)
+	workspace, err := app.store.CreateWorkspace("Default", workspaceDir)
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
@@ -122,7 +124,7 @@ func TestClassifyAndExecuteSystemActionWithCursorDeletesPointedItem(t *testing.T
 	if err != nil {
 		t.Fatalf("CreateItem() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(workspace.DirPath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -160,11 +162,11 @@ func TestClassifyAndExecuteSystemActionWithCursorMovesPointedItemToWaiting(t *te
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
-	if err != nil {
-		t.Fatalf("ensure default project: %v", err)
+	workspaceDir := filepath.Join(t.TempDir(), "default")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(default): %v", err)
 	}
-	workspace, err := app.store.CreateWorkspace("Default", project.RootPath)
+	workspace, err := app.store.CreateWorkspace("Default", workspaceDir)
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
@@ -174,7 +176,7 @@ func TestClassifyAndExecuteSystemActionWithCursorMovesPointedItemToWaiting(t *te
 	if err != nil {
 		t.Fatalf("CreateItem() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(workspace.DirPath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -262,7 +264,7 @@ func TestClassifyAndExecuteSystemActionWithCursorMovesDoneEmailBackToInbox(t *te
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -349,7 +351,7 @@ func TestClassifyAndExecuteSystemActionWithNamedItemMovesDoneEmailBackToInbox(t 
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -385,15 +387,15 @@ func TestClassifyAndExecuteSystemActionWithCursorOpensPointedWorkspacePath(t *te
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
-	if err != nil {
-		t.Fatalf("ensure default project: %v", err)
+	workspaceDir := filepath.Join(t.TempDir(), "default")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(default): %v", err)
 	}
-	workspace, err := app.store.CreateWorkspace("Default", project.RootPath)
+	workspace, err := app.store.CreateWorkspace("Default", workspaceDir)
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(workspace.DirPath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/krystophny/tabura/internal/bear"
@@ -59,18 +60,14 @@ func TestClassifyAndExecuteSystemActionSyncBear(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	targetProject, err := app.store.CreateProject("Tabura", "tabura", filepath.Join(t.TempDir(), "tabura"), "managed", "", "", false)
-	if err != nil {
-		t.Fatalf("CreateProject() error: %v", err)
-	}
-	if _, err := app.store.SetContainerMapping(store.ExternalProviderBear, "tag", "Tabura", &workspace.ID, &targetProject.ID, nil); err != nil {
+	if _, err := app.store.SetContainerMapping(store.ExternalProviderBear, "tag", "Tabura", &workspace.ID, nil); err != nil {
 		t.Fatalf("SetContainerMapping() error: %v", err)
 	}
-	project, err := app.ensureDefaultProjectRecord()
+	startupWorkspace, err := app.ensureStartupWorkspace()
 	if err != nil {
-		t.Fatalf("ensure default project: %v", err)
+		t.Fatalf("ensure startup workspace: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSessionForWorkspace(startupWorkspace.ID)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -137,11 +134,11 @@ func TestClassifyAndExecuteSystemActionSyncBearSkipsMissingDatabase(t *testing.T
 	app.intentLLMURL = ""
 
 	createBearTestAccount(t, app, filepath.Join(t.TempDir(), "missing.sqlite"))
-	project, err := app.ensureDefaultProjectRecord()
+	startupWorkspace, err := app.ensureStartupWorkspace()
 	if err != nil {
-		t.Fatalf("ensure default project: %v", err)
+		t.Fatalf("ensure startup workspace: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSessionForWorkspace(startupWorkspace.ID)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -174,18 +171,14 @@ func TestClassifyAndExecuteSystemActionPromoteBearChecklist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	targetProject, err := app.store.CreateProject("Tabura", "tabura", filepath.Join(t.TempDir(), "tabura"), "managed", "", "", false)
-	if err != nil {
-		t.Fatalf("CreateProject() error: %v", err)
-	}
-	if _, err := app.store.SetContainerMapping(store.ExternalProviderBear, "tag", "Tabura", &workspace.ID, &targetProject.ID, nil); err != nil {
+	if _, err := app.store.SetContainerMapping(store.ExternalProviderBear, "tag", "Tabura", &workspace.ID, nil); err != nil {
 		t.Fatalf("SetContainerMapping() error: %v", err)
 	}
-	project, err := app.ensureDefaultProjectRecord()
+	startupWorkspace, err := app.ensureStartupWorkspace()
 	if err != nil {
-		t.Fatalf("ensure default project: %v", err)
+		t.Fatalf("ensure startup workspace: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSessionForWorkspace(startupWorkspace.ID)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -211,7 +204,7 @@ func TestClassifyAndExecuteSystemActionPromoteBearChecklist(t *testing.T) {
 	server := mock.setupServer(t)
 	t.Cleanup(server.Close)
 	port := serverPort(t, server.Listener.Addr())
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(strings.TrimSpace(startupWorkspace.CanvasSessionID), port)
 
 	message, payloads, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "create items from this Bear note's checklist")
 	if !handled {
@@ -233,9 +226,6 @@ func TestClassifyAndExecuteSystemActionPromoteBearChecklist(t *testing.T) {
 	}
 	if firstItem.WorkspaceID == nil || *firstItem.WorkspaceID != workspace.ID {
 		t.Fatalf("first item workspace_id = %v, want %d", firstItem.WorkspaceID, workspace.ID)
-	}
-	if firstItem.ProjectID == nil || *firstItem.ProjectID != targetProject.ID {
-		t.Fatalf("first item project_id = %v, want %q", firstItem.ProjectID, targetProject.ID)
 	}
 	if firstItem.ArtifactID == nil || *firstItem.ArtifactID != artifact.ID {
 		t.Fatalf("first item artifact_id = %v, want %d", firstItem.ArtifactID, artifact.ID)

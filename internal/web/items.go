@@ -103,12 +103,6 @@ func parseItemListFilterQuery(r *http.Request) (store.ItemListFilter, error) {
 			filter.WorkspaceID = &workspaceID
 		}
 	}
-	if rawProjectID := strings.TrimSpace(r.URL.Query().Get("project_id")); rawProjectID != "" {
-		if strings.EqualFold(rawProjectID, "null") {
-			return store.ItemListFilter{}, errors.New("project_id must not be null")
-		}
-		filter.ProjectID = &rawProjectID
-	}
 	if rawLabelID := strings.TrimSpace(r.URL.Query().Get("label_id")); rawLabelID != "" {
 		if strings.EqualFold(rawLabelID, "null") {
 			return store.ItemListFilter{}, errors.New("label_id must be a positive integer")

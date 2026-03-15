@@ -471,7 +471,7 @@
         name: 'Test',
         kind: 'managed',
         sphere: 'private',
-        project_key: '/tmp/test',
+        workspace_path: '/tmp/test',
         root_path: '/tmp',
         chat_session_id: 'chat-1',
         canvas_session_id: 'local',
@@ -483,7 +483,7 @@
         run_state: { active_turns: 0, queued_turns: 0, is_working: false, status: 'idle' },
       },
     ];
-    let activeProjectId = 'test';
+    let activeWorkspaceId = 'test';
     let harnessProjectRunStates = {
       test: { active_turns: 0, queued_turns: 0, is_working: false, status: 'idle' },
     };
@@ -580,7 +580,7 @@
           name: String(project?.name || '').trim() || 'Project',
           kind: String(project?.kind || 'managed').trim().toLowerCase() || 'managed',
           sphere: String(project?.sphere || '').trim().toLowerCase(),
-          project_key: String(project?.project_key || `/tmp/${String(project?.id || '').trim() || 'project'}`).trim(),
+          workspace_path: String(project?.workspace_path || `/tmp/${String(project?.id || '').trim() || 'project'}`).trim(),
           root_path: String(project?.root_path || `/tmp/${String(project?.id || '').trim() || 'project'}`).trim(),
           chat_session_id: String(project?.chat_session_id || `chat-${String(project?.id || '').trim() || 'project'}`).trim(),
           canvas_session_id: String(project?.canvas_session_id || 'local').trim(),
@@ -605,9 +605,9 @@
       }, {});
       const preferredActive = String(nextActiveProjectId || '').trim();
       if (preferredActive && normalized.some((project) => project.id === preferredActive)) {
-        activeProjectId = preferredActive;
-      } else if (!normalized.some((project) => project.id === activeProjectId)) {
-        activeProjectId = normalized[0]?.id || '';
+        activeWorkspaceId = preferredActive;
+      } else if (!normalized.some((project) => project.id === activeWorkspaceId)) {
+        activeWorkspaceId = normalized[0]?.id || '';
       }
       void window._taburaApp?.fetchProjects?.();
     };
@@ -853,7 +853,7 @@
     window.__scanConfirmRequests = [];
     window.__scanUploadResponse = {
       ok: true,
-      project_id: 'test',
+      workspace_id: 'test',
       item_id: 0,
       artifact_id: 0,
       scan_artifact: { id: 990, kind: 'image', title: 'Scanned annotations' },
@@ -864,7 +864,7 @@
     };
     window.__scanConfirmResponse = {
       ok: true,
-      project_id: 'test',
+      workspace_id: 'test',
       item_id: 0,
       artifact_id: 0,
       scan_artifact_id: 990,
@@ -1343,7 +1343,7 @@
     window.__companionRuntimeState = {
       state: 'idle',
       reason: 'idle',
-      project_key: '/tmp/test',
+      workspace_path: '/tmp/test',
       updated_at: Math.floor(Date.now() / 1000),
     };
     window.__setProjectRunStates = (states) => {
@@ -1390,16 +1390,16 @@
         const parsed = new URL(url, window.location.origin);
         const source = String(parsed.searchParams.get('source') || '').trim().toLowerCase();
         const workspaceRaw = String(parsed.searchParams.get('workspace_id') || '').trim().toLowerCase();
-        const projectID = String(parsed.searchParams.get('project_id') || '').trim();
+        const workspaceID = String(parsed.searchParams.get('workspace_id') || '').trim();
         const contextID = Number(parsed.searchParams.get('context_id') || 0);
         return {
           source,
           workspace_id: workspaceRaw === 'null' || workspaceRaw === '' ? workspaceRaw : Number(workspaceRaw),
-          project_id: projectID,
+          workspace_id: workspaceID,
           context_id: Number.isFinite(contextID) && contextID > 0 ? contextID : 0,
         };
       } catch (_) {
-        return { source: '', workspace_id: '', project_id: '', context_id: 0 };
+        return { source: '', workspace_id: '', workspace_id: '', context_id: 0 };
       }
     }
     function descendantContextIDs(contextID) {
@@ -1436,8 +1436,8 @@
       if (Number.isFinite(Number(filters?.workspace_id)) && Number(filters.workspace_id) > 0) {
         return Number(item?.workspace_id || 0) === Number(filters.workspace_id);
       }
-      if (filters?.project_id) {
-        return String(item?.project_id || '').trim() === filters.project_id;
+      if (filters?.workspace_id) {
+        return String(item?.workspace_id || '').trim() === filters.workspace_id;
       }
       if (Number(filters?.context_id || 0) > 0) {
         const allowed = new Set(descendantContextIDs(filters.context_id));
@@ -1592,7 +1592,7 @@
           item_id: 501,
         }), { status: 200 });
       }
-      if (u.endsWith('/api/projects') && opts?.method === 'POST') {
+      if (u.endsWith('/api/runtime/workspaces') && opts?.method === 'POST') {
         let body = {};
         try {
           body = JSON.parse(String(opts?.body || '{}'));
@@ -1606,7 +1606,7 @@
           id,
           name: `${label} ${id.split('-').pop()}`,
           kind,
-          project_key: `/tmp/${id}`,
+          workspace_path: `/tmp/${id}`,
           root_path: `/tmp/${id}`,
           chat_session_id: `chat-${id}`,
           canvas_session_id: id,
@@ -1620,14 +1620,14 @@
         harnessProjects.push(project);
         harnessProjectRunStates[id] = { ...project.run_state };
         if (Boolean(body?.activate)) {
-          activeProjectId = id;
+          activeWorkspaceId = id;
         }
         window.__harnessLog.push({
           type: 'api_fetch',
           action: 'project_create',
           method: opts?.method || 'POST',
           url: u,
-          payload: { kind, project_id: id, source_project_id: String(body?.source_project_id || '').trim() },
+          payload: { kind, workspace_id: id, source_workspace_id: String(body?.source_workspace_id || '').trim() },
         });
         return new Response(JSON.stringify({
           ok: true,
@@ -1636,13 +1636,13 @@
           project: cloneProject(id),
         }), { status: 200 });
       }
-      if (u.includes('/api/projects') && u.includes('/activate')) {
-        const activateId = decodeURIComponent(u.split('/api/projects/')[1].split('/activate')[0] || '').trim();
+      if (u.includes('/api/runtime/workspaces') && u.includes('/activate')) {
+        const activateId = decodeURIComponent(u.split('/api/runtime/workspaces/')[1].split('/activate')[0] || '').trim();
         const index = harnessProjects.findIndex((project) => project.id === activateId);
         if (index < 0) {
           return new Response('project not found', { status: 404 });
         }
-        activeProjectId = harnessProjects[index].id;
+        activeWorkspaceId = harnessProjects[index].id;
         if (!(harnessProjects[index].review_pending && harnessProjects[index].chat_mode === 'review')) {
           harnessProjects[index] = {
             ...harnessProjects[index],
@@ -1658,17 +1658,17 @@
           action: 'project_activate',
           method: opts?.method || 'POST',
           url: u,
-          payload: { project_id: project.id },
+          payload: { workspace_id: project.id },
         });
         return new Response(JSON.stringify({
           ok: true,
-          active_project_id: project.id,
+          active_workspace_id: project.id,
           active_sphere: runtimeState.active_sphere,
           project,
         }), { status: 200 });
       }
-      if (u.includes('/api/projects/') && u.includes('/persist') && opts?.method === 'POST') {
-        const projectId = decodeURIComponent(u.split('/api/projects/')[1].split('/persist')[0] || '').trim();
+      if (u.includes('/api/runtime/workspaces/') && u.includes('/persist') && opts?.method === 'POST') {
+        const projectId = decodeURIComponent(u.split('/api/runtime/workspaces/')[1].split('/persist')[0] || '').trim();
         const index = harnessProjects.findIndex((project) => project.id === projectId);
         if (index < 0) {
           return new Response('project not found', { status: 404 });
@@ -1682,34 +1682,34 @@
           action: 'project_persist',
           method: opts?.method || 'POST',
           url: u,
-          payload: { project_id: projectId },
+          payload: { workspace_id: projectId },
         });
         return new Response(JSON.stringify({
           ok: true,
           project: cloneProject(projectId),
         }), { status: 200 });
       }
-      if (u.includes('/api/projects/') && u.includes('/discard') && opts?.method === 'POST') {
-        const projectId = decodeURIComponent(u.split('/api/projects/')[1].split('/discard')[0] || '').trim();
+      if (u.includes('/api/runtime/workspaces/') && u.includes('/discard') && opts?.method === 'POST') {
+        const projectId = decodeURIComponent(u.split('/api/runtime/workspaces/')[1].split('/discard')[0] || '').trim();
         const index = harnessProjects.findIndex((project) => project.id === projectId);
         if (index < 0) {
           return new Response('project not found', { status: 404 });
         }
         harnessProjects.splice(index, 1);
         delete harnessProjectRunStates[projectId];
-        activeProjectId = harnessProjects[0]?.id || '';
+        activeWorkspaceId = harnessProjects[0]?.id || '';
         window.__harnessLog.push({
           type: 'api_fetch',
           action: 'project_discard',
           method: opts?.method || 'POST',
           url: u,
-          payload: { project_id: projectId, active_project_id: activeProjectId },
+          payload: { workspace_id: projectId, active_workspace_id: activeWorkspaceId },
         });
         return new Response(JSON.stringify({
           ok: true,
           discarded_project: projectId,
-          active_project_id: activeProjectId,
-          active_project: cloneProject(activeProjectId),
+          active_workspace_id: activeWorkspaceId,
+          active_project: cloneProject(activeWorkspaceId),
         }), { status: 200 });
       }
       if (u.includes('/api/hotword/status')) {
@@ -1717,8 +1717,8 @@
           ...hotwordStatus,
         }), { status: 200 });
       }
-      if (u.includes('/api/projects') && u.includes('/chat-model') && opts?.method === 'POST') {
-        const projectId = decodeURIComponent(u.split('/api/projects/')[1].split('/chat-model')[0] || '').trim();
+      if (u.includes('/api/runtime/workspaces') && u.includes('/chat-model') && opts?.method === 'POST') {
+        const projectId = decodeURIComponent(u.split('/api/runtime/workspaces/')[1].split('/chat-model')[0] || '').trim();
         const index = harnessProjects.findIndex((project) => project.id === projectId);
         if (index < 0) {
           return new Response('project not found', { status: 404 });
@@ -1742,13 +1742,13 @@
           action: 'project_chat_model',
           method: opts?.method || 'POST',
           url: u,
-          payload: { project_id: projectId, model, reasoning_effort: effort },
+          payload: { workspace_id: projectId, model, reasoning_effort: effort },
         });
         return new Response(JSON.stringify({
           project: cloneProject(projectId),
         }), { status: 200 });
       }
-      if (u.includes('/api/projects/activity')) {
+      if (u.includes('/api/runtime/workspaces/activity')) {
         window.__harnessLog.push({
           type: 'api_fetch',
           action: 'projects_activity',
@@ -1756,8 +1756,8 @@
           url: u,
         });
         const projects = harnessProjects.map((project) => ({
-          project_id: project.id,
-          project_key: project.project_key,
+          workspace_id: project.id,
+          workspace_path: project.workspace_path,
           name: project.name,
           kind: project.kind,
           chat_session_id: project.chat_session_id,
@@ -1775,7 +1775,7 @@
         if (!cleanedPath) {
           return new Response(JSON.stringify({
             ok: true,
-            project_id: activeProjectId,
+            workspace_id: activeWorkspaceId,
             path: '',
             is_root: true,
             entries: [
@@ -1788,7 +1788,7 @@
         if (cleanedPath === 'docs') {
           return new Response(JSON.stringify({
             ok: true,
-            project_id: activeProjectId,
+            workspace_id: activeWorkspaceId,
             path: 'docs',
             is_root: false,
             entries: [
@@ -1799,7 +1799,7 @@
         }
         return new Response(JSON.stringify({
           ok: true,
-          project_id: activeProjectId,
+          workspace_id: activeWorkspaceId,
           path: cleanedPath,
           is_root: false,
           entries: [],
@@ -1815,10 +1815,10 @@
         }
         return new Response(JSON.stringify({
           ok: true,
-          project_id: activeProjectId,
-          project_key: '/tmp/test',
-          sessions: [{ id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' }],
-          session: { id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' },
+          workspace_id: activeWorkspaceId,
+          workspace_path: '/tmp/test',
+          sessions: [{ id: 'psess-harness-001', workspace_path: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' }],
+          session: { id: 'psess-harness-001', workspace_path: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' },
           segments: [{ id: 1, session_id: 'psess-harness-001', start_ts: 100, end_ts: 100, speaker: 'Speaker', text: 'Harness meeting transcript', model: 'whisper-1', latency_ms: 10, committed_at: 100, status: 'final' }],
         }), { status: 200 });
       }
@@ -1832,10 +1832,10 @@
         }
         return new Response(JSON.stringify({
           ok: true,
-          project_id: activeProjectId,
-          project_key: '/tmp/test',
-          sessions: [{ id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' }],
-          session: { id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' },
+          workspace_id: activeWorkspaceId,
+          workspace_path: '/tmp/test',
+          sessions: [{ id: 'psess-harness-001', workspace_path: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' }],
+          session: { id: 'psess-harness-001', workspace_path: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' },
           summary_text: 'Harness meeting summary',
           updated_at: 101,
         }), { status: 200 });
@@ -1882,9 +1882,9 @@
         });
         return new Response(JSON.stringify({
           ok: true,
-          project_id: activeProjectId,
-          project_key: '/tmp/test',
-          session: { id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' },
+          workspace_id: activeWorkspaceId,
+          workspace_path: '/tmp/test',
+          session: { id: 'psess-harness-001', workspace_path: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' },
           proposed_items: proposals,
           created_items: createdItems,
         }), { status: 200 });
@@ -1893,10 +1893,10 @@
         const proposals = Array.isArray(window.__meetingSummaryProposals) ? window.__meetingSummaryProposals : defaultMeetingSummaryProposals();
         return new Response(JSON.stringify({
           ok: true,
-          project_id: activeProjectId,
-          project_key: '/tmp/test',
-          sessions: [{ id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' }],
-          session: { id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' },
+          workspace_id: activeWorkspaceId,
+          workspace_path: '/tmp/test',
+          sessions: [{ id: 'psess-harness-001', workspace_path: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' }],
+          session: { id: 'psess-harness-001', workspace_path: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' },
           summary_text: 'Harness meeting summary',
           proposed_items: proposals,
         }), { status: 200 });
@@ -1911,10 +1911,10 @@
         }
         return new Response(JSON.stringify({
           ok: true,
-          project_id: activeProjectId,
-          project_key: '/tmp/test',
-          sessions: [{ id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' }],
-          session: { id: 'psess-harness-001', project_key: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' },
+          workspace_id: activeWorkspaceId,
+          workspace_path: '/tmp/test',
+          sessions: [{ id: 'psess-harness-001', workspace_path: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' }],
+          session: { id: 'psess-harness-001', workspace_path: '/tmp/test', started_at: 100, ended_at: 0, config_json: '{}' },
           entities: ['Acme'],
           topic_timeline: ['Budget'],
         }), { status: 200 });
@@ -1944,13 +1944,13 @@
         const runtime = window.__companionRuntimeState || {};
         return new Response(JSON.stringify({
           ok: true,
-          project_id: activeProjectId,
-          project_key: String(runtime.project_key || '/tmp/test'),
+          workspace_id: activeWorkspaceId,
+          workspace_path: String(runtime.workspace_path || '/tmp/test'),
           state: String(runtime.state || 'idle'),
           runtime: {
             state: String(runtime.state || 'idle'),
             reason: String(runtime.reason || 'idle'),
-            project_key: String(runtime.project_key || '/tmp/test'),
+            workspace_path: String(runtime.workspace_path || '/tmp/test'),
             updated_at: Number(runtime.updated_at || Math.floor(Date.now() / 1000)),
           },
           companion_enabled: Boolean(window.__participantConfig.companion_enabled),
@@ -2134,11 +2134,11 @@
         try { body = JSON.parse(String(opts?.body || '{}')); } catch (_) { body = {}; }
         const match = u.match(/\/api\/items\/(\d+)\/project(?:\?|$)/);
         const itemID = Number(match?.[1] || 0);
-        const projectID = body.project_id == null ? '' : String(body.project_id || '').trim();
-        if (projectID && !harnessProjects.some((project) => String(project.id || '').trim() === projectID)) {
+        const workspaceID = body.workspace_id == null ? '' : String(body.workspace_id || '').trim();
+        if (workspaceID && !harnessProjects.some((project) => String(project.id || '').trim() === workspaceID)) {
           return new Response('project not found', { status: 400 });
         }
-        const item = patchItemSidebarEntry(itemID, { project_id: projectID });
+        const item = patchItemSidebarEntry(itemID, { workspace_id: workspaceID });
         window.__harnessLog.push({
           type: 'api_fetch',
           action: 'item_project',
@@ -2350,12 +2350,12 @@
         if (delayMs > 0) await sleep(delayMs);
         return new Response(JSON.stringify({ ok: true, items }), { status: 200 });
       }
-      if (u.includes('/api/projects')) {
+      if (u.includes('/api/runtime/workspaces')) {
         const projects = harnessProjects.map((project) => cloneProject(project.id));
         return new Response(JSON.stringify({
           projects,
-          default_project_id: 'test',
-          active_project_id: activeProjectId,
+          default_workspace_id: 'test',
+          active_workspace_id: activeWorkspaceId,
         }), { status: 200 });
       }
       if (u.includes('/api/ink/submit') && opts?.method === 'POST') {
@@ -2370,7 +2370,7 @@
         });
         return new Response(JSON.stringify({
           ok: true,
-          project_id: String(body.project_id || activeProjectId),
+          workspace_id: String(body.workspace_id || activeWorkspaceId),
           ink_svg_path: '.tabura/artifacts/ink/test-ink.svg',
           ink_png_path: '.tabura/artifacts/ink/test-ink.png',
           summary_path: '.tabura/artifacts/ink/test-ink.md',
@@ -2383,10 +2383,10 @@
         const file = form?.get('file');
         const filename = file instanceof File ? file.name : '';
         const bytes = file instanceof Blob ? (await file.arrayBuffer()).byteLength : 0;
-        const projectId = String(form?.get('project_id') || activeProjectId).trim();
+        const projectId = String(form?.get('workspace_id') || activeWorkspaceId).trim();
         const itemId = Number(form?.get('item_id') || 0);
         const artifactId = Number(form?.get('artifact_id') || 0);
-        const request = { project_id: projectId, item_id: itemId, artifact_id: artifactId, filename, bytes };
+        const request = { workspace_id: projectId, item_id: itemId, artifact_id: artifactId, filename, bytes };
         window.__scanUploadRequests.push(request);
         window.__harnessLog.push({
           type: 'api_fetch',
@@ -2397,7 +2397,7 @@
         });
         return new Response(JSON.stringify({
           ...window.__scanUploadResponse,
-          project_id: projectId || window.__scanUploadResponse.project_id,
+          workspace_id: projectId || window.__scanUploadResponse.workspace_id,
           item_id: itemId || window.__scanUploadResponse.item_id,
           artifact_id: artifactId || window.__scanUploadResponse.artifact_id,
         }), { status: 201 });
@@ -2415,7 +2415,7 @@
         });
         return new Response(JSON.stringify({
           ...window.__scanConfirmResponse,
-          project_id: String(body.project_id || window.__scanConfirmResponse.project_id || activeProjectId),
+          workspace_id: String(body.workspace_id || window.__scanConfirmResponse.workspace_id || activeWorkspaceId),
           item_id: Number(body.item_id || window.__scanConfirmResponse.item_id || 0),
           artifact_id: Number(body.artifact_id || window.__scanConfirmResponse.artifact_id || 0),
           scan_artifact_id: Number(body.scan_artifact_id || window.__scanConfirmResponse.scan_artifact_id || 0),

@@ -20,29 +20,29 @@ import (
 const companionArtifactRootDir = ".tabura/artifacts/companion"
 
 type companionTranscriptResponse struct {
-	OK         bool                       `json:"ok"`
-	ProjectID  string                     `json:"project_id"`
-	ProjectKey string                     `json:"project_key"`
-	Query      string                     `json:"query,omitempty"`
-	Sessions   []store.ParticipantSession `json:"sessions"`
-	Session    *store.ParticipantSession  `json:"session,omitempty"`
-	Segments   []store.ParticipantSegment `json:"segments"`
+	OK            bool                       `json:"ok"`
+	WorkspaceID   string                     `json:"workspace_id"`
+	WorkspacePath string                     `json:"workspace_path"`
+	Query         string                     `json:"query,omitempty"`
+	Sessions      []store.ParticipantSession `json:"sessions"`
+	Session       *store.ParticipantSession  `json:"session,omitempty"`
+	Segments      []store.ParticipantSegment `json:"segments"`
 }
 
 type companionSummaryResponse struct {
-	OK          bool                       `json:"ok"`
-	ProjectID   string                     `json:"project_id"`
-	ProjectKey  string                     `json:"project_key"`
-	Sessions    []store.ParticipantSession `json:"sessions"`
-	Session     *store.ParticipantSession  `json:"session,omitempty"`
-	SummaryText string                     `json:"summary_text"`
-	UpdatedAt   int64                      `json:"updated_at"`
+	OK            bool                       `json:"ok"`
+	WorkspaceID   string                     `json:"workspace_id"`
+	WorkspacePath string                     `json:"workspace_path"`
+	Sessions      []store.ParticipantSession `json:"sessions"`
+	Session       *store.ParticipantSession  `json:"session,omitempty"`
+	SummaryText   string                     `json:"summary_text"`
+	UpdatedAt     int64                      `json:"updated_at"`
 }
 
 type companionReferencesResponse struct {
 	OK            bool                       `json:"ok"`
-	ProjectID     string                     `json:"project_id"`
-	ProjectKey    string                     `json:"project_key"`
+	WorkspaceID   string                     `json:"workspace_id"`
+	WorkspacePath string                     `json:"workspace_path"`
 	Sessions      []store.ParticipantSession `json:"sessions"`
 	Session       *store.ParticipantSession  `json:"session,omitempty"`
 	Entities      []string                   `json:"entities"`
@@ -597,10 +597,10 @@ func (a *App) handleWorkspaceCompanionTranscript(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
-	projectID := ""
-	projectKey := a.companionKeyForWorkspace(workspace)
+	workspaceID := ""
+	workspacePath := a.companionKeyForWorkspace(workspace)
 	if project != nil {
-		projectID = project.ID
+		workspaceID = project.ID
 	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	fromTS, toTS := parseProjectTranscriptWindow(r)
@@ -618,13 +618,13 @@ func (a *App) handleWorkspaceCompanionTranscript(w http.ResponseWriter, r *http.
 		}
 	}
 	payload := companionTranscriptResponse{
-		OK:         true,
-		ProjectID:  projectID,
-		ProjectKey: projectKey,
-		Query:      query,
-		Sessions:   sessions,
-		Session:    session,
-		Segments:   segments,
+		OK:            true,
+		WorkspaceID:   workspaceID,
+		WorkspacePath: workspacePath,
+		Query:         query,
+		Sessions:      sessions,
+		Session:       session,
+		Segments:      segments,
 	}
 	if err := a.syncProjectCompanionArtifacts(workspace, session); err != nil {
 		log.Printf("companion artifact sync failed for workspace %d transcript view: %v", workspace.ID, err)
@@ -640,10 +640,10 @@ func (a *App) handleWorkspaceCompanionSummary(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
-	projectID := ""
-	projectKey := a.companionKeyForWorkspace(workspace)
+	workspaceID := ""
+	workspacePath := a.companionKeyForWorkspace(workspace)
 	if project != nil {
-		projectID = project.ID
+		workspaceID = project.ID
 	}
 	summaryText := ""
 	updatedAt := int64(0)
@@ -663,13 +663,13 @@ func (a *App) handleWorkspaceCompanionSummary(w http.ResponseWriter, r *http.Req
 		}
 	}
 	payload := companionSummaryResponse{
-		OK:          true,
-		ProjectID:   projectID,
-		ProjectKey:  projectKey,
-		Sessions:    sessions,
-		Session:     session,
-		SummaryText: summaryText,
-		UpdatedAt:   updatedAt,
+		OK:            true,
+		WorkspaceID:   workspaceID,
+		WorkspacePath: workspacePath,
+		Sessions:      sessions,
+		Session:       session,
+		SummaryText:   summaryText,
+		UpdatedAt:     updatedAt,
 	}
 	if err := a.syncProjectCompanionArtifacts(workspace, session); err != nil {
 		log.Printf("companion artifact sync failed for workspace %d summary view: %v", workspace.ID, err)
@@ -685,10 +685,10 @@ func (a *App) handleWorkspaceCompanionReferences(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
-	projectID := ""
-	projectKey := a.companionKeyForWorkspace(workspace)
+	workspaceID := ""
+	workspacePath := a.companionKeyForWorkspace(workspace)
 	if project != nil {
-		projectID = project.ID
+		workspaceID = project.ID
 	}
 	entities := []string{}
 	topics := []any{}
@@ -703,8 +703,8 @@ func (a *App) handleWorkspaceCompanionReferences(w http.ResponseWriter, r *http.
 	}
 	payload := companionReferencesResponse{
 		OK:            true,
-		ProjectID:     projectID,
-		ProjectKey:    projectKey,
+		WorkspaceID:   workspaceID,
+		WorkspacePath: workspacePath,
 		Sessions:      sessions,
 		Session:       session,
 		Entities:      entities,

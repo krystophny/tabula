@@ -48,6 +48,17 @@ func (s *Store) CreateLabel(name string, parentID *int64) (Label, error) {
 	return s.GetLabel(id)
 }
 
+func (s *Store) contextIDByName(name string) (int64, error) {
+	var contextID int64
+	err := s.db.QueryRow(
+		`SELECT id
+		 FROM contexts
+		 WHERE lower(name) = lower(?)`,
+		strings.TrimSpace(name),
+	).Scan(&contextID)
+	return contextID, err
+}
+
 func (s *Store) GetLabel(id int64) (Label, error) {
 	row := s.db.QueryRow(
 		`SELECT id, name, color, parent_id, created_at

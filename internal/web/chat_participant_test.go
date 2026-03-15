@@ -18,11 +18,11 @@ import (
 	"github.com/krystophny/tabura/internal/store"
 )
 
-func enableCompanionForTestProject(t *testing.T, app *App, projectKey string) {
+func enableCompanionForTestProject(t *testing.T, app *App, workspacePath string) {
 	t.Helper()
-	project, err := app.store.GetProjectByProjectKey(strings.TrimSpace(projectKey))
+	project, err := app.store.GetProjectByWorkspacePath(strings.TrimSpace(workspacePath))
 	if err != nil {
-		t.Fatalf("GetProjectByProjectKey(%q): %v", projectKey, err)
+		t.Fatalf("GetProjectByWorkspacePath(%q): %v", workspacePath, err)
 	}
 	cfg := app.loadCompanionConfig(project)
 	cfg.CompanionEnabled = true
@@ -122,9 +122,9 @@ func TestParticipantStartRequiresCapturePolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
-	projectRecord, err := app.store.GetProjectByProjectKey(project.ProjectKey)
+	projectRecord, err := app.store.GetProjectByWorkspacePath(project.WorkspacePath)
 	if err != nil {
-		t.Fatalf("GetProjectByProjectKey: %v", err)
+		t.Fatalf("GetProjectByWorkspacePath: %v", err)
 	}
 	cfg := app.loadCompanionConfig(projectRecord)
 	cfg.CompanionEnabled = true
@@ -133,7 +133,7 @@ func TestParticipantStartRequiresCapturePolicy(t *testing.T) {
 	}
 	setLivePolicyForTest(t, app, LivePolicyDialogue)
 
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
@@ -313,11 +313,11 @@ func TestParticipantSessionsListWithData(t *testing.T) {
 	app := newAuthedTestApp(t)
 	project := createParticipantSessionProject(t, app, "test-key")
 
-	_, err := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	_, err := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("add session: %v", err)
 	}
-	_, err = app.store.AddParticipantSession(project.ProjectKey, "{}")
+	_, err = app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("add session 2: %v", err)
 	}
@@ -336,15 +336,15 @@ func TestParticipantSessionsListWithData(t *testing.T) {
 	}
 }
 
-func TestParticipantSessionsListFilterByProjectKey(t *testing.T) {
+func TestParticipantSessionsListFilterByWorkspacePath(t *testing.T) {
 	app := newAuthedTestApp(t)
 	projectA := createParticipantSessionProject(t, app, "key-a")
 	projectB := createParticipantSessionProject(t, app, "key-b")
 
-	_, _ = app.store.AddParticipantSession(projectA.ProjectKey, "{}")
-	_, _ = app.store.AddParticipantSession(projectB.ProjectKey, "{}")
+	_, _ = app.store.AddParticipantSession(projectA.WorkspacePath, "{}")
+	_, _ = app.store.AddParticipantSession(projectB.WorkspacePath, "{}")
 
-	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/participant/sessions?project_key=key-a", nil)
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/participant/sessions?workspace_path=key-a", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET status = %d, want 200", rr.Code)
 	}
@@ -373,7 +373,7 @@ func TestParticipantTranscript(t *testing.T) {
 	app := newAuthedTestApp(t)
 	project := createParticipantSessionProject(t, app, "proj-t")
 
-	sess, err := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	sess, err := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("add session: %v", err)
 	}
@@ -410,7 +410,7 @@ func TestParticipantTranscriptTimeFilter(t *testing.T) {
 	app := newAuthedTestApp(t)
 	project := createParticipantSessionProject(t, app, "proj-tf")
 
-	sess, _ := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	sess, _ := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	_, _ = app.store.AddParticipantSegment(store.ParticipantSegment{SessionID: sess.ID, StartTS: 100, Text: "early"})
 	_, _ = app.store.AddParticipantSegment(store.ParticipantSegment{SessionID: sess.ID, StartTS: 200, Text: "late"})
 
@@ -430,7 +430,7 @@ func TestParticipantSearch(t *testing.T) {
 	app := newAuthedTestApp(t)
 	project := createParticipantSessionProject(t, app, "proj-s")
 
-	sess, _ := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	sess, _ := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	_, _ = app.store.AddParticipantSegment(store.ParticipantSegment{SessionID: sess.ID, StartTS: 100, Text: "hello world"})
 	_, _ = app.store.AddParticipantSegment(store.ParticipantSegment{SessionID: sess.ID, StartTS: 200, Text: "goodbye world"})
 
@@ -450,7 +450,7 @@ func TestParticipantExportTxt(t *testing.T) {
 	app := newAuthedTestApp(t)
 	project := createParticipantSessionProject(t, app, "proj-e")
 
-	sess, _ := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	sess, _ := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	_, _ = app.store.AddParticipantSegment(store.ParticipantSegment{SessionID: sess.ID, StartTS: 100, Speaker: "Alice", Text: "hello"})
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/participant/sessions/"+sess.ID+"/export?format=txt", nil)
@@ -467,7 +467,7 @@ func TestParticipantExportJSON(t *testing.T) {
 	app := newAuthedTestApp(t)
 	project := createParticipantSessionProject(t, app, "proj-ej")
 
-	sess, _ := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	sess, _ := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	_, _ = app.store.AddParticipantSegment(store.ParticipantSegment{SessionID: sess.ID, StartTS: 100, Text: "hello json"})
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/participant/sessions/"+sess.ID+"/export?format=json", nil)
@@ -491,7 +491,7 @@ func TestParticipantExportMarkdown(t *testing.T) {
 	app := newAuthedTestApp(t)
 	project := createParticipantSessionProject(t, app, "proj-em")
 
-	sess, _ := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	sess, _ := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	_, _ = app.store.AddParticipantSegment(store.ParticipantSegment{SessionID: sess.ID, StartTS: 100, Speaker: "Bob", Text: "hello md"})
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/participant/sessions/"+sess.ID+"/export?format=md", nil)
@@ -630,8 +630,8 @@ func TestParticipantBinaryChunkTranscribesWAVSegmentImmediately(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
-	enableCompanionForTestProject(t, app, project.ProjectKey)
-	chatSession, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	enableCompanionForTestProject(t, app, project.WorkspacePath)
+	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
@@ -736,8 +736,8 @@ func TestParticipantBinaryChunkCapturesMeetingNotesAndInboxItems(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
-	enableCompanionForTestProject(t, app, project.ProjectKey)
-	chatSession, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	enableCompanionForTestProject(t, app, project.WorkspacePath)
+	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
@@ -803,8 +803,8 @@ func TestParticipantBinaryChunkTranscribeFailureSendsParticipantError(t *testing
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
-	enableCompanionForTestProject(t, app, project.ProjectKey)
-	chatSession, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	enableCompanionForTestProject(t, app, project.WorkspacePath)
+	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
@@ -859,8 +859,8 @@ func TestParticipantStopDropsLateTranscriptCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
-	enableCompanionForTestProject(t, app, project.ProjectKey)
-	chatSession, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	enableCompanionForTestProject(t, app, project.WorkspacePath)
+	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
@@ -908,17 +908,17 @@ func TestParticipantStopDropsLateTranscriptCommit(t *testing.T) {
 	assertNoParticipantMessage(t, clientConn, 250*time.Millisecond)
 }
 
-func TestParticipantStartUsesChatSessionProjectKey(t *testing.T) {
+func TestParticipantStartUsesChatSessionWorkspacePath(t *testing.T) {
 	app := newAuthedTestApp(t)
 	project, err := app.ensureDefaultProjectRecord()
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
-	enableCompanionForTestProject(t, app, project.ProjectKey)
+	enableCompanionForTestProject(t, app, project.WorkspacePath)
 	conn, cleanup := newTestWSConn(t)
 	defer cleanup()
 
@@ -934,8 +934,8 @@ func TestParticipantStartUsesChatSessionProjectKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetParticipantSession: %v", err)
 	}
-	if participantSession.ProjectKey != project.ProjectKey {
-		t.Fatalf("participant session project_key = %q, want %q", participantSession.ProjectKey, project.ProjectKey)
+	if participantSession.WorkspacePath != project.WorkspacePath {
+		t.Fatalf("participant session workspace_path = %q, want %q", participantSession.WorkspacePath, project.WorkspacePath)
 	}
 	if participantSession.WorkspaceID == 0 {
 		t.Fatal("participant session workspace_id should be set")
@@ -948,11 +948,11 @@ func TestParticipantReleaseSessionEndsPersistedSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
-	enableCompanionForTestProject(t, app, project.ProjectKey)
+	enableCompanionForTestProject(t, app, project.WorkspacePath)
 	conn, cleanup := newTestWSConn(t)
 	defer cleanup()
 
@@ -1000,8 +1000,8 @@ func TestParticipantWSStartStop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
-	enableCompanionForTestProject(t, app, project.ProjectKey)
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	enableCompanionForTestProject(t, app, project.WorkspacePath)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
@@ -1043,8 +1043,8 @@ func TestParticipantDoubleStartReturnsError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
-	enableCompanionForTestProject(t, app, project.ProjectKey)
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	enableCompanionForTestProject(t, app, project.WorkspacePath)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
@@ -1096,7 +1096,7 @@ func TestParticipantStartRequiresCompanionEnabled(t *testing.T) {
 	if sessionID != "" {
 		t.Fatalf("participantSessionID = %q, want empty", sessionID)
 	}
-	sessions, err := app.store.ListParticipantSessions(project.ProjectKey)
+	sessions, err := app.store.ListParticipantSessions(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("ListParticipantSessions: %v", err)
 	}
@@ -1111,8 +1111,8 @@ func TestParticipantConfigPutDisableStopsActiveSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
-	enableCompanionForTestProject(t, app, project.ProjectKey)
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	enableCompanionForTestProject(t, app, project.WorkspacePath)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
@@ -1163,8 +1163,8 @@ func TestLivePolicyPostStopsActiveParticipantSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
-	enableCompanionForTestProject(t, app, project.ProjectKey)
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	enableCompanionForTestProject(t, app, project.WorkspacePath)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}

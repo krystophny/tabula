@@ -129,7 +129,7 @@ func TestHandleChatSessionMessagePreUserPluginRewrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestHandleChatSessionMessagePreUserPluginBlock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestFinalizeAssistantResponseAppliesPostPluginHook(t *testing.T) {
 	if err != nil {
 		t.Fatalf("default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestFinalizeAssistantResponseAppliesPostPluginHook(t *testing.T) {
 	var persistedText string
 	got := app.finalizeAssistantResponse(
 		session.ID,
-		project.ProjectKey,
+		project.WorkspacePath,
 		"original output",
 		&persistedID,
 		&persistedText,
@@ -312,9 +312,9 @@ func TestMeetingPartnerDecideEndpoint(t *testing.T) {
 		http.MethodPost,
 		"/api/plugins/meeting-partner/decide",
 		map[string]any{
-			"session_id":  "s1",
-			"project_key": "p1",
-			"text":        "Could you summarize that?",
+			"session_id":     "s1",
+			"workspace_path": "p1",
+			"text":           "Could you summarize that?",
 			"metadata": map[string]any{
 				"source": "meeting_notes",
 			},

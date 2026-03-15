@@ -531,9 +531,9 @@ export function clearWelcomeSurface() {
   }
 }
 
-export function activeWelcomeProjectID() {
+export function activeWelcomeWorkspaceID() {
   if (state.welcomeSurface && typeof state.welcomeSurface === 'object') {
-    return String(state.welcomeSurface.project_id || '').trim();
+    return String(state.welcomeSurface.workspace_id || '').trim();
   }
   return '';
 }
@@ -541,10 +541,10 @@ export function activeWelcomeProjectID() {
 export async function handleWelcomeAction(action) {
   const type = String(action?.type || '').trim();
   if (!type) return;
-  if (type === 'switch_project') {
-    const projectID = String(action?.project_id || '').trim();
-    if (!projectID) return;
-    await switchProject(projectID);
+  if (type === 'switch_workspace' || type === 'switch_workspace') {
+    const workspaceID = String(action?.workspace_id || action?.workspace_id || '').trim();
+    if (!workspaceID) return;
+    await switchProject(workspaceID);
     return;
   }
   if (type === 'open_file') {
@@ -628,8 +628,8 @@ export function renderWelcomeSurface(payload) {
   showCanvasColumn('canvas-text');
 }
 
-export async function fetchProjectWelcome(projectID = 'active') {
-  const resp = await fetch(apiURL(`projects/${encodeURIComponent(projectID)}/welcome`), { cache: 'no-store' });
+export async function fetchProjectWelcome(workspaceID = 'active') {
+  const resp = await fetch(apiURL(`runtime/workspaces/${encodeURIComponent(workspaceID)}/welcome`), { cache: 'no-store' });
   if (!resp.ok) {
     const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
     throw new Error(detail);

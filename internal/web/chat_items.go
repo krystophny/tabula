@@ -555,7 +555,7 @@ func (a *App) createConversationArtifact(project store.Project, title string, as
 	}
 	cwd := strings.TrimSpace(project.RootPath)
 	if cwd == "" {
-		cwd = strings.TrimSpace(a.cwdForProjectKey(project.ProjectKey))
+		cwd = strings.TrimSpace(a.cwdForWorkspacePath(project.WorkspacePath))
 	}
 	artifactTitle := strings.TrimSpace(title)
 	if canvas != nil && strings.TrimSpace(canvas.Title) != "" {
@@ -601,7 +601,7 @@ func (a *App) resolveConversationWorkspaceID(project store.Project, artifact *st
 	}
 	rootPath := strings.TrimSpace(project.RootPath)
 	if rootPath == "" {
-		rootPath = strings.TrimSpace(a.cwdForProjectKey(project.ProjectKey))
+		rootPath = strings.TrimSpace(a.cwdForWorkspacePath(project.WorkspacePath))
 	}
 	if rootPath != "" {
 		if workspaceID, err := a.store.FindWorkspaceContainingPath(rootPath); err != nil {

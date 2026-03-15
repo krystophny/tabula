@@ -12,7 +12,7 @@ import (
 func TestReviewSubmitWritesMarkdownArtifact(t *testing.T) {
 	app := newAuthedTestApp(t)
 
-	rrProjects := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects", nil)
+	rrProjects := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces", nil)
 	if rrProjects.Code != http.StatusOK {
 		t.Fatalf("projects status=%d body=%s", rrProjects.Code, rrProjects.Body.String())
 	}
@@ -23,10 +23,10 @@ func TestReviewSubmitWritesMarkdownArtifact(t *testing.T) {
 	if len(listPayload.Projects) == 0 {
 		t.Fatalf("expected at least one project")
 	}
-	projectID := listPayload.Projects[0].ID
+	workspaceID := listPayload.Projects[0].ID
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/review/submit", map[string]any{
-		"project_id":     projectID,
+		"workspace_id":   workspaceID,
 		"artifact_kind":  "text",
 		"artifact_title": "README.md",
 		"artifact_path":  "README.md",
@@ -59,7 +59,7 @@ func TestReviewSubmitWritesMarkdownArtifact(t *testing.T) {
 		t.Fatalf("expected revision paths in response: %v", payload)
 	}
 
-	project, err := app.store.GetProject(projectID)
+	project, err := app.store.GetProject(workspaceID)
 	if err != nil {
 		t.Fatalf("get project: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestReviewSubmitClearsReviewPendingUnread(t *testing.T) {
 	if err != nil {
 		t.Fatalf("default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -107,11 +107,11 @@ func TestReviewSubmitClearsReviewPendingUnread(t *testing.T) {
 		t.Fatalf("set review mode: %v", err)
 	}
 
-	app.markProjectOutput(project.ProjectKey)
+	app.markProjectOutput(project.WorkspacePath)
 
 	readActivity := func() projectsActivityResponse {
 		t.Helper()
-		rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/projects/activity", nil)
+		rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces/activity", nil)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("activity status=%d body=%s", rr.Code, rr.Body.String())
 		}
@@ -126,7 +126,7 @@ func TestReviewSubmitClearsReviewPendingUnread(t *testing.T) {
 		t.Helper()
 		payload := readActivity()
 		for _, item := range payload.Projects {
-			if item.ProjectID != project.ID {
+			if item.WorkspaceID != project.ID {
 				continue
 			}
 			if item.ChatMode != "review" {
@@ -149,7 +149,7 @@ func TestReviewSubmitClearsReviewPendingUnread(t *testing.T) {
 		t,
 		app.Router(),
 		http.MethodPost,
-		"/api/projects/"+project.ID+"/activate",
+		"/api/runtime/workspaces/"+project.ID+"/activate",
 		map[string]any{},
 	)
 	if rrActivate.Code != http.StatusOK {
@@ -158,7 +158,7 @@ func TestReviewSubmitClearsReviewPendingUnread(t *testing.T) {
 	assertState(true, true)
 
 	rrSubmit := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/review/submit", map[string]any{
-		"project_id":     project.ID,
+		"workspace_id":   project.ID,
 		"artifact_kind":  "text",
 		"artifact_title": "README.md",
 		"artifact_path":  "README.md",
@@ -177,6 +177,6 @@ func TestReviewSubmitClearsReviewPendingUnread(t *testing.T) {
 	}
 	assertState(false, false)
 
-	app.markProjectOutput(project.ProjectKey)
+	app.markProjectOutput(project.WorkspacePath)
 	assertState(true, true)
 }

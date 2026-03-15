@@ -67,9 +67,9 @@ func TestExternalAccountStoreCRUD(t *testing.T) {
 	updatedLabel := "Personal Gmail Primary"
 	disabled := false
 	if err := s.UpdateExternalAccount(personal.ID, ExternalAccountUpdate{
-		Label:   &updatedLabel,
-		Config:  map[string]any{"username": "bob@gmail.com", "token_path": "/tmp/tokens/personal.json"},
-		Enabled: &disabled,
+		AccountName: &updatedLabel,
+		Config:      map[string]any{"username": "bob@gmail.com", "token_path": "/tmp/tokens/personal.json"},
+		Enabled:     &disabled,
 	}); err != nil {
 		t.Fatalf("UpdateExternalAccount() error: %v", err)
 	}

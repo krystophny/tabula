@@ -324,8 +324,8 @@ type clearAllReport struct {
 	TempFilesCleared int
 }
 
-func (a *App) clearCanvasForProject(projectKey string) {
-	canvasSessionID := strings.TrimSpace(a.resolveCanvasSessionID(projectKey))
+func (a *App) clearCanvasForProject(workspacePath string) {
+	canvasSessionID := strings.TrimSpace(a.resolveCanvasSessionID(workspacePath))
 	if canvasSessionID == "" {
 		return
 	}
@@ -339,8 +339,8 @@ func (a *App) clearCanvasForProject(projectKey string) {
 	})
 }
 
-func (a *App) clearProjectTempCanvasFiles(projectKey string) int {
-	cwd := strings.TrimSpace(a.cwdForProjectKey(projectKey))
+func (a *App) clearProjectTempCanvasFiles(workspacePath string) int {
+	cwd := strings.TrimSpace(a.cwdForWorkspacePath(workspacePath))
 	if cwd == "" {
 		return 0
 	}
@@ -369,8 +369,8 @@ func (a *App) clearAllAgentsAndContexts(currentSessionID string) (clearAllReport
 		activeCanceled, queuedCanceled := a.cancelChatWork(session.ID)
 		report.ActiveCanceled += activeCanceled
 		report.QueuedCanceled += queuedCanceled
-		report.TempFilesCleared += a.clearProjectTempCanvasFiles(session.ProjectKey)
-		a.clearCanvasForProject(session.ProjectKey)
+		report.TempFilesCleared += a.clearProjectTempCanvasFiles(session.WorkspacePath)
+		a.clearCanvasForProject(session.WorkspacePath)
 		a.broadcastChatEvent(session.ID, map[string]interface{}{
 			"type": "chat_cleared",
 		})

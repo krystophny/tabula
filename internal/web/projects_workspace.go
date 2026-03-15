@@ -64,19 +64,13 @@ func (a *App) ensureWorkspaceForProject(project store.Project, activate bool) (s
 		return store.Workspace{}, err
 	}
 	if workspaceRef == nil {
-		workspace, createErr := a.store.CreateWorkspaceForProject(project.Name, rootPath, project.ID, a.runtimeActiveSphere())
+		workspace, createErr := a.store.CreateWorkspace(project.Name, rootPath, a.runtimeActiveSphere())
 		if createErr != nil {
 			return store.Workspace{}, createErr
 		}
 		workspaceRef = &workspace
 	}
 	workspace := *workspaceRef
-	if workspace.ProjectID == nil || strings.TrimSpace(*workspace.ProjectID) != project.ID {
-		workspace, err = a.store.SetWorkspaceProject(workspace.ID, &project.ID)
-		if err != nil {
-			return store.Workspace{}, err
-		}
-	}
 	if activate {
 		if err := a.setActiveWorkspaceTracked(workspace.ID, "workspace_switch"); err != nil {
 			return store.Workspace{}, err
@@ -109,7 +103,7 @@ func (a *App) ensureStartupProjectWithWorkspace() error {
 			}
 			a.closeAllAppSessions()
 		}
-		if err := a.store.SetActiveProjectID(project.ID); err != nil {
+		if err := a.store.SetActiveWorkspaceID(project.ID); err != nil {
 			return err
 		}
 		return nil

@@ -279,7 +279,7 @@ function buildCanvasState() {
     overlay_visible: Boolean(isOverlayVisible()),
     text_input_visible: Boolean(isTextInputVisible()),
     pr_review_mode: Boolean(state.prReviewMode),
-    active_project_id: safeText(state.activeProjectId),
+    active_workspace_id: safeText(state.activeWorkspaceId),
     item_sidebar_view: safeText(state.itemSidebarView),
     workspace_browser_path: safeText(state.workspaceBrowserPath),
     last_input_origin: safeText(state.lastInputOrigin),
@@ -503,7 +503,7 @@ function buildFallbackScreenshotDataURL(reason = '') {
     `time: ${formatNow()}`,
     `artifact: ${safeText(getActiveArtifactTitle()) || 'none'}`,
     `tool: ${safeText(state.interaction?.tool) || 'unknown'}`,
-    `project: ${safeText(state.activeProjectId) || 'none'}`,
+    `project: ${safeText(state.activeWorkspaceId) || 'none'}`,
     `browser: ${currentBugReportUserAgent() || 'unknown'}`,
   ].forEach((line, index) => {
     ctx.fillText(line, 84, 248 + (index * 36));
@@ -826,7 +826,7 @@ async function saveBugReport() {
 }
 
 async function refreshBugReportInboxState() {
-  if (!String(state.activeProjectId || '').trim()) return false;
+  if (!String(state.activeWorkspaceId || '').trim()) return false;
   if (state.prReviewDrawerOpen && state.fileSidebarMode === 'items' && String(state.itemSidebarView || '').trim().toLowerCase() === 'inbox') {
     return loadItemSidebarView('inbox');
   }

@@ -347,7 +347,7 @@ func (a *App) findIdeaNoteItem(artifactID int64) (*store.Item, error) {
 }
 
 func (a *App) resolveActiveIdeaNoteContext(session store.ChatSession) (*activeIdeaNoteContext, error) {
-	artifact, err := a.resolveActiveIdeaNoteArtifact(session.ProjectKey)
+	artifact, err := a.resolveActiveIdeaNoteArtifact(session.WorkspacePath)
 	if err != nil {
 		return nil, err
 	}
@@ -428,7 +428,7 @@ func (a *App) persistIdeaNoteMeta(session store.ChatSession, artifact store.Arti
 	if err := a.store.UpdateArtifact(artifact.ID, store.ArtifactUpdate{MetaJSON: metaJSON}); err != nil {
 		return err
 	}
-	return a.renderIdeaNoteOnCanvas(session.ProjectKey, meta.Title, meta)
+	return a.renderIdeaNoteOnCanvas(session.WorkspacePath, meta.Title, meta)
 }
 
 func (a *App) previewIdeaPromotion(session store.ChatSession, action *SystemAction) (string, map[string]interface{}, error) {

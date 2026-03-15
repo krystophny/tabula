@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func newTestStore(t *testing.T) *Store {
@@ -157,141 +156,6 @@ func TestStoreHostAndRemoteSessionCRUD(t *testing.T) {
 	}
 }
 
-func TestStoreProjectLifecycleAndAppState(t *testing.T) {
-	s := newTestStore(t)
-	rootA := filepath.Join(t.TempDir(), "workspace-a")
-	rootB := filepath.Join(t.TempDir(), "workspace-b")
-	rootMeeting := filepath.Join(t.TempDir(), "meeting-a")
-
-	if _, err := s.CreateProject("", "key-a", rootA, "managed", "", "", false); err == nil {
-		t.Fatalf("expected empty project name validation error")
-	}
-
-	p1, err := s.CreateProject("Project A", "key-a", rootA, "unknown-kind", "http://127.0.0.1:9420/mcp", "", false)
-	if err != nil {
-		t.Fatalf("CreateProject(p1) error: %v", err)
-	}
-	if p1.Kind != "managed" {
-		t.Fatalf("project kind = %q, want managed", p1.Kind)
-	}
-	if p1.CanvasSessionID == "" {
-		t.Fatalf("CanvasSessionID should be auto-generated")
-	}
-
-	p2, err := s.CreateProject("Project B", "key-b", rootB, "linked", "", "canvas-b", true)
-	if err != nil {
-		t.Fatalf("CreateProject(p2) error: %v", err)
-	}
-	if !p2.IsDefault {
-		t.Fatalf("p2 should be default")
-	}
-
-	meeting, err := s.CreateProject("Meeting Temp", "key-meeting", rootMeeting, "meeting", "", "", false)
-	if err != nil {
-		t.Fatalf("CreateProject(meeting) error: %v", err)
-	}
-	if meeting.Kind != "meeting" {
-		t.Fatalf("meeting kind = %q, want meeting", meeting.Kind)
-	}
-
-	gotByKey, err := s.GetProjectByProjectKey("key-a")
-	if err != nil {
-		t.Fatalf("GetProjectByProjectKey(key-a) error: %v", err)
-	}
-	if gotByKey.ID != p1.ID {
-		t.Fatalf("GetProjectByProjectKey returned %q, want %q", gotByKey.ID, p1.ID)
-	}
-	gotByPath, err := s.GetProjectByRootPath(rootB)
-	if err != nil {
-		t.Fatalf("GetProjectByRootPath(rootB) error: %v", err)
-	}
-	if gotByPath.ID != p2.ID {
-		t.Fatalf("GetProjectByRootPath returned %q, want %q", gotByPath.ID, p2.ID)
-	}
-	gotByCanvas, err := s.GetProjectByCanvasSession("canvas-b")
-	if err != nil {
-		t.Fatalf("GetProjectByCanvasSession(canvas-b) error: %v", err)
-	}
-	if gotByCanvas.ID != p2.ID {
-		t.Fatalf("GetProjectByCanvasSession returned %q, want %q", gotByCanvas.ID, p2.ID)
-	}
-
-	if err := s.UpdateProjectRuntime(p1.ID, "http://127.0.0.1:1111/mcp", "canvas-a"); err != nil {
-		t.Fatalf("UpdateProjectRuntime() error: %v", err)
-	}
-	if err := s.UpdateProjectChatModel(p1.ID, "  SPARK  "); err != nil {
-		t.Fatalf("UpdateProjectChatModel() error: %v", err)
-	}
-	if err := s.UpdateProjectChatModelReasoningEffort(p1.ID, "  HIGH "); err != nil {
-		t.Fatalf("UpdateProjectChatModelReasoningEffort() error: %v", err)
-	}
-	if err := s.UpdateProjectCompanionConfig(p1.ID, `{"companion_enabled":false,"idle_surface":"black"}`); err != nil {
-		t.Fatalf("UpdateProjectCompanionConfig() error: %v", err)
-	}
-	p1Updated, err := s.GetProject(p1.ID)
-	if err != nil {
-		t.Fatalf("GetProject(updated p1) error: %v", err)
-	}
-	if p1Updated.ChatModel != "spark" {
-		t.Fatalf("ChatModel = %q, want spark", p1Updated.ChatModel)
-	}
-	if p1Updated.ChatModelReasoningEffort != "high" {
-		t.Fatalf("ChatModelReasoningEffort = %q, want high", p1Updated.ChatModelReasoningEffort)
-	}
-	if got := strings.TrimSpace(p1Updated.CompanionConfigJSON); got != `{"companion_enabled":false,"idle_surface":"black"}` {
-		t.Fatalf("CompanionConfigJSON = %q", got)
-	}
-
-	beforeTouch := p1Updated.LastOpenedAt
-	time.Sleep(1100 * time.Millisecond)
-	if err := s.TouchProject(p1.ID); err != nil {
-		t.Fatalf("TouchProject() error: %v", err)
-	}
-	p1Touched, err := s.GetProject(p1.ID)
-	if err != nil {
-		t.Fatalf("GetProject(touched p1) error: %v", err)
-	}
-	if p1Touched.LastOpenedAt <= beforeTouch {
-		t.Fatalf("TouchProject() did not advance LastOpenedAt")
-	}
-
-	projects, err := s.ListProjects()
-	if err != nil {
-		t.Fatalf("ListProjects() error: %v", err)
-	}
-	if len(projects) != 3 {
-		t.Fatalf("ListProjects() len = %d, want 3", len(projects))
-	}
-	if !projects[0].IsDefault {
-		t.Fatalf("first listed project should be default")
-	}
-
-	if err := s.SetActiveProjectID(""); err == nil {
-		t.Fatalf("expected SetActiveProjectID(empty) validation error")
-	}
-	if err := s.SetActiveProjectID(p2.ID); err != nil {
-		t.Fatalf("SetActiveProjectID() error: %v", err)
-	}
-	activeID, err := s.ActiveProjectID()
-	if err != nil {
-		t.Fatalf("ActiveProjectID() error: %v", err)
-	}
-	if activeID != p2.ID {
-		t.Fatalf("ActiveProjectID() = %q, want %q", activeID, p2.ID)
-	}
-
-	if err := s.UpdateProjectKind(meeting.ID, "managed"); err != nil {
-		t.Fatalf("UpdateProjectKind() error: %v", err)
-	}
-	meetingManaged, err := s.GetProject(meeting.ID)
-	if err != nil {
-		t.Fatalf("GetProject(meeting managed) error: %v", err)
-	}
-	if meetingManaged.Kind != "managed" {
-		t.Fatalf("meeting managed kind = %q, want managed", meetingManaged.Kind)
-	}
-}
-
 func TestStoreProjectCompanionConfigPersistsAcrossReopen(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "tabura.db")
 	s, err := New(dbPath)
@@ -349,13 +213,13 @@ func TestStoreChatSessionMessageAndThreading(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession(active workspace) error: %v", err)
 	}
-	if session.ProjectKey != project.ProjectKey {
-		t.Fatalf("project key = %q, want %q", session.ProjectKey, project.ProjectKey)
+	if session.WorkspacePath != project.WorkspacePath {
+		t.Fatalf("project key = %q, want %q", session.WorkspacePath, project.WorkspacePath)
 	}
 	if session.WorkspaceID <= 0 {
 		t.Fatalf("workspace_id = %d, want positive id", session.WorkspaceID)
 	}
-	same, err := s.GetOrCreateChatSession(project.ProjectKey)
+	same, err := s.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession(existing) error: %v", err)
 	}
@@ -529,7 +393,7 @@ func TestStoreChatSessionsKeyToWorkspace(t *testing.T) {
 		t.Fatalf("CreateProject() error: %v", err)
 	}
 
-	session, err := s.GetOrCreateChatSession(project.ProjectKey)
+	session, err := s.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession() error: %v", err)
 	}
@@ -541,8 +405,8 @@ func TestStoreChatSessionsKeyToWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tableColumnNames(chat_sessions) error: %v", err)
 	}
-	if containsString(columns, "project_key") {
-		t.Fatalf("chat_sessions columns still include project_key: %v", columns)
+	if containsString(columns, "workspace_path") {
+		t.Fatalf("chat_sessions columns still include workspace_path: %v", columns)
 	}
 	if !containsString(columns, "workspace_id") {
 		t.Fatalf("chat_sessions columns missing workspace_id: %v", columns)
@@ -565,86 +429,6 @@ func TestStoreChatSessionsKeyToWorkspace(t *testing.T) {
 	}
 }
 
-func TestStoreMigratesLegacyChatSessionsProjectKeySchema(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "tabura.db")
-	s, err := New(dbPath)
-	if err != nil {
-		t.Fatalf("store.New(initial) error: %v", err)
-	}
-
-	root := filepath.Join(t.TempDir(), "workspace-alpha")
-	project, err := s.CreateProject("Alpha", "alpha-key", root, "managed", "", "", false)
-	if err != nil {
-		t.Fatalf("CreateProject() error: %v", err)
-	}
-	session, err := s.GetOrCreateChatSession(project.ProjectKey)
-	if err != nil {
-		t.Fatalf("GetOrCreateChatSession() error: %v", err)
-	}
-
-	if _, err := s.db.Exec(`
-CREATE TABLE chat_sessions_legacy (
-  id TEXT PRIMARY KEY,
-  project_key TEXT NOT NULL,
-  app_thread_id TEXT NOT NULL DEFAULT '',
-  mode TEXT NOT NULL DEFAULT 'chat',
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-)`); err != nil {
-		t.Fatalf("create legacy chat_sessions table: %v", err)
-	}
-	if _, err := s.db.Exec(`
-INSERT INTO chat_sessions_legacy (id, project_key, app_thread_id, mode, created_at, updated_at)
-SELECT cs.id,
-       COALESCE(NULLIF(trim(p.project_key), ''), w.dir_path, ''),
-       cs.app_thread_id,
-       cs.mode,
-       cs.created_at,
-       cs.updated_at
-  FROM chat_sessions cs
-  JOIN workspaces w ON w.id = cs.workspace_id
-  LEFT JOIN projects p ON p.id = w.project_id`); err != nil {
-		t.Fatalf("copy legacy chat_sessions rows: %v", err)
-	}
-	if _, err := s.db.Exec(`DROP TABLE chat_sessions`); err != nil {
-		t.Fatalf("drop modern chat_sessions table: %v", err)
-	}
-	if _, err := s.db.Exec(`ALTER TABLE chat_sessions_legacy RENAME TO chat_sessions`); err != nil {
-		t.Fatalf("rename legacy chat_sessions table: %v", err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatalf("Close(initial) error: %v", err)
-	}
-
-	reopened, err := New(dbPath)
-	if err != nil {
-		t.Fatalf("store.New(reopen legacy chat_sessions) error: %v", err)
-	}
-	defer reopened.Close()
-
-	columns, err := reopened.tableColumnNames("chat_sessions")
-	if err != nil {
-		t.Fatalf("tableColumnNames(chat_sessions) error: %v", err)
-	}
-	if containsString(columns, "project_key") {
-		t.Fatalf("chat_sessions columns still include project_key: %v", columns)
-	}
-	if !containsString(columns, "workspace_id") {
-		t.Fatalf("chat_sessions columns missing workspace_id: %v", columns)
-	}
-
-	migrated, err := reopened.GetChatSession(session.ID)
-	if err != nil {
-		t.Fatalf("GetChatSession() after legacy migration error: %v", err)
-	}
-	if migrated.WorkspaceID <= 0 {
-		t.Fatalf("workspace_id = %d, want positive id", migrated.WorkspaceID)
-	}
-	if migrated.ProjectKey != project.ProjectKey {
-		t.Fatalf("project_key = %q, want %q", migrated.ProjectKey, project.ProjectKey)
-	}
-}
-
 func TestGetOrCreateChatSessionBlankRefRequiresActiveWorkspace(t *testing.T) {
 	s := newTestStore(t)
 	root := filepath.Join(t.TempDir(), "workspace-default")
@@ -652,8 +436,8 @@ func TestGetOrCreateChatSessionBlankRefRequiresActiveWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProject() error: %v", err)
 	}
-	if err := s.SetActiveProjectID(project.ID); err != nil {
-		t.Fatalf("SetActiveProjectID() error: %v", err)
+	if err := s.SetActiveWorkspaceID(project.ID); err != nil {
+		t.Fatalf("SetActiveWorkspaceID() error: %v", err)
 	}
 	if _, err := s.db.Exec(`UPDATE workspaces SET is_active = 0`); err != nil {
 		t.Fatalf("clear active workspace: %v", err)
@@ -661,51 +445,6 @@ func TestGetOrCreateChatSessionBlankRefRequiresActiveWorkspace(t *testing.T) {
 
 	if _, err := s.GetOrCreateChatSession("  "); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("GetOrCreateChatSession(blank) error = %v, want sql.ErrNoRows", err)
-	}
-}
-
-func TestGetOrCreateChatSessionPrefersLinkedWorkspaceOverLegacyProjectPath(t *testing.T) {
-	s := newTestStore(t)
-	projectRoot := filepath.Join(t.TempDir(), "project-root")
-	project, err := s.CreateProject("Alpha", "alpha-key", projectRoot, "managed", "", "", false)
-	if err != nil {
-		t.Fatalf("CreateProject() error: %v", err)
-	}
-	workspace, err := s.CreateWorkspace("Alpha", project.RootPath)
-	if err != nil {
-		t.Fatalf("CreateWorkspace() error: %v", err)
-	}
-	workspace, err = s.SetWorkspaceProject(workspace.ID, &project.ID)
-	if err != nil {
-		t.Fatalf("SetWorkspaceProject() error: %v", err)
-	}
-
-	relocatedRoot := filepath.Join(t.TempDir(), "workspace-relocated")
-	if err := os.MkdirAll(relocatedRoot, 0o755); err != nil {
-		t.Fatalf("MkdirAll(relocatedRoot) error: %v", err)
-	}
-	workspace, err = s.UpdateWorkspaceLocation(workspace.ID, workspace.Name, relocatedRoot)
-	if err != nil {
-		t.Fatalf("UpdateWorkspaceLocation() error: %v", err)
-	}
-
-	session, err := s.GetOrCreateChatSession(project.ProjectKey)
-	if err != nil {
-		t.Fatalf("GetOrCreateChatSession() error: %v", err)
-	}
-	if session.WorkspaceID != workspace.ID {
-		t.Fatalf("workspace_id = %d, want %d", session.WorkspaceID, workspace.ID)
-	}
-
-	workspaces, err := s.ListWorkspacesForProject(project.ID)
-	if err != nil {
-		t.Fatalf("ListWorkspacesForProject() error: %v", err)
-	}
-	if len(workspaces) != 1 {
-		t.Fatalf("linked workspace count = %d, want 1", len(workspaces))
-	}
-	if workspaces[0].DirPath != relocatedRoot {
-		t.Fatalf("linked workspace dir_path = %q, want %q", workspaces[0].DirPath, relocatedRoot)
 	}
 }
 
@@ -717,7 +456,7 @@ func TestGetOrCreateChatSessionCreatesWorkspaceForLegacyProjectFallback(t *testi
 		t.Fatalf("CreateProject() error: %v", err)
 	}
 
-	session, err := s.GetOrCreateChatSession(project.ProjectKey)
+	session, err := s.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession() error: %v", err)
 	}
@@ -730,9 +469,6 @@ func TestGetOrCreateChatSessionCreatesWorkspaceForLegacyProjectFallback(t *testi
 	}
 	if workspace.DirPath != project.RootPath {
 		t.Fatalf("workspace dir_path = %q, want %q", workspace.DirPath, project.RootPath)
-	}
-	if workspace.ProjectID == nil || *workspace.ProjectID != project.ID {
-		t.Fatalf("workspace project_id = %v, want %q", workspace.ProjectID, project.ID)
 	}
 }
 
@@ -753,10 +489,6 @@ func TestStoreSchemaAndHelperNormalizers(t *testing.T) {
 	if !strings.Contains(chatMessageCols, "provider") || !strings.Contains(chatMessageCols, "provider_model") || !strings.Contains(chatMessageCols, "provider_latency_ms") {
 		t.Fatalf("chat_messages missing provider columns: %q", chatMessageCols)
 	}
-	projectCols := strings.Join(columns["projects"], ",")
-	if !strings.Contains(projectCols, "canvas_session_id") {
-		t.Fatalf("projects missing canvas_session_id column: %q", projectCols)
-	}
 	workspaceCols := strings.Join(columns["workspaces"], ",")
 	if !strings.Contains(workspaceCols, "canvas_session_id") {
 		t.Fatalf("workspaces missing canvas_session_id column: %q", workspaceCols)
@@ -765,18 +497,6 @@ func TestStoreSchemaAndHelperNormalizers(t *testing.T) {
 		t.Fatalf("workspaces missing chat_model_reasoning_effort column: %q", workspaceCols)
 	}
 
-	if got := normalizeProjectKind(" LINKED "); got != "linked" {
-		t.Fatalf("normalizeProjectKind(linked) = %q, want linked", got)
-	}
-	if got := normalizeProjectKind(" Meeting "); got != "meeting" {
-		t.Fatalf("normalizeProjectKind(meeting) = %q, want meeting", got)
-	}
-	if got := normalizeProjectKind(" TASK "); got != "task" {
-		t.Fatalf("normalizeProjectKind(task) = %q, want task", got)
-	}
-	if got := normalizeProjectKind("weird"); got != "managed" {
-		t.Fatalf("normalizeProjectKind(default) = %q, want managed", got)
-	}
 	if got := normalizeProjectName("  hello  "); got != "hello" {
 		t.Fatalf("normalizeProjectName() = %q, want hello", got)
 	}
@@ -822,10 +542,10 @@ func TestStoreDeleteProjectRemovesAssociatedSessions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProject() error: %v", err)
 	}
-	if err := s.SetActiveProjectID(project.ID); err != nil {
-		t.Fatalf("SetActiveProjectID() error: %v", err)
+	if err := s.SetActiveWorkspaceID(project.ID); err != nil {
+		t.Fatalf("SetActiveWorkspaceID() error: %v", err)
 	}
-	chatSession, err := s.GetOrCreateChatSession(project.ProjectKey)
+	chatSession, err := s.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession() error: %v", err)
 	}
@@ -835,7 +555,7 @@ func TestStoreDeleteProjectRemovesAssociatedSessions(t *testing.T) {
 	if err := s.AddChatEvent(chatSession.ID, "turn-1", "assistant_output", `{"ok":true}`); err != nil {
 		t.Fatalf("AddChatEvent() error: %v", err)
 	}
-	participantSession, err := s.AddParticipantSession(project.ProjectKey, "{}")
+	participantSession, err := s.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("AddParticipantSession() error: %v", err)
 	}
@@ -867,11 +587,11 @@ func TestStoreDeleteProjectRemovesAssociatedSessions(t *testing.T) {
 	if _, err := s.GetParticipantSession(participantSession.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("GetParticipantSession(deleted) error = %v, want sql.ErrNoRows", err)
 	}
-	activeID, err := s.ActiveProjectID()
+	activeID, err := s.ActiveWorkspaceID()
 	if err != nil {
-		t.Fatalf("ActiveProjectID() error: %v", err)
+		t.Fatalf("ActiveWorkspaceID() error: %v", err)
 	}
 	if activeID != "" {
-		t.Fatalf("ActiveProjectID() = %q, want empty", activeID)
+		t.Fatalf("ActiveWorkspaceID() = %q, want empty", activeID)
 	}
 }

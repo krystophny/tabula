@@ -144,10 +144,10 @@ export async function openLiveApp(page: Page, sessionToken: string) {
   await page.goto('/');
   await page.waitForLoadState('networkidle');
   await page.waitForFunction(() => {
-    const app = (window as { _taburaApp?: { getState?: () => { activeProjectId?: string } } })._taburaApp;
+    const app = (window as { _taburaApp?: { getState?: () => { activeWorkspaceId?: string } } })._taburaApp;
     if (!app || typeof app.getState !== 'function') return false;
     const state = app.getState();
-    return Boolean(String(state?.activeProjectId || '').trim());
+    return Boolean(String(state?.activeWorkspaceId || '').trim());
   }, null, { timeout: 10_000 }).catch(() => {});
 }
 

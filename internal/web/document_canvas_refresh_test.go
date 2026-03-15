@@ -146,7 +146,7 @@ func TestRefreshCanvasFromDisk_RebuildsRenderedDocumentPDF(t *testing.T) {
 		t.Fatalf("write updated doc: %v", err)
 	}
 
-	if !app.refreshCanvasFromDisk(project.ProjectKey) {
+	if !app.refreshCanvasFromDisk(project.WorkspacePath) {
 		t.Fatal("expected rendered document PDF refresh")
 	}
 	if got := atomic.LoadInt32(&mock.showCalls); got != 1 {
@@ -217,7 +217,7 @@ func TestWatchCanvasFile_RebuildsRenderedDocumentPDFOnSourceWrite(t *testing.T) 
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go app.watchCanvasFile(ctx, project.ProjectKey)
+	go app.watchCanvasFile(ctx, project.WorkspacePath)
 
 	time.Sleep(50 * time.Millisecond)
 	if err := os.WriteFile(docPath, []byte("draft two\n"), 0o644); err != nil {

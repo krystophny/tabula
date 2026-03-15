@@ -47,7 +47,7 @@ func decodeExchangeAccountConfig(account store.ExternalAccount) (email.ExchangeC
 			return email.ExchangeConfig{}, fmt.Errorf("decode exchange account config: %w", err)
 		}
 	}
-	return email.ExchangeConfigFromMap(account.Label, config)
+	return email.ExchangeConfigFromMap(account.AccountName, config)
 }
 
 func (a *App) syncContactAccount(ctx context.Context, account store.ExternalAccount) (int, error) {

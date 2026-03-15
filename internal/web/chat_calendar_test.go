@@ -87,7 +87,11 @@ func TestClassifyAndExecuteSystemActionShowCalendarRendersSphereAwareArtifact(t 
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
-	workWorkspace, err := app.store.CreateWorkspace("Work", project.RootPath, store.SphereWork)
+	workDir := filepath.Join(t.TempDir(), "work")
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(work): %v", err)
+	}
+	workWorkspace, err := app.store.CreateWorkspace("Work", workDir, store.SphereWork)
 	if err != nil {
 		t.Fatalf("CreateWorkspace(work): %v", err)
 	}
@@ -180,7 +184,7 @@ func TestClassifyAndExecuteSystemActionShowCalendarRendersSphereAwareArtifact(t 
 	}
 	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
 
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
@@ -208,7 +212,7 @@ func TestClassifyAndExecuteSystemActionShowCalendarRendersSphereAwareArtifact(t 
 	if !strings.HasPrefix(path, ".tabura/artifacts/calendar/2026-03-09-day") {
 		t.Fatalf("payload path = %q", path)
 	}
-	rendered, err := os.ReadFile(filepath.Join(project.RootPath, path))
+	rendered, err := os.ReadFile(filepath.Join(workWorkspace.DirPath, path))
 	if err != nil {
 		t.Fatalf("ReadFile(rendered): %v", err)
 	}
@@ -289,7 +293,7 @@ func TestClassifyAndExecuteSystemActionCalendarAvailabilityUsesAllBusyBlocks(t *
 		t.Fatalf("extractPort(canvas): %v", err)
 	}
 	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}

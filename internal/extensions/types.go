@@ -104,13 +104,13 @@ type ExtensionInfo struct {
 }
 
 type CommandRequest struct {
-	CommandID  string                 `json:"command_id"`
-	SessionID  string                 `json:"session_id,omitempty"`
-	ProjectKey string                 `json:"project_key,omitempty"`
-	OutputMode string                 `json:"output_mode,omitempty"`
-	Text       string                 `json:"text,omitempty"`
-	Args       map[string]interface{} `json:"args,omitempty"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	CommandID     string                 `json:"command_id"`
+	SessionID     string                 `json:"session_id,omitempty"`
+	WorkspacePath string                 `json:"workspace_path,omitempty"`
+	OutputMode    string                 `json:"output_mode,omitempty"`
+	Text          string                 `json:"text,omitempty"`
+	Args          map[string]interface{} `json:"args,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 }
 
 type CommandResult struct {

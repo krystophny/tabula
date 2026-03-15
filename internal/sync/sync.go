@@ -37,12 +37,12 @@ type Options struct {
 }
 
 type AccountResult struct {
-	AccountID int64
-	Provider  string
-	Label     string
-	Skipped   bool
-	Reason    string
-	Err       error
+	AccountID   int64
+	Provider    string
+	AccountName string
+	Skipped     bool
+	Reason      string
+	Err         error
 }
 
 type RunResult struct {
@@ -122,10 +122,10 @@ func (e *Engine) run(ctx context.Context, force bool) (RunResult, error) {
 	}
 	sort.Slice(accounts, func(i, j int) bool {
 		if accounts[i].Provider == accounts[j].Provider {
-			if accounts[i].Label == accounts[j].Label {
+			if accounts[i].AccountName == accounts[j].AccountName {
 				return accounts[i].ID < accounts[j].ID
 			}
-			return accounts[i].Label < accounts[j].Label
+			return accounts[i].AccountName < accounts[j].AccountName
 		}
 		return accounts[i].Provider < accounts[j].Provider
 	})
@@ -149,11 +149,11 @@ func (e *Engine) run(ctx context.Context, force bool) (RunResult, error) {
 			}
 			nextDelay = minPositiveDuration(nextDelay, remaining)
 			result.Accounts = append(result.Accounts, AccountResult{
-				AccountID: account.ID,
-				Provider:  account.Provider,
-				Label:     account.Label,
-				Skipped:   true,
-				Reason:    "interval",
+				AccountID:   account.ID,
+				Provider:    account.Provider,
+				AccountName: account.AccountName,
+				Skipped:     true,
+				Reason:      "interval",
 			})
 			continue
 		}
@@ -161,11 +161,11 @@ func (e *Engine) run(ctx context.Context, force bool) (RunResult, error) {
 		provider := e.providerFor(account.Provider)
 		if provider == nil {
 			result.Accounts = append(result.Accounts, AccountResult{
-				AccountID: account.ID,
-				Provider:  account.Provider,
-				Label:     account.Label,
-				Skipped:   true,
-				Reason:    "provider_unregistered",
+				AccountID:   account.ID,
+				Provider:    account.Provider,
+				AccountName: account.AccountName,
+				Skipped:     true,
+				Reason:      "provider_unregistered",
 			})
 			nextDelay = minPositiveDuration(nextDelay, interval)
 			continue
@@ -177,10 +177,10 @@ func (e *Engine) run(ctx context.Context, force bool) (RunResult, error) {
 		runStarted := e.now()
 		runErr := provider.Sync(ctx, account, e.sink)
 		accountResult := AccountResult{
-			AccountID: account.ID,
-			Provider:  account.Provider,
-			Label:     account.Label,
-			Err:       runErr,
+			AccountID:   account.ID,
+			Provider:    account.Provider,
+			AccountName: account.AccountName,
+			Err:         runErr,
 		}
 		result.Accounts = append(result.Accounts, accountResult)
 		if runErr != nil {

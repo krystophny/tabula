@@ -33,11 +33,11 @@ type companionPromptContext struct {
 	OmittedSegments  int
 }
 
-func (a *App) loadCompanionPromptContext(projectKey string) *companionPromptContext {
+func (a *App) loadCompanionPromptContext(workspacePath string) *companionPromptContext {
 	if a == nil || a.store == nil {
 		return nil
 	}
-	sessions, err := a.store.ListParticipantSessions(strings.TrimSpace(projectKey))
+	sessions, err := a.store.ListParticipantSessions(strings.TrimSpace(workspacePath))
 	if err != nil {
 		return nil
 	}

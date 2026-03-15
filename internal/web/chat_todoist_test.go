@@ -16,16 +16,14 @@ import (
 
 func TestParseInlineTodoistIntent(t *testing.T) {
 	cases := []struct {
-		text           string
-		wantAction     string
-		wantProject    string
-		wantWorkspace  string
-		wantTargetProj string
-		wantTaskText   string
+		text          string
+		wantAction    string
+		wantProject   string
+		wantWorkspace string
+		wantTaskText  string
 	}{
 		{text: "sync todoist", wantAction: "sync_todoist"},
 		{text: "map todoist project Admin to workspace ~/admin", wantAction: "map_todoist_project", wantProject: "Admin", wantWorkspace: "~/admin"},
-		{text: "map todoist project Admin to project Tabura", wantAction: "map_todoist_project", wantProject: "Admin", wantTargetProj: "Tabura"},
 		{text: "create todoist task: review proposal by Friday", wantAction: "create_todoist_task", wantTaskText: "review proposal by Friday"},
 	}
 
@@ -45,9 +43,6 @@ func TestParseInlineTodoistIntent(t *testing.T) {
 			if got := systemActionWorkspaceRef(action.Params); got != tc.wantWorkspace {
 				t.Fatalf("workspace = %q, want %q", got, tc.wantWorkspace)
 			}
-			if got := strFromAny(action.Params["target_project"]); got != tc.wantTargetProj {
-				t.Fatalf("target_project = %q, want %q", got, tc.wantTargetProj)
-			}
 			if got := strFromAny(action.Params["text"]); got != tc.wantTaskText {
 				t.Fatalf("text = %q, want %q", got, tc.wantTaskText)
 			}
@@ -59,15 +54,15 @@ func TestClassifyAndExecuteSystemActionMapTodoistProject(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	startupWorkspace, err := app.ensureStartupWorkspace()
 	if err != nil {
-		t.Fatalf("ensure default project: %v", err)
+		t.Fatalf("ensure startup workspace: %v", err)
 	}
 	workspace, err := app.store.CreateWorkspace("Admin", filepath.Join(t.TempDir(), "admin"))
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSessionForWorkspace(startupWorkspace.ID)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -90,27 +85,6 @@ func TestClassifyAndExecuteSystemActionMapTodoistProject(t *testing.T) {
 		t.Fatalf("mapping workspace_id = %#v, want %d", mapping.WorkspaceID, workspace.ID)
 	}
 
-	linkedProject, err := app.store.CreateProject("Tabura", "tabura", filepath.Join(t.TempDir(), "tabura"), "managed", "", "", false)
-	if err != nil {
-		t.Fatalf("CreateProject() error: %v", err)
-	}
-	message, payloads, handled = app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "map todoist project Tabura to project Tabura")
-	if !handled {
-		t.Fatal("expected project mapping command to be handled")
-	}
-	if message != "Mapped Todoist project Tabura to project Tabura." {
-		t.Fatalf("message = %q", message)
-	}
-	if len(payloads) != 1 || strFromAny(payloads[0]["type"]) != "todoist_container_mapping" {
-		t.Fatalf("payloads = %#v", payloads)
-	}
-	projectMapping, err := app.store.GetContainerMapping(store.ExternalProviderTodoist, "project", "Tabura")
-	if err != nil {
-		t.Fatalf("GetContainerMapping(project) error: %v", err)
-	}
-	if projectMapping.ProjectID == nil || *projectMapping.ProjectID != linkedProject.ID {
-		t.Fatalf("mapping project_id = %#v, want %q", projectMapping.ProjectID, linkedProject.ID)
-	}
 }
 
 func TestClassifyAndExecuteSystemActionSyncTodoist(t *testing.T) {
@@ -139,14 +113,14 @@ func TestClassifyAndExecuteSystemActionSyncTodoist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	if _, err := app.store.SetContainerMapping(store.ExternalProviderTodoist, "project", "Admin", &workspace.ID, nil, nil); err != nil {
+	if _, err := app.store.SetContainerMapping(store.ExternalProviderTodoist, "project", "Admin", &workspace.ID, nil); err != nil {
 		t.Fatalf("SetContainerMapping() error: %v", err)
 	}
 	project, err := app.ensureDefaultProjectRecord()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -252,7 +226,7 @@ func TestClassifyAndExecuteSystemActionSyncTodoistPersistsCommentMetadata(t *tes
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -323,18 +297,14 @@ func TestClassifyAndExecuteSystemActionSyncTodoistRemapUpdatesExistingItem(t *te
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	targetProject, err := app.store.CreateProject("Tabura", "tabura", filepath.Join(t.TempDir(), "tabura"), "managed", "", "", false)
-	if err != nil {
-		t.Fatalf("CreateProject() error: %v", err)
-	}
-	if _, err := app.store.SetContainerMapping(store.ExternalProviderTodoist, "project", "Admin", &workspace.ID, nil, nil); err != nil {
+	if _, err := app.store.SetContainerMapping(store.ExternalProviderTodoist, "project", "Admin", &workspace.ID, nil); err != nil {
 		t.Fatalf("SetContainerMapping(workspace) error: %v", err)
 	}
-	project, err := app.ensureDefaultProjectRecord()
+	startupWorkspace, err := app.ensureStartupWorkspace()
 	if err != nil {
-		t.Fatalf("ensure default project: %v", err)
+		t.Fatalf("ensure startup workspace: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSessionForWorkspace(startupWorkspace.ID)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -342,8 +312,12 @@ func TestClassifyAndExecuteSystemActionSyncTodoistRemapUpdatesExistingItem(t *te
 	if _, _, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "sync todoist"); !handled {
 		t.Fatal("expected initial sync command to be handled")
 	}
-	if _, err := app.store.SetContainerMapping(store.ExternalProviderTodoist, "project", "Admin", nil, &targetProject.ID, nil); err != nil {
-		t.Fatalf("SetContainerMapping(project) error: %v", err)
+	targetWorkspace, err := app.store.CreateWorkspace("Tabura", filepath.Join(t.TempDir(), "tabura-target"))
+	if err != nil {
+		t.Fatalf("CreateWorkspace(target) error: %v", err)
+	}
+	if _, err := app.store.SetContainerMapping(store.ExternalProviderTodoist, "project", "Admin", &targetWorkspace.ID, nil); err != nil {
+		t.Fatalf("SetContainerMapping(target workspace) error: %v", err)
 	}
 	if _, _, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "sync todoist"); !handled {
 		t.Fatal("expected remap sync command to be handled")
@@ -353,11 +327,8 @@ func TestClassifyAndExecuteSystemActionSyncTodoistRemapUpdatesExistingItem(t *te
 	if err != nil {
 		t.Fatalf("GetItemBySource() error: %v", err)
 	}
-	if item.WorkspaceID != nil {
-		t.Fatalf("item workspace_id = %#v, want nil after remap", item.WorkspaceID)
-	}
-	if item.ProjectID == nil || *item.ProjectID != targetProject.ID {
-		t.Fatalf("item project_id = %#v, want %q", item.ProjectID, targetProject.ID)
+	if item.WorkspaceID == nil || *item.WorkspaceID != targetWorkspace.ID {
+		t.Fatalf("item workspace_id = %#v, want %d after remap", item.WorkspaceID, targetWorkspace.ID)
 	}
 }
 
@@ -387,7 +358,7 @@ func TestClassifyAndExecuteSystemActionSyncTodoistUsesAccountSphereAsSourceOfTru
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	if _, err := app.store.SetContainerMapping(store.ExternalProviderTodoist, "project", "Admin", &privateWorkspace.ID, nil, nil); err != nil {
+	if _, err := app.store.SetContainerMapping(store.ExternalProviderTodoist, "project", "Admin", &privateWorkspace.ID, nil); err != nil {
 		t.Fatalf("SetContainerMapping() error: %v", err)
 	}
 	source := store.ExternalProviderTodoist
@@ -405,7 +376,7 @@ func TestClassifyAndExecuteSystemActionSyncTodoistUsesAccountSphereAsSourceOfTru
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -474,14 +445,14 @@ func TestClassifyAndExecuteSystemActionCreateTodoistTask(t *testing.T) {
 	if err := app.store.SetActiveWorkspace(workspace.ID); err != nil {
 		t.Fatalf("SetActiveWorkspace() error: %v", err)
 	}
-	if _, err := app.store.SetContainerMapping(store.ExternalProviderTodoist, "project", "Admin", &workspace.ID, nil, nil); err != nil {
+	if _, err := app.store.SetContainerMapping(store.ExternalProviderTodoist, "project", "Admin", &workspace.ID, nil); err != nil {
 		t.Fatalf("SetContainerMapping() error: %v", err)
 	}
 	project, err := app.ensureDefaultProjectRecord()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}

@@ -81,7 +81,7 @@ func TestLegacyItemProjectReassignmentRouteRemoved(t *testing.T) {
 	}
 
 	rrProject := doAuthedJSONRequest(t, app.Router(), http.MethodPut, "/api/items/"+itoa(item.ID)+"/project", map[string]any{
-		"project_id": "missing-project",
+		"workspace_id": "missing-project",
 	})
 	if rrProject.Code != http.StatusNotFound {
 		t.Fatalf("legacy project route status = %d, want 404: %s", rrProject.Code, rrProject.Body.String())

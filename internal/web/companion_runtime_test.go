@@ -84,7 +84,7 @@ func TestCompanionRuntimeProtocolEmitsListeningAndTranscriptEvents(t *testing.T)
 		t.Fatalf("save companion config: %v", err)
 	}
 	setLivePolicyForTest(t, app, LivePolicyMeeting)
-	chatSession, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
@@ -162,11 +162,11 @@ func TestCompanionRuntimeProtocolTransitionsThroughTalkingAndBackToListening(t *
 		t.Fatalf("save companion config: %v", err)
 	}
 	setLivePolicyForTest(t, app, LivePolicyMeeting)
-	chatSession, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
-	participantSession, err := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	participantSession, err := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("AddParticipantSession: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestCompanionRuntimeProtocolTransitionsThroughTalkingAndBackToListening(t *
 
 	persistedAssistantID := int64(0)
 	persistedAssistantText := ""
-	response := app.finalizeAssistantResponse(chatSession.ID, project.ProjectKey, "Spoken companion reply.", &persistedAssistantID, &persistedAssistantText, "turn-voice", "", "", turnOutputModeVoice)
+	response := app.finalizeAssistantResponse(chatSession.ID, project.WorkspacePath, "Spoken companion reply.", &persistedAssistantID, &persistedAssistantText, "turn-voice", "", "", turnOutputModeVoice)
 	if strings.TrimSpace(response) == "" {
 		t.Fatal("finalizeAssistantResponse returned empty content")
 	}
@@ -226,11 +226,11 @@ func TestInterruptCompanionPendingTurnBroadcastsListeningState(t *testing.T) {
 		t.Fatalf("save companion config: %v", err)
 	}
 	setLivePolicyForTest(t, app, LivePolicyMeeting)
-	chatSession, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
-	participantSession, err := app.store.AddParticipantSession(project.ProjectKey, "{}")
+	participantSession, err := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("AddParticipantSession: %v", err)
 	}

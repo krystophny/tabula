@@ -62,9 +62,9 @@ func TestScanUploadCreatesLinkedArtifactAndSummary(t *testing.T) {
 		t.Fatalf("CreateArtifact() error: %v", err)
 	}
 	item, err := app.store.CreateItem("Review packet", store.ItemOptions{
-		State:      store.ItemStateInbox,
-		ArtifactID: &sourceArtifact.ID,
-		ProjectID:  &project.ID,
+		State:       store.ItemStateInbox,
+		ArtifactID:  &sourceArtifact.ID,
+		WorkspaceID: int64Pointer(runtimeWorkspaceIDInt64(t, project)),
 	})
 	if err != nil {
 		t.Fatalf("CreateItem() error: %v", err)
@@ -75,8 +75,8 @@ func TestScanUploadCreatesLinkedArtifactAndSummary(t *testing.T) {
 		t.Fatalf("decode png: %v", err)
 	}
 	rr := authedMultipartRequestForTest(t, app.Router(), "/api/scan/upload", func(writer *multipart.Writer) {
-		if err := writer.WriteField("project_id", project.ID); err != nil {
-			t.Fatalf("WriteField(project_id): %v", err)
+		if err := writer.WriteField("workspace_id", project.ID); err != nil {
+			t.Fatalf("WriteField(workspace_id): %v", err)
 		}
 		if err := writer.WriteField("item_id", strconv.FormatInt(item.ID, 10)); err != nil {
 			t.Fatalf("WriteField(item_id): %v", err)
@@ -97,8 +97,8 @@ func TestScanUploadCreatesLinkedArtifactAndSummary(t *testing.T) {
 	}
 
 	data := decodeJSONDataResponse(t, rr)
-	if got := strFromAny(data["project_id"]); got != project.ID {
-		t.Fatalf("project_id = %q, want %q", got, project.ID)
+	if got := strFromAny(data["workspace_id"]); got != project.ID {
+		t.Fatalf("workspace_id = %q, want %q", got, project.ID)
 	}
 	if got := int64FromAny(data["item_id"]); got != item.ID {
 		t.Fatalf("item_id = %d, want %d", got, item.ID)
@@ -173,9 +173,9 @@ func TestScanConfirmCreatesAnnotationArtifactAndUpdatesScanMeta(t *testing.T) {
 		t.Fatalf("CreateArtifact() error: %v", err)
 	}
 	item, err := app.store.CreateItem("Review packet", store.ItemOptions{
-		State:      store.ItemStateInbox,
-		ArtifactID: &sourceArtifact.ID,
-		ProjectID:  &project.ID,
+		State:       store.ItemStateInbox,
+		ArtifactID:  &sourceArtifact.ID,
+		WorkspaceID: int64Pointer(runtimeWorkspaceIDInt64(t, project)),
 	})
 	if err != nil {
 		t.Fatalf("CreateItem() error: %v", err)
@@ -186,8 +186,8 @@ func TestScanConfirmCreatesAnnotationArtifactAndUpdatesScanMeta(t *testing.T) {
 		t.Fatalf("decode png: %v", err)
 	}
 	upload := authedMultipartRequestForTest(t, app.Router(), "/api/scan/upload", func(writer *multipart.Writer) {
-		if err := writer.WriteField("project_id", project.ID); err != nil {
-			t.Fatalf("WriteField(project_id): %v", err)
+		if err := writer.WriteField("workspace_id", project.ID); err != nil {
+			t.Fatalf("WriteField(workspace_id): %v", err)
 		}
 		if err := writer.WriteField("item_id", strconv.FormatInt(item.ID, 10)); err != nil {
 			t.Fatalf("WriteField(item_id): %v", err)
@@ -211,7 +211,7 @@ func TestScanConfirmCreatesAnnotationArtifactAndUpdatesScanMeta(t *testing.T) {
 	scanArtifactID := int64FromAny(scanArtifact["id"])
 
 	confirm := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/scan/confirm", map[string]any{
-		"project_id":       project.ID,
+		"workspace_id":     project.ID,
 		"item_id":          item.ID,
 		"artifact_id":      sourceArtifact.ID,
 		"scan_artifact_id": scanArtifactID,

@@ -13,12 +13,8 @@ func TestExternalContainerMappingStoreCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	project, err := s.CreateProject("Tabura", "tabura", t.TempDir(), "managed", "", "", false)
-	if err != nil {
-		t.Fatalf("CreateProject() error: %v", err)
-	}
 	sphere := SphereWork
-	mapping, err := s.SetContainerMapping(ExternalProviderTodoist, "project", " Tabura ", &workspace.ID, &project.ID, &sphere)
+	mapping, err := s.SetContainerMapping(ExternalProviderTodoist, "project", " Tabura ", &workspace.ID, &sphere)
 	if err != nil {
 		t.Fatalf("SetContainerMapping() error: %v", err)
 	}
@@ -34,9 +30,6 @@ func TestExternalContainerMappingStoreCRUD(t *testing.T) {
 	if mapping.WorkspaceID == nil || *mapping.WorkspaceID != workspace.ID {
 		t.Fatalf("workspace_id = %v, want %d", mapping.WorkspaceID, workspace.ID)
 	}
-	if mapping.ProjectID == nil || *mapping.ProjectID != project.ID {
-		t.Fatalf("project_id = %v, want %q", mapping.ProjectID, project.ID)
-	}
 	if mapping.Sphere == nil || *mapping.Sphere != SphereWork {
 		t.Fatalf("sphere = %v, want %q", mapping.Sphere, SphereWork)
 	}
@@ -50,7 +43,7 @@ func TestExternalContainerMappingStoreCRUD(t *testing.T) {
 	}
 
 	privateSphere := SpherePrivate
-	updated, err := s.SetContainerMapping(ExternalProviderTodoist, "project", "tabura", nil, nil, &privateSphere)
+	updated, err := s.SetContainerMapping(ExternalProviderTodoist, "project", "tabura", nil, &privateSphere)
 	if err != nil {
 		t.Fatalf("SetContainerMapping(update) error: %v", err)
 	}
@@ -60,14 +53,11 @@ func TestExternalContainerMappingStoreCRUD(t *testing.T) {
 	if updated.WorkspaceID != nil {
 		t.Fatalf("updated workspace_id = %v, want nil", updated.WorkspaceID)
 	}
-	if updated.ProjectID != nil {
-		t.Fatalf("updated project_id = %v, want nil", updated.ProjectID)
-	}
 	if updated.Sphere == nil || *updated.Sphere != SpherePrivate {
 		t.Fatalf("updated sphere = %v, want %q", updated.Sphere, SpherePrivate)
 	}
 
-	other, err := s.SetContainerMapping(ExternalProviderGoogleCalendar, "calendar", "Family", nil, nil, &privateSphere)
+	other, err := s.SetContainerMapping(ExternalProviderGoogleCalendar, "calendar", "Family", nil, &privateSphere)
 	if err != nil {
 		t.Fatalf("SetContainerMapping(other) error: %v", err)
 	}
@@ -99,29 +89,25 @@ func TestExternalContainerMappingStoreCRUD(t *testing.T) {
 func TestExternalContainerMappingStoreRejectsInvalidInput(t *testing.T) {
 	s := newTestStore(t)
 
-	if _, err := s.SetContainerMapping("", "project", "Tabura", nil, nil, nil); err == nil {
+	if _, err := s.SetContainerMapping("", "project", "Tabura", nil, nil); err == nil {
 		t.Fatal("expected missing provider error")
 	}
-	if _, err := s.SetContainerMapping(ExternalProviderTodoist, "board", "Tabura", nil, nil, nil); err == nil {
+	if _, err := s.SetContainerMapping(ExternalProviderTodoist, "board", "Tabura", nil, nil); err == nil {
 		t.Fatal("expected invalid container type error")
 	}
-	if _, err := s.SetContainerMapping(ExternalProviderTodoist, "project", "", nil, nil, nil); err == nil {
+	if _, err := s.SetContainerMapping(ExternalProviderTodoist, "project", "", nil, nil); err == nil {
 		t.Fatal("expected missing container ref error")
 	}
-	if _, err := s.SetContainerMapping(ExternalProviderTodoist, "project", "Tabura", nil, nil, nil); err == nil {
+	if _, err := s.SetContainerMapping(ExternalProviderTodoist, "project", "Tabura", nil, nil); err == nil {
 		t.Fatal("expected missing target error")
 	}
 	badSphere := "office"
-	if _, err := s.SetContainerMapping(ExternalProviderTodoist, "project", "Tabura", nil, nil, &badSphere); err == nil {
+	if _, err := s.SetContainerMapping(ExternalProviderTodoist, "project", "Tabura", nil, &badSphere); err == nil {
 		t.Fatal("expected invalid sphere error")
 	}
 	missingWorkspaceID := int64(999999)
-	if _, err := s.SetContainerMapping(ExternalProviderTodoist, "project", "Tabura", &missingWorkspaceID, nil, nil); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := s.SetContainerMapping(ExternalProviderTodoist, "project", "Tabura", &missingWorkspaceID, nil); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("missing workspace error = %v, want sql.ErrNoRows", err)
-	}
-	missingProjectID := "proj-missing"
-	if _, err := s.SetContainerMapping(ExternalProviderTodoist, "project", "Tabura", nil, &missingProjectID, nil); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("missing project error = %v, want sql.ErrNoRows", err)
 	}
 	if _, err := s.ListContainerMappings("smtp"); err == nil {
 		t.Fatal("expected invalid provider filter error")

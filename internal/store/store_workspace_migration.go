@@ -4,18 +4,6 @@ func (s *Store) migrateWorkspaceSphereSupport() error {
 	return nil
 }
 
-func (s *Store) migrateWorkspaceProjectSupport() error {
-	tableColumns, err := s.tableColumnSet("workspaces")
-	if err != nil {
-		return err
-	}
-	if tableColumns["workspaces"]["project_id"] {
-		return nil
-	}
-	_, err = s.db.Exec(`ALTER TABLE workspaces ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL`)
-	return err
-}
-
 func (s *Store) migrateWorkspaceConfigSupport() error {
 	tableColumns, err := s.tableColumnSet("workspaces")
 	if err != nil {

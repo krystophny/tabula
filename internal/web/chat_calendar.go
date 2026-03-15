@@ -145,7 +145,7 @@ func (a *App) executeCalendarAction(session store.ChatSession, action *SystemAct
 	}
 	cwd := strings.TrimSpace(targetProject.RootPath)
 	if cwd == "" {
-		cwd = strings.TrimSpace(a.cwdForProjectKey(targetProject.ProjectKey))
+		cwd = strings.TrimSpace(a.cwdForWorkspacePath(targetProject.WorkspacePath))
 	}
 	if cwd == "" {
 		return "", nil, fmt.Errorf("calendar view cwd is not available")
@@ -203,7 +203,7 @@ func (a *App) executeCalendarAction(session store.ChatSession, action *SystemAct
 	}); err != nil {
 		return "", nil, err
 	}
-	a.markProjectOutput(targetProject.ProjectKey)
+	a.markProjectOutput(targetProject.WorkspacePath)
 
 	return fmt.Sprintf("Opened %s on canvas.", artifactTitle), map[string]interface{}{
 		"type":           "show_calendar",
@@ -394,8 +394,8 @@ func (a *App) resolveCalendarSphere(provider, calendarID, calendarName, fallback
 		}
 	}
 	for _, account := range accounts {
-		if strings.EqualFold(strings.TrimSpace(account.Label), strings.TrimSpace(calendarName)) ||
-			strings.EqualFold(strings.TrimSpace(account.Label), strings.TrimSpace(calendarID)) {
+		if strings.EqualFold(strings.TrimSpace(account.AccountName), strings.TrimSpace(calendarName)) ||
+			strings.EqualFold(strings.TrimSpace(account.AccountName), strings.TrimSpace(calendarID)) {
 			return account.Sphere
 		}
 	}
@@ -415,7 +415,7 @@ func (a *App) collectCalendarDeadlines(req calendarActionRequest) ([]calendarDea
 	}
 	timeMin, timeMax := calendarTimeRange(req)
 	workspaceNames := map[int64]string{}
-	projectNames := map[string]string{}
+	projectNames := map[int64]string{}
 	var deadlines []calendarDeadlineEntry
 	for _, item := range items {
 		if strings.EqualFold(strings.TrimSpace(item.State), store.ItemStateDone) {
@@ -430,7 +430,7 @@ func (a *App) collectCalendarDeadlines(req calendarActionRequest) ([]calendarDea
 					Kind:      "Due",
 					When:      when.In(time.Local),
 					Workspace: calendarWorkspaceName(a, item.WorkspaceID, workspaceNames),
-					Project:   calendarProjectName(a, item.ProjectID, projectNames),
+					Project:   calendarProjectName(a, item.WorkspaceID, projectNames),
 				}
 				if matchesCalendarQuery(req.Query, calendarEventEntry{}, calendarDeadlineSearchText(entry)) {
 					deadlines = append(deadlines, entry)
@@ -446,7 +446,7 @@ func (a *App) collectCalendarDeadlines(req calendarActionRequest) ([]calendarDea
 					Kind:      "Resurface",
 					When:      when.In(time.Local),
 					Workspace: calendarWorkspaceName(a, item.WorkspaceID, workspaceNames),
-					Project:   calendarProjectName(a, item.ProjectID, projectNames),
+					Project:   calendarProjectName(a, item.WorkspaceID, projectNames),
 				}
 				if matchesCalendarQuery(req.Query, calendarEventEntry{}, calendarDeadlineSearchText(entry)) {
 					deadlines = append(deadlines, entry)
@@ -809,24 +809,20 @@ func calendarWorkspaceName(a *App, workspaceID *int64, cache map[int64]string) s
 	return workspace.Name
 }
 
-func calendarProjectName(a *App, projectID *string, cache map[string]string) string {
-	if a == nil || projectID == nil {
+func calendarProjectName(a *App, workspaceID *int64, cache map[int64]string) string {
+	if a == nil || workspaceID == nil {
 		return ""
 	}
-	cleanID := strings.TrimSpace(*projectID)
-	if cleanID == "" {
-		return ""
-	}
-	if cached, ok := cache[cleanID]; ok {
+	if cached, ok := cache[*workspaceID]; ok {
 		return cached
 	}
-	project, err := a.store.GetProject(cleanID)
+	workspace, err := a.store.GetWorkspace(*workspaceID)
 	if err != nil {
-		cache[cleanID] = ""
+		cache[*workspaceID] = ""
 		return ""
 	}
-	cache[cleanID] = project.Name
-	return project.Name
+	cache[*workspaceID] = workspace.Name
+	return workspace.Name
 }
 
 func calendarDeadlineSearchText(entry calendarDeadlineEntry) string {

@@ -13,15 +13,18 @@ func TestStoreMigratesLegacyPrimaryArtifactIntoItemArtifactLinks(t *testing.T) {
 		t.Fatalf("sql.Open() error: %v", err)
 	}
 	schema := `
-CREATE TABLE projects (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL
-);
 CREATE TABLE workspaces (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
   dir_path TEXT NOT NULL UNIQUE,
   is_active INTEGER NOT NULL DEFAULT 0,
+  is_daily INTEGER NOT NULL DEFAULT 0,
+  daily_date TEXT,
+  mcp_url TEXT NOT NULL DEFAULT '',
+  canvas_session_id TEXT NOT NULL DEFAULT '',
+  chat_model TEXT NOT NULL DEFAULT '',
+  chat_model_reasoning_effort TEXT NOT NULL DEFAULT '',
+  companion_config_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -46,7 +49,6 @@ CREATE TABLE items (
   title TEXT NOT NULL,
   state TEXT NOT NULL DEFAULT 'inbox' CHECK (state IN ('inbox', 'waiting', 'someday', 'done')),
   workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
-  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
   artifact_id INTEGER REFERENCES artifacts(id) ON DELETE SET NULL,
   actor_id INTEGER REFERENCES actors(id) ON DELETE SET NULL,
   visible_after TEXT,

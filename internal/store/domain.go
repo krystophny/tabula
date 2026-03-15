@@ -59,7 +59,6 @@ type ItemUpdate struct {
 	Title        *string `json:"title,omitempty"`
 	State        *string `json:"state,omitempty"`
 	WorkspaceID  *int64  `json:"workspace_id,omitempty"`
-	ProjectID    *string `json:"project_id,omitempty"`
 	Sphere       *string `json:"sphere,omitempty"`
 	ArtifactID   *int64  `json:"artifact_id,omitempty"`
 	ActorID      *int64  `json:"actor_id,omitempty"`
@@ -74,7 +73,6 @@ type ItemUpdate struct {
 type ItemOptions struct {
 	State        string  `json:"state,omitempty"`
 	WorkspaceID  *int64  `json:"workspace_id,omitempty"`
-	ProjectID    *string `json:"project_id,omitempty"`
 	Sphere       *string `json:"sphere,omitempty"`
 	ArtifactID   *int64  `json:"artifact_id,omitempty"`
 	ActorID      *int64  `json:"actor_id,omitempty"`
@@ -87,15 +85,14 @@ type ItemOptions struct {
 }
 
 type ItemListFilter struct {
-	Sphere                string  `json:"sphere,omitempty"`
-	Source                string  `json:"source,omitempty"`
-	WorkspaceID           *int64  `json:"workspace_id,omitempty"`
-	WorkspaceUnassigned   bool    `json:"workspace_unassigned,omitempty"`
-	ProjectID             *string `json:"project_id,omitempty"`
-	LabelID               *int64  `json:"label_id,omitempty"`
-	Label                 string  `json:"label,omitempty"`
-	resolvedLabelGroups   [][]int64
-	labelResolved         bool
+	Sphere              string `json:"sphere,omitempty"`
+	Source              string `json:"source,omitempty"`
+	WorkspaceID         *int64 `json:"workspace_id,omitempty"`
+	WorkspaceUnassigned bool   `json:"workspace_unassigned,omitempty"`
+	LabelID             *int64 `json:"label_id,omitempty"`
+	Label               string `json:"label,omitempty"`
+	resolvedLabelGroups [][]int64
+	labelResolved       bool
 }
 
 type Label struct {
@@ -110,7 +107,6 @@ type Workspace struct {
 	ID                       int64   `json:"id"`
 	Name                     string  `json:"name"`
 	DirPath                  string  `json:"dir_path"`
-	ProjectID                *string `json:"project_id,omitempty"`
 	Sphere                   string  `json:"sphere"`
 	IsActive                 bool    `json:"is_active"`
 	IsDaily                  bool    `json:"is_daily"`
@@ -132,22 +128,23 @@ type ActorOptions struct {
 }
 
 type ExternalAccount struct {
-	ID         int64  `json:"id"`
-	Sphere     string `json:"sphere"`
-	Provider   string `json:"provider"`
-	Label      string `json:"label"`
-	ConfigJSON string `json:"config_json"`
-	Enabled    bool   `json:"enabled"`
-	CreatedAt  string `json:"created_at"`
-	UpdatedAt  string `json:"updated_at"`
+	ID          int64  `json:"id"`
+	Sphere      string `json:"sphere"`
+	Provider    string `json:"provider"`
+	AccountName string `json:"account_name"`
+	Label       string `json:"label,omitempty"`
+	ConfigJSON  string `json:"config_json"`
+	Enabled     bool   `json:"enabled"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 type ExternalAccountUpdate struct {
-	Sphere   *string        `json:"sphere,omitempty"`
-	Provider *string        `json:"provider,omitempty"`
-	Label    *string        `json:"label,omitempty"`
-	Config   map[string]any `json:"config,omitempty"`
-	Enabled  *bool          `json:"enabled,omitempty"`
+	Sphere      *string        `json:"sphere,omitempty"`
+	Provider    *string        `json:"provider,omitempty"`
+	AccountName *string        `json:"account_name,omitempty"`
+	Config      map[string]any `json:"config,omitempty"`
+	Enabled     *bool          `json:"enabled,omitempty"`
 }
 
 type ExternalBinding struct {
@@ -169,7 +166,6 @@ type ExternalContainerMapping struct {
 	ContainerType string  `json:"container_type"`
 	ContainerRef  string  `json:"container_ref"`
 	WorkspaceID   *int64  `json:"workspace_id,omitempty"`
-	ProjectID     *string `json:"project_id,omitempty"`
 	Sphere        *string `json:"sphere,omitempty"`
 }
 
@@ -221,7 +217,6 @@ type Item struct {
 	Title        string  `json:"title"`
 	State        string  `json:"state"`
 	WorkspaceID  *int64  `json:"workspace_id,omitempty"`
-	ProjectID    *string `json:"project_id,omitempty"`
 	Sphere       string  `json:"sphere"`
 	ArtifactID   *int64  `json:"artifact_id,omitempty"`
 	ActorID      *int64  `json:"actor_id,omitempty"`
@@ -246,7 +241,6 @@ type ItemSummary struct {
 type TimeEntry struct {
 	ID          int64   `json:"id"`
 	WorkspaceID *int64  `json:"workspace_id,omitempty"`
-	ProjectID   *string `json:"project_id,omitempty"`
 	Sphere      string  `json:"sphere"`
 	StartedAt   string  `json:"started_at"`
 	EndedAt     *string `json:"ended_at,omitempty"`
@@ -262,14 +256,13 @@ type TimeEntryListFilter struct {
 }
 
 type TimeEntrySummary struct {
-	Key         string  `json:"key"`
-	Label       string  `json:"label"`
-	Seconds     int64   `json:"seconds"`
-	Duration    string  `json:"duration"`
-	EntryCount  int     `json:"entry_count"`
-	WorkspaceID *int64  `json:"workspace_id,omitempty"`
-	ProjectID   *string `json:"project_id,omitempty"`
-	Sphere      string  `json:"sphere,omitempty"`
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Seconds     int64  `json:"seconds"`
+	Duration    string `json:"duration"`
+	EntryCount  int    `json:"entry_count"`
+	WorkspaceID *int64 `json:"workspace_id,omitempty"`
+	Sphere      string `json:"sphere,omitempty"`
 }
 
 type BatchRun struct {

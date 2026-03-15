@@ -16,7 +16,6 @@ import (
 
 var (
 	todoistMapWorkspacePattern = regexp.MustCompile(`(?i)^map\s+todoist\s+project\s+(.+?)\s+to\s+workspace\s+(.+?)$`)
-	todoistMapProjectPattern   = regexp.MustCompile(`(?i)^map\s+todoist\s+project\s+(.+?)\s+to\s+project\s+(.+?)$`)
 	todoistCreateTaskPattern   = regexp.MustCompile(`(?i)^create\s+todoist\s+task\s*:?\s+(.+?)$`)
 	todoistDueStringPattern    = regexp.MustCompile(`(?i)^(.*?)\s+(?:by|due)\s+(.+?)$`)
 )
@@ -44,19 +43,6 @@ func parseInlineTodoistIntent(text string) *SystemAction {
 				Params: map[string]interface{}{
 					"project":   projectRef,
 					"workspace": workspaceRef,
-				},
-			}
-		}
-	}
-	if match := todoistMapProjectPattern.FindStringSubmatch(trimmed); len(match) == 3 {
-		projectRef := strings.TrimSpace(match[1])
-		targetProject := strings.TrimSpace(match[2])
-		if projectRef != "" && targetProject != "" {
-			return &SystemAction{
-				Action: "map_todoist_project",
-				Params: map[string]interface{}{
-					"project":        projectRef,
-					"target_project": targetProject,
 				},
 			}
 		}
@@ -114,7 +100,7 @@ func todoistClientForAccount(account store.ExternalAccount) (*todoist.Client, er
 	if strings.TrimSpace(cfg.MoveBaseURL) != "" {
 		opts = append(opts, todoist.WithMoveBaseURL(cfg.MoveBaseURL))
 	}
-	return todoist.NewClientFromEnv(account.Label, opts...)
+	return todoist.NewClientFromEnv(account.AccountName, opts...)
 }
 
 func todoistTaskFollowUpAt(task todoist.Task) *string {
@@ -276,7 +262,6 @@ func (a *App) updatePersistedTodoistTask(existing store.Item, account store.Exte
 	}
 	if mapping != nil {
 		updates.WorkspaceID = mappedWorkspaceUpdate(mapping)
-		updates.ProjectID = mappedProjectUpdate(mapping)
 	} else if existing.WorkspaceID != nil {
 		clear := int64(0)
 		updates.WorkspaceID = &clear
@@ -322,7 +307,6 @@ func (a *App) updatePersistedTodoistTask(existing store.Item, account store.Exte
 func (a *App) createPersistedTodoistTask(account store.ExternalAccount, task todoist.Task, comments []todoist.Comment, mapping *store.ExternalContainerMapping, projectName string, projectNames map[string]string, title, source, sourceRef, desiredState string, followUpAt *string) (store.Item, error) {
 	opts := store.ItemOptions{
 		State:      desiredState,
-		ProjectID:  mappingProjectID(mapping),
 		Sphere:     &account.Sphere,
 		FollowUpAt: followUpAt,
 		Source:     &source,
@@ -360,13 +344,6 @@ func (a *App) upsertTodoistTaskBinding(accountID int64, taskID string, itemID in
 	return err
 }
 
-func mappingProjectID(mapping *store.ExternalContainerMapping) *string {
-	if mapping == nil {
-		return nil
-	}
-	return mapping.ProjectID
-}
-
 func mappedWorkspaceUpdate(mapping *store.ExternalContainerMapping) *int64 {
 	if mapping == nil {
 		return nil
@@ -376,18 +353,6 @@ func mappedWorkspaceUpdate(mapping *store.ExternalContainerMapping) *int64 {
 		return &workspaceID
 	}
 	clear := int64(0)
-	return &clear
-}
-
-func mappedProjectUpdate(mapping *store.ExternalContainerMapping) *string {
-	if mapping == nil {
-		return nil
-	}
-	if mapping.ProjectID != nil {
-		projectID := strings.TrimSpace(*mapping.ProjectID)
-		return &projectID
-	}
-	clear := ""
 	return &clear
 }
 
@@ -406,12 +371,12 @@ func (a *App) executeMapTodoistProjectAction(session store.ChatSession, action *
 	}
 	var workspaceID *int64
 	if workspaceRef := systemActionWorkspaceRef(action.Params); workspaceRef != "" {
-		workspace, err := a.resolveWorkspaceReference(session.ProjectKey, workspaceRef)
+		workspace, err := a.resolveWorkspaceReference(session.WorkspacePath, workspaceRef)
 		if err != nil {
 			return "", nil, err
 		}
 		workspaceID = &workspace.ID
-		mapping, err := a.store.SetContainerMapping(store.ExternalProviderTodoist, "project", projectRef, workspaceID, nil, nil)
+		mapping, err := a.store.SetContainerMapping(store.ExternalProviderTodoist, "project", projectRef, workspaceID, nil)
 		if err != nil {
 			return "", nil, err
 		}
@@ -422,24 +387,7 @@ func (a *App) executeMapTodoistProjectAction(session store.ChatSession, action *
 			"workspace_id":  workspace.ID,
 		}, nil
 	}
-	if targetProjectName := strings.TrimSpace(systemActionStringParam(action.Params, "target_project")); targetProjectName != "" {
-		project, err := a.findProjectByName(targetProjectName)
-		if err != nil {
-			return "", nil, err
-		}
-		projectID := project.ID
-		mapping, err := a.store.SetContainerMapping(store.ExternalProviderTodoist, "project", projectRef, nil, &projectID, nil)
-		if err != nil {
-			return "", nil, err
-		}
-		return fmt.Sprintf("Mapped Todoist project %s to project %s.", projectRef, project.Name), map[string]interface{}{
-			"type":          "todoist_container_mapping",
-			"mapping_id":    mapping.ID,
-			"container_ref": mapping.ContainerRef,
-			"project_id":    project.ID,
-		}, nil
-	}
-	return "", nil, errors.New("todoist mapping target is required")
+	return "", nil, errors.New("todoist mapping target workspace is required")
 }
 
 func (a *App) executeSyncTodoistAction() (string, map[string]interface{}, error) {
@@ -529,20 +477,12 @@ func (a *App) createTodoistTaskProjectTarget(client *todoist.Client) (string, er
 		return "", err
 	}
 	activeWorkspaceID := activeWorkspaceID(workspaces)
-	activeProjectID, err := a.store.ActiveProjectID()
-	if err != nil {
-		return "", err
-	}
 	targetName := ""
 	for _, mapping := range mappings {
 		if !strings.EqualFold(mapping.Provider, store.ExternalProviderTodoist) || !strings.EqualFold(mapping.ContainerType, "project") {
 			continue
 		}
 		if mapping.WorkspaceID != nil && activeWorkspaceID != nil && *mapping.WorkspaceID == *activeWorkspaceID {
-			targetName = mapping.ContainerRef
-			break
-		}
-		if mapping.ProjectID != nil && strings.EqualFold(*mapping.ProjectID, activeProjectID) {
 			targetName = mapping.ContainerRef
 			break
 		}

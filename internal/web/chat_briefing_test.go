@@ -45,7 +45,11 @@ func TestClassifyAndExecuteSystemActionShowBriefingRendersArtifact(t *testing.T)
 	if err != nil {
 		t.Fatalf("ensureDefaultProjectRecord: %v", err)
 	}
-	workWorkspace, err := app.store.CreateWorkspace("Work", project.RootPath, store.SphereWork)
+	workDir := filepath.Join(t.TempDir(), "work")
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(work): %v", err)
+	}
+	workWorkspace, err := app.store.CreateWorkspace("Work", workDir, store.SphereWork)
 	if err != nil {
 		t.Fatalf("CreateWorkspace(work): %v", err)
 	}
@@ -164,7 +168,7 @@ func TestClassifyAndExecuteSystemActionShowBriefingRendersArtifact(t *testing.T)
 	}
 	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
 
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(workWorkspace.DirPath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
@@ -189,7 +193,7 @@ func TestClassifyAndExecuteSystemActionShowBriefingRendersArtifact(t *testing.T)
 	if path != ".tabura/artifacts/briefing/2026-03-09.md" {
 		t.Fatalf("payload path = %q", path)
 	}
-	rendered, err := os.ReadFile(filepath.Join(project.RootPath, path))
+	rendered, err := os.ReadFile(filepath.Join(workWorkspace.DirPath, path))
 	if err != nil {
 		t.Fatalf("ReadFile(rendered): %v", err)
 	}

@@ -209,7 +209,7 @@ func expandWorkspacePathReference(raw string) string {
 	return value
 }
 
-func (a *App) fallbackWorkspaceForProjectKey(projectKey string) (*store.Workspace, error) {
+func (a *App) fallbackWorkspaceForWorkspacePath(workspacePath string) (*store.Workspace, error) {
 	workspaces, err := a.store.ListWorkspaces()
 	if err != nil {
 		return nil, err
@@ -219,11 +219,11 @@ func (a *App) fallbackWorkspaceForProjectKey(projectKey string) (*store.Workspac
 			return &workspaces[i], nil
 		}
 	}
-	key := strings.TrimSpace(projectKey)
+	key := strings.TrimSpace(workspacePath)
 	if key == "" {
 		return nil, nil
 	}
-	project, err := a.store.GetProjectByProjectKey(key)
+	project, err := a.store.GetProjectByWorkspacePath(key)
 	if err != nil {
 		return nil, nil
 	}
@@ -238,10 +238,10 @@ func (a *App) fallbackWorkspaceForProjectKey(projectKey string) (*store.Workspac
 	return &workspace, nil
 }
 
-func (a *App) resolveWorkspaceReference(projectKey string, raw string) (store.Workspace, error) {
+func (a *App) resolveWorkspaceReference(workspacePath string, raw string) (store.Workspace, error) {
 	ref := strings.TrimSpace(raw)
 	if ref == "" || strings.EqualFold(ref, "here") || strings.EqualFold(ref, "this workspace") {
-		workspace, err := a.fallbackWorkspaceForProjectKey(projectKey)
+		workspace, err := a.fallbackWorkspaceForWorkspacePath(workspacePath)
 		if err != nil {
 			return store.Workspace{}, err
 		}
@@ -363,12 +363,12 @@ type workspacePromptContext struct {
 	OpenItemCount   int
 }
 
-func (a *App) loadWorkspacePromptContext(projectKey string) *workspacePromptContext {
-	project, err := a.store.GetProjectByProjectKey(strings.TrimSpace(projectKey))
+func (a *App) loadWorkspacePromptContext(workspacePath string) *workspacePromptContext {
+	project, err := a.store.GetProjectByWorkspacePath(strings.TrimSpace(workspacePath))
 	if err != nil {
 		return nil
 	}
-	anchor, err := a.fallbackWorkspaceForProjectKey(projectKey)
+	anchor, err := a.fallbackWorkspaceForWorkspacePath(workspacePath)
 	if err != nil || anchor == nil {
 		return nil
 	}
@@ -420,13 +420,13 @@ func prependWorkspacePromptContext(prompt string, ctx *workspacePromptContext) s
 	return b.String()
 }
 
-func (a *App) applyWorkspacePromptContext(projectKey, prompt string) string {
-	return prependWorkspacePromptContext(prompt, a.loadWorkspacePromptContext(projectKey))
+func (a *App) applyWorkspacePromptContext(workspacePath, prompt string) string {
+	return prependWorkspacePromptContext(prompt, a.loadWorkspacePromptContext(workspacePath))
 }
 
-func (a *App) workspaceActionBaseDir(projectKey string) string {
-	if strings.TrimSpace(projectKey) != "" {
-		if project, err := a.store.GetProjectByProjectKey(projectKey); err == nil {
+func (a *App) workspaceActionBaseDir(workspacePath string) string {
+	if strings.TrimSpace(workspacePath) != "" {
+		if project, err := a.store.GetProjectByWorkspacePath(workspacePath); err == nil {
 			if root := strings.TrimSpace(project.RootPath); root != "" {
 				return root
 			}
@@ -441,7 +441,7 @@ func (a *App) workspaceActionBaseDir(projectKey string) string {
 	return "."
 }
 
-func (a *App) resolveWorkspaceCreationPath(projectKey, rawPath string) string {
+func (a *App) resolveWorkspaceCreationPath(workspacePath, rawPath string) string {
 	pathRef := expandWorkspacePathReference(rawPath)
 	if pathRef == "" {
 		return ""
@@ -449,7 +449,7 @@ func (a *App) resolveWorkspaceCreationPath(projectKey, rawPath string) string {
 	if filepath.IsAbs(pathRef) {
 		return filepath.Clean(pathRef)
 	}
-	return filepath.Clean(filepath.Join(a.workspaceActionBaseDir(projectKey), pathRef))
+	return filepath.Clean(filepath.Join(a.workspaceActionBaseDir(workspacePath), pathRef))
 }
 
 func slugifyWorkspaceName(raw string) string {
@@ -515,7 +515,7 @@ func summarizeWorkspaces(workspaces []store.Workspace, openCounts map[int64]int,
 	return strings.TrimSpace(b.String())
 }
 
-func (a *App) createWorkspaceFromDialogIntent(projectKey string, action *SystemAction) (store.Workspace, bool, error) {
+func (a *App) createWorkspaceFromDialogIntent(workspacePath string, action *SystemAction) (store.Workspace, bool, error) {
 	scratch := systemActionBoolParam(action.Params, "scratch")
 	var (
 		dirPath string
@@ -526,7 +526,7 @@ func (a *App) createWorkspaceFromDialogIntent(projectKey string, action *SystemA
 		if name == "" {
 			name = scratchWorkspaceName(time.Now())
 		}
-		baseDir := filepath.Join(a.workspaceActionBaseDir(projectKey), ".tabura", "artifacts", "tmp")
+		baseDir := filepath.Join(a.workspaceActionBaseDir(workspacePath), ".tabura", "artifacts", "tmp")
 		dirName := slugifyWorkspaceName(name)
 		if dirName == "" {
 			dirName = scratchWorkspaceName(time.Now())
@@ -536,7 +536,7 @@ func (a *App) createWorkspaceFromDialogIntent(projectKey string, action *SystemA
 			dirPath = filepath.Join(baseDir, dirName+"-"+time.Now().UTC().Format("150405"))
 		}
 	} else {
-		dirPath = a.resolveWorkspaceCreationPath(projectKey, systemActionWorkspaceRef(action.Params))
+		dirPath = a.resolveWorkspaceCreationPath(workspacePath, systemActionWorkspaceRef(action.Params))
 		if dirPath == "" {
 			return store.Workspace{}, false, errors.New("workspace path is required")
 		}
@@ -614,7 +614,7 @@ func (a *App) executeListWorkspacesResponse(workspaces []store.Workspace, openCo
 }
 
 func (a *App) executeCreateWorkspaceAction(session store.ChatSession, action *SystemAction) (string, map[string]interface{}, error) {
-	workspace, scratch, err := a.createWorkspaceFromDialogIntent(session.ProjectKey, action)
+	workspace, scratch, err := a.createWorkspaceFromDialogIntent(session.WorkspacePath, action)
 	if err != nil {
 		return "", nil, err
 	}
@@ -634,7 +634,7 @@ func (a *App) executeCreateWorkspaceAction(session store.ChatSession, action *Sy
 }
 
 func (a *App) executeRenameWorkspaceAction(session store.ChatSession, action *SystemAction) (string, map[string]interface{}, error) {
-	workspace, err := a.resolveWorkspaceReference(session.ProjectKey, systemActionWorkspaceRef(action.Params))
+	workspace, err := a.resolveWorkspaceReference(session.WorkspacePath, systemActionWorkspaceRef(action.Params))
 	if err != nil {
 		return "", nil, err
 	}
@@ -652,7 +652,7 @@ func (a *App) executeRenameWorkspaceAction(session store.ChatSession, action *Sy
 }
 
 func (a *App) executeDeleteWorkspaceAction(session store.ChatSession, action *SystemAction) (string, map[string]interface{}, error) {
-	workspace, err := a.resolveWorkspaceReference(session.ProjectKey, systemActionWorkspaceRef(action.Params))
+	workspace, err := a.resolveWorkspaceReference(session.WorkspacePath, systemActionWorkspaceRef(action.Params))
 	if err != nil {
 		return "", nil, err
 	}
@@ -668,7 +668,7 @@ func (a *App) executeDeleteWorkspaceAction(session store.ChatSession, action *Sy
 }
 
 func (a *App) executeShowWorkspaceDetailsAction(session store.ChatSession, action *SystemAction) (string, map[string]interface{}, error) {
-	workspace, err := a.resolveWorkspaceReference(session.ProjectKey, systemActionWorkspaceRef(action.Params))
+	workspace, err := a.resolveWorkspaceReference(session.WorkspacePath, systemActionWorkspaceRef(action.Params))
 	if err != nil {
 		return "", nil, err
 	}

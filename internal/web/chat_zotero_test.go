@@ -36,18 +36,14 @@ func TestClassifyAndExecuteSystemActionSyncZotero(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	targetProject, err := app.store.CreateProject("Tabura", "tabura", filepath.Join(t.TempDir(), "tabura"), "managed", "", "", false)
-	if err != nil {
-		t.Fatalf("CreateProject() error: %v", err)
-	}
-	if _, err := app.store.SetContainerMapping(store.ExternalProviderZotero, "collection", "Papers", &workspace.ID, nil, nil); err != nil {
+	if _, err := app.store.SetContainerMapping(store.ExternalProviderZotero, "collection", "Papers", &workspace.ID, nil); err != nil {
 		t.Fatalf("SetContainerMapping() error: %v", err)
 	}
-	project, err := app.ensureDefaultProjectRecord()
+	startupWorkspace, err := app.ensureStartupWorkspace()
 	if err != nil {
-		t.Fatalf("ensure default project: %v", err)
+		t.Fatalf("ensure startup workspace: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSessionForWorkspace(startupWorkspace.ID)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -100,9 +96,6 @@ func TestClassifyAndExecuteSystemActionSyncZotero(t *testing.T) {
 	}
 	if readingItem.WorkspaceID == nil || *readingItem.WorkspaceID != workspace.ID {
 		t.Fatalf("reading item workspace_id = %v, want %d", readingItem.WorkspaceID, workspace.ID)
-	}
-	if readingItem.ProjectID == nil || *readingItem.ProjectID != targetProject.ID {
-		t.Fatalf("reading item project_id = %v, want %q", readingItem.ProjectID, targetProject.ID)
 	}
 	if readingItem.ArtifactID == nil || *readingItem.ArtifactID != referenceArtifact.ID {
 		t.Fatalf("reading item artifact_id = %v, want %d", readingItem.ArtifactID, referenceArtifact.ID)
@@ -163,11 +156,11 @@ func TestClassifyAndExecuteSystemActionSyncZoteroSkipsMissingDatabase(t *testing
 	app.intentLLMURL = ""
 
 	createZoteroTestAccount(t, app, filepath.Join(t.TempDir(), "missing.sqlite"))
-	project, err := app.ensureDefaultProjectRecord()
+	startupWorkspace, err := app.ensureStartupWorkspace()
 	if err != nil {
-		t.Fatalf("ensure default project: %v", err)
+		t.Fatalf("ensure startup workspace: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSessionForWorkspace(startupWorkspace.ID)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}

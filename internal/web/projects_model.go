@@ -49,7 +49,7 @@ func (a *App) buildProjectAPIModel(project store.Project) (projectAPIModel, erro
 		Kind:                     project.Kind,
 		RootPath:                 project.RootPath,
 		Sphere:                   sphere,
-		ProjectKey:               project.ProjectKey,
+		WorkspacePath:            project.WorkspacePath,
 		MCPURL:                   strings.TrimSpace(project.MCPURL),
 		IsDefault:                project.IsDefault,
 		ChatSessionID:            session.ID,
@@ -101,8 +101,8 @@ func (a *App) buildProjectActivityItem(project store.Project) (projectActivityIt
 	}
 	unread, reviewPending := a.projectUnreadState(project, session)
 	return projectActivityItem{
-		ProjectID:     project.ID,
-		ProjectKey:    project.ProjectKey,
+		WorkspaceID:   project.ID,
+		WorkspacePath: project.WorkspacePath,
 		Name:          project.Name,
 		Kind:          project.Kind,
 		ChatSessionID: session.ID,
@@ -114,15 +114,15 @@ func (a *App) buildProjectActivityItem(project store.Project) (projectActivityIt
 }
 
 func (a *App) projectUnreadState(project store.Project, session store.ChatSession) (bool, bool) {
-	lastSeenAt, lastCanvasChangeAt, lastReviewSubmitAt := a.projectAttention.snapshot(project.ProjectKey)
+	lastSeenAt, lastCanvasChangeAt, lastReviewSubmitAt := a.projectAttention.snapshot(project.WorkspacePath)
 	dbSeenAt := project.LastOpenedAt * int64(time.Second)
 	if lastSeenAt < dbSeenAt {
 		lastSeenAt = dbSeenAt
 	}
 	reviewPending := strings.EqualFold(session.Mode, "review") && lastCanvasChangeAt > lastReviewSubmitAt
 	unread := lastCanvasChangeAt > lastSeenAt || reviewPending
-	activeProjectID, err := a.store.ActiveProjectID()
-	if err == nil && strings.TrimSpace(activeProjectID) == project.ID && !reviewPending {
+	activeWorkspaceID, err := a.store.ActiveWorkspaceID()
+	if err == nil && strings.TrimSpace(activeWorkspaceID) == project.ID && !reviewPending {
 		unread = false
 	}
 	return unread, reviewPending
@@ -132,7 +132,7 @@ func (a *App) markProjectSeen(project store.Project) error {
 	if err := a.store.TouchProject(project.ID); err != nil {
 		return err
 	}
-	a.projectAttention.markSeen(project.ProjectKey, time.Now().UnixNano())
+	a.projectAttention.markSeen(project.WorkspacePath, time.Now().UnixNano())
 	return nil
 }
 
@@ -141,31 +141,31 @@ func (a *App) markProjectReviewSubmitted(project store.Project) error {
 	if err := a.store.TouchProject(project.ID); err != nil {
 		return err
 	}
-	a.projectAttention.markSeen(project.ProjectKey, now)
-	a.projectAttention.markReviewSubmitted(project.ProjectKey, now)
+	a.projectAttention.markSeen(project.WorkspacePath, now)
+	a.projectAttention.markReviewSubmitted(project.WorkspacePath, now)
 	return nil
 }
 
-func (a *App) markProjectOutput(projectKey string) {
-	key := strings.TrimSpace(projectKey)
+func (a *App) markProjectOutput(workspacePath string) {
+	key := strings.TrimSpace(workspacePath)
 	if key == "" {
 		return
 	}
 	now := time.Now().UnixNano()
 	a.projectAttention.markCanvasChange(key, now)
-	project, err := a.store.GetProjectByProjectKey(key)
+	project, err := a.store.GetProjectByWorkspacePath(key)
 	if err != nil {
 		return
 	}
-	activeProjectID, err := a.store.ActiveProjectID()
-	if err != nil || strings.TrimSpace(activeProjectID) != project.ID {
+	activeWorkspaceID, err := a.store.ActiveWorkspaceID()
+	if err != nil || strings.TrimSpace(activeWorkspaceID) != project.ID {
 		return
 	}
-	session, err := a.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := a.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil || strings.EqualFold(session.Mode, "review") {
 		return
 	}
-	a.projectAttention.markSeen(project.ProjectKey, now)
+	a.projectAttention.markSeen(project.WorkspacePath, now)
 }
 
 func chooseLoopbackPort() (int, error) {
@@ -258,8 +258,8 @@ func (a *App) ensureProjectCanvasReady(project store.Project) error {
 	return a.startProjectServe(sessionID, project.RootPath)
 }
 
-func (a *App) activateProject(projectID string) (store.Project, error) {
-	project, err := a.store.GetProject(strings.TrimSpace(projectID))
+func (a *App) activateProject(workspaceID string) (store.Project, error) {
+	project, err := a.store.GetProject(strings.TrimSpace(workspaceID))
 	if err != nil {
 		return store.Project{}, err
 	}
@@ -275,7 +275,7 @@ func (a *App) activateProject(projectID string) (store.Project, error) {
 	if err := a.ensureProjectCanvasReady(project); err != nil {
 		return store.Project{}, err
 	}
-	if err := a.store.SetActiveProjectID(project.ID); err != nil {
+	if err := a.store.SetActiveWorkspaceID(project.ID); err != nil {
 		return store.Project{}, err
 	}
 	if _, err := a.ensureWorkspaceForProject(project, true); err != nil {
@@ -294,12 +294,12 @@ func (a *App) handleProjectActivate(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
-	projectID := strings.TrimSpace(chi.URLParam(r, "project_id"))
-	if projectID == "" {
-		http.Error(w, "project_id is required", http.StatusBadRequest)
+	workspaceID := strings.TrimSpace(chi.URLParam(r, "workspace_id"))
+	if workspaceID == "" {
+		http.Error(w, "workspace_id is required", http.StatusBadRequest)
 		return
 	}
-	project, err := a.activateProject(projectID)
+	project, err := a.activateProject(workspaceID)
 	if err != nil {
 		if isNoRows(err) {
 			http.Error(w, "project not found", http.StatusNotFound)
@@ -314,15 +314,15 @@ func (a *App) handleProjectActivate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]interface{}{
-		"ok":                true,
-		"active_project_id": project.ID,
-		"active_sphere":     a.runtimeActiveSphere(),
-		"project":           item,
+		"ok":                  true,
+		"active_workspace_id": project.ID,
+		"active_sphere":       a.runtimeActiveSphere(),
+		"workspace":           item,
 	})
 }
 
-func (a *App) updateProjectChatModel(projectID, rawModel, rawReasoningEffort string) (store.Project, error) {
-	project, err := a.store.GetProject(strings.TrimSpace(projectID))
+func (a *App) updateProjectChatModel(workspaceID, rawModel, rawReasoningEffort string) (store.Project, error) {
+	project, err := a.store.GetProject(strings.TrimSpace(workspaceID))
 	if err != nil {
 		return store.Project{}, err
 	}
@@ -355,7 +355,7 @@ func (a *App) updateProjectChatModel(projectID, rawModel, rawReasoningEffort str
 	if err != nil {
 		return store.Project{}, err
 	}
-	a.resetProjectChatAppSession(updated.ProjectKey)
+	a.resetProjectChatAppSession(updated.WorkspacePath)
 	return updated, nil
 }
 
@@ -363,9 +363,9 @@ func (a *App) handleProjectChatModelUpdate(w http.ResponseWriter, r *http.Reques
 	if !a.requireAuth(w, r) {
 		return
 	}
-	projectID := strings.TrimSpace(chi.URLParam(r, "project_id"))
-	if projectID == "" {
-		http.Error(w, "project_id is required", http.StatusBadRequest)
+	workspaceID := strings.TrimSpace(chi.URLParam(r, "workspace_id"))
+	if workspaceID == "" {
+		http.Error(w, "workspace_id is required", http.StatusBadRequest)
 		return
 	}
 	var req projectChatModelRequest
@@ -373,7 +373,7 @@ func (a *App) handleProjectChatModelUpdate(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	project, err := a.updateProjectChatModel(projectID, req.Model, req.ReasoningEffort)
+	project, err := a.updateProjectChatModel(workspaceID, req.Model, req.ReasoningEffort)
 	if err != nil {
 		if isNoRows(err) {
 			http.Error(w, "project not found", http.StatusNotFound)
@@ -388,13 +388,13 @@ func (a *App) handleProjectChatModelUpdate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, map[string]interface{}{
-		"ok":      true,
-		"project": item,
+		"ok":        true,
+		"workspace": item,
 	})
 }
 
-func (a *App) resolveProjectByIDOrActive(projectID string) (store.Project, error) {
-	id := strings.TrimSpace(projectID)
+func (a *App) resolveProjectByIDOrActive(workspaceID string) (store.Project, error) {
+	id := strings.TrimSpace(workspaceID)
 	if id == "" || strings.EqualFold(id, "active") {
 		projects, defaultProject, err := a.listProjectsWithDefault()
 		if err != nil {
@@ -442,8 +442,8 @@ func (a *App) handleProjectContext(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
-	projectID := strings.TrimSpace(chi.URLParam(r, "project_id"))
-	project, err := a.resolveProjectByIDOrActive(projectID)
+	workspaceID := strings.TrimSpace(chi.URLParam(r, "workspace_id"))
+	project, err := a.resolveProjectByIDOrActive(workspaceID)
 	if err != nil {
 		if isNoRows(err) {
 			http.Error(w, "project not found", http.StatusNotFound)
@@ -463,9 +463,9 @@ func (a *App) handleProjectContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]interface{}{
-		"ok":                true,
-		"active_project_id": project.ID,
-		"project":           item,
+		"ok":                  true,
+		"active_workspace_id": project.ID,
+		"workspace":           item,
 	})
 }
 

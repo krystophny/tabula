@@ -61,7 +61,7 @@ async function setHarnessMeetingState(
           id: 'test',
           name: 'Test',
           kind: 'managed',
-          project_key: '/tmp/test',
+          workspace_path: '/tmp/test',
           root_path: '/tmp',
           chat_session_id: 'chat-1',
           canvas_session_id: 'local',
@@ -71,7 +71,7 @@ async function setHarnessMeetingState(
           run_state: { active_turns: 0, queued_turns: 0, is_working: false, status: 'idle' },
         },
       ];
-      appState.activeProjectId = 'test';
+      appState.activeWorkspaceId = 'test';
       appState.hasArtifact = false;
       appState.companionEnabled = Boolean(nextState.enabled);
       appState.companionIdleSurface = String(nextState.idleSurface || 'robot');
@@ -91,7 +91,7 @@ async function setHarnessMeetingState(
     (window as any).__companionRuntimeState = {
       state: String(nextState.runtimeState || 'idle'),
       reason: String(nextState.reason || nextState.runtimeState || 'idle'),
-      project_key: '/tmp/test',
+      workspace_path: '/tmp/test',
       updated_at: Math.floor(Date.now() / 1000),
     };
     const sessions = (window as any).__mockWsSessions || [];
@@ -99,7 +99,7 @@ async function setHarnessMeetingState(
     if (chatWs?.injectEvent) {
       chatWs.injectEvent({
         type: 'companion_state',
-        project_key: '/tmp/test',
+        workspace_path: '/tmp/test',
         state: String(nextState.runtimeState || 'idle'),
         reason: String(nextState.reason || nextState.runtimeState || 'idle'),
         companion_enabled: Boolean(nextState.enabled),
@@ -128,25 +128,25 @@ async function waitForMeetingSurface(page: Page, state: string, surface: string)
   });
 }
 
-async function switchToProject(page: Page, projectID: string) {
-  await page.evaluate((targetProjectID) => {
+async function switchToProject(page: Page, workspaceID: string) {
+  await page.evaluate((targetWorkspaceID) => {
     const buttons = Array.from(document.querySelectorAll('#edge-top-projects .edge-project-btn'));
-    const button = buttons.find((node) => node.textContent?.trim().toLowerCase() === targetProjectID);
+    const button = buttons.find((node) => node.textContent?.trim().toLowerCase() === targetWorkspaceID);
     if (!(button instanceof HTMLButtonElement)) {
-      throw new Error(`project button not found: ${targetProjectID}`);
+      throw new Error(`project button not found: ${targetWorkspaceID}`);
     }
     button.click();
-  }, projectID);
+  }, workspaceID);
   await expect.poll(async () => page.evaluate(() => {
     const app = (window as any)._taburaApp;
     const state = app?.getState?.();
     if (!state) return null;
     return {
-      activeProjectId: state.activeProjectId || '',
+      activeWorkspaceId: state.activeWorkspaceId || '',
       projectSwitchInFlight: Boolean(state.projectSwitchInFlight),
     };
   })).toEqual({
-    activeProjectId: projectID,
+    activeWorkspaceId: workspaceID,
     projectSwitchInFlight: false,
   });
 }

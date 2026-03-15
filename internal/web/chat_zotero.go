@@ -165,8 +165,8 @@ func (a *App) zoteroProjectHintFromTags(tags []string) *string {
 		if err != nil {
 			continue
 		}
-		projectID := project.ID
-		return &projectID
+		workspaceID := project.ID
+		return &workspaceID
 	}
 	return nil
 }
@@ -503,7 +503,7 @@ func (a *App) upsertZoteroAnnotationArtifact(account store.ExternalAccount, anno
 	return artifact, nil
 }
 
-func (a *App) persistZoteroReadingItem(account store.ExternalAccount, artifact store.Artifact, item zotero.Item, mapping *store.ExternalContainerMapping, inferredProjectID *string, annotations []zotero.Annotation) (store.Item, error) {
+func (a *App) persistZoteroReadingItem(account store.ExternalAccount, artifact store.Artifact, item zotero.Item, mapping *store.ExternalContainerMapping, inferredWorkspaceID *string, annotations []zotero.Annotation) (store.Item, error) {
 	title := zoteroReadingTitle(item)
 	source := store.ExternalProviderZotero
 	sourceRef := zoteroReadingSourceRef(item.Key)
@@ -516,9 +516,6 @@ func (a *App) persistZoteroReadingItem(account store.ExternalAccount, artifact s
 		}
 		if mapping != nil {
 			updates.WorkspaceID = mappedWorkspaceUpdate(mapping)
-		}
-		if projectID := mappedProjectUpdateWithFallback(mapping, inferredProjectID); projectID != nil {
-			updates.ProjectID = projectID
 		}
 		if mapping == nil || mapping.WorkspaceID == nil {
 			sphere := account.Sphere
@@ -559,9 +556,6 @@ func (a *App) persistZoteroReadingItem(account store.ExternalAccount, artifact s
 	}
 	if mapping != nil && mapping.WorkspaceID != nil {
 		opts.WorkspaceID = mapping.WorkspaceID
-	}
-	if projectID := mappedProjectUpdateWithFallback(mapping, inferredProjectID); projectID != nil {
-		opts.ProjectID = projectID
 	}
 	if opts.WorkspaceID == nil {
 		sphere := account.Sphere
@@ -687,7 +681,7 @@ func (a *App) syncZoteroAccount(ctx context.Context, account store.ExternalAccou
 		if err != nil {
 			return zoteroSyncResult{}, err
 		}
-		inferredProjectID := a.zoteroProjectHintFromTags(item.Tags)
+		inferredWorkspaceID := a.zoteroProjectHintFromTags(item.Tags)
 		referenceArtifact, err := a.upsertZoteroReferenceArtifact(account, item, names, mapping)
 		if err != nil {
 			return zoteroSyncResult{}, err
@@ -713,7 +707,7 @@ func (a *App) syncZoteroAccount(ctx context.Context, account store.ExternalAccou
 			for _, annotations := range annotationByAttachment {
 				allAnnotations = append(allAnnotations, annotations...)
 			}
-			persisted, err := a.persistZoteroReadingItem(account, referenceArtifact, item, mapping, inferredProjectID, allAnnotations)
+			persisted, err := a.persistZoteroReadingItem(account, referenceArtifact, item, mapping, inferredWorkspaceID, allAnnotations)
 			if err != nil {
 				return zoteroSyncResult{}, err
 			}

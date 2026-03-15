@@ -180,7 +180,7 @@ func TestExecuteSystemActionPlanUsesRequestHintForPlaceholder(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(project.RootPath, "README.md"), []byte("hello-readme"), 0o644); err != nil {
 		t.Fatalf("write README.md: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestExecuteSystemActionPlanResolvesLastShellPathPlaceholder(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(project.RootPath, "README.md"), []byte("hello-readme"), 0o644); err != nil {
 		t.Fatalf("write README.md: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestExecuteSystemActionPlanPrefersRootReadmeMarkdownOverNestedExtensionless
 	if err := os.WriteFile(filepath.Join(project.RootPath, "gcc-build", "gcc", "include-fixed", "README"), []byte("nested-readme"), 0o644); err != nil {
 		t.Fatalf("write nested README: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestExecuteSystemActionPlanPrefersRootClaudeMarkdownCaseInsensitive(t *test
 	if err := os.WriteFile(filepath.Join(project.RootPath, "tmp", "docs", "claude"), []byte("nested-claude"), 0o644); err != nil {
 		t.Fatalf("write nested claude: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -414,7 +414,7 @@ func TestClassifyAndExecuteSystemActionWithoutIntentLLMDoesNotAutoOpen(t *testin
 	if err := os.WriteFile(filepath.Join(project.RootPath, "README.md"), []byte("hello-readme"), 0o644); err != nil {
 		t.Fatalf("write README.md: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -473,7 +473,7 @@ func TestClassifyAndExecuteSystemActionToolRequestsUseQwenPlan(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(project.RootPath, "README.md"), []byte("hello-readme"), 0o644); err != nil {
 		t.Fatalf("write README.md: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -520,7 +520,7 @@ func TestClassifyAndExecuteSystemActionFallsThroughWhenLLMUnavailable(t *testing
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -566,7 +566,7 @@ func TestClassifyAndExecuteSystemActionWithIntentLLMHandlesSupportedPlan(t *test
 	if err := os.WriteFile(filepath.Join(project.RootPath, "README.md"), []byte("hello-readme"), 0o644); err != nil {
 		t.Fatalf("write README.md: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -626,7 +626,7 @@ func TestClassifyAndExecuteSystemActionHandlesMalformedQwenJSON(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(project.RootPath, "README.md"), []byte("hello-readme"), 0o644); err != nil {
 		t.Fatalf("write README.md: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -865,7 +865,7 @@ func TestClassifyAndExecuteSystemActionOpenRequestUsesFallbackPlanWhenLLMPlanInv
 	if err := os.WriteFile(filepath.Join(project.RootPath, "README.md"), []byte("fallback-readme"), 0o644); err != nil {
 		t.Fatalf("write README.md: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -913,7 +913,7 @@ func TestExecuteSystemActionPlanPrefersTopLevelSiblingForPlaceholder(t *testing.
 	if err := os.WriteFile(filepath.Join(project.RootPath, "pr", "92613", "CLAUDE.md"), []byte("nested-claude"), 0o644); err != nil {
 		t.Fatalf("write nested CLAUDE.md: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -1019,7 +1019,7 @@ func TestClassifyAndExecuteSystemActionUsesClarificationContextForOpenFileFollow
 	}
 	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
 
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}

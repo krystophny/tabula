@@ -19,7 +19,7 @@ const consumeRuntimeReloadContext = (...args) => refs.consumeRuntimeReloadContex
 const fetchRuntimeMeta = (...args) => refs.fetchRuntimeMeta(...args);
 const applyRuntimePreferences = (...args) => refs.applyRuntimePreferences(...args);
 const initHotwordLifecycle = (...args) => refs.initHotwordLifecycle(...args);
-const resolveInitialProjectID = (...args) => refs.resolveInitialProjectID(...args);
+const resolveInitialWorkspaceID = (...args) => refs.resolveInitialWorkspaceID(...args);
 const applyRuntimeReasoningEffortOptions = (...args) => refs.applyRuntimeReasoningEffortOptions(...args);
 const fetchProjects = (...args) => refs.fetchProjects(...args);
 const startRuntimeReloadWatcher = (...args) => refs.startRuntimeReloadWatcher(...args);
@@ -126,9 +126,9 @@ async function init() {
   await initHotwordLifecycle();
 
   await fetchProjects();
-  const initialProjectID = resolveInitialProjectID();
-  if (!initialProjectID) throw new Error('no workspaces available');
-  await switchProject(initialProjectID);
+  const initialWorkspaceID = resolveInitialWorkspaceID();
+  if (!initialWorkspaceID) throw new Error('no workspaces available');
+  await switchProject(initialWorkspaceID);
   if (isMobileSilent()) {
     const edgeRight = document.getElementById('edge-right');
     if (edgeRight) edgeRight.classList.add('edge-pinned');

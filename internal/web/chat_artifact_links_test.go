@@ -96,7 +96,7 @@ func TestClassifyAndExecuteSystemActionLinkWorkspaceArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateArtifact() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestClassifyAndExecuteSystemActionListLinkedArtifactsUsesActiveWorkspace(t 
 	if err := app.store.LinkArtifactToWorkspace(targetWorkspace.ID, artifact.ID); err != nil {
 		t.Fatalf("LinkArtifactToWorkspace() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}

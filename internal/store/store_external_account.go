@@ -46,7 +46,7 @@ func normalizeExternalAccountProvider(raw string) string {
 	}
 }
 
-func normalizeExternalAccountLabel(raw string) string {
+func normalizeExternalAccountName(raw string) string {
 	return strings.TrimSpace(raw)
 }
 
@@ -122,7 +122,7 @@ func scanExternalAccount(
 		&out.ID,
 		&out.Sphere,
 		&out.Provider,
-		&out.Label,
+		&out.AccountName,
 		&out.ConfigJSON,
 		&enabled,
 		&out.CreatedAt,
@@ -132,7 +132,8 @@ func scanExternalAccount(
 	}
 	out.Sphere = normalizeExternalAccountSphere(out.Sphere)
 	out.Provider = normalizeExternalAccountProvider(out.Provider)
-	out.Label = normalizeExternalAccountLabel(out.Label)
+	out.AccountName = normalizeExternalAccountName(out.AccountName)
+	out.Label = out.AccountName
 	out.ConfigJSON = strings.TrimSpace(out.ConfigJSON)
 	if out.ConfigJSON == "" {
 		out.ConfigJSON = "{}"
@@ -143,7 +144,7 @@ func scanExternalAccount(
 
 func (s *Store) ListExternalAccounts(sphere string) ([]ExternalAccount, error) {
 	cleanSphere := strings.TrimSpace(sphere)
-	query := `SELECT id, ` + scopedContextSelect("context_external_accounts", "account_id", "external_accounts.id") + ` AS sphere, provider, label, config_json, enabled, created_at, updated_at
+	query := `SELECT id, ` + scopedContextSelect("context_external_accounts", "account_id", "external_accounts.id") + ` AS sphere, provider, label AS account_name, config_json, enabled, created_at, updated_at
 	 FROM external_accounts`
 	args := []any{}
 	if cleanSphere != "" {
@@ -154,7 +155,7 @@ func (s *Store) ListExternalAccounts(sphere string) ([]ExternalAccount, error) {
 		query += ` WHERE ` + scopedContextFilter("context_external_accounts", "account_id", "external_accounts.id")
 		args = append(args, cleanSphere)
 	}
-	query += ` ORDER BY lower(label), id`
+	query += ` ORDER BY lower(account_name), id`
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -178,10 +179,10 @@ func (s *Store) ListExternalAccountsByProvider(provider string) ([]ExternalAccou
 		return nil, errors.New("external account provider is required")
 	}
 	rows, err := s.db.Query(
-		`SELECT id, `+scopedContextSelect("context_external_accounts", "account_id", "external_accounts.id")+` AS sphere, provider, label, config_json, enabled, created_at, updated_at
+		`SELECT id, `+scopedContextSelect("context_external_accounts", "account_id", "external_accounts.id")+` AS sphere, provider, label AS account_name, config_json, enabled, created_at, updated_at
 		 FROM external_accounts
 		 WHERE provider = ?
-		 ORDER BY lower(label), id`,
+		 ORDER BY lower(account_name), id`,
 		cleanProvider,
 	)
 	if err != nil {
@@ -202,7 +203,7 @@ func (s *Store) ListExternalAccountsByProvider(provider string) ([]ExternalAccou
 
 func (s *Store) GetExternalAccount(id int64) (ExternalAccount, error) {
 	row := s.db.QueryRow(
-		`SELECT id, `+scopedContextSelect("context_external_accounts", "account_id", "external_accounts.id")+` AS sphere, provider, label, config_json, enabled, created_at, updated_at
+		`SELECT id, `+scopedContextSelect("context_external_accounts", "account_id", "external_accounts.id")+` AS sphere, provider, label AS account_name, config_json, enabled, created_at, updated_at
 		 FROM external_accounts
 		 WHERE id = ?`,
 		id,
@@ -210,7 +211,7 @@ func (s *Store) GetExternalAccount(id int64) (ExternalAccount, error) {
 	return scanExternalAccount(row)
 }
 
-func (s *Store) CreateExternalAccount(sphere, provider, label string, config map[string]any) (ExternalAccount, error) {
+func (s *Store) CreateExternalAccount(sphere, provider, accountName string, config map[string]any) (ExternalAccount, error) {
 	cleanSphere := normalizeExternalAccountSphere(sphere)
 	if cleanSphere == "" {
 		return ExternalAccount{}, errors.New("external account sphere is required")
@@ -219,9 +220,9 @@ func (s *Store) CreateExternalAccount(sphere, provider, label string, config map
 	if cleanProvider == "" {
 		return ExternalAccount{}, errors.New("external account provider is required")
 	}
-	cleanLabel := normalizeExternalAccountLabel(label)
-	if cleanLabel == "" {
-		return ExternalAccount{}, errors.New("external account label is required")
+	cleanAccountName := normalizeExternalAccountName(accountName)
+	if cleanAccountName == "" {
+		return ExternalAccount{}, errors.New("external account name is required")
 	}
 	configJSON, err := normalizeExternalAccountConfig(config)
 	if err != nil {
@@ -231,7 +232,7 @@ func (s *Store) CreateExternalAccount(sphere, provider, label string, config map
 		`INSERT INTO external_accounts (provider, label, config_json, enabled)
 		 VALUES (?, ?, ?, 1)`,
 		cleanProvider,
-		cleanLabel,
+		cleanAccountName,
 		configJSON,
 	)
 	if err != nil {
@@ -269,11 +270,11 @@ func (s *Store) UpdateExternalAccount(id int64, update ExternalAccountUpdate) er
 		}
 	}
 
-	label := current.Label
-	if update.Label != nil {
-		label = normalizeExternalAccountLabel(*update.Label)
-		if label == "" {
-			return errors.New("external account label is required")
+	accountName := current.AccountName
+	if update.AccountName != nil {
+		accountName = normalizeExternalAccountName(*update.AccountName)
+		if accountName == "" {
+			return errors.New("external account name is required")
 		}
 	}
 
@@ -295,7 +296,7 @@ func (s *Store) UpdateExternalAccount(id int64, update ExternalAccountUpdate) er
 		 SET provider = ?, label = ?, config_json = ?, enabled = ?, updated_at = datetime('now')
 		 WHERE id = ?`,
 		provider,
-		label,
+		accountName,
 		configJSON,
 		boolToInt(enabled),
 		id,
@@ -348,18 +349,18 @@ func sanitizeExternalAccountEnvSegment(raw string) string {
 	return clean
 }
 
-func ExternalAccountPasswordEnvVar(provider, label string) string {
+func ExternalAccountPasswordEnvVar(provider, accountName string) string {
 	return fmt.Sprintf(
 		"TABURA_%s_PASSWORD_%s",
 		sanitizeExternalAccountEnvSegment(provider),
-		sanitizeExternalAccountEnvSegment(label),
+		sanitizeExternalAccountEnvSegment(accountName),
 	)
 }
 
-func ExternalAccountTokenPath(configDir, provider, label string) string {
+func ExternalAccountTokenPath(configDir, provider, accountName string) string {
 	base := strings.TrimSpace(configDir)
 	fileName := strings.ToLower(
-		sanitizeExternalAccountEnvSegment(provider)+"_"+sanitizeExternalAccountEnvSegment(label),
+		sanitizeExternalAccountEnvSegment(provider)+"_"+sanitizeExternalAccountEnvSegment(accountName),
 	) + ".json"
 	return filepath.Join(base, "tokens", fileName)
 }

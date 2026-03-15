@@ -118,7 +118,7 @@ export function parseUnifiedDiffFiles(diffText) {
 
 export function setPrReviewDrawerOpen(open) {
   const canShowSidebar = state.prReviewMode
-    || Boolean(state.activeProjectId)
+    || Boolean(state.activeWorkspaceId)
     || state.liveSessionActive
     || state.liveSessionMode === LIVE_SESSION_MODE_DIALOGUE
     || state.liveSessionMode === LIVE_SESSION_MODE_MEETING;
@@ -133,7 +133,7 @@ export function setPrReviewDrawerOpen(open) {
 
 export function setFileSidebarAvailability() {
   const enabled = state.prReviewMode
-    || Boolean(state.activeProjectId)
+    || Boolean(state.activeWorkspaceId)
     || state.liveSessionActive
     || state.liveSessionMode === LIVE_SESSION_MODE_DIALOGUE
     || state.liveSessionMode === LIVE_SESSION_MODE_MEETING;
@@ -248,8 +248,8 @@ export function renderPrReviewFileList() {
 }
 
 export async function loadWorkspaceBrowserPath(path = '') {
-  const projectID = String(state.activeProjectId || '').trim();
-  if (!projectID) {
+  const workspaceID = String(state.activeWorkspaceId || '').trim();
+  if (!workspaceID) {
     state.workspaceBrowserPath = '';
     state.workspaceBrowserEntries = [];
     state.workspaceBrowserLoading = false;
@@ -270,7 +270,7 @@ export async function loadWorkspaceBrowserPath(path = '') {
       throw new Error(detail || 'file list unavailable');
     }
     const payload = await resp.json();
-    if (projectID !== String(state.activeProjectId || '')) return false;
+    if (workspaceID !== String(state.activeWorkspaceId || '')) return false;
     state.workspaceBrowserPath = normalizeWorkspaceBrowserPath(payload?.path || requestedPath);
     state.workspaceBrowserActivePath = state.workspaceBrowserPath;
     state.workspaceBrowserActiveIsDir = Boolean(state.workspaceBrowserPath);
@@ -285,7 +285,7 @@ export async function loadWorkspaceBrowserPath(path = '') {
     renderPrReviewFileList();
     return true;
   } catch (err) {
-    if (projectID !== String(state.activeProjectId || '')) return false;
+    if (workspaceID !== String(state.activeWorkspaceId || '')) return false;
     state.workspaceBrowserLoading = false;
     state.workspaceBrowserError = String(err?.message || err || 'file list unavailable');
     state.workspaceBrowserEntries = [];
@@ -388,8 +388,8 @@ export async function openWorkspaceSidebarFile(path) {
 }
 
 export async function openCompanionWorkspaceView(viewKind, filePath) {
-  const projectID = String(state.activeProjectId || '').trim();
-  if (!projectID) return false;
+  const workspaceID = String(state.activeWorkspaceId || '').trim();
+  if (!workspaceID) return false;
   const titles = {
     transcript: MEETING_TRANSCRIPT_LABEL,
     summary: MEETING_SUMMARY_LABEL,
@@ -434,7 +434,7 @@ export function clearMeetingSummaryItemsPanel() {
 }
 
 export function isCurrentMeetingSummaryView(filePath) {
-  return Boolean(String(state.activeProjectId || '').trim())
+  return Boolean(String(state.activeWorkspaceId || '').trim())
     && normalizeWorkspaceBrowserPath(state.workspaceOpenFilePath) === normalizeWorkspaceBrowserPath(filePath);
 }
 

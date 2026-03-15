@@ -218,12 +218,12 @@ func (h *Host) ExecuteCommand(ctx context.Context, req CommandRequest) (CommandR
 		metadata["args"] = req.Args
 	}
 	resp, err := h.call(ctx, ext, HookRequest{
-		Hook:       cmd.info.Hook,
-		SessionID:  strings.TrimSpace(req.SessionID),
-		ProjectKey: strings.TrimSpace(req.ProjectKey),
-		OutputMode: strings.TrimSpace(req.OutputMode),
-		Text:       strings.TrimSpace(req.Text),
-		Metadata:   metadata,
+		Hook:          cmd.info.Hook,
+		SessionID:     strings.TrimSpace(req.SessionID),
+		WorkspacePath: strings.TrimSpace(req.WorkspacePath),
+		OutputMode:    strings.TrimSpace(req.OutputMode),
+		Text:          strings.TrimSpace(req.Text),
+		Metadata:      metadata,
 	})
 	if err != nil {
 		return CommandResult{}, err

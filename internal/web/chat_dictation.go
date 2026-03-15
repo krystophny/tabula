@@ -206,12 +206,12 @@ func (a *App) dictationScratchPath(state dictationSessionState) string {
 	return defaultCanvasTempFilePath("dictation-" + seed)
 }
 
-func (a *App) writeDictationDraft(projectKey string, state *dictationSessionState) error {
+func (a *App) writeDictationDraft(workspacePath string, state *dictationSessionState) error {
 	if state == nil {
 		return fmt.Errorf("dictation state is required")
 	}
 	state.ScratchPath = a.dictationScratchPath(*state)
-	cwd := a.cwdForProjectKey(projectKey)
+	cwd := a.cwdForWorkspacePath(workspacePath)
 	absPath, title, err := resolveCanvasFilePath(cwd, state.ScratchPath)
 	if err != nil {
 		return err
@@ -303,7 +303,7 @@ func (a *App) handleChatSessionDictationAppend(w http.ResponseWriter, r *http.Re
 		return
 	}
 	state.DraftText = shapeDictationDraft(state.TargetKind, state.ArtifactTitle, state.Transcript)
-	if err := a.writeDictationDraft(session.ProjectKey, &state); err != nil {
+	if err := a.writeDictationDraft(session.WorkspacePath, &state); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -331,7 +331,7 @@ func (a *App) handleChatSessionDictationDraftPut(w http.ResponseWriter, r *http.
 		http.Error(w, "draft_text is required", http.StatusBadRequest)
 		return
 	}
-	if err := a.writeDictationDraft(session.ProjectKey, &state); err != nil {
+	if err := a.writeDictationDraft(session.WorkspacePath, &state); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

@@ -566,11 +566,6 @@ func TestItemStateViewAPIFiltersBySourceWorkspaceAndProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	project, err := app.store.CreateProject("Inbox Project", "inbox-project", filepath.Join(t.TempDir(), "project"), "managed", "", "canvas-inbox", false)
-	if err != nil {
-		t.Fatalf("CreateProject() error: %v", err)
-	}
-	projectID := project.ID
 	past := time.Now().UTC().Add(-1 * time.Hour).Format(time.RFC3339)
 	sourceTodoist := store.ExternalProviderTodoist
 	sourceExchange := store.ExternalProviderExchange
@@ -585,7 +580,6 @@ func TestItemStateViewAPIFiltersBySourceWorkspaceAndProject(t *testing.T) {
 	if _, err := app.store.CreateItem("Workspace todoist", store.ItemOptions{
 		State:        store.ItemStateInbox,
 		WorkspaceID:  &workspace.ID,
-		ProjectID:    &projectID,
 		VisibleAfter: &past,
 		Source:       &sourceTodoist,
 	}); err != nil {
@@ -621,7 +615,7 @@ func TestItemStateViewAPIFiltersBySourceWorkspaceAndProject(t *testing.T) {
 		t.Fatalf("unassigned title = %q, want %q", got, "Unassigned todoist")
 	}
 
-	rrProject := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/inbox?project_id="+projectID, nil)
+	rrProject := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/inbox?workspace_id="+strconv.FormatInt(workspace.ID, 10), nil)
 	if rrProject.Code != http.StatusOK {
 		t.Fatalf("project inbox status = %d, want 200: %s", rrProject.Code, rrProject.Body.String())
 	}

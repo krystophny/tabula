@@ -83,19 +83,19 @@ func TestSourcePollerLoopRunsRunnerUntilCanceled(t *testing.T) {
 
 func TestSyncNowCommandForcesImmediateRun(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	startupWorkspace, err := app.ensureStartupWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureStartupWorkspace: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSessionForWorkspace(startupWorkspace.ID)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)
 	}
 	app.sourceSync = &stubSourceSyncRunner{
 		runNowResult: tabsync.RunResult{
 			Accounts: []tabsync.AccountResult{
-				{AccountID: 1, Provider: "todoist", Label: "main"},
-				{AccountID: 2, Provider: "bear", Label: "notes", Skipped: true, Reason: "interval"},
+				{AccountID: 1, Provider: "todoist", AccountName: "main"},
+				{AccountID: 2, Provider: "bear", AccountName: "notes", Skipped: true, Reason: "interval"},
 			},
 		},
 	}
@@ -132,10 +132,6 @@ func TestSyncSourcesNowPopulatesUnifiedInboxAcrossProviders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	project, err := app.store.CreateProject("Ops Program", "ops-program", filepath.Join(t.TempDir(), "program"), "managed", "", "", false)
-	if err != nil {
-		t.Fatalf("CreateProject() error: %v", err)
-	}
 	todoAccount, err := app.store.CreateExternalAccount(store.SphereWork, store.ExternalProviderTodoist, "Todoist Work", map[string]any{})
 	if err != nil {
 		t.Fatalf("CreateExternalAccount(todoist) error: %v", err)
@@ -144,10 +140,10 @@ func TestSyncSourcesNowPopulatesUnifiedInboxAcrossProviders(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateExternalAccount(imap) error: %v", err)
 	}
-	if _, err := app.store.SetContainerMapping(store.ExternalProviderTodoist, "project", "alpha", &workspace.ID, &project.ID, nil); err != nil {
+	if _, err := app.store.SetContainerMapping(store.ExternalProviderTodoist, "project", "alpha", &workspace.ID, nil); err != nil {
 		t.Fatalf("SetContainerMapping(todoist) error: %v", err)
 	}
-	if _, err := app.store.SetContainerMapping(store.ExternalProviderIMAP, "folder", "INBOX/Work", &workspace.ID, &project.ID, nil); err != nil {
+	if _, err := app.store.SetContainerMapping(store.ExternalProviderIMAP, "folder", "INBOX/Work", &workspace.ID, nil); err != nil {
 		t.Fatalf("SetContainerMapping(imap) error: %v", err)
 	}
 
@@ -227,9 +223,6 @@ func TestSyncSourcesNowPopulatesUnifiedInboxAcrossProviders(t *testing.T) {
 	if todoItem.WorkspaceID == nil || *todoItem.WorkspaceID != workspace.ID {
 		t.Fatalf("todo workspace = %v, want %d", todoItem.WorkspaceID, workspace.ID)
 	}
-	if todoItem.ProjectID == nil || *todoItem.ProjectID != project.ID {
-		t.Fatalf("todo project = %v, want %q", todoItem.ProjectID, project.ID)
-	}
 	if todoItem.Sphere != store.SphereWork {
 		t.Fatalf("todo sphere = %q, want %q", todoItem.Sphere, store.SphereWork)
 	}
@@ -246,9 +239,6 @@ func TestSyncSourcesNowPopulatesUnifiedInboxAcrossProviders(t *testing.T) {
 	}
 	if imapItem.WorkspaceID == nil || *imapItem.WorkspaceID != workspace.ID {
 		t.Fatalf("imap workspace = %v, want %d", imapItem.WorkspaceID, workspace.ID)
-	}
-	if imapItem.ProjectID == nil || *imapItem.ProjectID != project.ID {
-		t.Fatalf("imap project = %v, want %q", imapItem.ProjectID, project.ID)
 	}
 	if _, err := app.store.GetBindingByRemote(imapAccount.ID, store.ExternalProviderIMAP, "message", "msg-1"); err != nil {
 		t.Fatalf("GetBindingByRemote(imap artifact) error: %v", err)
@@ -304,11 +294,11 @@ func TestSyncSourcesNowPopulatesUnifiedInboxAcrossProviders(t *testing.T) {
 func TestBroadcastItemsIngestedWebsocketNotification(t *testing.T) {
 	app := newAuthedTestApp(t)
 
-	project, err := app.ensureDefaultProjectRecord()
+	startupWorkspace, err := app.ensureStartupWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureStartupWorkspace: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSessionForWorkspace(startupWorkspace.ID)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession() error: %v", err)
 	}

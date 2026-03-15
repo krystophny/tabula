@@ -473,8 +473,8 @@ func buildIdeaNoteRefinementBody(kind, subject, summary string) string {
 	}
 }
 
-func (a *App) resolveActiveIdeaNoteArtifact(projectKey string) (*store.Artifact, error) {
-	canvas := a.resolveCanvasContext(projectKey)
+func (a *App) resolveActiveIdeaNoteArtifact(workspacePath string) (*store.Artifact, error) {
+	canvas := a.resolveCanvasContext(workspacePath)
 	if canvas == nil || strings.TrimSpace(canvas.ArtifactTitle) == "" {
 		return nil, errors.New("open the idea note on canvas first")
 	}
@@ -492,8 +492,8 @@ func (a *App) resolveActiveIdeaNoteArtifact(projectKey string) (*store.Artifact,
 	return nil, errors.New("active canvas artifact is not an idea note")
 }
 
-func (a *App) renderIdeaNoteOnCanvas(projectKey, title string, meta ideaNoteMeta) error {
-	canvasSessionID := strings.TrimSpace(a.resolveCanvasSessionID(projectKey))
+func (a *App) renderIdeaNoteOnCanvas(workspacePath, title string, meta ideaNoteMeta) error {
+	canvasSessionID := strings.TrimSpace(a.resolveCanvasSessionID(workspacePath))
 	if canvasSessionID == "" {
 		return errors.New("canvas session is not available")
 	}
@@ -514,7 +514,7 @@ func (a *App) refineConversationIdea(session store.ChatSession, action *SystemAc
 	if action == nil {
 		return "", nil, errors.New("idea action is required")
 	}
-	artifact, err := a.resolveActiveIdeaNoteArtifact(session.ProjectKey)
+	artifact, err := a.resolveActiveIdeaNoteArtifact(session.WorkspacePath)
 	if err != nil {
 		return "", nil, err
 	}
@@ -533,7 +533,7 @@ func (a *App) refineConversationIdea(session store.ChatSession, action *SystemAc
 	if err := a.store.UpdateArtifact(artifact.ID, store.ArtifactUpdate{MetaJSON: metaJSON}); err != nil {
 		return "", nil, err
 	}
-	if err := a.renderIdeaNoteOnCanvas(session.ProjectKey, meta.Title, meta); err != nil {
+	if err := a.renderIdeaNoteOnCanvas(session.WorkspacePath, meta.Title, meta); err != nil {
 		return "", nil, err
 	}
 	return fmt.Sprintf("Updated idea note with %s.", refinement.Heading), map[string]interface{}{

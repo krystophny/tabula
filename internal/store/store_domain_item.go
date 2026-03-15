@@ -28,15 +28,13 @@ func (s *Store) CreateItem(title string, opts ItemOptions) (Item, error) {
 		}
 		opts.WorkspaceID = inferredWorkspaceID
 	}
-	if opts.ProjectID == nil && opts.WorkspaceID != nil && *opts.WorkspaceID > 0 {
-		workspace, err := s.GetWorkspace(*opts.WorkspaceID)
-		if err != nil {
+	if opts.WorkspaceID != nil && *opts.WorkspaceID > 0 {
+		if _, err := s.GetWorkspace(*opts.WorkspaceID); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return Item{}, errors.New("foreign key constraint failed: workspace_id")
 			}
 			return Item{}, err
 		}
-		opts.ProjectID = workspace.ProjectID
 	}
 	itemSphere, err := s.resolveItemSphere(opts.WorkspaceID, opts.Sphere)
 	if err != nil {
@@ -50,12 +48,11 @@ func (s *Store) CreateItem(title string, opts ItemOptions) (Item, error) {
 
 	res, err := tx.Exec(
 		`INSERT INTO items (
-			title, state, workspace_id, project_id, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			title, state, workspace_id, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		cleanTitle,
 		cleanState,
 		opts.WorkspaceID,
-		normalizeOptionalProjectID(opts.ProjectID),
 		opts.ArtifactID,
 		opts.ActorID,
 		normalizeOptionalString(opts.VisibleAfter),
@@ -92,7 +89,7 @@ func (s *Store) CreateItem(title string, opts ItemOptions) (Item, error) {
 
 func (s *Store) GetItem(id int64) (Item, error) {
 	return scanItem(s.db.QueryRow(
-		`SELECT id, title, state, workspace_id, project_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
+		`SELECT id, title, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 		 FROM items
 		 WHERE id = ?`,
 		id,
@@ -106,7 +103,7 @@ func (s *Store) GetItemBySource(source, sourceRef string) (Item, error) {
 		return Item{}, errors.New("item source and source_ref are required")
 	}
 	return scanItem(s.db.QueryRow(
-		`SELECT id, title, state, workspace_id, project_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
+		`SELECT id, title, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 		 FROM items
 		 WHERE source = ? AND source_ref = ?`,
 		cleanSource,
@@ -134,11 +131,10 @@ func (s *Store) UpsertItemFromSource(source, sourceRef, title string, workspaceI
 		}
 		res, err := s.db.Exec(
 			`UPDATE items
-			 SET title = ?, workspace_id = ?, project_id = ?, updated_at = datetime('now')
+			 SET title = ?, workspace_id = ?, updated_at = datetime('now')
 		 WHERE id = ?`,
 			cleanTitle,
 			workspaceID,
-			normalizeOptionalProjectID(existing.ProjectID),
 			existing.ID,
 		)
 		if err != nil {
@@ -323,10 +319,6 @@ func (s *Store) UpdateItem(id int64, updates ItemUpdate) error {
 		} else {
 			targetWorkspaceID = nil
 		}
-	}
-	if updates.ProjectID != nil {
-		parts = append(parts, "project_id = ?")
-		args = append(args, normalizeOptionalProjectID(updates.ProjectID))
 	}
 	if updates.Sphere != nil {
 		if targetWorkspaceID != nil {

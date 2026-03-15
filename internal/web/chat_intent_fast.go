@@ -252,21 +252,6 @@ var deterministicFastPaths = []deterministicFastPathParser{
 	},
 	{
 		Spec: deterministicFastPathSpec{
-			Name:     "project",
-			Route:    "text",
-			Actions:  []string{"assign_workspace_project", "show_workspace_project", "create_project", "list_project_workspaces", "sync_project"},
-			Triggers: []string{"what project is this?"},
-		},
-		Parse: func(text string, _ deterministicFastPathContext) *deterministicFastPathMatch {
-			action := parseInlineProjectIntent(text)
-			if action == nil {
-				return nil
-			}
-			return fastPathSingleAction("project", action, fixedFastPathFailure("I couldn't resolve the project request: "))
-		},
-	},
-	{
-		Spec: deterministicFastPathSpec{
 			Name:     "runtime_control",
 			Route:    "text",
 			Actions:  []string{"toggle_silent", "toggle_live_dialogue", "cancel_work", "show_status"},

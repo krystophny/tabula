@@ -31,17 +31,6 @@ func normalizeExternalContainerRef(raw string) string {
 	return strings.TrimSpace(raw)
 }
 
-func normalizeExternalContainerProjectID(raw *string) (*string, error) {
-	if raw == nil {
-		return nil, nil
-	}
-	clean := strings.TrimSpace(*raw)
-	if clean == "" {
-		return nil, errors.New("external container mapping project_id is required")
-	}
-	return &clean, nil
-}
-
 func scanExternalContainerMapping(
 	row interface {
 		Scan(dest ...any) error
@@ -50,7 +39,6 @@ func scanExternalContainerMapping(
 	var (
 		out         ExternalContainerMapping
 		workspaceID sql.NullInt64
-		projectID   sql.NullString
 		sphere      sql.NullString
 	)
 	if err := row.Scan(
@@ -59,7 +47,6 @@ func scanExternalContainerMapping(
 		&out.ContainerType,
 		&out.ContainerRef,
 		&workspaceID,
-		&projectID,
 		&sphere,
 	); err != nil {
 		return ExternalContainerMapping{}, err
@@ -68,12 +55,6 @@ func scanExternalContainerMapping(
 	out.ContainerType = normalizeExternalContainerType(out.ContainerType)
 	out.ContainerRef = normalizeExternalContainerRef(out.ContainerRef)
 	out.WorkspaceID = nullInt64Pointer(workspaceID)
-	if projectID.Valid {
-		clean := strings.TrimSpace(projectID.String)
-		if clean != "" {
-			out.ProjectID = &clean
-		}
-	}
 	if sphere.Valid {
 		clean := normalizeExternalAccountSphere(sphere.String)
 		if clean != "" {
@@ -97,7 +78,7 @@ func (s *Store) GetContainerMapping(provider, containerType, containerRef string
 		return ExternalContainerMapping{}, errors.New("external container mapping container_ref is required")
 	}
 	return scanExternalContainerMapping(s.db.QueryRow(
-		`SELECT id, provider, container_type, container_ref, workspace_id, project_id, `+scopedContextSelect("context_external_container_mappings", "mapping_id", "external_container_mappings.id")+` AS sphere
+		`SELECT id, provider, container_type, container_ref, workspace_id, `+scopedContextSelect("context_external_container_mappings", "mapping_id", "external_container_mappings.id")+` AS sphere
 		 FROM external_container_mappings
 		 WHERE lower(provider) = lower(?) AND lower(container_type) = lower(?) AND lower(container_ref) = lower(?)`,
 		cleanProvider,
@@ -106,7 +87,7 @@ func (s *Store) GetContainerMapping(provider, containerType, containerRef string
 	))
 }
 
-func (s *Store) SetContainerMapping(provider, containerType, containerRef string, workspaceID *int64, projectID *string, sphere *string) (ExternalContainerMapping, error) {
+func (s *Store) SetContainerMapping(provider, containerType, containerRef string, workspaceID *int64, sphere *string) (ExternalContainerMapping, error) {
 	cleanProvider := normalizeExternalAccountProvider(provider)
 	if cleanProvider == "" {
 		return ExternalContainerMapping{}, errors.New("external container mapping provider is required")
@@ -119,10 +100,6 @@ func (s *Store) SetContainerMapping(provider, containerType, containerRef string
 	if cleanRef == "" {
 		return ExternalContainerMapping{}, errors.New("external container mapping container_ref is required")
 	}
-	normalizedProjectID, err := normalizeExternalContainerProjectID(projectID)
-	if err != nil {
-		return ExternalContainerMapping{}, err
-	}
 	var normalizedSphere *string
 	if sphere != nil {
 		cleanSphere := normalizeExternalAccountSphere(*sphere)
@@ -131,8 +108,8 @@ func (s *Store) SetContainerMapping(provider, containerType, containerRef string
 		}
 		normalizedSphere = &cleanSphere
 	}
-	if workspaceID == nil && normalizedProjectID == nil && normalizedSphere == nil {
-		return ExternalContainerMapping{}, errors.New("external container mapping requires workspace_id, project_id, or sphere")
+	if workspaceID == nil && normalizedSphere == nil {
+		return ExternalContainerMapping{}, errors.New("external container mapping requires workspace_id or sphere")
 	}
 	if workspaceID != nil {
 		if *workspaceID <= 0 {
@@ -142,24 +119,16 @@ func (s *Store) SetContainerMapping(provider, containerType, containerRef string
 			return ExternalContainerMapping{}, err
 		}
 	}
-	if normalizedProjectID != nil {
-		if _, err := s.GetProject(*normalizedProjectID); err != nil {
-			return ExternalContainerMapping{}, err
-		}
-	}
-
 	if _, err := s.db.Exec(
 		`INSERT INTO external_container_mappings (
-			provider, container_type, container_ref, workspace_id, project_id
-		) VALUES (?, ?, ?, ?, ?)
+			provider, container_type, container_ref, workspace_id
+		) VALUES (?, ?, ?, ?)
 		ON CONFLICT DO UPDATE SET
-			workspace_id = excluded.workspace_id,
-			project_id = excluded.project_id`,
+			workspace_id = excluded.workspace_id`,
 		cleanProvider,
 		cleanType,
 		cleanRef,
 		nullablePositiveID(valueOrZero(workspaceID)),
-		normalizeOptionalString(normalizedProjectID),
 	); err != nil {
 		return ExternalContainerMapping{}, err
 	}
@@ -177,7 +146,7 @@ func (s *Store) SetContainerMapping(provider, containerType, containerRef string
 
 func (s *Store) ListContainerMappings(provider string) ([]ExternalContainerMapping, error) {
 	cleanProvider := strings.TrimSpace(provider)
-	query := `SELECT id, provider, container_type, container_ref, workspace_id, project_id, ` + scopedContextSelect("context_external_container_mappings", "mapping_id", "external_container_mappings.id") + ` AS sphere
+	query := `SELECT id, provider, container_type, container_ref, workspace_id, ` + scopedContextSelect("context_external_container_mappings", "mapping_id", "external_container_mappings.id") + ` AS sphere
 		FROM external_container_mappings`
 	args := []any{}
 	if cleanProvider != "" {

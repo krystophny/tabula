@@ -38,9 +38,9 @@ func handleParticipantStart(a *App, conn *chatWSConn, chatSessionID string) {
 		return
 	}
 
-	projectKey, cfg := a.resolveParticipantProject(chatSessionID)
-	if projectKey == "" {
-		projectKey = "default"
+	workspacePath, cfg := a.resolveParticipantProject(chatSessionID)
+	if workspacePath == "" {
+		workspacePath = "default"
 	}
 	if !cfg.CompanionEnabled || !a.LivePolicy().UsesParticipantCapture() {
 		_ = conn.writeJSON(participantMessage{Type: "participant_error", Error: "meeting mode is disabled"})
@@ -55,10 +55,10 @@ func handleParticipantStart(a *App, conn *chatWSConn, chatSessionID string) {
 		if chatSession, sessionErr := a.store.GetChatSession(chatSessionID); sessionErr == nil && chatSession.WorkspaceID > 0 {
 			sess, err = a.store.AddParticipantSessionForWorkspace(chatSession.WorkspaceID, string(cfgJSON))
 		} else {
-			sess, err = a.store.AddParticipantSession(projectKey, string(cfgJSON))
+			sess, err = a.store.AddParticipantSession(workspacePath, string(cfgJSON))
 		}
 	} else {
-		sess, err = a.store.AddParticipantSession(projectKey, string(cfgJSON))
+		sess, err = a.store.AddParticipantSession(workspacePath, string(cfgJSON))
 	}
 	if err != nil {
 		_ = conn.writeJSON(participantMessage{Type: "participant_error", Error: fmt.Sprintf("failed to create session: %v", err)})
@@ -72,10 +72,10 @@ func handleParticipantStart(a *App, conn *chatWSConn, chatSessionID string) {
 	_ = a.store.AddParticipantEvent(sess.ID, 0, "session_started", "{}")
 	a.syncProjectCompanionArtifactsBySessionID(sess.ID)
 	_ = conn.writeJSON(participantMessage{Type: "participant_started", SessionID: sess.ID})
-	a.broadcastCompanionRuntimeState(projectKey, companionRuntimeSnapshot{
+	a.broadcastCompanionRuntimeState(workspacePath, companionRuntimeSnapshot{
 		State:                companionRuntimeStateListening,
 		Reason:               "participant_started",
-		ProjectKey:           projectKey,
+		WorkspacePath:        workspacePath,
 		ParticipantSessionID: sess.ID,
 	})
 	log.Printf("participant session started: %s", sess.ID)
@@ -95,11 +95,11 @@ func handleParticipantBinaryChunk(a *App, conn *chatWSConn, data []byte) {
 		conn.participantBuf = nil
 		conn.participantMu.Unlock()
 		if session, err := a.store.GetParticipantSession(sessionID); err == nil {
-			a.broadcastCompanionRuntimeState(session.ProjectKey, companionRuntimeSnapshot{
+			a.broadcastCompanionRuntimeState(session.WorkspacePath, companionRuntimeSnapshot{
 				State:                companionRuntimeStateError,
 				Reason:               "participant_chunk_too_large",
 				Error:                "participant chunk exceeds max size",
-				ProjectKey:           session.ProjectKey,
+				WorkspacePath:        session.WorkspacePath,
 				ParticipantSessionID: sessionID,
 			})
 		}
@@ -119,18 +119,18 @@ func transcribeParticipantChunk(a *App, conn *chatWSConn, sessionID string, buf 
 	defer zeroizeBytes(buf)
 
 	participantSession, sessionErr := a.store.GetParticipantSession(sessionID)
-	projectKey := ""
+	workspacePath := ""
 	if sessionErr == nil {
-		projectKey = participantSession.ProjectKey
+		workspacePath = participantSession.WorkspacePath
 	}
 
 	if a.sttURL == "" {
-		if projectKey != "" {
-			a.broadcastCompanionRuntimeState(projectKey, companionRuntimeSnapshot{
+		if workspacePath != "" {
+			a.broadcastCompanionRuntimeState(workspacePath, companionRuntimeSnapshot{
 				State:                companionRuntimeStateError,
 				Reason:               "stt_not_configured",
 				Error:                "STT sidecar is not configured",
-				ProjectKey:           projectKey,
+				WorkspacePath:        workspacePath,
 				ParticipantSessionID: sessionID,
 			})
 		}
@@ -144,12 +144,12 @@ func transcribeParticipantChunk(a *App, conn *chatWSConn, sessionID string, buf 
 	normalizedMimeType, normalizedData, normalizeErr := stt.NormalizeForWhisper(mimeType, buf)
 	if normalizeErr != nil {
 		log.Printf("participant normalize error: %v", normalizeErr)
-		if projectKey != "" {
-			a.broadcastCompanionRuntimeState(projectKey, companionRuntimeSnapshot{
+		if workspacePath != "" {
+			a.broadcastCompanionRuntimeState(workspacePath, companionRuntimeSnapshot{
 				State:                companionRuntimeStateError,
 				Reason:               "participant_normalize_failed",
 				Error:                fmt.Sprintf("audio normalization failed: %v", normalizeErr),
-				ProjectKey:           projectKey,
+				WorkspacePath:        workspacePath,
 				ParticipantSessionID: sessionID,
 			})
 		}
@@ -164,12 +164,12 @@ func transcribeParticipantChunk(a *App, conn *chatWSConn, sessionID string, buf 
 			return
 		}
 		log.Printf("participant transcribe error: %v", err)
-		if projectKey != "" {
-			a.broadcastCompanionRuntimeState(projectKey, companionRuntimeSnapshot{
+		if workspacePath != "" {
+			a.broadcastCompanionRuntimeState(workspacePath, companionRuntimeSnapshot{
 				State:                companionRuntimeStateError,
 				Reason:               "participant_transcribe_failed",
 				Error:                fmt.Sprintf("transcription failed: %v", err),
-				ProjectKey:           projectKey,
+				WorkspacePath:        workspacePath,
 				ParticipantSessionID: sessionID,
 			})
 		}
@@ -198,12 +198,12 @@ func transcribeParticipantChunk(a *App, conn *chatWSConn, sessionID string, buf 
 			return
 		}
 		log.Printf("participant store segment error: %v", err)
-		if projectKey != "" {
-			a.broadcastCompanionRuntimeState(projectKey, companionRuntimeSnapshot{
+		if workspacePath != "" {
+			a.broadcastCompanionRuntimeState(workspacePath, companionRuntimeSnapshot{
 				State:                companionRuntimeStateError,
 				Reason:               "participant_store_failed",
 				Error:                fmt.Sprintf("failed to store transcript segment: %v", err),
-				ProjectKey:           projectKey,
+				WorkspacePath:        workspacePath,
 				ParticipantSessionID: sessionID,
 			})
 		}
@@ -214,8 +214,8 @@ func transcribeParticipantChunk(a *App, conn *chatWSConn, sessionID string, buf 
 	_ = a.store.AddParticipantEvent(sessionID, seg.ID, "segment_committed", fmt.Sprintf(`{"text":%q}`, text))
 	a.captureMeetingNotesForSegment(sessionID, seg)
 	a.syncProjectCompanionArtifactsBySessionID(sessionID)
-	if projectKey != "" {
-		a.broadcastCompanionTranscriptEvent(projectKey, map[string]interface{}{
+	if workspacePath != "" {
+		a.broadcastCompanionTranscriptEvent(workspacePath, map[string]interface{}{
 			"type":                   companionEventTranscriptPartial,
 			"participant_session_id": sessionID,
 			"participant_segment_id": seg.ID,
@@ -223,7 +223,7 @@ func transcribeParticipantChunk(a *App, conn *chatWSConn, sessionID string, buf 
 			"status":                 "partial",
 			"latency_ms":             latencyMS,
 		})
-		a.broadcastCompanionTranscriptEvent(projectKey, map[string]interface{}{
+		a.broadcastCompanionTranscriptEvent(workspacePath, map[string]interface{}{
 			"type":                   companionEventTranscriptFinal,
 			"participant_session_id": sessionID,
 			"participant_segment_id": seg.ID,
@@ -231,10 +231,10 @@ func transcribeParticipantChunk(a *App, conn *chatWSConn, sessionID string, buf 
 			"status":                 seg.Status,
 			"latency_ms":             latencyMS,
 		})
-		a.broadcastCompanionRuntimeState(projectKey, companionRuntimeSnapshot{
+		a.broadcastCompanionRuntimeState(workspacePath, companionRuntimeSnapshot{
 			State:                companionRuntimeStateListening,
 			Reason:               "transcript_finalized",
-			ProjectKey:           projectKey,
+			WorkspacePath:        workspacePath,
 			ParticipantSessionID: sessionID,
 			ParticipantSegmentID: seg.ID,
 		})
@@ -278,7 +278,7 @@ func (a *App) maybeTriggerCompanionResponse(participantSessionID string, seg sto
 	cfg := defaultCompanionConfig()
 	if workspace, err := a.store.GetWorkspace(session.WorkspaceID); err == nil {
 		cfg = a.loadCompanionConfig(workspace)
-	} else if project, err := a.store.GetProjectByProjectKey(session.ProjectKey); err == nil {
+	} else if project, err := a.store.GetProjectByWorkspacePath(session.WorkspacePath); err == nil {
 		cfg = a.loadCompanionConfig(project)
 	}
 	if !a.LivePolicy().RequiresExplicitAddress() || !cfg.CompanionEnabled || !cfg.DirectedSpeechGateEnabled {
@@ -312,10 +312,10 @@ func (a *App) maybeTriggerCompanionResponse(participantSessionID string, seg sto
 	default:
 		return
 	}
-	a.broadcastCompanionRuntimeState(session.ProjectKey, companionRuntimeSnapshot{
+	a.broadcastCompanionRuntimeState(session.WorkspacePath, companionRuntimeSnapshot{
 		State:                companionRuntimeStateThinking,
 		Reason:               policy.Reason,
-		ProjectKey:           session.ProjectKey,
+		WorkspacePath:        session.WorkspacePath,
 		ParticipantSessionID: participantSessionID,
 		ParticipantSegmentID: seg.ID,
 	})
@@ -390,21 +390,21 @@ func releaseParticipantSession(a *App, conn *chatWSConn) (string, bool) {
 
 	zeroizeBytes(remainingBuf)
 
-	projectKey := ""
+	workspacePath := ""
 	cfg := defaultCompanionConfig()
 	if session, err := a.store.GetParticipantSession(sessionID); err == nil {
-		projectKey = session.ProjectKey
+		workspacePath = session.WorkspacePath
 		if workspace, workspaceErr := a.store.GetWorkspace(session.WorkspaceID); workspaceErr == nil {
 			cfg = a.loadCompanionConfig(workspace)
-		} else if project, projectErr := a.store.GetProjectByProjectKey(projectKey); projectErr == nil {
+		} else if project, projectErr := a.store.GetProjectByWorkspacePath(workspacePath); projectErr == nil {
 			cfg = a.loadCompanionConfig(project)
 		}
 	}
 	_ = a.store.EndParticipantSession(sessionID)
 	_ = a.store.AddParticipantEvent(sessionID, 0, "session_stopped", "{}")
 	a.syncProjectCompanionArtifactsBySessionID(sessionID)
-	if projectKey != "" {
-		a.settleCompanionRuntimeState(projectKey, cfg, "participant_stopped")
+	if workspacePath != "" {
+		a.settleCompanionRuntimeState(workspacePath, cfg, "participant_stopped")
 	}
 	return sessionID, true
 }
@@ -455,8 +455,8 @@ func (a *App) handleParticipantSessionsList(w http.ResponseWriter, r *http.Reque
 	if !a.requireAuth(w, r) {
 		return
 	}
-	projectKey := strings.TrimSpace(r.URL.Query().Get("project_key"))
-	sessions, err := a.store.ListParticipantSessions(projectKey)
+	workspacePath := strings.TrimSpace(r.URL.Query().Get("workspace_path"))
+	sessions, err := a.store.ListParticipantSessions(workspacePath)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

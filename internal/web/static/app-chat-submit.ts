@@ -95,7 +95,7 @@ function mergeCursorPayload(primary, fallback) {
 
 function buildSidebarSelectionCursorPayload() {
   const activeProject = Array.isArray(state.projects)
-    ? state.projects.find((project) => String(project?.id || '') === String(state.activeProjectId || ''))
+    ? state.projects.find((project) => String(project?.id || '') === String(state.activeWorkspaceId || ''))
     : null;
   if (!state.prReviewDrawerOpen) return null;
   if (state.fileSidebarMode === 'items') {

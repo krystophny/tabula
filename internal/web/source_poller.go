@@ -256,10 +256,10 @@ func sourceSyncResultPayload(result tabsync.RunResult) map[string]interface{} {
 	failed := 0
 	for _, account := range result.Accounts {
 		entry := map[string]interface{}{
-			"account_id": account.AccountID,
-			"provider":   account.Provider,
-			"label":      account.Label,
-			"skipped":    account.Skipped,
+			"account_id":   account.AccountID,
+			"provider":     account.Provider,
+			"account_name": account.AccountName,
+			"skipped":      account.Skipped,
 		}
 		if account.Reason != "" {
 			entry["reason"] = account.Reason

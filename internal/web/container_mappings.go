@@ -12,7 +12,6 @@ type containerMappingCreateRequest struct {
 	ContainerType string  `json:"container_type"`
 	ContainerRef  string  `json:"container_ref"`
 	WorkspaceID   *int64  `json:"workspace_id"`
-	ProjectID     *string `json:"project_id"`
 	Sphere        *string `json:"sphere"`
 }
 
@@ -51,7 +50,6 @@ func (a *App) handleContainerMappingCreate(w http.ResponseWriter, r *http.Reques
 		req.ContainerType,
 		req.ContainerRef,
 		req.WorkspaceID,
-		req.ProjectID,
 		req.Sphere,
 	)
 	if err != nil {

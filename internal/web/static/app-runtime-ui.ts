@@ -285,7 +285,7 @@ export function persistRuntimeReloadContext(reason = '') {
   const chatHistory = document.getElementById('chat-history');
   const context = {
     reason: String(reason || '').trim().toLowerCase(),
-    activeProjectId: String(state.activeProjectId || '').trim(),
+    activeWorkspaceId: String(state.activeWorkspaceId || '').trim(),
     edgeTopPinned: edgeTop?.classList.contains('edge-pinned') === true,
     edgeRightPinned: edgeRight?.classList.contains('edge-pinned') === true,
     chatScrollTop: chatHistory instanceof HTMLElement ? chatHistory.scrollTop : 0,
@@ -705,11 +705,11 @@ export function enterArtifactEditMode(clientX, clientY) {
 }
 
 export function activeProject() {
-  return state.projects.find((project) => project.id === state.activeProjectId) || null;
+  return state.projects.find((project) => project.id === state.activeWorkspaceId) || null;
 }
 
-export function activeProjectKey() {
-  return String(activeProject()?.project_key || '').trim();
+export function activeWorkspacePath() {
+  return String(activeProject()?.workspace_path || activeProject()?.workspace_path || '').trim();
 }
 
 export function normalizeCompanionIdleSurface(raw) {
@@ -815,7 +815,7 @@ export function applyCompanionState(payload: Record<string, any> = {}) {
   state.companionRuntimeReason = String(
     payload?.reason ?? payload?.runtime?.reason ?? state.companionRuntimeReason ?? '',
   ).trim();
-  state.companionProjectKey = String(payload?.project_key || activeProjectKey()).trim();
+  state.companionWorkspacePath = String(payload?.workspace_path || payload?.workspace_path || activeWorkspacePath()).trim();
   updateCompanionIdleSurface();
 }
 
@@ -824,7 +824,7 @@ export function resetCompanionState() {
   state.companionIdleSurface = COMPANION_IDLE_SURFACES.ROBOT;
   state.companionRuntimeState = COMPANION_RUNTIME_STATES.IDLE;
   state.companionRuntimeReason = 'idle';
-  state.companionProjectKey = '';
+  state.companionWorkspacePath = '';
   updateCompanionIdleSurface();
 }
 

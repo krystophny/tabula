@@ -99,7 +99,7 @@ func TestClassifyAndExecuteSystemActionSwitchWorkspace(t *testing.T) {
 	if err := app.store.SetActiveWorkspace(alpha.ID); err != nil {
 		t.Fatalf("SetActiveWorkspace(alpha) error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestClassifyAndExecuteSystemActionFocusWorkspaceUsesFuzzyNameMatching(t *te
 	if err != nil {
 		t.Fatalf("CreateWorkspace(focus) error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestClassifyAndExecuteSystemActionListWorkspaceItemsUsesActiveWorkspace(t *
 	if _, err := app.store.CreateItem("Alpha stray item", store.ItemOptions{WorkspaceID: &alpha.ID}); err != nil {
 		t.Fatalf("CreateItem(alpha) error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestClassifyAndExecuteSystemActionListWorkspacesUsesActiveSphereByDefault(t
 	if err := app.store.SetActiveSphere(store.SpherePrivate); err != nil {
 		t.Fatalf("SetActiveSphere() error: %v", err)
 	}
-	session, err := app.store.GetOrCreateChatSession(project.ProjectKey)
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -601,7 +601,7 @@ func TestApplyWorkspacePromptContextIncludesActiveWorkspaceSummary(t *testing.T)
 		t.Fatalf("CreateItem(done) error: %v", err)
 	}
 
-	prompt := app.applyWorkspacePromptContext(project.ProjectKey, "Conversation transcript:\nUSER:\nhello")
+	prompt := app.applyWorkspacePromptContext(project.WorkspacePath, "Conversation transcript:\nUSER:\nhello")
 	if !strings.Contains(prompt, "## Workspace Context") {
 		t.Fatalf("prompt missing workspace section: %q", prompt)
 	}
@@ -628,7 +628,7 @@ func TestApplyWorkspacePromptContextIncludesActiveWorkspaceSummary(t *testing.T)
 	}
 }
 
-func TestCwdForProjectKeyPrefersLinkedWorkspaceDir(t *testing.T) {
+func TestCwdForWorkspacePathPrefersLinkedWorkspaceDir(t *testing.T) {
 	app := newAuthedTestApp(t)
 
 	project, err := app.ensureDefaultProjectRecord()
@@ -653,8 +653,8 @@ func TestCwdForProjectKeyPrefersLinkedWorkspaceDir(t *testing.T) {
 		t.Fatalf("UpdateWorkspaceLocation() error: %v", err)
 	}
 
-	if got := app.cwdForProjectKey(project.ProjectKey); got != workspace.DirPath {
-		t.Fatalf("cwdForProjectKey() = %q, want %q", got, workspace.DirPath)
+	if got := app.cwdForWorkspacePath(project.WorkspacePath); got != workspace.DirPath {
+		t.Fatalf("cwdForWorkspacePath() = %q, want %q", got, workspace.DirPath)
 	}
 }
 

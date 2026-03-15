@@ -16,7 +16,6 @@ const itemsTableSchema = `CREATE TABLE IF NOT EXISTS items (
   title TEXT NOT NULL,
   state TEXT NOT NULL DEFAULT 'inbox' CHECK (state IN ('inbox', 'waiting', 'someday', 'done')),
   workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
-  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
   artifact_id INTEGER REFERENCES artifacts(id) ON DELETE SET NULL,
   actor_id INTEGER REFERENCES actors(id) ON DELETE SET NULL,
   visible_after TEXT,
@@ -36,7 +35,6 @@ CREATE TABLE IF NOT EXISTS workspaces (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
   dir_path TEXT NOT NULL UNIQUE,
-  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
   is_active INTEGER NOT NULL DEFAULT 0,
   is_daily INTEGER NOT NULL DEFAULT 0,
   daily_date TEXT,
@@ -108,8 +106,7 @@ CREATE TABLE IF NOT EXISTS external_container_mappings (
   provider TEXT NOT NULL,
   container_type TEXT NOT NULL,
   container_ref TEXT NOT NULL,
-  workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
-  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL
+  workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_external_container_mappings_identity
   ON external_container_mappings(lower(provider), lower(container_type), lower(container_ref));
@@ -197,10 +194,7 @@ CREATE TABLE IF NOT EXISTS context_time_entries (
 	if err := s.migrateItemTableStateSupport(); err != nil {
 		return err
 	}
-	if err := s.migrateItemProjectColumnSupport(); err != nil {
-		return err
-	}
-	if err := s.migrateWorkspaceProjectSupport(); err != nil {
+	if err := s.migrateProjectRemovalSupport(); err != nil {
 		return err
 	}
 	if err := s.migrateWorkspaceConfigSupport(); err != nil {
@@ -452,6 +446,9 @@ func normalizeItemState(state string) string {
 func (s *Store) ActiveSphere() (string, error) {
 	value, err := s.AppState("active_sphere")
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return SpherePrivate, nil
+		}
 		return "", err
 	}
 	if strings.TrimSpace(value) == "" {
@@ -505,10 +502,10 @@ func (s *Store) migrateItemTableStateSupport() error {
 	}
 	if _, err := tx.Exec(`
 INSERT INTO items (
-	id, title, state, workspace_id, project_id, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, created_at, updated_at
+	id, title, state, workspace_id, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, created_at, updated_at
 )
 SELECT
-	id, title, state, workspace_id, NULL, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, created_at, updated_at
+	id, title, state, workspace_id, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, created_at, updated_at
 FROM items_legacy
 `); err != nil {
 		return err
@@ -529,18 +526,6 @@ FROM items_legacy
 	return tx.Commit()
 }
 
-func (s *Store) migrateItemProjectColumnSupport() error {
-	tableColumns, err := s.tableColumnSet("items")
-	if err != nil {
-		return err
-	}
-	if tableColumns["items"]["project_id"] {
-		return nil
-	}
-	_, err = s.db.Exec(`ALTER TABLE items ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL`)
-	return err
-}
-
 func (s *Store) migrateItemSphereSupport() error {
 	return nil
 }
@@ -552,12 +537,11 @@ func scanWorkspace(
 ) (Workspace, error) {
 	var out Workspace
 	var isActive, isDaily int
-	var projectID, dailyDate sql.NullString
+	var dailyDate sql.NullString
 	err := row.Scan(
 		&out.ID,
 		&out.Name,
 		&out.DirPath,
-		&projectID,
 		&out.Sphere,
 		&isActive,
 		&isDaily,
@@ -575,12 +559,11 @@ func scanWorkspace(
 	}
 	out.Name = normalizeWorkspaceName(out.Name)
 	out.DirPath = normalizeWorkspacePath(out.DirPath)
-	out.ProjectID = nullStringPointer(projectID)
 	out.Sphere = normalizeSphere(out.Sphere)
 	out.MCPURL = strings.TrimSpace(out.MCPURL)
 	out.CanvasSessionID = strings.TrimSpace(out.CanvasSessionID)
-	out.ChatModel = normalizeProjectChatModel(out.ChatModel)
-	out.ChatModelReasoningEffort = normalizeProjectChatModelReasoningEffort(out.ChatModelReasoningEffort)
+	out.ChatModel = normalizeWorkspaceChatModel(out.ChatModel)
+	out.ChatModelReasoningEffort = normalizeWorkspaceChatModelReasoningEffort(out.ChatModelReasoningEffort)
 	out.CompanionConfigJSON = strings.TrimSpace(out.CompanionConfigJSON)
 	out.IsActive = isActive != 0
 	out.IsDaily = isDaily != 0
@@ -647,19 +630,18 @@ func scanItem(
 	},
 ) (Item, error) {
 	var (
-		out                                 Item
-		workspaceID, artifactID, actorID    sql.NullInt64
-		projectID, visibleAfter, followUpAt sql.NullString
-		sphere                              string
-		source, sourceRef                   sql.NullString
-		reviewTarget, reviewer, reviewedAt  sql.NullString
+		out                                Item
+		workspaceID, artifactID, actorID   sql.NullInt64
+		visibleAfter, followUpAt           sql.NullString
+		sphere                             string
+		source, sourceRef                  sql.NullString
+		reviewTarget, reviewer, reviewedAt sql.NullString
 	)
 	err := row.Scan(
 		&out.ID,
 		&out.Title,
 		&out.State,
 		&workspaceID,
-		&projectID,
 		&sphere,
 		&artifactID,
 		&actorID,
@@ -679,7 +661,6 @@ func scanItem(
 	out.Title = strings.TrimSpace(out.Title)
 	out.State = normalizeItemState(out.State)
 	out.WorkspaceID = nullInt64Pointer(workspaceID)
-	out.ProjectID = nullStringPointer(projectID)
 	out.Sphere = normalizeSphere(sphere)
 	out.ArtifactID = nullInt64Pointer(artifactID)
 	out.ActorID = nullInt64Pointer(actorID)
@@ -707,7 +688,7 @@ func scanItemSummary(
 	var (
 		out                                    ItemSummary
 		workspaceID, artifactID, actorID       sql.NullInt64
-		projectID, visibleAfter, followUpAt    sql.NullString
+		visibleAfter, followUpAt               sql.NullString
 		sphere                                 string
 		source, sourceRef                      sql.NullString
 		reviewTarget, reviewer, reviewedAt     sql.NullString
@@ -718,7 +699,6 @@ func scanItemSummary(
 		&out.Title,
 		&out.State,
 		&workspaceID,
-		&projectID,
 		&sphere,
 		&artifactID,
 		&actorID,
@@ -741,7 +721,6 @@ func scanItemSummary(
 	out.Title = strings.TrimSpace(out.Title)
 	out.State = normalizeItemState(out.State)
 	out.WorkspaceID = nullInt64Pointer(workspaceID)
-	out.ProjectID = nullStringPointer(projectID)
 	out.Sphere = normalizeSphere(sphere)
 	out.ArtifactID = nullInt64Pointer(artifactID)
 	out.ActorID = nullInt64Pointer(actorID)

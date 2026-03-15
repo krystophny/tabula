@@ -323,9 +323,11 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		bootID:                  strconv.FormatInt(time.Now().UnixNano(), 16),
 		startedAt:               time.Now().UTC().Format(time.RFC3339Nano),
 	}
-	if _, err := app.ensureDefaultProjectRecord(); err != nil {
-		_ = s.Close()
-		return nil, err
+	if strings.TrimSpace(localProjectDir) != "" {
+		if _, err := app.ensureDefaultProjectRecord(); err != nil {
+			_ = s.Close()
+			return nil, err
+		}
 	}
 	if _, err := app.ensureStartupWorkspace(); err != nil {
 		_ = s.Close()
@@ -604,21 +606,21 @@ func (a *App) handleMeetingPartnerDecide(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var req struct {
-		SessionID  string                 `json:"session_id"`
-		ProjectKey string                 `json:"project_key"`
-		Text       string                 `json:"text"`
-		Metadata   map[string]interface{} `json:"metadata"`
+		SessionID     string                 `json:"session_id"`
+		WorkspacePath string                 `json:"workspace_path"`
+		Text          string                 `json:"text"`
+		Metadata      map[string]interface{} `json:"metadata"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
 	hookReq := plugins.HookRequest{
-		Hook:       plugins.HookMeetingPartnerDecide,
-		SessionID:  strings.TrimSpace(req.SessionID),
-		ProjectKey: strings.TrimSpace(req.ProjectKey),
-		Text:       strings.TrimSpace(req.Text),
-		Metadata:   req.Metadata,
+		Hook:          plugins.HookMeetingPartnerDecide,
+		SessionID:     strings.TrimSpace(req.SessionID),
+		WorkspacePath: strings.TrimSpace(req.WorkspacePath),
+		Text:          strings.TrimSpace(req.Text),
+		Metadata:      req.Metadata,
 	}
 	decision, matched := plugins.MeetingPartnerDecision{}, false
 	for _, provider := range a.hookProviders {

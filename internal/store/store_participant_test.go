@@ -23,15 +23,15 @@ func TestParticipantSessionLifecycle(t *testing.T) {
 	s := newTestStore(t)
 	project := createParticipantTestProject(t, s, "proj-1")
 
-	sess, err := s.AddParticipantSession(project.ProjectKey, `{"language":"en"}`)
+	sess, err := s.AddParticipantSession(project.WorkspacePath, `{"language":"en"}`)
 	if err != nil {
 		t.Fatalf("add session: %v", err)
 	}
 	if sess.ID == "" {
 		t.Fatal("session id is empty")
 	}
-	if sess.ProjectKey != project.ProjectKey {
-		t.Fatalf("project key = %q, want %q", sess.ProjectKey, project.ProjectKey)
+	if sess.WorkspacePath != project.WorkspacePath {
+		t.Fatalf("project key = %q, want %q", sess.WorkspacePath, project.WorkspacePath)
 	}
 	if sess.WorkspaceID == 0 {
 		t.Fatal("workspace id is zero")
@@ -51,12 +51,12 @@ func TestParticipantSessionLifecycle(t *testing.T) {
 		t.Fatalf("get returned id = %q, want %q", got.ID, sess.ID)
 	}
 
-	sess2, err := s.AddParticipantSession(project.ProjectKey, "{}")
+	sess2, err := s.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("add second session: %v", err)
 	}
 
-	list, err := s.ListParticipantSessions(project.ProjectKey)
+	list, err := s.ListParticipantSessions(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("list sessions: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestParticipantSegmentCRUD(t *testing.T) {
 	s := newTestStore(t)
 	project := createParticipantTestProject(t, s, "proj-seg")
 
-	sess, err := s.AddParticipantSession(project.ProjectKey, "{}")
+	sess, err := s.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("add session: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestParticipantSegmentRejectsEndedSession(t *testing.T) {
 	s := newTestStore(t)
 	project := createParticipantTestProject(t, s, "proj-ended")
 
-	sess, err := s.AddParticipantSession(project.ProjectKey, "{}")
+	sess, err := s.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("add session: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestParticipantEventCRUD(t *testing.T) {
 	s := newTestStore(t)
 	project := createParticipantTestProject(t, s, "proj-ev")
 
-	sess, err := s.AddParticipantSession(project.ProjectKey, "{}")
+	sess, err := s.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("add session: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestParticipantRoomStateUpsert(t *testing.T) {
 	s := newTestStore(t)
 	project := createParticipantTestProject(t, s, "proj-room")
 
-	sess, err := s.AddParticipantSession(project.ProjectKey, "{}")
+	sess, err := s.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
 		t.Fatalf("add session: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestParticipantSchemaMigrationAddsMissingColumns(t *testing.T) {
 	legacySchema := `
 CREATE TABLE participant_sessions (
   id TEXT PRIMARY KEY,
-  project_key TEXT NOT NULL,
+  workspace_path TEXT NOT NULL,
   started_at INTEGER NOT NULL,
   ended_at INTEGER NOT NULL DEFAULT 0
 );
@@ -326,7 +326,7 @@ CREATE TABLE participant_room_state (
 	assertColumnsPresent(t, columns, "participant_room_state", "id", "session_id", "summary_text", "entities_json", "topic_timeline_json", "updated_at")
 }
 
-func TestParticipantSchemaMigrationMovesProjectKeySessionsToWorkspaceID(t *testing.T) {
+func TestParticipantSchemaMigrationMovesWorkspacePathSessionsToWorkspaceID(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "legacy-migrate.db")
 	legacyDB, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -334,25 +334,24 @@ func TestParticipantSchemaMigrationMovesProjectKeySessionsToWorkspaceID(t *testi
 	}
 
 	legacySchema := `
-CREATE TABLE projects (
-  id TEXT PRIMARY KEY,
+CREATE TABLE workspaces (
+  id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
-  project_key TEXT NOT NULL UNIQUE,
-  root_path TEXT NOT NULL UNIQUE,
-  kind TEXT NOT NULL DEFAULT 'managed',
+  dir_path TEXT NOT NULL UNIQUE,
+  is_active INTEGER NOT NULL DEFAULT 0,
+  is_daily INTEGER NOT NULL DEFAULT 0,
+  daily_date TEXT,
   mcp_url TEXT NOT NULL DEFAULT '',
   canvas_session_id TEXT NOT NULL DEFAULT '',
   chat_model TEXT NOT NULL DEFAULT '',
   chat_model_reasoning_effort TEXT NOT NULL DEFAULT '',
   companion_config_json TEXT NOT NULL DEFAULT '{}',
-  is_default INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  last_opened_at INTEGER NOT NULL DEFAULT 0
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE participant_sessions (
   id TEXT PRIMARY KEY,
-  project_key TEXT NOT NULL,
+  workspace_path TEXT NOT NULL,
   started_at INTEGER NOT NULL,
   ended_at INTEGER NOT NULL DEFAULT 0,
   config_json TEXT NOT NULL DEFAULT '{}'
@@ -363,13 +362,13 @@ CREATE TABLE participant_sessions (
 	}
 	rootPath := filepath.Join(t.TempDir(), "legacy-project")
 	if _, err := legacyDB.Exec(
-		`INSERT INTO projects (id, name, project_key, root_path, kind, created_at, updated_at, last_opened_at) VALUES (?,?,?,?,?,?,?,?)`,
-		"proj-legacy", "Legacy", rootPath, rootPath, "managed", 1, 1, 1,
+		`INSERT INTO workspaces (id, name, dir_path) VALUES (?,?,?)`,
+		1, "Legacy", rootPath,
 	); err != nil {
-		t.Fatalf("insert project: %v", err)
+		t.Fatalf("insert workspace: %v", err)
 	}
 	if _, err := legacyDB.Exec(
-		`INSERT INTO participant_sessions (id, project_key, started_at, ended_at, config_json) VALUES (?,?,?,?,?)`,
+		`INSERT INTO participant_sessions (id, workspace_path, started_at, ended_at, config_json) VALUES (?,?,?,?,?)`,
 		"psess-legacy", rootPath, 100, 0, `{"language":"en"}`,
 	); err != nil {
 		t.Fatalf("insert participant session: %v", err)
@@ -393,16 +392,16 @@ CREATE TABLE participant_sessions (
 	if session.WorkspaceID == 0 {
 		t.Fatal("workspace id is zero after migration")
 	}
-	if session.ProjectKey != rootPath {
-		t.Fatalf("project key = %q, want %q", session.ProjectKey, rootPath)
+	if session.WorkspacePath != rootPath {
+		t.Fatalf("project key = %q, want %q", session.WorkspacePath, rootPath)
 	}
 
 	columns, err := s.TableColumns()
 	if err != nil {
 		t.Fatalf("TableColumns() error: %v", err)
 	}
-	if containsString(columns["participant_sessions"], "project_key") {
-		t.Fatalf("participant_sessions columns still include project_key: %v", columns["participant_sessions"])
+	if containsString(columns["participant_sessions"], "workspace_path") {
+		t.Fatalf("participant_sessions columns still include workspace_path: %v", columns["participant_sessions"])
 	}
 }
 

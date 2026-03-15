@@ -36,12 +36,12 @@ type Options struct {
 }
 
 type HookRequest struct {
-	Hook       string                 `json:"hook"`
-	SessionID  string                 `json:"session_id,omitempty"`
-	ProjectKey string                 `json:"project_key,omitempty"`
-	OutputMode string                 `json:"output_mode,omitempty"`
-	Text       string                 `json:"text,omitempty"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	Hook          string                 `json:"hook"`
+	SessionID     string                 `json:"session_id,omitempty"`
+	WorkspacePath string                 `json:"workspace_path,omitempty"`
+	OutputMode    string                 `json:"output_mode,omitempty"`
+	Text          string                 `json:"text,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 }
 
 type HookResult struct {

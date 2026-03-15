@@ -461,7 +461,7 @@ export async function submitInkDraft() {
   renderInkControls();
   try {
     const payload = {
-      project_id: project.id,
+      workspace_id: project.id,
       artifact_kind: activeArtifactKindForInk(),
       artifact_title: String(getActiveArtifactTitle() || ''),
       artifact_path: String(state.workspaceOpenFilePath || ''),
@@ -522,10 +522,10 @@ export async function submitInkDraft() {
 }
 
 export async function fetchProjects() {
-  const resp = await fetch(apiURL('projects'), { cache: 'no-store' });
-  if (!resp.ok) throw new Error(`projects list failed: HTTP ${resp.status}`);
+  const resp = await fetch(apiURL('runtime/workspaces'), { cache: 'no-store' });
+  if (!resp.ok) throw new Error(`workspaces list failed: HTTP ${resp.status}`);
   const payload = await resp.json();
-  const projects = Array.isArray(payload?.projects) ? payload.projects : [];
+  const projects = Array.isArray(payload?.workspaces) ? payload.workspaces : [];
   state.projects = projects.map((project) => ({
     ...project,
     id: String(project?.id || ''),
@@ -535,8 +535,8 @@ export async function fetchProjects() {
     unread: Boolean(project?.unread),
     review_pending: Boolean(project?.review_pending),
   })).filter((project) => project.id);
-  state.defaultProjectId = String(payload?.default_project_id || '').trim();
-  state.serverActiveProjectId = String(payload?.active_project_id || '').trim();
+  state.defaultWorkspaceId = String(payload?.default_workspace_id || '').trim();
+  state.serverActiveProjectId = String(payload?.active_workspace_id || '').trim();
   renderEdgeTopProjects();
   renderEdgeTopModelButtons();
 }

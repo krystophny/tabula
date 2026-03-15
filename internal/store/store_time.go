@@ -12,7 +12,6 @@ import (
 const timeEntriesTableSchema = `CREATE TABLE IF NOT EXISTS time_entries (
   id INTEGER PRIMARY KEY,
   workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
-  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
   started_at TEXT NOT NULL,
   ended_at TEXT,
   activity TEXT NOT NULL DEFAULT '',
@@ -25,14 +24,12 @@ func scanTimeEntry(scanner interface {
 	var (
 		out       TimeEntry
 		workspace sql.NullInt64
-		projectID sql.NullString
 		endedAt   sql.NullString
 		notes     sql.NullString
 	)
 	if err := scanner.Scan(
 		&out.ID,
 		&workspace,
-		&projectID,
 		&out.Sphere,
 		&out.StartedAt,
 		&endedAt,
@@ -42,7 +39,6 @@ func scanTimeEntry(scanner interface {
 		return TimeEntry{}, err
 	}
 	out.WorkspaceID = nullInt64Pointer(workspace)
-	out.ProjectID = nullStringPointer(projectID)
 	out.EndedAt = nullStringPointer(endedAt)
 	out.Notes = nullStringPointer(notes)
 	out.Sphere = normalizeSphere(out.Sphere)
@@ -78,7 +74,7 @@ func normalizeTimeEntryFilter(filter TimeEntryListFilter) (TimeEntryListFilter, 
 	return normalized, nil
 }
 
-func timeEntryContextMatches(entry *TimeEntry, workspaceID *int64, projectID *string, sphere string) bool {
+func timeEntryContextMatches(entry *TimeEntry, workspaceID *int64, sphere string) bool {
 	if entry == nil {
 		return false
 	}
@@ -93,18 +89,10 @@ func timeEntryContextMatches(entry *TimeEntry, workspaceID *int64, projectID *st
 	case entry.WorkspaceID != nil && workspaceID != nil && *entry.WorkspaceID != *workspaceID:
 		return false
 	}
-	switch {
-	case entry.ProjectID == nil && projectID != nil:
-		return false
-	case entry.ProjectID != nil && projectID == nil:
-		return false
-	case entry.ProjectID != nil && projectID != nil && strings.TrimSpace(*entry.ProjectID) != strings.TrimSpace(*projectID):
-		return false
-	}
 	return true
 }
 
-func (s *Store) validateTimeEntryContext(workspaceID *int64, projectID *string, sphere string) error {
+func (s *Store) validateTimeEntryContext(workspaceID *int64, sphere string) error {
 	if normalizeRequiredSphere(sphere) == "" {
 		return errors.New("sphere must be work or private")
 	}
@@ -116,20 +104,12 @@ func (s *Store) validateTimeEntryContext(workspaceID *int64, projectID *string, 
 			return err
 		}
 	}
-	if projectID != nil {
-		cleanProjectID := strings.TrimSpace(*projectID)
-		if cleanProjectID == "" {
-			projectID = nil
-		} else if _, err := s.GetProject(cleanProjectID); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
 func (s *Store) ActiveWorkspace() (Workspace, error) {
 	return scanWorkspace(s.db.QueryRow(
-		`SELECT id, name, dir_path, project_id, ` + scopedContextSelect("context_workspaces", "workspace_id", "workspaces.id") + ` AS sphere, is_active, is_daily, daily_date, mcp_url, canvas_session_id, chat_model, chat_model_reasoning_effort, companion_config_json, created_at, updated_at
+		`SELECT id, name, dir_path, ` + scopedContextSelect("context_workspaces", "workspace_id", "workspaces.id") + ` AS sphere, is_active, is_daily, daily_date, mcp_url, canvas_session_id, chat_model, chat_model_reasoning_effort, companion_config_json, created_at, updated_at
 		 FROM workspaces
 		 WHERE is_active <> 0
 		 ORDER BY updated_at DESC, id DESC
@@ -139,7 +119,7 @@ func (s *Store) ActiveWorkspace() (Workspace, error) {
 
 func (s *Store) ActiveTimeEntry() (*TimeEntry, error) {
 	entry, err := scanTimeEntry(s.db.QueryRow(
-		`SELECT id, workspace_id, project_id, ` + scopedContextSelect("context_time_entries", "time_entry_id", "time_entries.id") + ` AS sphere, started_at, ended_at, activity, notes
+		`SELECT id, workspace_id, ` + scopedContextSelect("context_time_entries", "time_entry_id", "time_entries.id") + ` AS sphere, started_at, ended_at, activity, notes
 		 FROM time_entries
 		 WHERE ended_at IS NULL
 		 ORDER BY started_at DESC, id DESC
@@ -154,8 +134,8 @@ func (s *Store) ActiveTimeEntry() (*TimeEntry, error) {
 	return &entry, nil
 }
 
-func (s *Store) StartTimeEntry(at time.Time, workspaceID *int64, projectID *string, sphere, activity string, notes *string) (TimeEntry, error) {
-	if err := s.validateTimeEntryContext(workspaceID, projectID, sphere); err != nil {
+func (s *Store) StartTimeEntry(at time.Time, workspaceID *int64, sphere, activity string, notes *string) (TimeEntry, error) {
+	if err := s.validateTimeEntryContext(workspaceID, sphere); err != nil {
 		return TimeEntry{}, err
 	}
 	startedAt := formatTimeEntryTimestamp(at)
@@ -164,12 +144,10 @@ func (s *Store) StartTimeEntry(at time.Time, workspaceID *int64, projectID *stri
 	if cleanActivity == "" {
 		cleanActivity = "context_switch"
 	}
-	cleanProjectID := normalizeOptionalString(projectID)
 	res, err := s.db.Exec(
-		`INSERT INTO time_entries (workspace_id, project_id, started_at, activity, notes)
-		 VALUES (?, ?, ?, ?, ?)`,
+		`INSERT INTO time_entries (workspace_id, started_at, activity, notes)
+		 VALUES (?, ?, ?, ?)`,
 		nullablePositiveID(derefInt64(workspaceID)),
-		cleanProjectID,
 		startedAt,
 		cleanActivity,
 		normalizeOptionalString(notes),
@@ -187,21 +165,21 @@ func (s *Store) StartTimeEntry(at time.Time, workspaceID *int64, projectID *stri
 	return s.GetTimeEntry(id)
 }
 
-func (s *Store) SwitchActiveTimeEntry(at time.Time, workspaceID *int64, projectID *string, sphere, activity string, notes *string) (TimeEntry, bool, error) {
-	if err := s.validateTimeEntryContext(workspaceID, projectID, sphere); err != nil {
+func (s *Store) SwitchActiveTimeEntry(at time.Time, workspaceID *int64, sphere, activity string, notes *string) (TimeEntry, bool, error) {
+	if err := s.validateTimeEntryContext(workspaceID, sphere); err != nil {
 		return TimeEntry{}, false, err
 	}
 	active, err := s.ActiveTimeEntry()
 	if err != nil {
 		return TimeEntry{}, false, err
 	}
-	if timeEntryContextMatches(active, workspaceID, projectID, sphere) {
+	if timeEntryContextMatches(active, workspaceID, sphere) {
 		return *active, false, nil
 	}
 	if _, err := s.StopActiveTimeEntries(at); err != nil {
 		return TimeEntry{}, false, err
 	}
-	entry, err := s.StartTimeEntry(at, workspaceID, projectID, sphere, activity, notes)
+	entry, err := s.StartTimeEntry(at, workspaceID, sphere, activity, notes)
 	if err != nil {
 		return TimeEntry{}, false, err
 	}
@@ -223,7 +201,7 @@ func (s *Store) StopActiveTimeEntries(at time.Time) (int64, error) {
 
 func (s *Store) GetTimeEntry(id int64) (TimeEntry, error) {
 	return scanTimeEntry(s.db.QueryRow(
-		`SELECT id, workspace_id, project_id, `+scopedContextSelect("context_time_entries", "time_entry_id", "time_entries.id")+` AS sphere, started_at, ended_at, activity, notes
+		`SELECT id, workspace_id, `+scopedContextSelect("context_time_entries", "time_entry_id", "time_entries.id")+` AS sphere, started_at, ended_at, activity, notes
 		 FROM time_entries
 		 WHERE id = ?`,
 		id,
@@ -235,7 +213,7 @@ func (s *Store) ListTimeEntries(filter TimeEntryListFilter) ([]TimeEntry, error)
 	if err != nil {
 		return nil, err
 	}
-	query := `SELECT id, workspace_id, project_id, ` + scopedContextSelect("context_time_entries", "time_entry_id", "time_entries.id") + ` AS sphere, started_at, ended_at, activity, notes
+	query := `SELECT id, workspace_id, ` + scopedContextSelect("context_time_entries", "time_entry_id", "time_entries.id") + ` AS sphere, started_at, ended_at, activity, notes
 		FROM time_entries`
 	parts := make([]string, 0, 4)
 	args := make([]any, 0, 4)
@@ -284,9 +262,9 @@ func (s *Store) SummarizeTimeEntries(filter TimeEntryListFilter, groupBy string,
 	}
 	cleanGroupBy := strings.ToLower(strings.TrimSpace(groupBy))
 	switch cleanGroupBy {
-	case "project", "workspace", "sphere":
+	case "workspace", "sphere":
 	default:
-		return nil, errors.New("group_by must be project, workspace, or sphere")
+		return nil, errors.New("group_by must be workspace or sphere")
 	}
 	entries, err := s.ListTimeEntries(normalized)
 	if err != nil {
@@ -298,7 +276,6 @@ func (s *Store) SummarizeTimeEntries(filter TimeEntryListFilter, groupBy string,
 	}
 	summaries := map[key]*TimeEntrySummary{}
 	workspaceLabels := map[int64]string{}
-	projectLabels := map[string]string{}
 	for _, entry := range entries {
 		startedAt, err := time.Parse(time.RFC3339, entry.StartedAt)
 		if err != nil {
@@ -334,16 +311,6 @@ func (s *Store) SummarizeTimeEntries(filter TimeEntryListFilter, groupBy string,
 				workspaceLabels[*entry.WorkspaceID] = workspace.Name
 			}
 			summary.Label = workspaceLabels[*entry.WorkspaceID]
-		}
-		if cleanGroupBy == "project" && entry.ProjectID != nil {
-			if _, ok := projectLabels[*entry.ProjectID]; !ok {
-				project, err := s.GetProject(*entry.ProjectID)
-				if err != nil {
-					return nil, err
-				}
-				projectLabels[*entry.ProjectID] = project.Name
-			}
-			summary.Label = projectLabels[*entry.ProjectID]
 		}
 		current := summaries[key{value: summaryKey}]
 		if current == nil {
@@ -383,20 +350,6 @@ func summarizeTimeEntry(entry TimeEntry, groupBy string) (string, TimeEntrySumma
 			Label:       fmt.Sprintf("Workspace %d", *entry.WorkspaceID),
 			WorkspaceID: entry.WorkspaceID,
 			Sphere:      entry.Sphere,
-		}
-	case "project":
-		if entry.ProjectID == nil {
-			return "project:none", TimeEntrySummary{
-				Key:    "project:none",
-				Label:  "No project",
-				Sphere: entry.Sphere,
-			}
-		}
-		return "project:" + strings.TrimSpace(*entry.ProjectID), TimeEntrySummary{
-			Key:       "project:" + strings.TrimSpace(*entry.ProjectID),
-			Label:     strings.TrimSpace(*entry.ProjectID),
-			ProjectID: entry.ProjectID,
-			Sphere:    entry.Sphere,
 		}
 	default:
 		return "sphere:" + entry.Sphere, TimeEntrySummary{

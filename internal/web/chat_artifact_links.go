@@ -109,11 +109,11 @@ func (a *App) resolveWorkspaceArtifactReference(workspaceID int64, raw string) (
 }
 
 func (a *App) linkWorkspaceArtifact(session store.ChatSession, action *SystemAction) (string, map[string]interface{}, error) {
-	sourceWorkspace, err := a.resolveWorkspaceReference(session.ProjectKey, systemActionStringParam(action.Params, "source_workspace"))
+	sourceWorkspace, err := a.resolveWorkspaceReference(session.WorkspacePath, systemActionStringParam(action.Params, "source_workspace"))
 	if err != nil {
 		return "", nil, err
 	}
-	targetWorkspace, err := a.resolveWorkspaceReference(session.ProjectKey, systemActionStringParam(action.Params, "target_workspace"))
+	targetWorkspace, err := a.resolveWorkspaceReference(session.WorkspacePath, systemActionStringParam(action.Params, "target_workspace"))
 	if err != nil {
 		return "", nil, err
 	}
@@ -159,7 +159,7 @@ func linkedArtifactDisplayTitle(artifact store.Artifact) string {
 }
 
 func (a *App) listLinkedArtifacts(session store.ChatSession, action *SystemAction) (string, map[string]interface{}, error) {
-	workspace, err := a.resolveWorkspaceReference(session.ProjectKey, systemActionWorkspaceRef(action.Params))
+	workspace, err := a.resolveWorkspaceReference(session.WorkspacePath, systemActionWorkspaceRef(action.Params))
 	if err != nil {
 		return "", nil, err
 	}

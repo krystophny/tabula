@@ -143,8 +143,8 @@ func (a *App) bearProjectHintFromTags(tags []string) *string {
 		if err != nil {
 			continue
 		}
-		projectID := project.ID
-		return &projectID
+		workspaceID := project.ID
+		return &workspaceID
 	}
 	return nil
 }
@@ -290,7 +290,7 @@ func bearChecklistState(item bear.ChecklistItem) string {
 	return store.ItemStateInbox
 }
 
-func (a *App) persistBearChecklistItem(account store.ExternalAccount, artifact store.Artifact, checklistItem bear.ChecklistItem, sourceRef string, mapping *store.ExternalContainerMapping, inferredProjectID *string, remoteUpdatedAt *string) (store.Item, error) {
+func (a *App) persistBearChecklistItem(account store.ExternalAccount, artifact store.Artifact, checklistItem bear.ChecklistItem, sourceRef string, mapping *store.ExternalContainerMapping, inferredWorkspaceID *string, remoteUpdatedAt *string) (store.Item, error) {
 	title := strings.TrimSpace(checklistItem.Text)
 	if title == "" {
 		return store.Item{}, errors.New("bear checklist item text is required")
@@ -303,9 +303,6 @@ func (a *App) persistBearChecklistItem(account store.ExternalAccount, artifact s
 		}
 		if mapping != nil {
 			updates.WorkspaceID = mappedWorkspaceUpdate(mapping)
-		}
-		if projectID := mappedProjectUpdateWithFallback(mapping, inferredProjectID); projectID != nil {
-			updates.ProjectID = projectID
 		}
 		if mapping == nil || mapping.WorkspaceID == nil {
 			sphere := account.Sphere
@@ -354,7 +351,6 @@ func (a *App) persistBearChecklistItem(account store.ExternalAccount, artifact s
 
 	opts := store.ItemOptions{
 		State:      desiredState,
-		ProjectID:  evernoteTaskProjectID(mapping, inferredProjectID),
 		Sphere:     &account.Sphere,
 		ArtifactID: &artifact.ID,
 		Source:     optionalStringPointer(store.ExternalProviderBear),
@@ -381,8 +377,8 @@ func (a *App) persistBearChecklistItem(account store.ExternalAccount, artifact s
 	return item, nil
 }
 
-func (a *App) resolveActiveBearNoteArtifact(projectKey string) (*store.Artifact, bearNoteMeta, store.ExternalBinding, error) {
-	canvas := a.resolveCanvasContext(projectKey)
+func (a *App) resolveActiveBearNoteArtifact(workspacePath string) (*store.Artifact, bearNoteMeta, store.ExternalBinding, error) {
+	canvas := a.resolveCanvasContext(workspacePath)
 	if canvas == nil || strings.TrimSpace(canvas.ArtifactTitle) == "" {
 		return nil, bearNoteMeta{}, store.ExternalBinding{}, errors.New("open the Bear note on canvas first")
 	}
@@ -480,7 +476,7 @@ func (a *App) syncBearAccount(ctx context.Context, account store.ExternalAccount
 }
 
 func (a *App) executePromoteBearChecklistAction(session store.ChatSession) (string, map[string]interface{}, error) {
-	artifact, meta, binding, err := a.resolveActiveBearNoteArtifact(session.ProjectKey)
+	artifact, meta, binding, err := a.resolveActiveBearNoteArtifact(session.WorkspacePath)
 	if err != nil {
 		return "", nil, err
 	}
@@ -500,7 +496,7 @@ func (a *App) executePromoteBearChecklistAction(session store.ChatSession) (stri
 	if err != nil {
 		return "", nil, err
 	}
-	inferredProjectID := a.bearProjectHintFromTags(meta.Tags)
+	inferredWorkspaceID := a.bearProjectHintFromTags(meta.Tags)
 	remoteUpdatedAt := optionalStringPointer(meta.Modified)
 	noteID := strings.TrimSpace(binding.RemoteID)
 	if noteID == "" {
@@ -509,7 +505,7 @@ func (a *App) executePromoteBearChecklistAction(session store.ChatSession) (stri
 	created := 0
 	for i, item := range checklist {
 		sourceRef := bearChecklistSourceRef(noteID, i+1)
-		if _, err := a.persistBearChecklistItem(account, *artifact, item, sourceRef, mapping, inferredProjectID, remoteUpdatedAt); err != nil {
+		if _, err := a.persistBearChecklistItem(account, *artifact, item, sourceRef, mapping, inferredWorkspaceID, remoteUpdatedAt); err != nil {
 			return "", nil, err
 		}
 		created++

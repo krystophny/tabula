@@ -31,7 +31,7 @@ func TestStoreMigratesDomainTablesOnFreshDatabase(t *testing.T) {
 		t.Fatalf("TableColumns() error: %v", err)
 	}
 	for table, want := range map[string][]string{
-		"workspaces":                          {"id", "name", "dir_path", "project_id", "is_active", "is_daily", "daily_date", "mcp_url", "canvas_session_id", "chat_model", "chat_model_reasoning_effort", "created_at", "updated_at"},
+		"workspaces":                          {"id", "name", "dir_path", "is_active", "is_daily", "daily_date", "mcp_url", "canvas_session_id", "chat_model", "chat_model_reasoning_effort", "created_at", "updated_at"},
 		"contexts":                            {"id", "name", "color", "parent_id", "created_at"},
 		"context_items":                       {"context_id", "item_id"},
 		"context_artifacts":                   {"context_id", "artifact_id"},
@@ -42,15 +42,15 @@ func TestStoreMigratesDomainTablesOnFreshDatabase(t *testing.T) {
 		"actors":                              {"id", "name", "kind", "email", "provider", "provider_ref", "meta_json", "created_at"},
 		"artifacts":                           {"id", "kind", "ref_path", "ref_url", "title", "meta_json", "created_at", "updated_at"},
 		"external_accounts":                   {"id", "provider", "label", "config_json", "enabled", "created_at", "updated_at"},
-		"external_container_mappings":         {"id", "provider", "container_type", "container_ref", "workspace_id", "project_id"},
+		"external_container_mappings":         {"id", "provider", "container_type", "container_ref", "workspace_id"},
 		"item_artifacts":                      {"item_id", "artifact_id", "role", "created_at"},
 		"workspace_artifact_links":            {"workspace_id", "artifact_id", "created_at"},
 		"external_bindings":                   {"id", "account_id", "provider", "object_type", "remote_id", "item_id", "artifact_id", "container_ref", "remote_updated_at", "last_synced_at"},
 		"batch_runs":                          {"id", "workspace_id", "started_at", "finished_at", "config_json", "status"},
 		"batch_run_items":                     {"batch_id", "item_id", "status", "pr_number", "pr_url", "error_msg", "started_at", "finished_at"},
 		"workspace_watches":                   {"workspace_id", "config_json", "poll_interval_seconds", "enabled", "current_batch_id", "created_at", "updated_at"},
-		"items":                               {"id", "title", "state", "workspace_id", "project_id", "artifact_id", "actor_id", "visible_after", "follow_up_at", "source", "source_ref", "review_target", "reviewer", "reviewed_at", "created_at", "updated_at"},
-		"time_entries":                        {"id", "workspace_id", "project_id", "started_at", "ended_at", "activity", "notes"},
+		"items":                               {"id", "title", "state", "workspace_id", "artifact_id", "actor_id", "visible_after", "follow_up_at", "source", "source_ref", "review_target", "reviewer", "reviewed_at", "created_at", "updated_at"},
+		"time_entries":                        {"id", "workspace_id", "started_at", "ended_at", "activity", "notes"},
 	} {
 		got := make(map[string]bool, len(columns[table]))
 		for _, name := range columns[table] {
@@ -82,7 +82,7 @@ func TestStoreMigratesDomainTablesOnFreshDatabase(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate foreign keys: %v", err)
 	}
-	for _, table := range []string{"workspaces", "projects", "artifacts", "actors"} {
+	for _, table := range []string{"workspaces", "artifacts", "actors"} {
 		if !targets[table] {
 			t.Fatalf("items missing foreign key to %s", table)
 		}
@@ -99,7 +99,7 @@ func TestStoreMigratesDomainTablesOnExistingDatabase(t *testing.T) {
 CREATE TABLE projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  project_key TEXT NOT NULL UNIQUE,
+  workspace_path TEXT NOT NULL UNIQUE,
   root_path TEXT NOT NULL UNIQUE,
   kind TEXT NOT NULL DEFAULT 'managed',
   is_default INTEGER NOT NULL DEFAULT 0,
@@ -208,19 +208,19 @@ func TestItemSchemaAllowsNilOptionalFields(t *testing.T) {
 	}
 
 	var (
-		title                               string
-		sphere                              string
-		workspaceID, artifactID, actorID    sql.NullInt64
-		projectID, visibleAfter, followUpAt sql.NullString
-		source, sourceRef                   sql.NullString
+		title                            string
+		sphere                           string
+		workspaceID, artifactID, actorID sql.NullInt64
+		visibleAfter, followUpAt         sql.NullString
+		source, sourceRef                sql.NullString
 	)
 	err = s.db.QueryRow(`
-SELECT title, workspace_id, project_id,
+SELECT title, workspace_id,
   `+scopedContextSelect("context_items", "item_id", "items.id")+`,
   artifact_id, actor_id, visible_after, follow_up_at, source, source_ref
 FROM items
 WHERE id = ?
-`, id).Scan(&title, &workspaceID, &projectID, &sphere, &artifactID, &actorID, &visibleAfter, &followUpAt, &source, &sourceRef)
+`, id).Scan(&title, &workspaceID, &sphere, &artifactID, &actorID, &visibleAfter, &followUpAt, &source, &sourceRef)
 	if err != nil {
 		t.Fatalf("query item: %v", err)
 	}
@@ -230,9 +230,9 @@ WHERE id = ?
 	if sphere != SpherePrivate {
 		t.Fatalf("sphere = %q, want %q", sphere, SpherePrivate)
 	}
-	if workspaceID.Valid || projectID.Valid || artifactID.Valid || actorID.Valid || visibleAfter.Valid || followUpAt.Valid || source.Valid || sourceRef.Valid {
-		t.Fatalf("expected optional fields to remain NULL, got workspace=%v project=%v artifact=%v actor=%v visible_after=%v follow_up_at=%v source=%v source_ref=%v",
-			workspaceID, projectID, artifactID, actorID, visibleAfter, followUpAt, source, sourceRef)
+	if workspaceID.Valid || artifactID.Valid || actorID.Valid || visibleAfter.Valid || followUpAt.Valid || source.Valid || sourceRef.Valid {
+		t.Fatalf("expected optional fields to remain NULL, got workspace=%v artifact=%v actor=%v visible_after=%v follow_up_at=%v source=%v source_ref=%v",
+			workspaceID, artifactID, actorID, visibleAfter, followUpAt, source, sourceRef)
 	}
 }
 
@@ -241,9 +241,6 @@ func TestItemSchemaEnforcesForeignKeys(t *testing.T) {
 
 	if _, err := s.db.Exec(`INSERT INTO items (title, workspace_id) VALUES ('invalid', 999)`); err == nil {
 		t.Fatal("expected foreign key violation for missing workspace")
-	}
-	if _, err := s.db.Exec(`INSERT INTO items (title, project_id) VALUES ('invalid', 'missing-project')`); err == nil {
-		t.Fatal("expected foreign key violation for missing project")
 	}
 	if _, err := s.db.Exec(`INSERT INTO items (title, artifact_id) VALUES ('invalid', 999)`); err == nil {
 		t.Fatal("expected foreign key violation for missing artifact")
@@ -1206,11 +1203,6 @@ func TestItemSummaryFilters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
-	project, err := s.CreateProject("Alpha Project", "alpha-project", filepath.Join(t.TempDir(), "project"), "managed", "", "canvas-alpha", false)
-	if err != nil {
-		t.Fatalf("CreateProject() error: %v", err)
-	}
-	projectID := project.ID
 	sourceTodoist := ExternalProviderTodoist
 	sourceExchange := ExternalProviderExchange
 
@@ -1225,7 +1217,6 @@ func TestItemSummaryFilters(t *testing.T) {
 	if _, err := s.CreateItem("Workspace todoist item", ItemOptions{
 		State:        ItemStateInbox,
 		WorkspaceID:  &workspace.ID,
-		ProjectID:    &projectID,
 		VisibleAfter: &past,
 		Source:       &sourceTodoist,
 	}); err != nil {
@@ -1262,14 +1253,6 @@ func TestItemSummaryFilters(t *testing.T) {
 	}
 	if len(workspaceItems) != 2 {
 		t.Fatalf("ListInboxItemsFiltered(workspace) len = %d, want 2", len(workspaceItems))
-	}
-
-	projectItems, err := s.ListInboxItemsFiltered(now, ItemListFilter{ProjectID: &projectID})
-	if err != nil {
-		t.Fatalf("ListInboxItemsFiltered(project) error: %v", err)
-	}
-	if len(projectItems) != 1 {
-		t.Fatalf("ListInboxItemsFiltered(project) len = %d, want 1", len(projectItems))
 	}
 
 	counts, err := s.CountItemsByStateFiltered(now, ItemListFilter{Source: ExternalProviderTodoist})

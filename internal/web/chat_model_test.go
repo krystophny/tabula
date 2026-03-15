@@ -54,11 +54,11 @@ func TestAppServerModelProfileForProjectUsesStoredAliasAndNormalizesReasoning(t 
 	}
 }
 
-func TestAppServerModelProfileForProjectKeyFallsBackWhenProjectMissing(t *testing.T) {
+func TestAppServerModelProfileForWorkspacePathFallsBackWhenProjectMissing(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.appServerModel = modelprofile.ModelSpark
 
-	profile := app.appServerModelProfileForProjectKey("missing-project")
+	profile := app.appServerModelProfileForWorkspacePath("missing-project")
 	if profile.Alias != modelprofile.AliasSpark {
 		t.Fatalf("profile.Alias = %q, want %q", profile.Alias, modelprofile.AliasSpark)
 	}

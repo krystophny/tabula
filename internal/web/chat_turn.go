@@ -49,7 +49,7 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": err.Error()})
 		return
 	}
-	baseProfile := a.appServerModelProfileForProjectKey(session.ProjectKey)
+	baseProfile := a.appServerModelProfileForWorkspacePath(session.WorkspacePath)
 	turnProfile := baseProfile
 	if strings.TrimSpace(userText) != "" {
 		turnProfile = routeProfileForRouting(
@@ -68,8 +68,8 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 		return
 	}
 
-	canvasCtx := a.resolveCanvasContext(session.ProjectKey)
-	companionCtx := a.loadCompanionPromptContext(session.ProjectKey)
+	canvasCtx := a.resolveCanvasContext(session.WorkspacePath)
+	companionCtx := a.loadCompanionPromptContext(session.WorkspacePath)
 	var prompt string
 	if resumed {
 		prompt = buildTurnPromptForSessionWithCompanion(sessionID, messages, canvasCtx, companionCtx, turn.outputMode, turnProfile.Alias)
@@ -84,8 +84,8 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
 		return
 	}
-	prompt = a.applyWorkspacePromptContext(session.ProjectKey, prompt)
-	prompt, err = a.applyPreAssistantPromptHook(context.Background(), sessionID, session.ProjectKey, turn.outputMode, session.Mode, prompt)
+	prompt = a.applyWorkspacePromptContext(session.WorkspacePath, prompt)
+	prompt, err = a.applyPreAssistantPromptHook(context.Background(), sessionID, session.WorkspacePath, turn.outputMode, session.Mode, prompt)
 	if err != nil {
 		errText := err.Error()
 		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
@@ -105,7 +105,7 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 		a.unregisterActiveChatTurn(sessionID, runID)
 	}()
 
-	go a.watchCanvasFile(ctx, session.ProjectKey)
+	go a.watchCanvasFile(ctx, session.WorkspacePath)
 
 	latestMessage := ""
 	latestTurnID := ""
@@ -178,7 +178,7 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 			if strings.TrimSpace(ev.TurnID) != "" {
 				latestTurnID = ev.TurnID
 			}
-			a.markCompanionThinking(sessionID, session.ProjectKey, latestTurnID, turn.outputMode, "assistant_turn_started")
+			a.markCompanionThinking(sessionID, session.WorkspacePath, latestTurnID, turn.outputMode, "assistant_turn_started")
 		case "assistant_message":
 			latestMessage = ev.Message
 			latestTurnID = ev.TurnID
@@ -291,7 +291,7 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 
 	assistantText = a.finalizeAssistantResponseWithMetadata(
 		sessionID,
-		session.ProjectKey,
+		session.WorkspacePath,
 		assistantText,
 		&persistedAssistantID,
 		&persistedAssistantText,
@@ -340,7 +340,7 @@ func (a *App) tryRunLocalSystemActionTurn(sessionID string, session store.ChatSe
 	persistedAssistantText := ""
 	a.finalizeAssistantResponseWithMetadata(
 		sessionID,
-		session.ProjectKey,
+		session.WorkspacePath,
 		assistantText,
 		&persistedAssistantID,
 		&persistedAssistantText,
@@ -399,7 +399,7 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 	cwd := workspace.DirPath
 	turnStartedAt := time.Now()
 	responseMeta := newAssistantResponseMetadata(providerForAppServerProfile(turnProfile), turnProfile.Model, 0)
-	canvasCtx := a.resolveCanvasContext(session.ProjectKey)
+	canvasCtx := a.resolveCanvasContext(session.WorkspacePath)
 	prompt := buildPromptFromHistoryForSessionWithPolicy(session.Mode, a.yoloModeEnabled(), sessionID, messages, canvasCtx, outputMode, turnProfile.Alias)
 	prompt = appendChatCursorPrompt(prompt, cursorCtx)
 	prompt = appendCanvasInkPrompt(prompt, inkCtx)
@@ -408,8 +408,8 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
 		return
 	}
-	prompt = a.applyWorkspacePromptContext(session.ProjectKey, prompt)
-	prompt, err = a.applyPreAssistantPromptHook(context.Background(), sessionID, session.ProjectKey, outputMode, session.Mode, prompt)
+	prompt = a.applyWorkspacePromptContext(session.WorkspacePath, prompt)
+	prompt, err = a.applyPreAssistantPromptHook(context.Background(), sessionID, session.WorkspacePath, outputMode, session.Mode, prompt)
 	if err != nil {
 		errText := err.Error()
 		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
@@ -429,7 +429,7 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 		a.unregisterActiveChatTurn(sessionID, runID)
 	}()
 
-	go a.watchCanvasFile(ctx, session.ProjectKey)
+	go a.watchCanvasFile(ctx, session.WorkspacePath)
 
 	latestMessage := ""
 	latestTurnID := ""
@@ -510,7 +510,7 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 			if strings.TrimSpace(ev.TurnID) != "" {
 				latestTurnID = ev.TurnID
 			}
-			a.markCompanionThinking(sessionID, session.ProjectKey, latestTurnID, outputMode, "assistant_turn_started")
+			a.markCompanionThinking(sessionID, session.WorkspacePath, latestTurnID, outputMode, "assistant_turn_started")
 		case "assistant_message":
 			latestMessage = ev.Message
 			latestTurnID = ev.TurnID
@@ -598,7 +598,7 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 
 	assistantText = a.finalizeAssistantResponseWithMetadata(
 		sessionID,
-		session.ProjectKey,
+		session.WorkspacePath,
 		assistantText,
 		&persistedAssistantID,
 		&persistedAssistantText,
@@ -615,14 +615,14 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 // voice mode stays chat-first, but explicit file-backed canvas output is still
 // honored; silent mode can additionally mirror plain assistant text to canvas.
 func (a *App) finalizeAssistantResponse(
-	sessionID, projectKey, text string,
+	sessionID, workspacePath, text string,
 	persistedID *int64, persistedText *string,
 	turnID, fallbackTurnID, threadID string,
 	outputMode string,
 ) string {
 	return a.finalizeAssistantResponseWithMetadata(
 		sessionID,
-		projectKey,
+		workspacePath,
 		text,
 		persistedID,
 		persistedText,
@@ -635,18 +635,18 @@ func (a *App) finalizeAssistantResponse(
 }
 
 func (a *App) finalizeAssistantResponseWithMetadata(
-	sessionID, projectKey, text string,
+	sessionID, workspacePath, text string,
 	persistedID *int64, persistedText *string,
 	turnID, fallbackTurnID, threadID string,
 	outputMode string,
 	metadata assistantResponseMetadata,
 ) string {
 	postResult := a.applyPluginHook(context.Background(), plugins.HookRequest{
-		Hook:       plugins.HookChatPostAssistantReply,
-		SessionID:  sessionID,
-		ProjectKey: projectKey,
-		OutputMode: outputMode,
-		Text:       text,
+		Hook:          plugins.HookChatPostAssistantReply,
+		SessionID:     sessionID,
+		WorkspacePath: workspacePath,
+		OutputMode:    outputMode,
+		Text:          text,
 		Metadata: map[string]interface{}{
 			"turn_id":   strings.TrimSpace(turnID),
 			"thread_id": strings.TrimSpace(threadID),
@@ -669,7 +669,7 @@ func (a *App) finalizeAssistantResponseWithMetadata(
 	text, positionPrompt := stripAssistantPositionRequest(text)
 
 	outputMode = normalizeTurnOutputMode(outputMode)
-	canvasSessionID := a.resolveCanvasSessionID(projectKey)
+	canvasSessionID := a.resolveCanvasSessionID(workspacePath)
 	autoCanvas := false
 	renderOnCanvas := false
 	content := strings.TrimSpace(text)
@@ -679,16 +679,16 @@ func (a *App) finalizeAssistantResponseWithMetadata(
 			if a.isResearchTurn(sessionID) {
 				blocks = normalizeResearchFileBlocks(blocks, researchArtifactRoot(sessionID))
 			}
-			renderOnCanvas = a.executeFileBlocks(projectKey, canvasSessionID, blocks)
+			renderOnCanvas = a.executeFileBlocks(workspacePath, canvasSessionID, blocks)
 		}
 		text = cleaned
 	} else {
-		canvasCtx := a.resolveCanvasContext(projectKey)
+		canvasCtx := a.resolveCanvasContext(workspacePath)
 		if len(blocks) > 0 && canvasSessionID != "" {
 			if a.isResearchTurn(sessionID) {
 				blocks = normalizeResearchFileBlocks(blocks, researchArtifactRoot(sessionID))
 			}
-			renderOnCanvas = a.executeFileBlocks(projectKey, canvasSessionID, blocks)
+			renderOnCanvas = a.executeFileBlocks(workspacePath, canvasSessionID, blocks)
 			text = cleaned
 		} else if content != "" && canvasSessionID != "" {
 			block := fileBlock{
@@ -698,10 +698,10 @@ func (a *App) finalizeAssistantResponseWithMetadata(
 			if canOverwriteSilentAutoCanvasArtifact(canvasCtx) {
 				block.Path = canvasCtx.ArtifactTitle
 			}
-			autoCanvas = a.writeCanvasFileBlock(projectKey, canvasSessionID, block)
+			autoCanvas = a.writeCanvasFileBlock(workspacePath, canvasSessionID, block)
 			if !autoCanvas && strings.TrimSpace(block.Path) != "" {
 				block.Path = ""
-				autoCanvas = a.writeCanvasFileBlock(projectKey, canvasSessionID, block)
+				autoCanvas = a.writeCanvasFileBlock(workspacePath, canvasSessionID, block)
 			}
 			text = content
 		}
@@ -710,7 +710,7 @@ func (a *App) finalizeAssistantResponseWithMetadata(
 	text = stripLangTags(text)
 	chatMarkdown, chatPlain, renderFormat := assistantFinalChatContent(text, renderOnCanvas, autoCanvas)
 
-	a.refreshCanvasFromDisk(projectKey)
+	a.refreshCanvasFromDisk(workspacePath)
 
 	if *persistedID == 0 {
 		stored, err := a.store.AddChatMessage(sessionID, "assistant", chatMarkdown, chatPlain, renderFormat, metadata.storeOptions()...)
@@ -729,7 +729,7 @@ func (a *App) finalizeAssistantResponseWithMetadata(
 		}
 		*persistedText = chatMarkdown
 	}
-	a.markProjectOutput(projectKey)
+	a.markProjectOutput(workspacePath)
 	tid := strings.TrimSpace(turnID)
 	if tid == "" {
 		tid = fallbackTurnID
@@ -759,16 +759,16 @@ func (a *App) finalizeAssistantResponseWithMetadata(
 		})
 	}
 	if isVoiceOutputMode(outputMode) && strings.TrimSpace(chatPlain) != "" {
-		a.broadcastCompanionRuntimeState(projectKey, companionRuntimeSnapshot{
-			State:      companionRuntimeStateTalking,
-			Reason:     "assistant_output_ready",
-			ProjectKey: projectKey,
-			TurnID:     tid,
-			OutputMode: outputMode,
+		a.broadcastCompanionRuntimeState(workspacePath, companionRuntimeSnapshot{
+			State:         companionRuntimeStateTalking,
+			Reason:        "assistant_output_ready",
+			WorkspacePath: workspacePath,
+			TurnID:        tid,
+			OutputMode:    outputMode,
 		})
 	} else {
-		if project, err := a.store.GetProjectByProjectKey(projectKey); err == nil {
-			a.settleCompanionRuntimeState(projectKey, a.loadCompanionConfig(project), "assistant_turn_completed")
+		if project, err := a.store.GetProjectByWorkspacePath(workspacePath); err == nil {
+			a.settleCompanionRuntimeState(workspacePath, a.loadCompanionConfig(project), "assistant_turn_completed")
 		}
 	}
 	return chatMarkdown

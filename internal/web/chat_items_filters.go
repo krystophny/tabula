@@ -149,10 +149,6 @@ func itemFilterFromActionParams(params map[string]interface{}) (store.ItemListFi
 			filter.WorkspaceID = &workspaceID
 		}
 	}
-	projectID := systemActionStringParam(filterParams, "project_id")
-	if projectID != "" && projectID != "<nil>" {
-		filter.ProjectID = &projectID
-	}
 	labelValue := strings.TrimSpace(fmt.Sprint(filterParams["label_id"]))
 	if labelValue != "" && labelValue != "<nil>" {
 		labelID := systemActionItemID(map[string]interface{}{"item_id": filterParams["label_id"]})
@@ -191,8 +187,6 @@ func filteredItemViewMessage(view string, filter store.ItemListFilter, count int
 		filterText += " filtered to unassigned items"
 	case filter.WorkspaceID != nil:
 		filterText += " filtered to one workspace"
-	case filter.ProjectID != nil:
-		filterText += " filtered to one project"
 	case filter.LabelID != nil:
 		filterText += " filtered to one label"
 	}
@@ -212,9 +206,6 @@ func itemFilterPayload(filter store.ItemListFilter, allSpheres bool) map[string]
 	}
 	if filter.WorkspaceUnassigned {
 		payload["workspace_id"] = "null"
-	}
-	if filter.ProjectID != nil {
-		payload["project_id"] = *filter.ProjectID
 	}
 	if filter.LabelID != nil {
 		payload["label_id"] = *filter.LabelID
@@ -241,19 +232,6 @@ func (a *App) executeFilteredItemViewAction(action *SystemAction) (string, map[s
 	filter, err := itemFilterFromActionParams(action.Params)
 	if err != nil {
 		return "", nil, err
-	}
-	if filter.ProjectID == nil {
-		filterParams := systemActionNestedParams(action.Params, "filters")
-		if filterParams == nil {
-			filterParams = action.Params
-		}
-		if projectRef := systemActionProjectRef(filterParams); projectRef != "" {
-			project, err := a.resolveProjectReference(projectRef)
-			if err != nil {
-				return "", nil, err
-			}
-			filter.ProjectID = &project.ID
-		}
 	}
 	allSpheres := systemActionAllSpheresParam(action.Params)
 	if !allSpheres {

@@ -99,10 +99,10 @@ export async function authFetch(url: string, sessionToken: string, init?: Reques
 }
 
 export async function getChatSessionId(sessionToken: string): Promise<string> {
-  const resp = await authFetch(`${SERVER_URL}/api/projects`, sessionToken);
-  if (!resp.ok) throw new Error(`/api/projects failed: HTTP ${resp.status}`);
+  const resp = await authFetch(`${SERVER_URL}/api/runtime/workspaces`, sessionToken);
+  if (!resp.ok) throw new Error(`/api/runtime/workspaces failed: HTTP ${resp.status}`);
   const body = (await resp.json()) as Record<string, unknown>;
-  const list = (body.projects as Array<Record<string, unknown>>) || [];
+  const list = (body.workspaces as Array<Record<string, unknown>>) || [];
   const project = list[0];
   if (!project?.chat_session_id) {
     throw new Error('No project with chat_session_id found');

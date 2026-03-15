@@ -132,11 +132,11 @@ func (a *App) handleExternalAccountUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := a.store.UpdateExternalAccount(accountID, store.ExternalAccountUpdate{
-		Sphere:   req.Sphere,
-		Provider: req.Provider,
-		Label:    req.Label,
-		Config:   req.Config,
-		Enabled:  req.Enabled,
+		Sphere:      req.Sphere,
+		Provider:    req.Provider,
+		AccountName: req.Label,
+		Config:      req.Config,
+		Enabled:     req.Enabled,
 	}); err != nil {
 		writeDomainStoreError(w, err)
 		return

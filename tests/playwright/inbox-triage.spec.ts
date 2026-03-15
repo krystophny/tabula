@@ -55,7 +55,7 @@ async function seedSphereScenario(page: Page) {
         name: 'Private Notes',
         kind: 'managed',
         sphere: 'private',
-        project_key: '/tmp/private-notes',
+        workspace_path: '/tmp/private-notes',
         root_path: '/tmp/private-notes',
         chat_session_id: 'chat-private',
         canvas_session_id: 'local',
@@ -65,7 +65,7 @@ async function seedSphereScenario(page: Page) {
         name: 'Work Tracker',
         kind: 'managed',
         sphere: 'work',
-        project_key: '/tmp/work-tracker',
+        workspace_path: '/tmp/work-tracker',
         root_path: '/tmp/work-tracker',
         chat_session_id: 'chat-work',
         canvas_session_id: 'local',
@@ -550,7 +550,7 @@ test.describe('inbox triage interactions', () => {
     await setInboxItems(page, [{
       ...parserInboxItem,
       workspace_id: 1,
-      project_id: '',
+      workspace_id: '',
     }]);
 
     const row = page.locator('#pr-file-list .pr-file-item[data-item-id="101"]');
@@ -584,7 +584,7 @@ test.describe('inbox triage interactions', () => {
       return Array.isArray(data.inbox) ? data.inbox[0] : null;
     });
     expect(itemState?.workspace_id).toBe(2);
-    expect(itemState?.project_id).toBe('test');
+    expect(itemState?.workspace_id).toBe('test');
   });
 
   test('stale inbox reload does not resurrect a triaged item', async ({ page }) => {
