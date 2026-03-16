@@ -101,8 +101,10 @@ func TestBuildUserPromptIncludesFlagged(t *testing.T) {
 
 func TestBuildUserPromptIncludesRecentManualExamples(t *testing.T) {
 	prompt := buildUserPrompt(Message{
-		ID:      "m4",
-		Subject: "Suspicious invite",
+		ID:           "m4",
+		Subject:      "Suspicious invite",
+		ReviewCount:  37,
+		PolicySummary: []string{"Folder rule: Junk-E-Mail usually -> trash (21/24 reviews)"},
 		Examples: []Example{
 			{
 				Action:  "trash",
@@ -112,7 +114,16 @@ func TestBuildUserPromptIncludesRecentManualExamples(t *testing.T) {
 			},
 		},
 	})
-	if !strings.Contains(prompt, "Recent reviewed examples from this mailbox:") {
+	if !strings.Contains(prompt, "Manual review corpus size: 37") {
+		t.Fatalf("prompt missing review corpus size: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Distilled mailbox policy from manual reviews:") {
+		t.Fatalf("prompt missing policy header: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Folder rule: Junk-E-Mail usually -> trash (21/24 reviews)") {
+		t.Fatalf("prompt missing policy line: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Representative reviewed examples:") {
 		t.Fatalf("prompt missing examples header: %q", prompt)
 	}
 	if !strings.Contains(prompt, "action=trash; folder=Junk-E-Mail; from=spam@example.com; subject=Win a prize") {

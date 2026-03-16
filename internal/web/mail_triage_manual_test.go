@@ -79,8 +79,19 @@ func TestMailTriageManualReviewsListReturnsRecentReviews(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateMailTriageReview() error: %v", err)
 	}
+	if _, err := app.store.CreateMailTriageReview(store.MailTriageReviewInput{
+		AccountID: account.ID,
+		Provider:  account.Provider,
+		MessageID: "m2",
+		Folder:    "Junk-E-Mail",
+		Subject:   "Spam",
+		Sender:    "spam@example.com",
+		Action:    "trash",
+	}); err != nil {
+		t.Fatalf("CreateMailTriageReview() error: %v", err)
+	}
 
-	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/external-accounts/"+itoa(account.ID)+"/mail-triage/manual/reviews?limit=5", nil)
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/external-accounts/"+itoa(account.ID)+"/mail-triage/manual/reviews?limit=1", nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
 	}
@@ -88,5 +99,12 @@ func TestMailTriageManualReviewsListReturnsRecentReviews(t *testing.T) {
 	reviews, _ := data["reviews"].([]any)
 	if len(reviews) != 1 {
 		t.Fatalf("reviews len = %d, want 1", len(reviews))
+	}
+	distilled, ok := data["distilled"].(map[string]any)
+	if !ok {
+		t.Fatalf("distilled payload = %#v", data["distilled"])
+	}
+	if got := int(distilled["review_count"].(float64)); got != 2 {
+		t.Fatalf("distilled review_count = %d, want 2", got)
 	}
 }

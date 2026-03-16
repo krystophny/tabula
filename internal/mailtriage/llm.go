@@ -160,10 +160,19 @@ func buildUserPrompt(message Message) string {
 	fmt.Fprintf(&b, "Has attachments: %t\n", message.HasAttachments)
 	fmt.Fprintf(&b, "Is read: %t\n", message.IsRead)
 	fmt.Fprintf(&b, "Is flagged: %t\n", message.IsFlagged)
+	if message.ReviewCount > 0 {
+		fmt.Fprintf(&b, "Manual review corpus size: %d\n", message.ReviewCount)
+	}
+	if len(message.PolicySummary) > 0 {
+		fmt.Fprintf(&b, "Distilled mailbox policy from manual reviews:\n")
+		for _, line := range message.PolicySummary {
+			fmt.Fprintf(&b, "- %s\n", strings.TrimSpace(line))
+		}
+	}
 	if len(message.Examples) > 0 {
-		fmt.Fprintf(&b, "Recent reviewed examples from this mailbox:\n")
+		fmt.Fprintf(&b, "Representative reviewed examples:\n")
 		for i, example := range message.Examples {
-			if i >= 8 {
+			if i >= maxTrainingExamples {
 				break
 			}
 			fmt.Fprintf(

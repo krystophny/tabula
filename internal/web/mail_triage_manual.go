@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/krystophny/tabura/internal/mailtriage"
 	"github.com/krystophny/tabura/internal/store"
 )
 
@@ -57,10 +58,25 @@ func (a *App) handleMailTriageManualReviewsList(w http.ResponseWriter, r *http.R
 		writeDomainStoreError(w, err)
 		return
 	}
+	allReviews, err := a.store.ListMailTriageReviews(account.ID, 1000)
+	if err != nil {
+		writeDomainStoreError(w, err)
+		return
+	}
+	input := make([]mailtriage.ReviewedExample, 0, len(allReviews))
+	for _, review := range allReviews {
+		input = append(input, mailtriage.ReviewedExample{
+			Sender:  strings.TrimSpace(review.Sender),
+			Subject: strings.TrimSpace(review.Subject),
+			Folder:  strings.TrimSpace(review.Folder),
+			Action:  strings.TrimSpace(review.Action),
+		})
+	}
 	writeAPIData(w, http.StatusOK, map[string]any{
-		"account": account,
-		"reviews": reviews,
-		"count":   len(reviews),
+		"account":   account,
+		"reviews":   reviews,
+		"count":     len(reviews),
+		"distilled": mailtriage.DistillReviewedExamples(input),
 	})
 }
 

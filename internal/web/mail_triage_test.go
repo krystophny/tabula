@@ -185,8 +185,17 @@ func TestMailTriagePreviewClassifiesAndAutoApplies(t *testing.T) {
 	if len(provider.movedFolders) != 1 || provider.movedFolders[0] != "Archive/simons24" {
 		t.Fatalf("movedFolders = %#v, want Archive/simons24", provider.movedFolders)
 	}
-	if !strings.Contains(prompt, "Recent reviewed examples from this mailbox:") {
-		t.Fatalf("prompt missing manual examples: %q", prompt)
+	if !strings.Contains(prompt, "Manual review corpus size: 1") {
+		t.Fatalf("prompt missing review corpus size: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Distilled mailbox policy from manual reviews:") {
+		t.Fatalf("prompt missing distilled policy header: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Manual review distribution: trash=1") {
+		t.Fatalf("prompt missing distribution line: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Representative reviewed examples:") {
+		t.Fatalf("prompt missing example header: %q", prompt)
 	}
 	if !strings.Contains(prompt, "action=trash; folder=Junk-E-Mail; from=spam@example.com; subject=Win a prize") {
 		t.Fatalf("prompt missing expected example: %q", prompt)

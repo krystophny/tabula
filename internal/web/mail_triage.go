@@ -3,7 +3,6 @@ package web
 import (
 	"context"
 	"net/http"
-	"slices"
 	"sort"
 	"strings"
 
@@ -274,7 +273,7 @@ func (a *App) loadMailTriageMessages(ctx context.Context, account store.External
 	}
 	cfg, _ := decodeEmailSyncAccountConfig(account)
 	accountAddress := firstNonEmpty(cfg.FromAddress, cfg.Username, account.AccountName)
-	examples, err := a.mailTriageExamples(account.ID)
+	training, err := a.mailTriageTraining(account.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +282,7 @@ func (a *App) loadMailTriageMessages(ctx context.Context, account store.External
 		if message == nil {
 			continue
 		}
-		out = append(out, toMailTriageMessage(account, accountAddress, req.IncludeBody, message, examples))
+		out = append(out, toMailTriageMessage(account, accountAddress, req.IncludeBody, message, training))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].ReceivedAt.After(out[j].ReceivedAt)
@@ -291,24 +290,24 @@ func (a *App) loadMailTriageMessages(ctx context.Context, account store.External
 	return out, nil
 }
 
-func (a *App) mailTriageExamples(accountID int64) ([]mailtriage.Example, error) {
-	reviews, err := a.store.ListMailTriageReviews(accountID, 12)
+func (a *App) mailTriageTraining(accountID int64) (mailtriage.DistilledTraining, error) {
+	reviews, err := a.store.ListMailTriageReviews(accountID, 1000)
 	if err != nil {
-		return nil, err
+		return mailtriage.DistilledTraining{}, err
 	}
-	out := make([]mailtriage.Example, 0, len(reviews))
+	input := make([]mailtriage.ReviewedExample, 0, len(reviews))
 	for _, review := range reviews {
-		out = append(out, mailtriage.Example{
+		input = append(input, mailtriage.ReviewedExample{
 			Sender:  strings.TrimSpace(review.Sender),
 			Subject: strings.TrimSpace(review.Subject),
 			Folder:  strings.TrimSpace(review.Folder),
 			Action:  strings.TrimSpace(review.Action),
 		})
 	}
-	return out, nil
+	return mailtriage.DistillReviewedExamples(input), nil
 }
 
-func toMailTriageMessage(account store.ExternalAccount, accountAddress string, includeBody bool, message *providerdata.EmailMessage, examples []mailtriage.Example) mailtriage.Message {
+func toMailTriageMessage(account store.ExternalAccount, accountAddress string, includeBody bool, message *providerdata.EmailMessage, training mailtriage.DistilledTraining) mailtriage.Message {
 	body := ""
 	if includeBody {
 		if message.BodyText != nil {
@@ -331,7 +330,9 @@ func toMailTriageMessage(account store.ExternalAccount, accountAddress string, i
 		IsRead:         message.IsRead,
 		IsFlagged:      message.IsFlagged,
 		ReceivedAt:     message.Date,
-		Examples:       slices.Clone(examples),
+		ReviewCount:    training.ReviewCount,
+		PolicySummary:  append([]string(nil), training.PolicySummary...),
+		Examples:       append([]mailtriage.Example(nil), training.Examples...),
 	}
 }
 
