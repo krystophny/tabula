@@ -307,6 +307,7 @@ func toMailTriageMessage(account store.ExternalAccount, accountAddress string, i
 		Body:           body,
 		HasAttachments: len(message.Attachments) > 0,
 		IsRead:         message.IsRead,
+		IsFlagged:      message.IsFlagged,
 		ReceivedAt:     message.Date,
 	}
 }

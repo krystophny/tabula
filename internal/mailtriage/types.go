@@ -42,6 +42,7 @@ type Message struct {
 	Body           string    `json:"body,omitempty"`
 	HasAttachments bool      `json:"has_attachments,omitempty"`
 	IsRead         bool      `json:"is_read,omitempty"`
+	IsFlagged      bool      `json:"is_flagged,omitempty"`
 	ReceivedAt     time.Time `json:"received_at,omitempty"`
 }
 

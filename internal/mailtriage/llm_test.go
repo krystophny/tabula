@@ -86,3 +86,15 @@ func TestOpenAIClassifierReturnsHTTPError(t *testing.T) {
 		t.Fatal("Classify() error = nil, want non-nil")
 	}
 }
+
+func TestBuildUserPromptIncludesFlagged(t *testing.T) {
+	prompt := buildUserPrompt(Message{
+		ID:        "m3",
+		Subject:   "Important",
+		IsRead:    true,
+		IsFlagged: true,
+	})
+	if !strings.Contains(prompt, "Is flagged: true") {
+		t.Fatalf("prompt missing flagged state: %q", prompt)
+	}
+}

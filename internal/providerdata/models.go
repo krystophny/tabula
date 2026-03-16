@@ -12,6 +12,7 @@ type EmailMessage struct {
 	Snippet     string
 	Labels      []string
 	IsRead      bool
+	IsFlagged   bool
 	BodyText    *string
 	BodyHTML    *string
 	Attachments []Attachment

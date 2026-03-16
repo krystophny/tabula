@@ -415,6 +415,7 @@ func decodeExchangeEmailMessage(message Message, folders []Folder) providerdata.
 		Snippet:     strings.TrimSpace(message.BodyPreview),
 		Labels:      labels,
 		IsRead:      message.IsRead,
+		IsFlagged:   exchangeMessageFlagged(message),
 		BodyText:    bodyText,
 		BodyHTML:    bodyHTML,
 		Attachments: exchangeMessageAttachments(message),

@@ -768,21 +768,25 @@ func parseGmailMessage(msg *gmail.Message) *providerdata.EmailMessage {
 	}
 
 	isRead := true
+	isFlagged := false
 	for _, lbl := range msg.LabelIds {
 		if lbl == "UNREAD" {
 			isRead = false
-			break
+		}
+		if lbl == "STARRED" {
+			isFlagged = true
 		}
 	}
 
 	email := &providerdata.EmailMessage{
-		ID:       msg.Id,
-		ThreadID: msg.ThreadId,
-		Subject:  headers["Subject"],
-		Sender:   headers["From"],
-		Snippet:  msg.Snippet,
-		Labels:   msg.LabelIds,
-		IsRead:   isRead,
+		ID:        msg.Id,
+		ThreadID:  msg.ThreadId,
+		Subject:   headers["Subject"],
+		Sender:    headers["From"],
+		Snippet:   msg.Snippet,
+		Labels:    msg.LabelIds,
+		IsRead:    isRead,
+		IsFlagged: isFlagged,
 	}
 
 	if email.Subject == "" {

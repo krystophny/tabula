@@ -926,6 +926,7 @@ func decodeExchangeEWSMessage(message ews.Message, folders map[string]ews.Folder
 		Snippet:     snippetFromBody(message.Body),
 		Labels:      exchangeEWSFolderLabels(message.ParentFolderID, folders),
 		IsRead:      message.IsRead,
+		IsFlagged:   strings.EqualFold(strings.TrimSpace(message.FlagStatus), "Flagged"),
 		BodyText:    bodyPtr,
 		Attachments: attachments,
 	}

@@ -26,6 +26,11 @@ Rules:
 - When unsure between inbox and anything else, choose inbox.
 - When unsure between archive and trash, choose archive.
 - Use archive_label only for clear project/reference buckets.
+- Do not use "already read" by itself as a reason to archive or trash.
+- If the message is flagged, treat that as a strong inbox signal.
+- Prefer inbox for direct human mail from collaborators, admins, or teaching/research contacts when action or attention may still be needed.
+- Prefer cc instead of archive for newsletters, webinars, and FYI list traffic that is useful to skim but not actionable.
+- If a message is already in junk/spam but is still research-adjacent (for example journals, conferences, plasma physics, acoustics, machine learning, physics), prefer archive over trash unless it is obviously scammy.
 - Confidence is 0.0 to 1.0.
 - Keep reason and signals short.`
 
@@ -154,6 +159,7 @@ func buildUserPrompt(message Message) string {
 	}
 	fmt.Fprintf(&b, "Has attachments: %t\n", message.HasAttachments)
 	fmt.Fprintf(&b, "Is read: %t\n", message.IsRead)
+	fmt.Fprintf(&b, "Is flagged: %t\n", message.IsFlagged)
 	return strings.TrimSpace(b.String())
 }
 

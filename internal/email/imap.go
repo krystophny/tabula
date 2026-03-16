@@ -1187,13 +1187,17 @@ func parseIMAPMessage(folder string, msg *imapclient.FetchMessageBuffer, fetchBo
 	}
 
 	seenFound := false
+	flaggedFound := false
 	for _, flag := range msg.Flags {
 		if flag == imap.FlagSeen {
 			seenFound = true
-			break
+		}
+		if flag == imap.FlagFlagged {
+			flaggedFound = true
 		}
 	}
 	email.IsRead = seenFound
+	email.IsFlagged = flaggedFound
 
 	if msg.Envelope != nil {
 		env := msg.Envelope
