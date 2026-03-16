@@ -29,12 +29,16 @@ func DistillReviewedExamples(reviews []ReviewedExample) DistilledTraining {
 	}
 	actionCounts := make(map[string]int, 4)
 	folderCounts := make(map[string]map[string]int)
+	folderKindCounts := make(map[string]map[string]int)
 	senderCounts := make(map[string]map[string]int)
 	domainCounts := make(map[string]map[string]int)
 	for _, review := range clean {
 		actionCounts[review.Action]++
 		if review.Folder != "" {
 			incrementNestedCount(folderCounts, review.Folder, review.Action)
+			if kind := classifyFolderKind(review.Folder); kind != "" {
+				incrementNestedCount(folderKindCounts, kind, review.Action)
+			}
 		}
 		if sender := normalizeSender(review.Sender); sender != "" {
 			incrementNestedCount(senderCounts, sender, review.Action)
@@ -44,6 +48,7 @@ func DistillReviewedExamples(reviews []ReviewedExample) DistilledTraining {
 		}
 	}
 	training.PolicySummary = append(training.PolicySummary, overallActionSummary(actionCounts))
+	training.PolicySummary = append(training.PolicySummary, summarizeFolderActionSemantics(folderKindCounts)...)
 	training.PolicySummary = append(training.PolicySummary, summarizeRules("Folder", collectDominantRules(folderCounts, 3, 0.75), 2)...)
 	training.PolicySummary = append(training.PolicySummary, summarizeRules("Sender", collectDominantRules(senderCounts, 2, 0.85), 3)...)
 	training.PolicySummary = append(training.PolicySummary, summarizeRules("Domain", collectDominantRules(domainCounts, 3, 0.90), 2)...)
@@ -90,6 +95,23 @@ func overallActionSummary(actionCounts map[string]int) string {
 		return ""
 	}
 	return "Manual review distribution: " + strings.Join(parts, ", ")
+}
+
+func summarizeFolderActionSemantics(folderKindCounts map[string]map[string]int) []string {
+	lines := []string{}
+	if count := folderKindCounts["junk"]["trash"]; count > 0 {
+		lines = append(lines, "Semantics: trash reviewed from junk means confirmed junk/spam.")
+	}
+	if count := folderKindCounts["junk"]["inbox"]; count > 0 {
+		lines = append(lines, "Semantics: inbox reviewed from junk means a false-positive spam classification; rescue it.")
+	}
+	if count := folderKindCounts["junk"]["archive"]; count > 0 {
+		lines = append(lines, "Semantics: archive reviewed from junk means keep for reference, often research-adjacent solicitations or suspicious mail, but not inbox-worthy.")
+	}
+	if count := folderKindCounts["inbox"]["trash"]; count > 0 {
+		lines = append(lines, "Semantics: trash reviewed from inbox means discardable, but not necessarily spam/junk.")
+	}
+	return lines
 }
 
 func collectDominantRules(source map[string]map[string]int, minSupport int, minPurity float64) []ruleStat {
@@ -222,6 +244,17 @@ func normalizeSender(raw string) string {
 		return fields[0]
 	}
 	return clean
+}
+
+func classifyFolderKind(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "inbox", "posteingang":
+		return "inbox"
+	case "junk", "junk email", "junk-e-mail", "spam":
+		return "junk"
+	default:
+		return ""
+	}
 }
 
 func senderDomain(sender string) string {

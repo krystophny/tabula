@@ -28,9 +28,12 @@ Rules:
 - Use archive_label only for clear project/reference buckets.
 - Do not use "already read" by itself as a reason to archive or trash.
 - If the message is flagged, treat that as a strong inbox signal.
+- Treat folder-aware manual-review policy as authoritative when it is provided.
+- In particular: trash reviewed from junk means confirmed spam/junk; trash reviewed from inbox means discardable but not necessarily spam.
 - Prefer inbox for direct human mail from collaborators, admins, or teaching/research contacts when action or attention may still be needed.
 - Prefer cc instead of archive for newsletters, webinars, and FYI list traffic that is useful to skim but not actionable.
 - If a message is already in junk/spam but is still research-adjacent (for example journals, conferences, plasma physics, acoustics, machine learning, physics), prefer archive over trash unless it is obviously scammy.
+- Compare the message against the distilled manual policy before choosing an action.
 - Confidence is 0.0 to 1.0.
 - Keep reason and signals short.`
 
@@ -164,6 +167,7 @@ func buildUserPrompt(message Message) string {
 		fmt.Fprintf(&b, "Manual review corpus size: %d\n", message.ReviewCount)
 	}
 	if len(message.PolicySummary) > 0 {
+		fmt.Fprintf(&b, "Treat the following distilled manual-review policy as authoritative mailbox-specific guidance:\n")
 		fmt.Fprintf(&b, "Distilled mailbox policy from manual reviews:\n")
 		for _, line := range message.PolicySummary {
 			fmt.Fprintf(&b, "- %s\n", strings.TrimSpace(line))

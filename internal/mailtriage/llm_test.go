@@ -99,12 +99,16 @@ func TestBuildUserPromptIncludesFlagged(t *testing.T) {
 	}
 }
 
-func TestBuildUserPromptIncludesRecentManualExamples(t *testing.T) {
+func TestBuildUserPromptIncludesDistilledManualPolicy(t *testing.T) {
 	prompt := buildUserPrompt(Message{
-		ID:           "m4",
-		Subject:      "Suspicious invite",
-		ReviewCount:  37,
-		PolicySummary: []string{"Folder rule: Junk-E-Mail usually -> trash (21/24 reviews)"},
+		ID:          "m4",
+		Subject:     "Suspicious invite",
+		ReviewCount: 37,
+		PolicySummary: []string{
+			"Semantics: trash reviewed from junk means confirmed junk/spam.",
+			"Semantics: trash reviewed from inbox means discardable, but not necessarily spam/junk.",
+			"Folder rule: Junk-E-Mail usually -> trash (21/24 reviews)",
+		},
 		Examples: []Example{
 			{
 				Action:  "trash",
@@ -117,8 +121,17 @@ func TestBuildUserPromptIncludesRecentManualExamples(t *testing.T) {
 	if !strings.Contains(prompt, "Manual review corpus size: 37") {
 		t.Fatalf("prompt missing review corpus size: %q", prompt)
 	}
+	if !strings.Contains(prompt, "Treat the following distilled manual-review policy as authoritative mailbox-specific guidance:") {
+		t.Fatalf("prompt missing distilled policy guidance: %q", prompt)
+	}
 	if !strings.Contains(prompt, "Distilled mailbox policy from manual reviews:") {
 		t.Fatalf("prompt missing policy header: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Semantics: trash reviewed from junk means confirmed junk/spam.") {
+		t.Fatalf("prompt missing junk-trash semantics: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Semantics: trash reviewed from inbox means discardable, but not necessarily spam/junk.") {
+		t.Fatalf("prompt missing inbox-trash semantics: %q", prompt)
 	}
 	if !strings.Contains(prompt, "Folder rule: Junk-E-Mail usually -> trash (21/24 reviews)") {
 		t.Fatalf("prompt missing policy line: %q", prompt)

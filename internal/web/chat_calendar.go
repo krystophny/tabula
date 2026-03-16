@@ -143,9 +143,12 @@ func (a *App) executeCalendarAction(session store.ChatSession, action *SystemAct
 	if err != nil {
 		return "", nil, err
 	}
-	cwd := strings.TrimSpace(targetProject.RootPath)
+	cwd := ""
+	if workspace, workspaceErr := a.store.ActiveWorkspace(); workspaceErr == nil {
+		cwd = strings.TrimSpace(workspace.DirPath)
+	}
 	if cwd == "" {
-		cwd = strings.TrimSpace(a.cwdForWorkspacePath(targetProject.WorkspacePath))
+		cwd = strings.TrimSpace(a.systemActionTargetCWD(session, targetProject, nil))
 	}
 	if cwd == "" {
 		return "", nil, fmt.Errorf("calendar view cwd is not available")
