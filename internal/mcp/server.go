@@ -15,6 +15,7 @@ import (
 	"github.com/krystophny/tabura/internal/appserver"
 	tabcalendar "github.com/krystophny/tabura/internal/calendar"
 	"github.com/krystophny/tabura/internal/canvas"
+	"github.com/krystophny/tabura/internal/email"
 	"github.com/krystophny/tabura/internal/providerdata"
 	"github.com/krystophny/tabura/internal/store"
 )
@@ -43,6 +44,7 @@ type Server struct {
 	appServerClient         *appserver.Client
 	store                   *store.Store
 	newGoogleCalendarReader func(context.Context) (googleCalendarReader, error)
+	newEmailProvider        func(context.Context, store.ExternalAccount) (email.EmailProvider, error)
 }
 
 type googleCalendarReader interface {
@@ -241,6 +243,22 @@ func (s *Server) callTool(name string, args map[string]interface{}) (map[string]
 		return s.calendarList(args)
 	case "calendar_events":
 		return s.calendarEvents(args)
+	case "mail_account_list":
+		return s.mailAccountList(args)
+	case "mail_label_list":
+		return s.mailLabelList(args)
+	case "mail_message_list":
+		return s.mailMessageList(args)
+	case "mail_message_get":
+		return s.mailMessageGet(args)
+	case "mail_action":
+		return s.mailAction(args)
+	case "mail_server_filter_list":
+		return s.mailServerFilterList(args)
+	case "mail_server_filter_upsert":
+		return s.mailServerFilterUpsert(args)
+	case "mail_server_filter_delete":
+		return s.mailServerFilterDelete(args)
 	default:
 		return nil, errors.New("unknown tool: " + name)
 	}

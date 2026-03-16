@@ -412,6 +412,191 @@ var MCPTools = []Tool{
 			},
 		},
 	},
+	{
+		Name:        "mail_account_list",
+		Description: "List enabled email accounts available through Tabura.",
+		Properties: map[string]ToolProperty{
+			"sphere": {
+				Type:        "string",
+				Description: "Optional legacy work/private top-level context filter.",
+				Enum:        []string{"work", "private"},
+			},
+		},
+	},
+	{
+		Name:        "mail_label_list",
+		Description: "List labels or folders for a mail account.",
+		Required:    []string{"account_id"},
+		Properties: map[string]ToolProperty{
+			"account_id": {
+				Type:        "integer",
+				Description: "External account id.",
+			},
+		},
+	},
+	{
+		Name:        "mail_message_list",
+		Description: "List messages from a mail account with mailbox filters and optional paging.",
+		Required:    []string{"account_id"},
+		Properties: map[string]ToolProperty{
+			"account_id": {
+				Type:        "integer",
+				Description: "External account id.",
+			},
+			"folder": {
+				Type:        "string",
+				Description: "Optional folder or label scope.",
+			},
+			"text": {
+				Type:        "string",
+				Description: "Optional free-text search.",
+			},
+			"subject": {
+				Type:        "string",
+				Description: "Optional subject filter.",
+			},
+			"from": {
+				Type:        "string",
+				Description: "Optional sender filter.",
+			},
+			"to": {
+				Type:        "string",
+				Description: "Optional recipient filter.",
+			},
+			"days": {
+				Type:        "integer",
+				Description: "Optional rolling day window from now.",
+			},
+			"after": {
+				Type:        "string",
+				Description: "Optional RFC3339 lower bound.",
+			},
+			"before": {
+				Type:        "string",
+				Description: "Optional RFC3339 upper bound.",
+			},
+			"limit": {
+				Type:        "integer",
+				Description: "Optional maximum number of messages to return.",
+			},
+			"page_token": {
+				Type:        "string",
+				Description: "Optional provider page token for the next slice.",
+			},
+			"include_spam_trash": {
+				Type:        "boolean",
+				Description: "Include junk/spam/trash when supported.",
+			},
+			"has_attachment": {
+				Type:        "boolean",
+				Description: "Filter by attachment presence.",
+			},
+			"is_read": {
+				Type:        "boolean",
+				Description: "Filter by read state.",
+			},
+			"is_flagged": {
+				Type:        "boolean",
+				Description: "Filter by flagged state.",
+			},
+		},
+	},
+	{
+		Name:        "mail_message_get",
+		Description: "Get one full message from a mail account.",
+		Required:    []string{"account_id", "message_id"},
+		Properties: map[string]ToolProperty{
+			"account_id": {
+				Type:        "integer",
+				Description: "External account id.",
+			},
+			"message_id": {
+				Type:        "string",
+				Description: "Provider message id.",
+			},
+		},
+	},
+	{
+		Name:        "mail_action",
+		Description: "Apply one mailbox action to one or more messages.",
+		Required:    []string{"account_id", "action"},
+		Properties: map[string]ToolProperty{
+			"account_id": {
+				Type:        "integer",
+				Description: "External account id.",
+			},
+			"action": {
+				Type:        "string",
+				Description: "Mailbox action.",
+				Enum:        []string{"mark_read", "mark_unread", "archive", "move_to_inbox", "trash", "delete", "move_to_folder", "apply_label", "archive_label"},
+			},
+			"message_id": {
+				Type:        "string",
+				Description: "Optional single provider message id.",
+			},
+			"message_ids": {
+				Type:        "array",
+				Description: "Optional list of provider message ids.",
+			},
+			"folder": {
+				Type:        "string",
+				Description: "Required for move_to_folder.",
+			},
+			"label": {
+				Type:        "string",
+				Description: "Required for apply_label or archive_label.",
+			},
+			"archive": {
+				Type:        "boolean",
+				Description: "Optional archive hint for apply_label.",
+			},
+		},
+	},
+	{
+		Name:        "mail_server_filter_list",
+		Description: "List provider-native server filters or rules when supported.",
+		Required:    []string{"account_id"},
+		Properties: map[string]ToolProperty{
+			"account_id": {
+				Type:        "integer",
+				Description: "External account id.",
+			},
+		},
+	},
+	{
+		Name:        "mail_server_filter_upsert",
+		Description: "Create or update a provider-native server filter when supported.",
+		Required:    []string{"account_id", "filter"},
+		Properties: map[string]ToolProperty{
+			"account_id": {
+				Type:        "integer",
+				Description: "External account id.",
+			},
+			"filter_id": {
+				Type:        "string",
+				Description: "Optional override filter id for updates.",
+			},
+			"filter": {
+				Type:        "object",
+				Description: "Server filter payload.",
+			},
+		},
+	},
+	{
+		Name:        "mail_server_filter_delete",
+		Description: "Delete a provider-native server filter when supported.",
+		Required:    []string{"account_id", "filter_id"},
+		Properties: map[string]ToolProperty{
+			"account_id": {
+				Type:        "integer",
+				Description: "External account id.",
+			},
+			"filter_id": {
+				Type:        "string",
+				Description: "Provider filter id.",
+			},
+		},
+	},
 }
 
 var MCPDaemonRoutes = []string{
@@ -487,6 +672,7 @@ var WebRouteSections = []RouteSection{
 			"POST /api/scan/upload",
 			"POST /api/scan/confirm",
 			"POST /api/bugs/report",
+			"GET /api/mail/accounts",
 			"POST /api/mail/drafts",
 			"POST /api/mail/drafts/reply",
 			"POST /api/mail/drafts/reply-all",
@@ -494,6 +680,20 @@ var WebRouteSections = []RouteSection{
 			"GET /api/mail/drafts/{artifact_id}",
 			"PUT /api/mail/drafts/{artifact_id}",
 			"POST /api/mail/drafts/{artifact_id}/send",
+			"GET /api/external-accounts/{account_id}/mail/labels",
+			"GET /api/external-accounts/{account_id}/mail/messages",
+			"GET /api/external-accounts/{account_id}/mail/messages/{message_id}",
+			"POST /api/external-accounts/{account_id}/mail/actions",
+			"GET /api/external-accounts/{account_id}/mail-rules",
+			"POST /api/external-accounts/{account_id}/mail-rules",
+			"PUT /api/external-accounts/{account_id}/mail-rules/{rule_id}",
+			"DELETE /api/external-accounts/{account_id}/mail-rules/{rule_id}",
+			"POST /api/external-accounts/{account_id}/mail-triage/preview",
+			"POST /api/external-accounts/{account_id}/mail-triage/apply",
+			"GET /api/external-accounts/{account_id}/mail-server-filters",
+			"POST /api/external-accounts/{account_id}/mail-server-filters",
+			"PUT /api/external-accounts/{account_id}/mail-server-filters/{filter_id}",
+			"DELETE /api/external-accounts/{account_id}/mail-server-filters/{filter_id}",
 		},
 	},
 	{
