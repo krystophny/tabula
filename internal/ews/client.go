@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -23,6 +25,7 @@ const (
 	defaultEndpoint      = "https://exchange.tugraz.at/EWS/Exchange.asmx"
 	defaultServerVersion = "Exchange2013"
 	defaultBatchSize     = 50
+	folderCacheTTL       = time.Minute
 )
 
 var xmlNumericEntityPattern = regexp.MustCompile(`&#(?:x([0-9A-Fa-f]+)|([0-9]+));`)
@@ -40,6 +43,23 @@ type Client struct {
 	cfg                 Config
 	httpClient          *http.Client
 	streamingHTTPClient *http.Client
+	session             *sharedSessionState
+}
+
+type sharedSessionState struct {
+	requestGate chan struct{}
+	jar         http.CookieJar
+
+	mu           sync.Mutex
+	folderCached []Folder
+	folderExpiry time.Time
+}
+
+var sharedSessions = struct {
+	mu    sync.Mutex
+	state map[string]*sharedSessionState
+}{
+	state: map[string]*sharedSessionState{},
 }
 
 type BackoffError struct {
@@ -286,6 +306,10 @@ func NewClient(cfg Config) (*Client, error) {
 	if cfg.Password == "" {
 		return nil, fmt.Errorf("ews password is required")
 	}
+	session, err := sharedSession(cfg)
+	if err != nil {
+		return nil, err
+	}
 	baseTransport := http.DefaultTransport.(*http.Transport).Clone()
 	if cfg.InsecureTLS {
 		baseTransport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
@@ -293,17 +317,63 @@ func NewClient(cfg Config) (*Client, error) {
 	httpClient := &http.Client{
 		Transport: ntlmssp.Negotiator{RoundTripper: baseTransport},
 		Timeout:   90 * time.Second,
+		Jar:       session.jar,
 	}
 	streamingHTTPClient := &http.Client{
 		Transport: ntlmssp.Negotiator{RoundTripper: baseTransport.Clone()},
 		Timeout:   35 * time.Minute,
+		Jar:       session.jar,
 	}
-	return &Client{cfg: cfg, httpClient: httpClient, streamingHTTPClient: streamingHTTPClient}, nil
+	return &Client{cfg: cfg, httpClient: httpClient, streamingHTTPClient: streamingHTTPClient, session: session}, nil
 }
 
 func (c *Client) Close() error { return nil }
 
+func sharedSession(cfg Config) (*sharedSessionState, error) {
+	key := strings.TrimSpace(cfg.Endpoint) + "\n" + strings.TrimSpace(strings.ToLower(cfg.Username))
+	sharedSessions.mu.Lock()
+	defer sharedSessions.mu.Unlock()
+	if existing := sharedSessions.state[key]; existing != nil {
+		return existing, nil
+	}
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, err
+	}
+	state := &sharedSessionState{
+		requestGate: make(chan struct{}, 1),
+		jar:         jar,
+	}
+	sharedSessions.state[key] = state
+	return state, nil
+}
+
+func (c *Client) cachedFolders() ([]Folder, bool) {
+	if c == nil || c.session == nil {
+		return nil, false
+	}
+	c.session.mu.Lock()
+	defer c.session.mu.Unlock()
+	if len(c.session.folderCached) == 0 || time.Now().After(c.session.folderExpiry) {
+		return nil, false
+	}
+	return append([]Folder(nil), c.session.folderCached...), true
+}
+
+func (c *Client) storeCachedFolders(folders []Folder) {
+	if c == nil || c.session == nil {
+		return
+	}
+	c.session.mu.Lock()
+	defer c.session.mu.Unlock()
+	c.session.folderCached = append([]Folder(nil), folders...)
+	c.session.folderExpiry = time.Now().Add(folderCacheTTL)
+}
+
 func (c *Client) ListFolders(ctx context.Context) ([]Folder, error) {
+	if cached, ok := c.cachedFolders(); ok {
+		return cached, nil
+	}
 	var resp findFolderEnvelope
 	if err := c.call(ctx, "FindFolder", `<m:FindFolder Traversal="Deep">
       <m:FolderShape><t:BaseShape>Default</t:BaseShape></m:FolderShape>
@@ -318,6 +388,7 @@ func (c *Client) ListFolders(ctx context.Context) ([]Folder, error) {
 	sort.Slice(out, func(i, j int) bool {
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
+	c.storeCachedFolders(out)
 	return out, nil
 }
 
@@ -608,6 +679,12 @@ func (c *Client) call(ctx context.Context, soapAction, innerXML string, target a
 }
 
 func (c *Client) callWithHTTPClient(ctx context.Context, client *http.Client, soapAction, innerXML string, target any) error {
+	release, err := c.acquireRequestSlot(ctx, client)
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	body := fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
@@ -624,6 +701,10 @@ func (c *Client) callWithHTTPClient(ctx context.Context, client *http.Client, so
 	req.Header.Set("Content-Type", "text/xml; charset=utf-8")
 	req.Header.Set("Accept", "text/xml")
 	req.Header.Set("SOAPAction", fmt.Sprintf(`"http://schemas.microsoft.com/exchange/services/2006/messages/%s"`, soapAction))
+	if mailbox := strings.TrimSpace(c.cfg.Username); mailbox != "" {
+		req.Header.Set("X-AnchorMailbox", mailbox)
+		req.Header.Set("X-PreferServerAffinity", "true")
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -647,6 +728,23 @@ func (c *Client) callWithHTTPClient(ctx context.Context, client *http.Client, so
 		return fmt.Errorf("ews %s: %s", soapAction, rc)
 	}
 	return nil
+}
+
+func (c *Client) acquireRequestSlot(ctx context.Context, client *http.Client) (func(), error) {
+	if c == nil || c.session == nil || client == nil || client == c.streamingHTTPClient {
+		return func() {}, nil
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case c.session.requestGate <- struct{}{}:
+		return func() {
+			select {
+			case <-c.session.requestGate:
+			default:
+			}
+		}, nil
+	}
 }
 
 type soapFaultEnvelope struct {

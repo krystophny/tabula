@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -349,5 +351,184 @@ func TestClientCallParsesServerBusyBackoffFault(t *testing.T) {
 	}
 	if backoffErr.Backoff != 12345*time.Millisecond {
 		t.Fatalf("Backoff = %v, want %v", backoffErr.Backoff, 12345*time.Millisecond)
+	}
+}
+
+func TestClientSharesAffinityHeadersAndCookiesAcrossClients(t *testing.T) {
+	var (
+		requests   int32
+		cookieSeen atomic.Bool
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		call := atomic.AddInt32(&requests, 1)
+		if got := strings.TrimSpace(r.Header.Get("X-AnchorMailbox")); got != "ert" {
+			t.Fatalf("X-AnchorMailbox = %q, want ert", got)
+		}
+		if got := strings.TrimSpace(r.Header.Get("X-PreferServerAffinity")); got != "true" {
+			t.Fatalf("X-PreferServerAffinity = %q, want true", got)
+		}
+		if strings.Contains(r.Header.Get("Cookie"), "X-BackEndCookie=sticky") {
+			cookieSeen.Store(true)
+		}
+		if call == 1 {
+			http.SetCookie(w, &http.Cookie{Name: "X-BackEndCookie", Value: "sticky", Path: "/"})
+		}
+		w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+		_, _ = io.WriteString(w, `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+  <soap:Body>
+    <m:GetItemResponse>
+      <m:ResponseMessages>
+        <m:GetItemResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:Items>
+            <t:Message><t:ItemId Id="msg-1" ChangeKey="ck-1" /></t:Message>
+          </m:Items>
+        </m:GetItemResponseMessage>
+      </m:ResponseMessages>
+    </m:GetItemResponse>
+  </soap:Body>
+</soap:Envelope>`)
+	}))
+	defer server.Close()
+
+	first, err := NewClient(Config{Endpoint: server.URL, Username: "ert", Password: "secret"})
+	if err != nil {
+		t.Fatalf("NewClient(first) error: %v", err)
+	}
+	defer first.Close()
+	second, err := NewClient(Config{Endpoint: server.URL, Username: "ert", Password: "secret"})
+	if err != nil {
+		t.Fatalf("NewClient(second) error: %v", err)
+	}
+	defer second.Close()
+
+	if _, err := first.GetMessages(t.Context(), []string{"msg-1"}); err != nil {
+		t.Fatalf("first GetMessages() error: %v", err)
+	}
+	if _, err := second.GetMessages(t.Context(), []string{"msg-1"}); err != nil {
+		t.Fatalf("second GetMessages() error: %v", err)
+	}
+	if !cookieSeen.Load() {
+		t.Fatal("second request did not reuse backend affinity cookie")
+	}
+}
+
+func TestClientListFoldersUsesSharedCache(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+		_, _ = io.WriteString(w, `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+  <soap:Body>
+    <m:FindFolderResponse>
+      <m:ResponseMessages>
+        <m:FindFolderResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:RootFolder IncludesLastItemInRange="true" IndexedPagingOffset="0" TotalItemsInView="1">
+            <t:Folders>
+              <t:Folder>
+                <t:FolderId Id="folder-inbox" ChangeKey="ck1" />
+                <t:DisplayName>Posteingang</t:DisplayName>
+                <t:TotalCount>1</t:TotalCount>
+                <t:UnreadCount>1</t:UnreadCount>
+              </t:Folder>
+            </t:Folders>
+          </m:RootFolder>
+        </m:FindFolderResponseMessage>
+      </m:ResponseMessages>
+    </m:FindFolderResponse>
+  </soap:Body>
+</soap:Envelope>`)
+	}))
+	defer server.Close()
+
+	first, err := NewClient(Config{Endpoint: server.URL, Username: "ert", Password: "secret"})
+	if err != nil {
+		t.Fatalf("NewClient(first) error: %v", err)
+	}
+	defer first.Close()
+	second, err := NewClient(Config{Endpoint: server.URL, Username: "ert", Password: "secret"})
+	if err != nil {
+		t.Fatalf("NewClient(second) error: %v", err)
+	}
+	defer second.Close()
+
+	if _, err := first.ListFolders(t.Context()); err != nil {
+		t.Fatalf("first ListFolders() error: %v", err)
+	}
+	if _, err := second.ListFolders(t.Context()); err != nil {
+		t.Fatalf("second ListFolders() error: %v", err)
+	}
+	if requests.Load() != 1 {
+		t.Fatalf("requests = %d, want 1 cached folder request", requests.Load())
+	}
+}
+
+func TestClientSerializesShortRequestsPerMailbox(t *testing.T) {
+	var (
+		current       int32
+		maxConcurrent int32
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		active := atomic.AddInt32(&current, 1)
+		for {
+			max := atomic.LoadInt32(&maxConcurrent)
+			if active <= max || atomic.CompareAndSwapInt32(&maxConcurrent, max, active) {
+				break
+			}
+		}
+		time.Sleep(75 * time.Millisecond)
+		atomic.AddInt32(&current, -1)
+		w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+		_, _ = io.WriteString(w, `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+  <soap:Body>
+    <m:GetItemResponse>
+      <m:ResponseMessages>
+        <m:GetItemResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:Items>
+            <t:Message><t:ItemId Id="msg-1" ChangeKey="ck-1" /></t:Message>
+          </m:Items>
+        </m:GetItemResponseMessage>
+      </m:ResponseMessages>
+    </m:GetItemResponse>
+  </soap:Body>
+</soap:Envelope>`)
+	}))
+	defer server.Close()
+
+	first, err := NewClient(Config{Endpoint: server.URL, Username: "ert", Password: "secret"})
+	if err != nil {
+		t.Fatalf("NewClient(first) error: %v", err)
+	}
+	defer first.Close()
+	second, err := NewClient(Config{Endpoint: server.URL, Username: "ert", Password: "secret"})
+	if err != nil {
+		t.Fatalf("NewClient(second) error: %v", err)
+	}
+	defer second.Close()
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, client := range []*Client{first, second} {
+		wg.Add(1)
+		go func(client *Client) {
+			defer wg.Done()
+			_, err := client.GetMessages(t.Context(), []string{"msg-1"})
+			errs <- err
+		}(client)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("GetMessages() error: %v", err)
+		}
+	}
+	if atomic.LoadInt32(&maxConcurrent) != 1 {
+		t.Fatalf("max concurrent requests = %d, want 1", atomic.LoadInt32(&maxConcurrent))
 	}
 }
