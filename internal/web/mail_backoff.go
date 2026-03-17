@@ -73,6 +73,21 @@ func (a *App) guardMailAccountBackoff(account store.ExternalAccount) error {
 	return fmt.Errorf("exchange server is busy; retry after %s", wait)
 }
 
+func (a *App) mailAccountBackoffDelay(account store.ExternalAccount) time.Duration {
+	if a == nil || a.mailBackoffs == nil {
+		return 0
+	}
+	until, ok := a.mailBackoffs.active(account.ID)
+	if !ok {
+		return 0
+	}
+	wait := time.Until(until)
+	if wait < time.Second {
+		return time.Second
+	}
+	return wait
+}
+
 func (a *App) writeMailProviderError(w http.ResponseWriter, account store.ExternalAccount, err error) {
 	if backoffErr := a.noteMailProviderError(account, err); backoffErr != nil {
 		wait := backoffErr.Backoff.Round(time.Second)

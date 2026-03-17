@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/krystophny/tabura/internal/ews"
 	"github.com/krystophny/tabura/internal/store"
 	tabsync "github.com/krystophny/tabura/internal/sync"
 )
@@ -148,4 +149,13 @@ func TestSourcePushManagerContinuesSyncWhileBackfillPending(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("syncCalls = %d, want at least 2", syncCalls.Load())
+}
+
+func TestSourcePushManagerWaitForAccountRetryHonorsBackoff(t *testing.T) {
+	app := newAuthedTestApp(t)
+	manager := &sourcePushManager{app: app}
+	account := store.ExternalAccount{ID: 2, Provider: store.ExternalProviderExchangeEWS}
+	if delay := manager.retryDelayForAccount(account, &ews.BackoffError{Backoff: 150 * time.Millisecond}); delay < time.Second {
+		t.Fatalf("delay = %v, want at least 1s minimum backoff", delay)
+	}
 }

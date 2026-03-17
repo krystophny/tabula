@@ -30,6 +30,7 @@ type fakeMailProvider struct {
 	lastFolder  string
 	lastLabel   string
 	lastArchive bool
+	lastFormat  string
 	listErr     error
 	getErr      error
 	listCalls   int
@@ -60,14 +61,16 @@ func (p *fakeMailProvider) ListMessagesPage(_ context.Context, opts email.Search
 	return email.MessagePage{IDs: append([]string(nil), p.pageIDs...), NextPageToken: p.nextPage}, nil
 }
 
-func (p *fakeMailProvider) GetMessage(_ context.Context, messageID, _ string) (*providerdata.EmailMessage, error) {
+func (p *fakeMailProvider) GetMessage(_ context.Context, messageID, format string) (*providerdata.EmailMessage, error) {
+	p.lastFormat = strings.TrimSpace(format)
 	if p.getErr != nil {
 		return nil, p.getErr
 	}
 	return p.messages[messageID], nil
 }
 
-func (p *fakeMailProvider) GetMessages(_ context.Context, messageIDs []string, _ string) ([]*providerdata.EmailMessage, error) {
+func (p *fakeMailProvider) GetMessages(_ context.Context, messageIDs []string, format string) ([]*providerdata.EmailMessage, error) {
+	p.lastFormat = strings.TrimSpace(format)
 	out := make([]*providerdata.EmailMessage, 0, len(messageIDs))
 	for _, id := range messageIDs {
 		out = append(out, p.messages[id])
@@ -265,6 +268,32 @@ func TestMailAPIListsMessagesUsesPagingFromFirstPage(t *testing.T) {
 	data := decodeJSONDataResponse(t, rr)
 	if got := data["next_page_token"]; got != "next-1" {
 		t.Fatalf("next_page_token = %#v", got)
+	}
+}
+
+func TestMailAPIListsMessagesUsesRequestedFormat(t *testing.T) {
+	app := newAuthedTestApp(t)
+	account, err := app.store.CreateExternalAccount(store.SphereWork, store.ExternalProviderGmail, "Work Gmail", map[string]any{})
+	if err != nil {
+		t.Fatalf("CreateExternalAccount: %v", err)
+	}
+	now := time.Date(2026, time.March, 16, 12, 0, 0, 0, time.UTC)
+	provider := &fakeMailProvider{
+		pageIDs: []string{"m2"},
+		messages: map[string]*providerdata.EmailMessage{
+			"m2": {ID: "m2", Subject: "Paged", Date: now},
+		},
+	}
+	app.newEmailProvider = func(context.Context, store.ExternalAccount) (email.EmailProvider, error) {
+		return provider, nil
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/external-accounts/"+itoaMail(account.ID)+"/mail/messages?limit=25&format=metadata", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if provider.lastFormat != "metadata" {
+		t.Fatalf("lastFormat = %q, want metadata", provider.lastFormat)
 	}
 }
 

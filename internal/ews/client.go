@@ -353,6 +353,14 @@ func (c *Client) FindMessages(ctx context.Context, folderID string, offset, max 
 }
 
 func (c *Client) GetMessages(ctx context.Context, ids []string) ([]Message, error) {
+	return c.getMessages(ctx, ids, true)
+}
+
+func (c *Client) GetMessageSummaries(ctx context.Context, ids []string) ([]Message, error) {
+	return c.getMessages(ctx, ids, false)
+}
+
+func (c *Client) getMessages(ctx context.Context, ids []string, includeBody bool) ([]Message, error) {
 	ids = compactStrings(ids)
 	if len(ids) == 0 {
 		return nil, nil
@@ -364,7 +372,7 @@ func (c *Client) GetMessages(ctx context.Context, ids []string) ([]Message, erro
 			end = len(ids)
 		}
 		var resp getItemEnvelope
-		if err := c.call(ctx, "GetItem", getItemBody(ids[start:end], "Text"), &resp); err != nil {
+		if err := c.call(ctx, "GetItem", getItemBody(ids[start:end], includeBody), &resp); err != nil {
 			return nil, err
 		}
 		for _, raw := range resp.Body.GetItemResponse.ResponseMessages.Message.Items.Values {
@@ -583,7 +591,7 @@ func (c *Client) getTypedItems(ctx context.Context, folderID string, offset, max
 		return nil, nil
 	}
 	var resp getItemEnvelope
-	if err := c.call(ctx, "GetItem", getItemBody(found.ItemIDs, "Text"), &resp); err != nil {
+	if err := c.call(ctx, "GetItem", getItemBody(found.ItemIDs, true), &resp); err != nil {
 		return nil, err
 	}
 	out := make([]itemXML, 0, len(resp.Body.GetItemResponse.ResponseMessages.Message.Items.Values))
@@ -805,14 +813,41 @@ func (c *Client) getStreamingEvents(ctx context.Context, subscriptionID string, 
 	return resp.Body.GetStreamingEventsResponse.ResponseMessages.Message.toBatch(), nil
 }
 
-func getItemBody(ids []string, bodyType string) string {
-	if strings.TrimSpace(bodyType) == "" {
-		bodyType = "Text"
-	}
+func getItemBody(ids []string, includeBody bool) string {
 	var b strings.Builder
-	b.WriteString(`<m:GetItem><m:ItemShape><t:BaseShape>AllProperties</t:BaseShape><t:BodyType>`)
-	b.WriteString(xmlEscapeText(bodyType))
-	b.WriteString(`</t:BodyType></m:ItemShape><m:ItemIds>`)
+	b.WriteString(`<m:GetItem><m:ItemShape>`)
+	if includeBody {
+		b.WriteString(`<t:BaseShape>AllProperties</t:BaseShape><t:BodyType>Text</t:BodyType>`)
+	} else {
+		b.WriteString(`<t:BaseShape>IdOnly</t:BaseShape><t:AdditionalProperties>`)
+		for _, field := range []string{
+			"item:ItemId",
+			"item:Subject",
+			"item:DateTimeReceived",
+			"item:DateTimeSent",
+			"item:DateTimeCreated",
+			"item:ParentFolderId",
+			"item:ConversationId",
+			"item:DisplayTo",
+			"item:DisplayCc",
+			"item:HasAttachments",
+			"item:WebClientReadFormQueryString",
+			"item:InternetMessageId",
+			"item:ConversationTopic",
+			"item:Flag",
+			"message:From",
+			"message:Sender",
+			"message:ToRecipients",
+			"message:CcRecipients",
+			"message:IsRead",
+		} {
+			b.WriteString(`<t:FieldURI FieldURI="`)
+			b.WriteString(xmlEscapeAttr(field))
+			b.WriteString(`" />`)
+		}
+		b.WriteString(`</t:AdditionalProperties>`)
+	}
+	b.WriteString(`</m:ItemShape><m:ItemIds>`)
 	for _, id := range ids {
 		b.WriteString(`<t:ItemId Id="`)
 		b.WriteString(xmlEscapeAttr(id))

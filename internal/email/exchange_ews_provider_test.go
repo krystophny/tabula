@@ -560,4 +560,15 @@ func TestExchangeEWSGetMessagesMapsParentFolderToLabels(t *testing.T) {
 	if got := strings.Join(messages[1].Labels, ","); got != "Posteingang,INBOX" {
 		t.Fatalf("messages[1].Labels = %q, want Posteingang,INBOX", got)
 	}
+
+	metadata, err := provider.GetMessages(t.Context(), []string{"msg-1"}, "metadata")
+	if err != nil {
+		t.Fatalf("GetMessages(metadata) error: %v", err)
+	}
+	if len(metadata) != 1 {
+		t.Fatalf("len(metadata) = %d, want 1", len(metadata))
+	}
+	if metadata[0].BodyText != nil {
+		t.Fatalf("metadata body = %v, want nil", *metadata[0].BodyText)
+	}
 }

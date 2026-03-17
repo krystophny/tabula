@@ -116,6 +116,9 @@ func (m *sourcePushManager) runWatcher(ctx context.Context, account store.Extern
 	triggerSync()
 	go m.consumeSyncTriggers(ctx, account, provider, triggerCh)
 	for {
+		if !m.waitForAccountRetry(ctx, account, nil) {
+			return
+		}
 		err := provider.watchAccount(ctx, account, triggerSync)
 		if ctx.Err() != nil {
 			return
@@ -125,7 +128,7 @@ func (m *sourcePushManager) runWatcher(ctx context.Context, account store.Extern
 		} else {
 			log.Printf("source push: account %d watch exited; reconnecting", account.ID)
 		}
-		if !sleepSourcePush(ctx, sourcePushRetryDelay) {
+		if !m.waitForAccountRetry(ctx, account, err) {
 			return
 		}
 	}
@@ -137,12 +140,18 @@ func (m *sourcePushManager) consumeSyncTriggers(ctx context.Context, account sto
 		case <-ctx.Done():
 			return
 		case <-triggerCh:
+			if !m.waitForAccountRetry(ctx, account, nil) {
+				return
+			}
 			count, err := provider.syncAccount(ctx, account)
 			if err != nil {
 				if ctx.Err() != nil {
 					return
 				}
 				log.Printf("source push: account %d sync failed: %v", account.ID, err)
+				if !m.waitForAccountRetry(ctx, account, err) {
+					return
+				}
 				continue
 			}
 			if count > 0 && provider.onSynced != nil {
@@ -163,6 +172,30 @@ func (m *sourcePushManager) consumeSyncTriggers(ctx context.Context, account sto
 			go scheduleSourcePushTrigger(ctx, delay, triggerCh)
 		}
 	}
+}
+
+func (m *sourcePushManager) waitForAccountRetry(ctx context.Context, account store.ExternalAccount, err error) bool {
+	delay := m.retryDelayForAccount(account, err)
+	if delay <= 0 {
+		return true
+	}
+	return sleepSourcePush(ctx, delay)
+}
+
+func (m *sourcePushManager) retryDelayForAccount(account store.ExternalAccount, err error) time.Duration {
+	delay := time.Duration(0)
+	if m != nil && m.app != nil {
+		if err != nil {
+			m.app.noteMailProviderError(account, err)
+		}
+		if backoffDelay := m.app.mailAccountBackoffDelay(account); backoffDelay > delay {
+			delay = backoffDelay
+		}
+	}
+	if err != nil && delay < sourcePushRetryDelay {
+		delay = sourcePushRetryDelay
+	}
+	return delay
 }
 
 func (m *sourcePushManager) stopAll() {

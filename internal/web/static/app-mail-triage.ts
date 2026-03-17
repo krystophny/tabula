@@ -219,7 +219,7 @@ async function loadMailTriageQueue(accountID, folder, filterText, limit) {
   let pageToken = '';
   let pagesFetched = 0;
   while (queue.length < limit && pagesFetched < 50) {
-    const query = new URLSearchParams({ folder, limit: String(limit) });
+    const query = new URLSearchParams({ folder, limit: String(limit), format: 'metadata' });
     if (filterText) {
       query.set('text', filterText);
     }

@@ -95,6 +95,11 @@ func (a *App) handleMailMessageList(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	format, err := mailMessageFormatFromRequest(r, "full")
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	ids, nextPageToken, err := a.mailMessageIDsForRequest(r.Context(), provider, opts, pageToken)
 	if err != nil {
 		if isMailAPIRequestError(err) {
@@ -104,7 +109,7 @@ func (a *App) handleMailMessageList(w http.ResponseWriter, r *http.Request) {
 		a.writeMailProviderError(w, account, err)
 		return
 	}
-	messages, err := provider.GetMessages(r.Context(), ids, "full")
+	messages, err := provider.GetMessages(r.Context(), ids, format)
 	if err != nil {
 		a.writeMailProviderError(w, account, err)
 		return
@@ -116,6 +121,7 @@ func (a *App) handleMailMessageList(w http.ResponseWriter, r *http.Request) {
 		"account":         account,
 		"messages":        messages,
 		"count":           len(messages),
+		"format":          format,
 		"next_page_token": nextPageToken,
 		"page_token":      pageToken,
 	})
@@ -140,7 +146,12 @@ func (a *App) handleMailMessageGet(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "message_id is required")
 		return
 	}
-	message, err := provider.GetMessage(r.Context(), messageID, "full")
+	format, err := mailMessageFormatFromRequest(r, "full")
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	message, err := provider.GetMessage(r.Context(), messageID, format)
 	if err != nil {
 		a.writeMailProviderError(w, account, err)
 		return
@@ -148,6 +159,7 @@ func (a *App) handleMailMessageGet(w http.ResponseWriter, r *http.Request) {
 	writeAPIData(w, http.StatusOK, map[string]any{
 		"account": account,
 		"message": message,
+		"format":  format,
 	})
 }
 
@@ -278,6 +290,21 @@ func mailSearchOptionsFromRequest(r *http.Request) (email.SearchOptions, string,
 		opts.IsFlagged = &value
 	}
 	return opts, strings.TrimSpace(query.Get("page_token")), nil
+}
+
+func mailMessageFormatFromRequest(r *http.Request, defaultFormat string) (string, error) {
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	if format == "" {
+		format = strings.ToLower(strings.TrimSpace(defaultFormat))
+	}
+	switch format {
+	case "", "full":
+		return "full", nil
+	case "metadata":
+		return "metadata", nil
+	default:
+		return "", errBadRequest("format must be full or metadata")
+	}
 }
 
 type mailActionApplyResult struct {

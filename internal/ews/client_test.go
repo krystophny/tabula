@@ -183,6 +183,69 @@ func TestClientGetMessagesSanitizesIllegalXMLCharacterReferences(t *testing.T) {
 	}
 }
 
+func TestClientGetMessageSummariesRequestsMetadataShape(t *testing.T) {
+	var body string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		data, _ := io.ReadAll(r.Body)
+		body = string(data)
+		w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+		_, _ = io.WriteString(w, `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+  <soap:Body>
+    <m:GetItemResponse>
+      <m:ResponseMessages>
+        <m:GetItemResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:Items>
+            <t:Message>
+              <t:ItemId Id="msg-1" ChangeKey="ck-1" />
+              <t:ParentFolderId Id="inbox" ChangeKey="fold-1" />
+              <t:ConversationId Id="thread-1" ChangeKey="conv-1" />
+              <t:Subject>Hello World</t:Subject>
+              <t:DateTimeReceived>2026-03-16T14:00:00Z</t:DateTimeReceived>
+              <t:IsRead>false</t:IsRead>
+            </t:Message>
+          </m:Items>
+        </m:GetItemResponseMessage>
+      </m:ResponseMessages>
+    </m:GetItemResponse>
+  </soap:Body>
+</soap:Envelope>`)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{
+		Endpoint: server.URL,
+		Username: "ert",
+		Password: "secret",
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error: %v", err)
+	}
+	defer client.Close()
+
+	messages, err := client.GetMessageSummaries(t.Context(), []string{"msg-1"})
+	if err != nil {
+		t.Fatalf("GetMessageSummaries() error: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("len(messages) = %d, want 1", len(messages))
+	}
+	if messages[0].Body != "" {
+		t.Fatalf("Body = %q, want empty summary body", messages[0].Body)
+	}
+	if !strings.Contains(body, `<t:BaseShape>IdOnly</t:BaseShape>`) {
+		t.Fatalf("request body missing IdOnly base shape: %s", body)
+	}
+	if strings.Contains(body, `<t:BodyType>`) {
+		t.Fatalf("request body unexpectedly requested body content: %s", body)
+	}
+	if !strings.Contains(body, `FieldURI="item:Subject"`) {
+		t.Fatalf("request body missing subject metadata field: %s", body)
+	}
+}
+
 func TestClientMoveItemsReturnsResolvedIDs(t *testing.T) {
 	var body string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

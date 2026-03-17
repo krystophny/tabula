@@ -128,6 +128,17 @@ func (p *ExchangeEWSMailProvider) ListMessages(ctx context.Context, opts SearchO
 		if len(page.ItemIDs) == 0 {
 			continue
 		}
+		if !exchangeEWSNeedsMessageFilter(opts) {
+			for _, itemID := range page.ItemIDs {
+				if clean := strings.TrimSpace(itemID); clean != "" {
+					found[clean] = struct{}{}
+				}
+				if len(found) >= maxResults {
+					return sortedMessageIDs(found), nil
+				}
+			}
+			continue
+		}
 		messages, err := p.client.GetMessages(ctx, page.ItemIDs)
 		if err != nil {
 			return nil, err
@@ -178,6 +189,21 @@ func (p *ExchangeEWSMailProvider) ListMessagesPage(ctx context.Context, opts Sea
 	if len(page.ItemIDs) == 0 {
 		return out, nil
 	}
+	if !exchangeEWSNeedsMessageFilter(opts) {
+		for _, itemID := range page.ItemIDs {
+			if clean := strings.TrimSpace(itemID); clean != "" {
+				out.IDs = append(out.IDs, clean)
+			}
+		}
+		if !page.IncludesLastPage && len(page.ItemIDs) > 0 {
+			nextOffset := page.NextOffset
+			if nextOffset <= offset {
+				nextOffset = offset + len(page.ItemIDs)
+			}
+			out.NextPageToken = strconv.Itoa(nextOffset)
+		}
+		return out, nil
+	}
 	messages, err := p.client.GetMessages(ctx, page.ItemIDs)
 	if err != nil {
 		return MessagePage{}, err
@@ -198,8 +224,8 @@ func (p *ExchangeEWSMailProvider) ListMessagesPage(ctx context.Context, opts Sea
 	return out, nil
 }
 
-func (p *ExchangeEWSMailProvider) GetMessage(ctx context.Context, messageID, _ string) (*providerdata.EmailMessage, error) {
-	messages, err := p.client.GetMessages(ctx, []string{messageID})
+func (p *ExchangeEWSMailProvider) GetMessage(ctx context.Context, messageID, format string) (*providerdata.EmailMessage, error) {
+	messages, err := p.getMessagesWithFormat(ctx, []string{messageID}, format)
 	if err != nil {
 		return nil, err
 	}
@@ -210,19 +236,19 @@ func (p *ExchangeEWSMailProvider) GetMessage(ctx context.Context, messageID, _ s
 	if err != nil {
 		return nil, err
 	}
-	decoded := decodeExchangeEWSMessage(messages[0], exchangeEWSFolderIndex(folders))
+	decoded := decodeExchangeEWSMessage(messages[0], exchangeEWSFolderIndex(folders), format)
 	return &decoded, nil
 }
 
-func (p *ExchangeEWSMailProvider) GetMessages(ctx context.Context, messageIDs []string, _ string) ([]*providerdata.EmailMessage, error) {
-	messages, err := p.client.GetMessages(ctx, messageIDs)
+func (p *ExchangeEWSMailProvider) GetMessages(ctx context.Context, messageIDs []string, format string) ([]*providerdata.EmailMessage, error) {
+	messages, err := p.getMessagesWithFormat(ctx, messageIDs, format)
 	if err != nil {
 		if !exchangeEWSMissingItemError(err) {
 			return nil, err
 		}
 		messages = make([]ews.Message, 0, len(messageIDs))
 		for _, messageID := range compactMessageIDs(messageIDs) {
-			single, singleErr := p.client.GetMessages(ctx, []string{messageID})
+			single, singleErr := p.getMessagesWithFormat(ctx, []string{messageID}, format)
 			if singleErr != nil {
 				if exchangeEWSMissingItemError(singleErr) {
 					continue
@@ -239,10 +265,17 @@ func (p *ExchangeEWSMailProvider) GetMessages(ctx context.Context, messageIDs []
 	folderIndex := exchangeEWSFolderIndex(folders)
 	out := make([]*providerdata.EmailMessage, 0, len(messages))
 	for _, message := range messages {
-		decoded := decodeExchangeEWSMessage(message, folderIndex)
+		decoded := decodeExchangeEWSMessage(message, folderIndex, format)
 		out = append(out, &decoded)
 	}
 	return out, nil
+}
+
+func (p *ExchangeEWSMailProvider) getMessagesWithFormat(ctx context.Context, messageIDs []string, format string) ([]ews.Message, error) {
+	if strings.EqualFold(strings.TrimSpace(format), "metadata") {
+		return p.client.GetMessageSummaries(ctx, messageIDs)
+	}
+	return p.client.GetMessages(ctx, messageIDs)
 }
 
 func exchangeEWSMissingItemError(err error) bool {
@@ -899,6 +932,20 @@ func matchExchangeEWSMessage(message ews.Message, opts SearchOptions) bool {
 	return true
 }
 
+func exchangeEWSNeedsMessageFilter(opts SearchOptions) bool {
+	return opts.IsRead != nil ||
+		opts.HasAttachment != nil ||
+		opts.IsFlagged != nil ||
+		opts.Text != "" ||
+		opts.Subject != "" ||
+		opts.From != "" ||
+		opts.To != "" ||
+		!opts.After.IsZero() ||
+		!opts.Before.IsZero() ||
+		!opts.Since.IsZero() ||
+		!opts.Until.IsZero()
+}
+
 func exchangeEWSFolderIndex(folders []ews.Folder) map[string]ews.Folder {
 	out := make(map[string]ews.Folder, len(folders))
 	for _, folder := range folders {
@@ -952,7 +999,7 @@ func exchangeEWSMessageFolderName(name string) string {
 	return clean
 }
 
-func decodeExchangeEWSMessage(message ews.Message, folders map[string]ews.Folder) providerdata.EmailMessage {
+func decodeExchangeEWSMessage(message ews.Message, folders map[string]ews.Folder, format string) providerdata.EmailMessage {
 	recipients := make([]string, 0, len(message.To)+len(message.Cc))
 	for _, group := range [][]ews.Mailbox{message.To, message.Cc} {
 		for _, mb := range group {
@@ -987,7 +1034,7 @@ func decodeExchangeEWSMessage(message ews.Message, folders map[string]ews.Folder
 	}
 	body := strings.TrimSpace(message.Body)
 	var bodyPtr *string
-	if body != "" {
+	if body != "" && !strings.EqualFold(strings.TrimSpace(format), "metadata") {
 		bodyPtr = &body
 	}
 	return providerdata.EmailMessage{
