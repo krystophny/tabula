@@ -116,7 +116,7 @@ body.panel-motion-enabled {
   top: 0;
   left: 0;
   right: 0;
-  height: calc(240px + var(--safe-area-top));
+  bottom: 0;
   transform: translateY(-100%);
 }
 
@@ -126,6 +126,11 @@ body.panel-motion-enabled {
 }
 
 @media (min-width: 768px) {
+  .edge-top {
+    bottom: auto;
+    height: auto;
+    max-height: 50vh;
+  }
   body.file-sidebar-open .edge-top {
     left: var(--file-sidebar-width);
   }
@@ -133,6 +138,7 @@ body.panel-motion-enabled {
 
 .edge-top .edge-panel-inner {
   padding-top: calc(var(--safe-area-top) + 0.35rem);
+  overflow-y: auto;
 }
 
 .edge-right {
