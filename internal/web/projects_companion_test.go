@@ -9,20 +9,20 @@ import (
 	"github.com/krystophny/tabura/internal/store"
 )
 
-func requireWorkspaceForProject(t *testing.T, app *App, project store.Project) store.Workspace {
+func requireWorkspaceForProject(t *testing.T, app *App, project store.Workspace) store.Workspace {
 	t.Helper()
-	workspace, err := app.ensureWorkspaceForProject(project, false)
+	workspace, err := app.ensureWorkspaceReady(project, false)
 	if err != nil {
-		t.Fatalf("ensureWorkspaceForProject(%q): %v", project.ID, err)
+		t.Fatalf("ensureWorkspaceReady(%q): %v", project.ID, err)
 	}
 	return workspace
 }
 
 func TestProjectCompanionConfigRequiresAuth(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	workspace := requireWorkspaceForProject(t, app, project)
 
@@ -41,9 +41,9 @@ func TestProjectCompanionConfigRequiresAuth(t *testing.T) {
 
 func TestProjectCompanionConfigPutAndState(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	workspace := requireWorkspaceForProject(t, app, project)
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
@@ -111,8 +111,8 @@ func TestProjectCompanionConfigPutAndState(t *testing.T) {
 	if err := json.Unmarshal(rrState.Body.Bytes(), &state); err != nil {
 		t.Fatalf("decode companion state: %v", err)
 	}
-	if state.WorkspaceID != projectIDString(project.ID) {
-		t.Fatalf("workspace_id = %q, want %q", state.WorkspaceID, projectIDString(project.ID))
+	if state.WorkspaceID != workspaceIDStr(project.ID) {
+		t.Fatalf("workspace_id = %q, want %q", state.WorkspaceID, workspaceIDStr(project.ID))
 	}
 	if state.WorkspacePath != project.WorkspacePath {
 		t.Fatalf("workspace_path = %q, want %q", state.WorkspacePath, project.WorkspacePath)
@@ -148,9 +148,9 @@ func TestProjectCompanionConfigPutAndState(t *testing.T) {
 
 func TestProjectCompanionStateReportsListeningWhenEnabled(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	workspace := requireWorkspaceForProject(t, app, project)
 	cfg := app.loadCompanionConfig(project)
@@ -200,9 +200,9 @@ func TestProjectCompanionStateReportsListeningWhenEnabled(t *testing.T) {
 
 func TestProjectCompanionStateExposesDirectedSpeechGateMetadata(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	workspace := requireWorkspaceForProject(t, app, project)
 	cfg := app.loadCompanionConfig(project)

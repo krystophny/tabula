@@ -20,10 +20,10 @@ func parseInlineItemReassignmentIntent(text string) *SystemAction {
 	case "remove workspace from this item", "remove workspace from this", "clear workspace for this item", "clear workspace":
 		return &SystemAction{Action: "clear_workspace", Params: map[string]interface{}{}}
 	case "remove project from this item", "remove project from this", "clear project for this item", "clear project":
-		return &SystemAction{Action: "clear_project", Params: map[string]interface{}{}}
+		return &SystemAction{Action: "clear_workspace", Params: map[string]interface{}{}}
 	}
 	if target, ok := cutPrefixedWorkspaceReference(text, "this belongs to "); ok {
-		return &SystemAction{Action: "reassign_project", Params: map[string]interface{}{"project": cleanWorkspaceReference(target)}}
+		return &SystemAction{Action: "reassign_workspace", Params: map[string]interface{}{"workspace": cleanWorkspaceReference(target)}}
 	}
 	if match := itemAssignTargetPattern.FindStringSubmatch(strings.TrimSpace(text)); len(match) == 2 {
 		target := cleanWorkspaceReference(match[1])
@@ -35,7 +35,7 @@ func parseInlineItemReassignmentIntent(text string) *SystemAction {
 			return &SystemAction{Action: "reassign_workspace", Params: map[string]interface{}{"workspace": trimAssignmentSuffix(target, " workspace")}}
 		}
 		if strings.HasSuffix(lower, " project") {
-			return &SystemAction{Action: "reassign_project", Params: map[string]interface{}{"project": trimAssignmentSuffix(target, " project")}}
+			return &SystemAction{Action: "reassign_workspace", Params: map[string]interface{}{"workspace": trimAssignmentSuffix(target, " project")}}
 		}
 		if looksLikeWorkspaceReference(target) {
 			return &SystemAction{Action: "reassign_workspace", Params: map[string]interface{}{"workspace": target}}
@@ -63,7 +63,7 @@ func trimAssignmentSuffix(raw, suffix string) string {
 	return cleanWorkspaceReference(text)
 }
 
-func (a *App) resolveConversationTargetItem(session store.ChatSession, project store.Project) (store.Item, error) {
+func (a *App) resolveConversationTargetItem(session store.ChatSession, project store.Workspace) (store.Item, error) {
 	if item, err := a.resolveCanvasConversationItem(project); err == nil {
 		return item, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
@@ -83,19 +83,19 @@ func (a *App) resolveConversationTargetItem(session store.ChatSession, project s
 	return store.Item{}, errors.New("no item is available to reassign")
 }
 
-func (a *App) resolveProjectReference(raw string) (store.Project, error) {
+func (a *App) resolveWorkspaceByNameOrPath(raw string) (store.Workspace, error) {
 	ref := strings.TrimSpace(raw)
 	if ref == "" {
-		return store.Project{}, errors.New("project name is required")
+		return store.Workspace{}, errors.New("project name is required")
 	}
-	if project, err := a.store.GetProject(ref); err == nil {
+	if project, err := a.store.GetEnrichedWorkspace(ref); err == nil {
 		return project, nil
 	}
-	return a.findProjectByName(ref)
+	return a.findWorkspaceByName(ref)
 }
 
 func (a *App) executeItemReassignmentAction(session store.ChatSession, action *SystemAction) (string, map[string]interface{}, error) {
-	targetProject, err := a.systemActionTargetProject(session)
+	targetProject, err := a.systemActionTargetWorkspace(session)
 	if err != nil {
 		return "", nil, err
 	}
@@ -126,33 +126,6 @@ func (a *App) executeItemReassignmentAction(session store.ChatSession, action *S
 			"workspace_id": workspace.ID,
 			"warning":      warning,
 		}, nil
-	case "reassign_project":
-		project, err := a.resolveProjectReference(systemActionAssignmentTarget(action.Params))
-		if err != nil {
-			return "", nil, err
-		}
-		if project.ID <= 0 {
-			return "", nil, fmt.Errorf("invalid project id: %d", project.ID)
-		}
-		workspaceID := project.ID
-		warning, err := a.itemWorkspaceChangeWarning(item, &workspaceID)
-		if err != nil {
-			return "", nil, err
-		}
-		if err := a.store.SetItemWorkspace(item.ID, &workspaceID); err != nil {
-			return "", nil, err
-		}
-		message := fmt.Sprintf("Moved item %q to project %s.", item.Title, project.Name)
-		if warning != "" {
-			message += " " + warning
-		}
-		return message, map[string]interface{}{
-			"type":         "item_reassigned",
-			"item_id":      item.ID,
-			"workspace_id": workspaceID,
-			"project_id":   project.ID,
-			"warning":      warning,
-		}, nil
 	case "clear_workspace":
 		warning, err := a.itemWorkspaceChangeWarning(item, nil)
 		if err != nil {
@@ -169,25 +142,6 @@ func (a *App) executeItemReassignmentAction(session store.ChatSession, action *S
 			"type":         "item_reassigned",
 			"item_id":      item.ID,
 			"workspace_id": nil,
-			"warning":      warning,
-		}, nil
-	case "clear_project":
-		warning, err := a.itemWorkspaceChangeWarning(item, nil)
-		if err != nil {
-			return "", nil, err
-		}
-		if err := a.store.SetItemWorkspace(item.ID, nil); err != nil {
-			return "", nil, err
-		}
-		message := fmt.Sprintf("Cleared the project for item %q.", item.Title)
-		if warning != "" {
-			message += " " + warning
-		}
-		return message, map[string]interface{}{
-			"type":         "item_reassigned",
-			"item_id":      item.ID,
-			"workspace_id": nil,
-			"project_id":   nil,
 			"warning":      warning,
 		}, nil
 	default:

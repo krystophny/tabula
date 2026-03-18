@@ -17,10 +17,10 @@ func TestParseInlineItemReassignmentIntent(t *testing.T) {
 	}{
 		{text: "move this to beta workspace", wantAction: "reassign_workspace", wantTarget: "beta"},
 		{text: "assign to ~/write/paper-x", wantAction: "reassign_workspace", wantTarget: "~/write/paper-x"},
-		{text: "assign to EUROfusion project", wantAction: "reassign_project", wantTarget: "EUROfusion"},
-		{text: "this belongs to tabura", wantAction: "reassign_project", wantTarget: "tabura"},
+		{text: "assign to EUROfusion project", wantAction: "reassign_workspace", wantTarget: "EUROfusion"},
+		{text: "this belongs to tabura", wantAction: "reassign_workspace", wantTarget: "tabura"},
 		{text: "remove workspace from this item", wantAction: "clear_workspace"},
-		{text: "remove project from this item", wantAction: "clear_project"},
+		{text: "remove project from this item", wantAction: "clear_workspace"},
 	}
 
 	for _, tc := range cases {
@@ -44,7 +44,7 @@ func TestClassifyAndExecuteSystemActionItemReassignment(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestClassifyAndExecuteSystemActionItemReassignment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkspace(beta) error: %v", err)
 	}
-	taburaProject, err := app.store.CreateProject("Tabura", "tabura", filepath.Join(t.TempDir(), "tabura-project"), "managed", "", "", false)
+	taburaProject, err := app.store.CreateEnrichedWorkspace("Tabura", "tabura", filepath.Join(t.TempDir(), "tabura-project"), "managed", "", "", false)
 	if err != nil {
 		t.Fatalf("CreateProject() error: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestClassifyAndExecuteSystemActionItemReassignment(t *testing.T) {
 	server := mock.setupServer(t)
 	defer server.Close()
 	port := serverPort(t, server.Listener.Addr())
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	message, payloads, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "move this to Beta workspace")
 	if !handled {

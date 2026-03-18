@@ -66,12 +66,12 @@ func describeRecentFileTime(info os.FileInfo) string {
 	}
 }
 
-func discoverProjectWelcomeCards(rootPath string) ([]projectWelcomeCard, []projectWelcomeCard) {
+func discoverProjectWelcomeCards(rootPath string) ([]workspaceWelcomeCard, []workspaceWelcomeCard) {
 	type fileInfo struct {
 		rel  string
 		info os.FileInfo
 	}
-	docCandidates := make([]projectWelcomeCard, 0, 6)
+	docCandidates := make([]workspaceWelcomeCard, 0, 6)
 	recentFiles := make([]fileInfo, 0, 24)
 	seenDocs := map[string]bool{}
 
@@ -102,12 +102,12 @@ func discoverProjectWelcomeCards(rootPath string) ([]projectWelcomeCard, []proje
 		base := filepath.Base(rel)
 		if isWelcomeDocName(base) && !seenDocs[rel] {
 			seenDocs[rel] = true
-			docCandidates = append(docCandidates, projectWelcomeCard{
+			docCandidates = append(docCandidates, workspaceWelcomeCard{
 				ID:          "doc-" + strings.ReplaceAll(rel, "/", "-"),
 				Title:       base,
 				Subtitle:    rel,
 				Description: "Open documentation",
-				Action: projectWelcomeAction{
+				Action: workspaceWelcomeAction{
 					Type: "open_file",
 					Path: rel,
 				},
@@ -136,17 +136,17 @@ func discoverProjectWelcomeCards(rootPath string) ([]projectWelcomeCard, []proje
 		}
 		return recentFiles[i].rel < recentFiles[j].rel
 	})
-	recentCards := make([]projectWelcomeCard, 0, 6)
+	recentCards := make([]workspaceWelcomeCard, 0, 6)
 	for _, candidate := range recentFiles {
 		if len(recentCards) >= 6 {
 			break
 		}
-		recentCards = append(recentCards, projectWelcomeCard{
+		recentCards = append(recentCards, workspaceWelcomeCard{
 			ID:          "recent-" + strings.ReplaceAll(candidate.rel, "/", "-"),
 			Title:       filepath.Base(candidate.rel),
 			Subtitle:    candidate.rel,
 			Description: describeRecentFileTime(candidate.info),
-			Action: projectWelcomeAction{
+			Action: workspaceWelcomeAction{
 				Type: "open_file",
 				Path: candidate.rel,
 			},
@@ -155,33 +155,33 @@ func discoverProjectWelcomeCards(rootPath string) ([]projectWelcomeCard, []proje
 	return docCandidates, recentCards
 }
 
-func (a *App) buildProjectWelcomeSections(project store.Project) []projectWelcomeSection {
+func (a *App) buildProjectWelcomeSections(project store.Workspace) []workspaceWelcomeSection {
 	docCards, recentCards := discoverProjectWelcomeCards(project.RootPath)
-	sections := make([]projectWelcomeSection, 0, 3)
+	sections := make([]workspaceWelcomeSection, 0, 3)
 	if len(recentCards) > 0 {
-		sections = append(sections, projectWelcomeSection{
+		sections = append(sections, workspaceWelcomeSection{
 			ID:    "recent",
 			Title: "Recent Files",
 			Cards: recentCards,
 		})
 	}
 	if len(docCards) > 0 {
-		sections = append(sections, projectWelcomeSection{
+		sections = append(sections, workspaceWelcomeSection{
 			ID:    "docs",
 			Title: "Documentation",
 			Cards: docCards,
 		})
 	}
-	sections = append(sections, projectWelcomeSection{
+	sections = append(sections, workspaceWelcomeSection{
 		ID:    "runtime",
 		Title: "Modes",
-		Cards: []projectWelcomeCard{
+		Cards: []workspaceWelcomeCard{
 			{
 				ID:          "silent",
 				Title:       "Silent mode",
 				Subtitle:    map[bool]string{true: "on", false: "off"}[a.silentModeEnabled()],
 				Description: "Global runtime preference",
-				Action: projectWelcomeAction{
+				Action: workspaceWelcomeAction{
 					Type:       "set_silent_mode",
 					SilentMode: boolPtr(!a.silentModeEnabled()),
 				},
@@ -191,12 +191,12 @@ func (a *App) buildProjectWelcomeSections(project store.Project) []projectWelcom
 	return sections
 }
 
-func (a *App) handleProjectWelcome(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleWorkspaceWelcome(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
 	workspaceID := strings.TrimSpace(chi.URLParam(r, "workspace_id"))
-	project, err := a.resolveProjectByIDOrActive(workspaceID)
+	project, err := a.resolveRuntimeWorkspaceByIDOrActive(workspaceID)
 	if err != nil {
 		if isNoRows(err) {
 			http.Error(w, "project not found", http.StatusNotFound)
@@ -205,15 +205,15 @@ func (a *App) handleProjectWelcome(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	item, err := a.buildProjectAPIModel(project)
+	item, err := a.buildWorkspaceAPIModel(project)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	sections := a.buildProjectWelcomeSections(project)
-	writeJSON(w, projectWelcomeResponse{
+	writeJSON(w, workspaceWelcomeResponse{
 		OK:          true,
-		WorkspaceID: projectIDString(project.ID),
+		WorkspaceID: workspaceIDStr(project.ID),
 		Project:     item,
 		Scope:       "project",
 		Title:       strings.TrimSpace(project.Name),

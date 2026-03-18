@@ -10,9 +10,9 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func createParticipantTestProject(t *testing.T, s *Store, key string) Project {
+func createParticipantTestProject(t *testing.T, s *Store, key string) Workspace {
 	t.Helper()
-	project, err := s.CreateProject("Participant "+key, key, filepath.Join(t.TempDir(), key), "managed", "", "", false)
+	project, err := s.CreateEnrichedWorkspace("Participant "+key, key, filepath.Join(t.TempDir(), key), "managed", "", "", false)
 	if err != nil {
 		t.Fatalf("CreateProject(%q) error: %v", key, err)
 	}

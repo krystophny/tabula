@@ -181,7 +181,7 @@ func TestIntentPromptsSeparateSystemCommandsFromCanonicalActions(t *testing.T) {
 
 func TestExecuteSystemActionShellRunsCommand(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestExecuteSystemActionShellRunsCommand(t *testing.T) {
 
 func TestExecuteSystemActionToggleLiveDialogueReturnsPayload(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestExecuteSystemActionToggleLiveDialogueReturnsPayload(t *testing.T) {
 
 func TestExecuteSystemActionOpenFileCanvasShowsArtifact(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestExecuteSystemActionOpenFileCanvasShowsArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extract mock port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	msg, payload, err := app.executeSystemAction(session.ID, session, &SystemAction{
 		Action: "open_file_canvas",
@@ -300,14 +300,14 @@ func TestExecuteSystemActionOpenFileCanvasShowsArtifact(t *testing.T) {
 
 func TestSwitchModelActionIsUnsupported(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	if _, err := app.activateProject(projectIDString(project.ID)); err != nil {
+	if _, err := app.activateWorkspace(workspaceIDStr(project.ID)); err != nil {
 		t.Fatalf("activate project: %v", err)
 	}
-	session, err := app.chatSessionForProject(project)
+	session, err := app.chatSessionForWorkspace(project)
 	if err != nil {
 		t.Fatalf("project session: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestSwitchModelActionIsUnsupported(t *testing.T) {
 
 func TestOpenFileCanvasRendersPresentationAsPDF(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -362,7 +362,7 @@ func TestOpenFileCanvasRendersPresentationAsPDF(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extract mock port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	msg, payload, err := app.executeSystemAction(session.ID, session, &SystemAction{
 		Action: "open_file_canvas",
@@ -407,17 +407,17 @@ func TestOpenFileCanvasRendersPresentationAsPDF(t *testing.T) {
 
 func TestSwitchProjectActionReturnsActivationPayload(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.chatSessionForProject(project)
+	session, err := app.chatSessionForWorkspace(project)
 	if err != nil {
 		t.Fatalf("project session: %v", err)
 	}
 
 	linkedDir := t.TempDir()
-	target, created, err := app.createProject(projectCreateRequest{
+	target, created, err := app.createWorkspace2(runtimeWorkspaceCreateRequest{
 		Name: "notes",
 		Kind: "linked",
 		Path: filepath.Clean(linkedDir),
@@ -455,11 +455,11 @@ func TestSwitchProjectActionReturnsActivationPayload(t *testing.T) {
 
 func TestExecuteSystemActionRejectsUnsupportedAction(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.chatSessionForProject(project)
+	session, err := app.chatSessionForWorkspace(project)
 	if err != nil {
 		t.Fatalf("project session: %v", err)
 	}
@@ -487,11 +487,11 @@ func TestRunAssistantTurnKeepsPlainTextAssistantOutput(t *testing.T) {
 		_ = app.Shutdown(context.Background())
 	})
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.chatSessionForProject(project)
+	session, err := app.chatSessionForWorkspace(project)
 	if err != nil {
 		t.Fatalf("project session: %v", err)
 	}
@@ -520,11 +520,11 @@ func TestRunAssistantTurnExecutesHighConfidenceLocalIntent(t *testing.T) {
 		_ = app.Shutdown(context.Background())
 	})
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.chatSessionForProject(project)
+	session, err := app.chatSessionForWorkspace(project)
 	if err != nil {
 		t.Fatalf("project session: %v", err)
 	}
@@ -552,7 +552,7 @@ func TestRunAssistantTurnExecutesHighConfidenceLocalIntentInProjectSession(t *te
 		_ = app.Shutdown(context.Background())
 	})
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -580,7 +580,7 @@ func TestRunAssistantTurnPersistsLocalAnswer(t *testing.T) {
 		_ = app.Shutdown(context.Background())
 	})
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -638,7 +638,7 @@ func TestRunAssistantTurnOpenReadmeUsesMultiActionPlanAndOpensCanvas(t *testing.
 		_ = app.Shutdown(context.Background())
 	})
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -654,7 +654,7 @@ func TestRunAssistantTurnOpenReadmeUsesMultiActionPlanAndOpensCanvas(t *testing.
 	if err != nil {
 		t.Fatalf("extract canvas port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
@@ -699,11 +699,11 @@ func TestRunAssistantTurnFallsBackToAppServerWhenIntentLLMUnavailable(t *testing
 		_ = app.Shutdown(context.Background())
 	})
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.chatSessionForProject(project)
+	session, err := app.chatSessionForWorkspace(project)
 	if err != nil {
 		t.Fatalf("project session: %v", err)
 	}
@@ -731,11 +731,11 @@ func TestRunAssistantTurnUsesIntentLLMPlanForSystemAction(t *testing.T) {
 		_ = app.Shutdown(context.Background())
 	})
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.chatSessionForProject(project)
+	session, err := app.chatSessionForWorkspace(project)
 	if err != nil {
 		t.Fatalf("project session: %v", err)
 	}
@@ -798,11 +798,11 @@ func TestRunAssistantTurnPreservesClarificationContextForLocalLLM(t *testing.T) 
 		_ = app.Shutdown(context.Background())
 	})
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.chatSessionForProject(project)
+	session, err := app.chatSessionForWorkspace(project)
 	if err != nil {
 		t.Fatalf("project session: %v", err)
 	}
@@ -840,11 +840,11 @@ func TestRunAssistantTurnFallsBackToAppServerWhenLocalIntentExecutionFails(t *te
 		_ = app.Shutdown(context.Background())
 	})
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.chatSessionForProject(project)
+	session, err := app.chatSessionForWorkspace(project)
 	if err != nil {
 		t.Fatalf("project session: %v", err)
 	}
@@ -861,22 +861,22 @@ func TestRunAssistantTurnFallsBackToAppServerWhenLocalIntentExecutionFails(t *te
 
 func TestProjectProfileUsesStoredAliasAndEffort(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	if err := app.store.UpdateProjectChatModel(projectIDString(project.ID), modelprofile.AliasSpark); err != nil {
+	if err := app.store.UpdateEnrichedWorkspaceChatModel(workspaceIDStr(project.ID), modelprofile.AliasSpark); err != nil {
 		t.Fatalf("UpdateProjectChatModel() error: %v", err)
 	}
-	if err := app.store.UpdateProjectChatModelReasoningEffort(projectIDString(project.ID), modelprofile.ReasoningLow); err != nil {
+	if err := app.store.UpdateEnrichedWorkspaceChatModelReasoningEffort(workspaceIDStr(project.ID), modelprofile.ReasoningLow); err != nil {
 		t.Fatalf("UpdateProjectChatModelReasoningEffort() error: %v", err)
 	}
-	project, err = app.store.GetProject(projectIDString(project.ID))
+	project, err = app.store.GetEnrichedWorkspace(workspaceIDStr(project.ID))
 	if err != nil {
 		t.Fatalf("reload project: %v", err)
 	}
 
-	profile := app.appServerModelProfileForProject(project)
+	profile := app.appServerModelProfileForWorkspace(project)
 	if profile.Alias != modelprofile.AliasSpark {
 		t.Fatalf("project profile alias = %q, want %q", profile.Alias, modelprofile.AliasSpark)
 	}

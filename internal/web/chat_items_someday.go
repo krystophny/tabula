@@ -55,7 +55,7 @@ func (a *App) resolveFocusedItemTarget(session store.ChatSession, action *System
 			return a.store.GetItem(itemID)
 		}
 	}
-	project, err := a.systemActionTargetProject(session)
+	project, err := a.systemActionTargetWorkspace(session)
 	if err != nil {
 		return store.Item{}, err
 	}

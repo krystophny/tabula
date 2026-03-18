@@ -203,7 +203,7 @@ func (a *App) handleChatSessionActivity(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
-	state := a.projectRunStateForSession(sessionID)
+	state := a.workspaceRunStateForSession(sessionID)
 	writeJSON(w, map[string]interface{}{
 		"ok":             true,
 		"active_turns":   state.ActiveTurns,

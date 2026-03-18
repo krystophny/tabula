@@ -82,7 +82,7 @@ type mailDraftPayload struct {
 }
 
 type mailDraftContext struct {
-	project  store.Project
+	project  store.Workspace
 	artifact store.Artifact
 	item     *store.Item
 	account  store.ExternalAccount
@@ -339,15 +339,15 @@ func (a *App) handleMailDraftSend(w http.ResponseWriter, r *http.Request) {
 	writeAPIData(w, http.StatusOK, map[string]any{"draft": payload})
 }
 
-func (a *App) activeMailDraftProject() (store.Project, error) {
+func (a *App) activeMailDraftProject() (store.Workspace, error) {
 	workspaceID, err := a.store.ActiveWorkspaceID()
 	if err != nil {
-		return store.Project{}, err
+		return store.Workspace{}, err
 	}
 	if strings.TrimSpace(workspaceID) == "" {
-		return store.Project{}, errors.New("mail draft requires an active project")
+		return store.Workspace{}, errors.New("mail draft requires an active project")
 	}
-	return a.store.GetProject(workspaceID)
+	return a.store.GetEnrichedWorkspace(workspaceID)
 }
 
 func (a *App) resolveMailDraftAccount(ctx context.Context, accountID int64) (store.ExternalAccount, emailSyncAccountConfig, error) {
@@ -393,7 +393,7 @@ func (a *App) mailDraftProviderForAccount(ctx context.Context, account store.Ext
 	return provider, draftProvider, nil
 }
 
-func (a *App) persistMailDraft(project store.Project, account store.ExternalAccount, remote email.Draft, input email.DraftInput, replyToMessageID string) (mailDraftPayload, error) {
+func (a *App) persistMailDraft(project store.Workspace, account store.ExternalAccount, remote email.Draft, input email.DraftInput, replyToMessageID string) (mailDraftPayload, error) {
 	normalized, err := email.NormalizeDraftInput(input)
 	if err != nil {
 		return mailDraftPayload{}, err
@@ -581,14 +581,14 @@ func (ctx mailDraftContext) payload() mailDraftPayload {
 	return payload
 }
 
-func (a *App) projectForItem(item store.Item) (store.Project, error) {
+func (a *App) projectForItem(item store.Item) (store.Workspace, error) {
 	if item.WorkspaceID != nil && *item.WorkspaceID > 0 {
-		return a.store.GetProject(strconv.FormatInt(*item.WorkspaceID, 10))
+		return a.store.GetEnrichedWorkspace(strconv.FormatInt(*item.WorkspaceID, 10))
 	}
 	return a.activeMailDraftProject()
 }
 
-func (a *App) projectForArtifact(item *store.Item, artifact store.Artifact) (store.Project, error) {
+func (a *App) projectForArtifact(item *store.Item, artifact store.Artifact) (store.Workspace, error) {
 	if item != nil {
 		return a.projectForItem(*item)
 	}

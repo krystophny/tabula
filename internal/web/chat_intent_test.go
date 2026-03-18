@@ -8,7 +8,7 @@ import (
 
 func TestHandleChatSessionMessageNaturalLanguageNotCommand(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}

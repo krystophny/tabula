@@ -170,7 +170,7 @@ func TestExtractOpenRequestHintsGeneric(t *testing.T) {
 
 func TestExecuteSystemActionPlanUsesRequestHintForPlaceholder(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestExecuteSystemActionPlanUsesRequestHintForPlaceholder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extract canvas port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	_, payloads, err := app.executeSystemActionPlan(session.ID, session, "Open README file in canvas", []*SystemAction{
 		{
@@ -228,7 +228,7 @@ func TestExecuteSystemActionPlanUsesRequestHintForPlaceholder(t *testing.T) {
 
 func TestExecuteSystemActionPlanResolvesLastShellPathPlaceholder(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestExecuteSystemActionPlanResolvesLastShellPathPlaceholder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extract canvas port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	message, payloads, err := app.executeSystemActionPlan(session.ID, session, "Open README", []*SystemAction{
 		{
@@ -283,7 +283,7 @@ func TestExecuteSystemActionPlanResolvesLastShellPathPlaceholder(t *testing.T) {
 
 func TestExecuteSystemActionPlanPrefersRootReadmeMarkdownOverNestedExtensionlessReadme(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestExecuteSystemActionPlanPrefersRootReadmeMarkdownOverNestedExtensionless
 	if err != nil {
 		t.Fatalf("extract canvas port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	_, payloads, err := app.executeSystemActionPlan(session.ID, session, "Open readme", []*SystemAction{
 		{
@@ -344,7 +344,7 @@ func TestExecuteSystemActionPlanPrefersRootReadmeMarkdownOverNestedExtensionless
 
 func TestExecuteSystemActionPlanPrefersRootClaudeMarkdownCaseInsensitive(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -370,7 +370,7 @@ func TestExecuteSystemActionPlanPrefersRootClaudeMarkdownCaseInsensitive(t *test
 	if err != nil {
 		t.Fatalf("extract canvas port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	_, payloads, err := app.executeSystemActionPlan(session.ID, session, "Open claude", []*SystemAction{
 		{
@@ -407,7 +407,7 @@ func TestClassifyAndExecuteSystemActionWithoutIntentLLMDoesNotAutoOpen(t *testin
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -427,7 +427,7 @@ func TestClassifyAndExecuteSystemActionWithoutIntentLLMDoesNotAutoOpen(t *testin
 	if err != nil {
 		t.Fatalf("extract canvas port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	_, _, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "Open README")
 	if handled {
@@ -466,7 +466,7 @@ func TestClassifyAndExecuteSystemActionToolRequestsUseQwenPlan(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = llm.URL
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -486,7 +486,7 @@ func TestClassifyAndExecuteSystemActionToolRequestsUseQwenPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extract canvas port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	_, payloads, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "Open the README file.")
 	if !handled {
@@ -516,7 +516,7 @@ func TestClassifyAndExecuteSystemActionFallsThroughWhenLLMUnavailable(t *testing
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = "http://127.0.0.1:1"
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -559,7 +559,7 @@ func TestClassifyAndExecuteSystemActionWithIntentLLMHandlesSupportedPlan(t *test
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = llm.URL
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -579,7 +579,7 @@ func TestClassifyAndExecuteSystemActionWithIntentLLMHandlesSupportedPlan(t *test
 	if err != nil {
 		t.Fatalf("extract canvas port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	_, _, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "Open README")
 	if !handled {
@@ -619,7 +619,7 @@ func TestClassifyAndExecuteSystemActionHandlesMalformedQwenJSON(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = llm.URL
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -639,7 +639,7 @@ func TestClassifyAndExecuteSystemActionHandlesMalformedQwenJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extract canvas port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	_, payloads, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "Open the README file.")
 	if !handled {
@@ -858,7 +858,7 @@ func TestClassifyAndExecuteSystemActionOpenRequestUsesFallbackPlanWhenLLMPlanInv
 
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = llm.URL
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -878,7 +878,7 @@ func TestClassifyAndExecuteSystemActionOpenRequestUsesFallbackPlanWhenLLMPlanInv
 	if err != nil {
 		t.Fatalf("extract canvas port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	message, payloads, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "Open README")
 	if !handled {
@@ -900,7 +900,7 @@ func TestClassifyAndExecuteSystemActionOpenRequestUsesFallbackPlanWhenLLMPlanInv
 
 func TestExecuteSystemActionPlanPrefersTopLevelSiblingForPlaceholder(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -926,7 +926,7 @@ func TestExecuteSystemActionPlanPrefersTopLevelSiblingForPlaceholder(t *testing.
 	if err != nil {
 		t.Fatalf("extract canvas port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	_, payloads, err := app.executeSystemActionPlan(session.ID, session, "Open CLAUDE file", []*SystemAction{
 		{
@@ -1001,7 +1001,7 @@ func TestClassifyAndExecuteSystemActionUsesClarificationContextForOpenFileFollow
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = llm.URL
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -1017,7 +1017,7 @@ func TestClassifyAndExecuteSystemActionUsesClarificationContextForOpenFileFollow
 	if err != nil {
 		t.Fatalf("extract canvas port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {

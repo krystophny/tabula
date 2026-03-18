@@ -125,9 +125,9 @@ func TestRunAssistantTurnExplicitGPTRequestUsesTurnOverrideAndReturnsToSpark(t *
 
 	app := newAuthedAppWithServer(t, "ws"+strings.TrimPrefix(appServer.URL, "http"))
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {

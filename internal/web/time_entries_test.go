@@ -13,7 +13,7 @@ import (
 func TestTimeEntriesTrackProjectWorkspaceAndSphereSwitches(t *testing.T) {
 	app := newAuthedTestApp(t)
 
-	project, err := app.store.CreateProject("Tabura", "tabura", filepath.Join(t.TempDir(), "project"), "managed", "", "", false)
+	project, err := app.store.CreateEnrichedWorkspace("Tabura", "tabura", filepath.Join(t.TempDir(), "project"), "managed", "", "", false)
 	if err != nil {
 		t.Fatalf("CreateProject() error: %v", err)
 	}
@@ -22,7 +22,7 @@ func TestTimeEntriesTrackProjectWorkspaceAndSphereSwitches(t *testing.T) {
 		t.Fatalf("CreateWorkspace() error: %v", err)
 	}
 
-	rrProject := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/runtime/workspaces/"+projectIDString(project.ID)+"/activate", nil)
+	rrProject := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/runtime/workspaces/"+workspaceIDStr(project.ID)+"/activate", nil)
 	if rrProject.Code != http.StatusOK {
 		t.Fatalf("project activate status = %d, want 200: %s", rrProject.Code, rrProject.Body.String())
 	}
@@ -71,7 +71,7 @@ func TestTimeEntriesTrackProjectWorkspaceAndSphereSwitches(t *testing.T) {
 func TestTimeEntrySummaryCSVAndManualStampAPI(t *testing.T) {
 	app := newAuthedTestApp(t)
 
-	project, err := app.store.CreateProject("Tabura", "tabura", filepath.Join(t.TempDir(), "project"), "managed", "", "", false)
+	project, err := app.store.CreateEnrichedWorkspace("Tabura", "tabura", filepath.Join(t.TempDir(), "project"), "managed", "", "", false)
 	if err != nil {
 		t.Fatalf("CreateProject() error: %v", err)
 	}

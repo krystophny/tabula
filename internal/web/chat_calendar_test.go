@@ -83,9 +83,9 @@ func TestClassifyAndExecuteSystemActionShowCalendarRendersSphereAwareArtifact(t 
 	app.calendarNow = func() time.Time { return now }
 	app.newICSCalendarReader = func() (icsCalendarReader, error) { return stubICSCalendarReader{}, nil }
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	workDir := filepath.Join(t.TempDir(), "work")
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
@@ -182,7 +182,7 @@ func TestClassifyAndExecuteSystemActionShowCalendarRendersSphereAwareArtifact(t 
 	if err != nil {
 		t.Fatalf("extractPort(canvas): %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
@@ -281,9 +281,9 @@ func TestClassifyAndExecuteSystemActionCalendarAvailabilityUsesAllBusyBlocks(t *
 		}, nil
 	}
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	var showCalls int
 	canvasServer := setupMockCanvasShowServer(t, &showCalls, nil)
@@ -292,7 +292,7 @@ func TestClassifyAndExecuteSystemActionCalendarAvailabilityUsesAllBusyBlocks(t *
 	if err != nil {
 		t.Fatalf("extractPort(canvas): %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)

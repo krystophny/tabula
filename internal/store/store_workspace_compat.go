@@ -12,10 +12,10 @@ import (
 
 // Project is a temporary type alias kept so callers outside this package
 // continue to compile while they migrate to Workspace.
-type Project = Workspace
+
 
 const (
-	appStateActiveProjectIDKey = "active_project_id"
+	appStateActiveWorkspaceIDKey = "active_workspace_id"
 	// DB-stored key prefixes are intentionally kept unchanged for backward
 	// compatibility with existing databases.
 	workspaceNameStatePrefix     = "project_name:"
@@ -65,8 +65,8 @@ func workspaceRootPathStateKey(id int64) string {
 	return workspaceRootPathStatePrefix + strconv.FormatInt(id, 10)
 }
 
-func (s *Store) activeProjectID() (string, error) {
-	return s.AppState(appStateActiveProjectIDKey)
+func (s *Store) activeWorkspaceIDFromState() (string, error) {
+	return s.AppState(appStateActiveWorkspaceIDKey)
 }
 
 func (s *Store) compatibilityWorkspacePath(workspaceID int64, defaultPath string) string {
@@ -86,7 +86,7 @@ func (s *Store) enrichWorkspace(workspace *Workspace) {
 	workspace.RootPath = s.workspaceRootPath(workspace.ID, workspace.DirPath)
 	workspace.WorkspacePath = s.workspaceStoredPath(workspace.ID, workspace.DirPath)
 	workspace.Name = s.workspaceOverrideName(workspace.ID, workspace.Name)
-	activeID, err := s.activeProjectID()
+	activeID, err := s.activeWorkspaceIDFromState()
 	if err == nil {
 		workspace.IsDefault = strings.TrimSpace(activeID) == workspaceIDString(workspace.ID) ||
 			strings.EqualFold(strings.TrimSpace(workspace.CanvasSessionID), "local")
@@ -124,35 +124,22 @@ func (s *Store) workspaceRootPath(id int64, fallback string) string {
 	return fallback
 }
 
-// ListProjects returns non-daily workspaces, enriched with app_state metadata.
-func (s *Store) ListProjects() ([]Workspace, error) {
+// ListEnrichedWorkspaces returns all workspaces enriched with app_state metadata.
+func (s *Store) ListEnrichedWorkspaces() ([]Workspace, error) {
 	workspaces, err := s.ListWorkspaces()
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Workspace, 0, len(workspaces))
 	for i := range workspaces {
-		if workspaces[i].IsDaily {
-			continue
-		}
 		s.enrichWorkspace(&workspaces[i])
-		out = append(out, workspaces[i])
 	}
-	if len(out) == 0 {
-		if workspace, err := s.ActiveWorkspace(); err == nil {
-			s.enrichWorkspace(&workspace)
-			out = append(out, workspace)
-		} else if !errors.Is(err, sql.ErrNoRows) {
-			return nil, err
-		}
-	}
-	return out, nil
+	return workspaces, nil
 }
 
 // GetProject returns a workspace by string ID, enriched with app_state
 // metadata. This is a compatibility shim; callers should migrate to
 // GetWorkspace with int64 IDs.
-func (s *Store) GetProject(id string) (Workspace, error) {
+func (s *Store) GetEnrichedWorkspace(id string) (Workspace, error) {
 	workspaceID, err := parseWorkspaceIDString(id)
 	if err != nil {
 		return Workspace{}, err
@@ -165,7 +152,7 @@ func (s *Store) GetProject(id string) (Workspace, error) {
 	return workspace, nil
 }
 
-func (s *Store) GetProjectByWorkspacePath(workspacePath string) (Workspace, error) {
+func (s *Store) GetWorkspaceByStoredPath(workspacePath string) (Workspace, error) {
 	rawPath := strings.TrimSpace(workspacePath)
 	cleanPath := normalizeWorkspacePath(workspacePath)
 	workspace, err := s.GetWorkspaceByPath(cleanPath)
@@ -197,7 +184,7 @@ func (s *Store) GetProjectByWorkspacePath(workspacePath string) (Workspace, erro
 	return Workspace{}, sql.ErrNoRows
 }
 
-func (s *Store) GetProjectByRootPath(rootPath string) (Workspace, error) {
+func (s *Store) GetWorkspaceByRootPath(rootPath string) (Workspace, error) {
 	cleanPath := normalizeWorkspacePath(rootPath)
 	workspaces, err := s.ListWorkspaces()
 	if err != nil {
@@ -212,10 +199,10 @@ func (s *Store) GetProjectByRootPath(rootPath string) (Workspace, error) {
 			return workspaces[i], nil
 		}
 	}
-	return s.GetProjectByWorkspacePath(cleanPath)
+	return s.GetWorkspaceByStoredPath(cleanPath)
 }
 
-func (s *Store) GetProjectByCanvasSession(canvasSessionID string) (Workspace, error) {
+func (s *Store) GetWorkspaceByCanvasSession(canvasSessionID string) (Workspace, error) {
 	workspaces, err := s.ListWorkspaces()
 	if err != nil {
 		return Workspace{}, err
@@ -230,7 +217,7 @@ func (s *Store) GetProjectByCanvasSession(canvasSessionID string) (Workspace, er
 	return Workspace{}, sql.ErrNoRows
 }
 
-func (s *Store) CreateProject(name, workspacePath, rootPath, kind, mcpURL, canvasSessionID string, isDefault bool) (Workspace, error) {
+func (s *Store) CreateEnrichedWorkspace(name, workspacePath, rootPath, kind, mcpURL, canvasSessionID string, isDefault bool) (Workspace, error) {
 	sphere := SpherePrivate
 	cleanRootPath := normalizeWorkspacePath(rootPath)
 	cleanWorkspacePath := strings.TrimSpace(workspacePath)
@@ -296,7 +283,7 @@ func (s *Store) CreateProject(name, workspacePath, rootPath, kind, mcpURL, canva
 		}
 	}
 	if isDefault {
-		if err := s.SetAppState(appStateActiveProjectIDKey, workspaceIDString(workspace.ID)); err != nil {
+		if err := s.SetAppState(appStateActiveWorkspaceIDKey, workspaceIDString(workspace.ID)); err != nil {
 			return Workspace{}, err
 		}
 		if err := s.SetActiveWorkspace(workspace.ID); err != nil {
@@ -335,11 +322,11 @@ func (s *Store) SetActiveWorkspaceID(workspaceID string) error {
 	if _, err := s.GetWorkspace(workspaceNumericID); err != nil {
 		return err
 	}
-	return s.SetAppState(appStateActiveProjectIDKey, workspaceIDString(workspaceNumericID))
+	return s.SetAppState(appStateActiveWorkspaceIDKey, workspaceIDString(workspaceNumericID))
 }
 
 func (s *Store) ActiveWorkspaceID() (string, error) {
-	if activeProjectID, err := s.activeProjectID(); err == nil && strings.TrimSpace(activeProjectID) != "" {
+	if activeProjectID, err := s.activeWorkspaceIDFromState(); err == nil && strings.TrimSpace(activeProjectID) != "" {
 		return strings.TrimSpace(activeProjectID), nil
 	} else if err != nil {
 		return "", err
@@ -357,7 +344,7 @@ func (s *Store) ActiveWorkspaceID() (string, error) {
 	return workspaceIDString(workspace.ID), nil
 }
 
-func (s *Store) TouchProject(id string) error {
+func (s *Store) TouchWorkspace(id string) error {
 	workspaceID, err := parseWorkspaceIDString(id)
 	if err != nil {
 		return err
@@ -366,7 +353,7 @@ func (s *Store) TouchProject(id string) error {
 	return err
 }
 
-func (s *Store) UpdateProjectTransport(id, mcpURL, canvasSessionID string) error {
+func (s *Store) UpdateWorkspaceTransport(id, mcpURL, canvasSessionID string) error {
 	workspaceID, err := parseWorkspaceIDString(id)
 	if err != nil {
 		return err
@@ -378,11 +365,11 @@ func (s *Store) UpdateProjectTransport(id, mcpURL, canvasSessionID string) error
 	return err
 }
 
-func (s *Store) UpdateProjectRuntime(id, mcpURL, canvasSessionID string) error {
-	return s.UpdateProjectTransport(id, mcpURL, canvasSessionID)
+func (s *Store) UpdateWorkspaceRuntime(id, mcpURL, canvasSessionID string) error {
+	return s.UpdateWorkspaceTransport(id, mcpURL, canvasSessionID)
 }
 
-func (s *Store) UpdateProjectChatModel(id, model string) error {
+func (s *Store) UpdateEnrichedWorkspaceChatModel(id, model string) error {
 	workspaceID, err := parseWorkspaceIDString(id)
 	if err != nil {
 		return err
@@ -390,7 +377,7 @@ func (s *Store) UpdateProjectChatModel(id, model string) error {
 	return s.UpdateWorkspaceChatModel(workspaceID, model)
 }
 
-func (s *Store) UpdateProjectChatModelReasoningEffort(id, effort string) error {
+func (s *Store) UpdateEnrichedWorkspaceChatModelReasoningEffort(id, effort string) error {
 	workspaceID, err := parseWorkspaceIDString(id)
 	if err != nil {
 		return err
@@ -398,7 +385,7 @@ func (s *Store) UpdateProjectChatModelReasoningEffort(id, effort string) error {
 	return s.UpdateWorkspaceChatModelReasoningEffort(workspaceID, effort)
 }
 
-func (s *Store) UpdateProjectKind(id, kind string) error {
+func (s *Store) UpdateWorkspaceKind(id, kind string) error {
 	workspaceID, err := parseWorkspaceIDString(id)
 	if err != nil {
 		return err
@@ -406,7 +393,7 @@ func (s *Store) UpdateProjectKind(id, kind string) error {
 	return s.SetAppState(workspaceKindStateKey(workspaceID), strings.ToLower(strings.TrimSpace(kind)))
 }
 
-func (s *Store) RenameProject(id, name, workspacePath, rootPath, kind string) error {
+func (s *Store) RenameWorkspace(id, name, workspacePath, rootPath, kind string) error {
 	workspaceID, err := parseWorkspaceIDString(id)
 	if err != nil {
 		return err
@@ -439,17 +426,17 @@ func (s *Store) RenameProject(id, name, workspacePath, rootPath, kind string) er
 	return err
 }
 
-func (s *Store) UpdateProjectLocation(id, name, workspacePath, rootPath, kind string) error {
-	return s.RenameProject(id, name, workspacePath, rootPath, kind)
+func (s *Store) UpdateWorkspaceLocation2(id, name, workspacePath, rootPath, kind string) error {
+	return s.RenameWorkspace(id, name, workspacePath, rootPath, kind)
 }
 
-func (s *Store) DeleteProject(workspaceID string) error {
+func (s *Store) DeleteEnrichedWorkspace(workspaceID string) error {
 	workspaceNumericID, err := parseWorkspaceIDString(workspaceID)
 	if err != nil {
 		return err
 	}
-	if activeProjectID, err := s.activeProjectID(); err == nil && strings.TrimSpace(activeProjectID) == workspaceIDString(workspaceNumericID) {
-		if err := s.SetAppState(appStateActiveProjectIDKey, ""); err != nil {
+	if activeProjectID, err := s.activeWorkspaceIDFromState(); err == nil && strings.TrimSpace(activeProjectID) == workspaceIDString(workspaceNumericID) {
+		if err := s.SetAppState(appStateActiveWorkspaceIDKey, ""); err != nil {
 			return err
 		}
 	} else if err != nil {
@@ -470,7 +457,7 @@ func (s *Store) DeleteProject(workspaceID string) error {
 	return s.DeleteWorkspace(workspaceNumericID)
 }
 
-func (s *Store) UpdateProjectCompanionConfig(id, configJSON string) error {
+func (s *Store) UpdateEnrichedWorkspaceCompanionConfig(id, configJSON string) error {
 	workspaceID, err := parseWorkspaceIDString(id)
 	if err != nil {
 		return err
@@ -478,7 +465,7 @@ func (s *Store) UpdateProjectCompanionConfig(id, configJSON string) error {
 	return s.UpdateWorkspaceCompanionConfig(workspaceID, configJSON)
 }
 
-func (s *Store) UpdateProjectCanvasSession(id, canvasSessionID string) error {
+func (s *Store) UpdateEnrichedWorkspaceCanvasSession(id, canvasSessionID string) error {
 	workspaceID, err := parseWorkspaceIDString(id)
 	if err != nil {
 		return err
@@ -487,7 +474,7 @@ func (s *Store) UpdateProjectCanvasSession(id, canvasSessionID string) error {
 	return err
 }
 
-func (s *Store) UpdateProjectMCPURL(id, mcpURL string) error {
+func (s *Store) UpdateEnrichedWorkspaceMCPURL(id, mcpURL string) error {
 	workspaceID, err := parseWorkspaceIDString(id)
 	if err != nil {
 		return err
@@ -496,7 +483,7 @@ func (s *Store) UpdateProjectMCPURL(id, mcpURL string) error {
 	return err
 }
 
-func (s *Store) ListWorkspacesForProject(workspaceID string) ([]Workspace, error) {
+func (s *Store) ListWorkspacesForID(workspaceID string) ([]Workspace, error) {
 	numericID, err := parseWorkspaceIDString(workspaceID)
 	if err != nil {
 		return nil, err
@@ -508,39 +495,39 @@ func (s *Store) ListWorkspacesForProject(workspaceID string) ([]Workspace, error
 	return []Workspace{workspace}, nil
 }
 
-func (s *Store) SetWorkspaceProject(id int64, _ *string) (Workspace, error) {
+func (s *Store) SetWorkspaceNoOp(id int64, _ *string) (Workspace, error) {
 	return s.GetWorkspace(id)
 }
 
-func (s *Store) FindWorkspaceByProjectPath(path string) (*int64, error) {
+func (s *Store) FindWorkspaceByPath(path string) (*int64, error) {
 	return s.FindWorkspaceContainingPath(path)
 }
 
-func (s *Store) activeProject() (Workspace, error) {
+func (s *Store) activeEnrichedWorkspace() (Workspace, error) {
 	id, err := s.ActiveWorkspaceID()
 	if err != nil {
 		return Workspace{}, err
 	}
-	return s.GetProject(id)
+	return s.GetEnrichedWorkspace(id)
 }
 
 func (s *Store) appServerModelProfileForWorkspacePath(workspacePath string) string {
-	workspace, err := s.GetProjectByWorkspacePath(workspacePath)
+	workspace, err := s.GetWorkspaceByStoredPath(workspacePath)
 	if err != nil {
 		return ""
 	}
 	return normalizeWorkspaceChatModel(workspace.ChatModel)
 }
 
-func normalizeProjectName(name string) string {
+func normalizeWorkspaceCompatName(name string) string {
 	return normalizeWorkspaceName(name)
 }
 
-func normalizeProjectChatModel(raw string) string {
+func normalizeWorkspaceCompatChatModel(raw string) string {
 	return normalizeWorkspaceChatModel(raw)
 }
 
-func normalizeProjectChatModelReasoningEffort(raw string) string {
+func normalizeWorkspaceCompatChatModelReasoningEffort(raw string) string {
 	return normalizeWorkspaceChatModelReasoningEffort(raw)
 }
 

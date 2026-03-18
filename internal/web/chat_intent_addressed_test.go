@@ -128,7 +128,7 @@ func TestClassifyIntentPlanWithLLMIncludesRuntimeContextForLocalAnswers(t *testi
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = llm.URL
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -197,11 +197,11 @@ func TestRunAssistantTurnSuppressesUnaddressedMeetingTurn(t *testing.T) {
 	app.intentLLMURL = llm.URL
 	setLivePolicyForTest(t, app, LivePolicyMeeting)
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.chatSessionForProject(project)
+	session, err := app.chatSessionForWorkspace(project)
 	if err != nil {
 		t.Fatalf("project session: %v", err)
 	}
@@ -227,11 +227,11 @@ func TestRunAssistantTurnMeetingDirectAddressOverridesFalseAddressedClassificati
 	app.intentLLMURL = llm.URL
 	setLivePolicyForTest(t, app, LivePolicyMeeting)
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.chatSessionForProject(project)
+	session, err := app.chatSessionForWorkspace(project)
 	if err != nil {
 		t.Fatalf("project session: %v", err)
 	}
@@ -259,11 +259,11 @@ func TestRunAssistantTurnDialogueIgnoresAddressedFlag(t *testing.T) {
 	app.intentLLMURL = llm.URL
 	setLivePolicyForTest(t, app, LivePolicyDialogue)
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.chatSessionForProject(project)
+	session, err := app.chatSessionForWorkspace(project)
 	if err != nil {
 		t.Fatalf("project session: %v", err)
 	}

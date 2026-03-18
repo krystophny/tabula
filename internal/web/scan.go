@@ -47,7 +47,7 @@ type scanExtractRequest struct {
 	Image            []byte
 	MIMEType         string
 	Filename         string
-	Project          store.Project
+	Project          store.Workspace
 	Item             *store.Item
 	SourceArtifact   *store.Artifact
 	SourceText       string
@@ -194,7 +194,7 @@ func (a *App) handleScanUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	meta := scanArtifactMeta{
 		Status:      "uploaded",
-		WorkspaceID: projectIDString(project.ID),
+		WorkspaceID: workspaceIDStr(project.ID),
 		Summary:     strings.TrimSpace(result.Summary),
 		SummaryPath: summaryPath,
 		ScanPath:    relImagePath,
@@ -228,7 +228,7 @@ func (a *App) handleScanUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeAPIData(w, http.StatusCreated, map[string]any{
-		"workspace_id":  projectIDString(project.ID),
+		"workspace_id":  workspaceIDStr(project.ID),
 		"item_id":       itemIDValue(item),
 		"artifact_id":   artifactIDValue(artifact),
 		"scan_artifact": scanArtifact,
@@ -298,7 +298,7 @@ func (a *App) handleScanConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	reviewMeta := scanArtifactMeta{
 		Status:           "confirmed",
-		WorkspaceID:      projectIDString(project.ID),
+		WorkspaceID:      workspaceIDStr(project.ID),
 		ItemID:           itemIDValue(item),
 		SourceArtifactID: artifactIDValue(artifact),
 		Summary:          strings.TrimSpace(meta.Summary),
@@ -343,7 +343,7 @@ func (a *App) handleScanConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeAPIData(w, http.StatusCreated, map[string]any{
-		"workspace_id":     projectIDString(project.ID),
+		"workspace_id":     workspaceIDStr(project.ID),
 		"item_id":          itemIDValue(item),
 		"artifact_id":      artifactIDValue(artifact),
 		"scan_artifact_id": scanArtifact.ID,
@@ -353,16 +353,16 @@ func (a *App) handleScanConfirm(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (a *App) resolveScanContext(workspaceID string, itemID, artifactID int64) (store.Project, *store.Item, *store.Artifact, error) {
-	project, err := a.resolveProjectByIDOrActive(workspaceID)
+func (a *App) resolveScanContext(workspaceID string, itemID, artifactID int64) (store.Workspace, *store.Item, *store.Artifact, error) {
+	project, err := a.resolveRuntimeWorkspaceByIDOrActive(workspaceID)
 	if err != nil {
-		return store.Project{}, nil, nil, err
+		return store.Workspace{}, nil, nil, err
 	}
 	var item *store.Item
 	if itemID > 0 {
 		loaded, err := a.store.GetItem(itemID)
 		if err != nil {
-			return store.Project{}, nil, nil, err
+			return store.Workspace{}, nil, nil, err
 		}
 		item = &loaded
 	}
@@ -373,7 +373,7 @@ func (a *App) resolveScanContext(workspaceID string, itemID, artifactID int64) (
 	if artifactID > 0 {
 		loaded, err := a.store.GetArtifact(artifactID)
 		if err != nil {
-			return store.Project{}, nil, nil, err
+			return store.Workspace{}, nil, nil, err
 		}
 		artifact = &loaded
 	}
@@ -615,11 +615,11 @@ func sanitizeScanAnnotations(in []scanMappedAnnotation) []scanMappedAnnotation {
 	return out
 }
 
-func buildScanUploadSummary(project store.Project, item *store.Item, artifact *store.Artifact, imagePath string, result scanExtractResult) string {
+func buildScanUploadSummary(project store.Workspace, item *store.Item, artifact *store.Artifact, imagePath string, result scanExtractResult) string {
 	lines := []string{
 		"# Scan Import",
 		"",
-		fmt.Sprintf("- Project: `%s`", projectIDString(project.ID)),
+		fmt.Sprintf("- Project: `%s`", workspaceIDStr(project.ID)),
 		fmt.Sprintf("- Scan image: `%s`", imagePath),
 	}
 	if item != nil {
@@ -653,11 +653,11 @@ func buildScanUploadSummary(project store.Project, item *store.Item, artifact *s
 	return strings.Join(lines, "\n")
 }
 
-func buildScanConfirmSummary(project store.Project, item *store.Item, artifact *store.Artifact, annotations []scanMappedAnnotation) string {
+func buildScanConfirmSummary(project store.Workspace, item *store.Item, artifact *store.Artifact, annotations []scanMappedAnnotation) string {
 	lines := []string{
 		"# Reviewed Scan Annotations",
 		"",
-		fmt.Sprintf("- Project: `%s`", projectIDString(project.ID)),
+		fmt.Sprintf("- Project: `%s`", workspaceIDStr(project.ID)),
 	}
 	if item != nil {
 		lines = append(lines, fmt.Sprintf("- Item: `%s`", item.Title))

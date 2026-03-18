@@ -59,7 +59,7 @@ func TestIsDestructiveShellCommand(t *testing.T) {
 
 func TestDestructivePlanRequiresConfirmationAndConfirmExecutes(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestDestructivePlanRequiresConfirmationAndConfirmExecutes(t *testing.T) {
 
 func TestDestructivePlanCanBeCanceled(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestYoloModeBypassesDestructiveConfirmation(t *testing.T) {
 	if err := app.setYoloModeEnabled(true); err != nil {
 		t.Fatalf("set yolo mode: %v", err)
 	}
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}

@@ -402,7 +402,7 @@ func (a *App) findConversationPromotionItem(ctx conversationItemContext) (*store
 }
 
 func (a *App) createGitHubIssueFromConversation(sessionID string, session store.ChatSession, action *SystemAction) (string, map[string]interface{}, error) {
-	targetProject, err := a.systemActionTargetProject(session)
+	targetProject, err := a.systemActionTargetWorkspace(session)
 	if err != nil {
 		return "", nil, err
 	}

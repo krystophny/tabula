@@ -223,7 +223,7 @@ func (a *App) fallbackWorkspaceForWorkspacePath(workspacePath string) (*store.Wo
 	if key == "" {
 		return nil, nil
 	}
-	project, err := a.store.GetProjectByWorkspacePath(key)
+	project, err := a.store.GetWorkspaceByStoredPath(key)
 	if err != nil {
 		return nil, nil
 	}
@@ -364,7 +364,7 @@ type workspacePromptContext struct {
 }
 
 func (a *App) loadWorkspacePromptContext(workspacePath string) *workspacePromptContext {
-	project, err := a.store.GetProjectByWorkspacePath(strings.TrimSpace(workspacePath))
+	project, err := a.store.GetWorkspaceByStoredPath(strings.TrimSpace(workspacePath))
 	if err != nil {
 		return nil
 	}
@@ -426,7 +426,7 @@ func (a *App) applyWorkspacePromptContext(workspacePath, prompt string) string {
 
 func (a *App) workspaceActionBaseDir(workspacePath string) string {
 	if strings.TrimSpace(workspacePath) != "" {
-		if project, err := a.store.GetProjectByWorkspacePath(workspacePath); err == nil {
+		if project, err := a.store.GetWorkspaceByStoredPath(workspacePath); err == nil {
 			if root := strings.TrimSpace(project.RootPath); root != "" {
 				return root
 			}

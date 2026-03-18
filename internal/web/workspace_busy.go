@@ -33,13 +33,13 @@ func (a *App) allWorkspaceBusyStates() ([]workspaceBusyState, error) {
 	}
 	states := make([]workspaceBusyState, 0, len(workspaces))
 	for _, workspace := range workspaces {
-		runState := projectRunState{}
+		runState := workspaceRunState{}
 		sessionID := ""
 		session, err := a.store.GetChatSessionByWorkspaceID(workspace.ID)
 		switch {
 		case err == nil:
 			sessionID = session.ID
-			runState = a.projectRunStateForSession(session.ID)
+			runState = a.workspaceRunStateForSession(session.ID)
 		case !isNoRows(err):
 			return nil, err
 		}

@@ -2,23 +2,17 @@ package web
 
 import "github.com/krystophny/tabura/internal/store"
 
-func isExplicitWorkspace(workspace store.Workspace) bool {
-	return !workspace.IsDaily
+func isExplicitWorkspace(_ store.Workspace) bool {
+	return true
 }
 
 func filterExplicitWorkspaces(workspaces []store.Workspace) []store.Workspace {
-	filtered := make([]store.Workspace, 0, len(workspaces))
-	for _, workspace := range workspaces {
-		if isExplicitWorkspace(workspace) {
-			filtered = append(filtered, workspace)
-		}
-	}
-	return filtered
+	return workspaces
 }
 
 func activeExplicitWorkspace(workspaces []store.Workspace) *store.Workspace {
 	for i := range workspaces {
-		if workspaces[i].IsActive && isExplicitWorkspace(workspaces[i]) {
+		if workspaces[i].IsActive {
 			return &workspaces[i]
 		}
 	}

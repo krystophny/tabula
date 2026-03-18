@@ -82,7 +82,7 @@ func TestClassifyAndExecuteSystemActionSwitchWorkspace(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestClassifyAndExecuteSystemActionFocusWorkspaceUsesFuzzyNameMatching(t *te
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestClassifyAndExecuteSystemActionListWorkspaceItemsUsesActiveWorkspace(t *
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -280,11 +280,11 @@ func TestClassifyAndExecuteSystemActionCreateWorkspaceFromGit(t *testing.T) {
 	t.Setenv("TABURA_WORKSPACE_CLONE_ROOT", cloneRoot)
 
 	sourceRepo := initGitTestRepo(t, "example-workspace")
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.chatSessionForProject(project)
+	session, err := app.chatSessionForWorkspace(project)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestClassifyAndExecuteSystemActionListWorkspacesUsesActiveSphereByDefault(t
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -439,11 +439,11 @@ func TestClassifyAndExecuteSystemActionWorkspaceManagement(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.chatSessionForProject(project)
+	session, err := app.chatSessionForWorkspace(project)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}
@@ -570,7 +570,7 @@ func TestClassifyAndExecuteSystemActionWorkspaceManagement(t *testing.T) {
 
 func TestApplyWorkspacePromptContextIncludesActiveWorkspaceSummary(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -631,11 +631,11 @@ func TestApplyWorkspacePromptContextIncludesActiveWorkspaceSummary(t *testing.T)
 func TestCwdForWorkspacePathPrefersLinkedWorkspaceDir(t *testing.T) {
 	app := newAuthedTestApp(t)
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
-	session, err := app.chatSessionForProject(project)
+	session, err := app.chatSessionForWorkspace(project)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}

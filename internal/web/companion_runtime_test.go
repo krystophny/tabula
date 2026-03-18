@@ -72,9 +72,9 @@ func TestCompanionRuntimeProtocolEmitsListeningAndTranscriptEvents(t *testing.T)
 	defer sttSrv.Close()
 	app.sttURL = sttSrv.URL
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	workspace := requireWorkspaceForProject(t, app, project)
 	cfg := app.loadCompanionConfig(project)
@@ -152,9 +152,9 @@ func TestCompanionRuntimeProtocolEmitsListeningAndTranscriptEvents(t *testing.T)
 
 func TestCompanionRuntimeProtocolTransitionsThroughTalkingAndBackToListening(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	cfg := app.loadCompanionConfig(project)
 	cfg.CompanionEnabled = true
@@ -214,9 +214,9 @@ func TestCompanionRuntimeProtocolTransitionsThroughTalkingAndBackToListening(t *
 
 func TestInterruptCompanionPendingTurnBroadcastsListeningState(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	workspace := requireWorkspaceForProject(t, app, project)
 	cfg := app.loadCompanionConfig(project)

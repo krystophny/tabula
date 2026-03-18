@@ -62,7 +62,7 @@ func TestClassifyAndExecuteSystemActionShowFilteredItems(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}

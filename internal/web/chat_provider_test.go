@@ -12,9 +12,9 @@ func TestLocalSystemActionTurnPublishesLocalProviderMetadata(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
@@ -62,9 +62,9 @@ func TestLocalSystemActionTurnPublishesLocalProviderMetadata(t *testing.T) {
 func TestFinalizeAssistantResponseWithMetadataPublishesProviderMetadata(t *testing.T) {
 	app := newAuthedTestApp(t)
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
@@ -175,9 +175,9 @@ func TestAssistantProviderDisplayLabelPrefersSpecificResponderName(t *testing.T)
 func TestChatSessionHistoryIncludesProviderMetadata(t *testing.T) {
 	app := newAuthedTestApp(t)
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {

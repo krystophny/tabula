@@ -14,7 +14,7 @@ func TestEnsurePromptContractFresh_FirstWriteDoesNotClearMessages(t *testing.T) 
 		_ = app.Shutdown(context.Background())
 	})
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestEnsurePromptContractFresh_ChangedDigestClearsMessages(t *testing.T) {
 		_ = app.Shutdown(context.Background())
 	})
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}

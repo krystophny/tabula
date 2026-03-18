@@ -172,7 +172,7 @@ func (a *App) writeCanvasFileBlock(workspacePath, canvasSessionID string, block 
 	}); err != nil {
 		return false
 	}
-	a.markProjectOutput(workspacePath)
+	a.markWorkspaceOutput(workspacePath)
 	return true
 }
 
@@ -222,11 +222,11 @@ func (a *App) resolveCanvasRefreshTarget(workspacePath string) *canvasRefreshTar
 	if key == "" {
 		return nil
 	}
-	project, err := a.store.GetProjectByWorkspacePath(key)
+	project, err := a.store.GetWorkspaceByStoredPath(key)
 	if err != nil {
 		return nil
 	}
-	sid := a.canvasSessionIDForProject(project)
+	sid := a.canvasSessionIDForWorkspace(project)
 	port, ok := a.tunnels.getPort(sid)
 	if !ok {
 		return nil
@@ -322,7 +322,7 @@ func (a *App) pushCanvasFileIfChanged(workspacePath string, t *canvasRefreshTarg
 		"title":            t.title,
 		"markdown_or_text": diskContent,
 	})
-	a.markProjectOutput(workspacePath)
+	a.markWorkspaceOutput(workspacePath)
 	return true
 }
 
@@ -363,7 +363,7 @@ func (a *App) pushCanvasDocumentIfChanged(workspacePath string, t *canvasRefresh
 	}
 	t.renderedPath = renderedPath
 	t.renderedAbsPath = resolveArtifactFilePath(projectRoot, renderedPath)
-	a.markProjectOutput(workspacePath)
+	a.markWorkspaceOutput(workspacePath)
 	return true
 }
 
@@ -425,7 +425,7 @@ func (a *App) watchCanvasFile(ctx context.Context, workspacePath string) {
 					"title":            t.title,
 					"markdown_or_text": content,
 				})
-				a.markProjectOutput(workspacePath)
+				a.markWorkspaceOutput(workspacePath)
 			case canvasRefreshKindDocumentPDF:
 				info, err := os.Stat(t.sourcePath)
 				if err != nil || info.IsDir() {

@@ -31,7 +31,7 @@ func TestApprovalPolicyForSession(t *testing.T) {
 
 func TestRequestAppServerApprovalWaitsForDecision(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}

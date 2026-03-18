@@ -175,7 +175,7 @@ func TestCompanionResponseTriggerExecutesAssistantTurn(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.appServerClient = newCompanionAppServerClient(t, "Companion reply.")
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestCompanionResponseTriggerSkipsWhenCompanionDisabled(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.appServerClient = newCompanionAppServerClient(t, "unexpected reply")
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestCompanionResponseTriggerSkipsFalseTriggerTranscript(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.appServerClient = newCompanionAppServerClient(t, "unexpected reply")
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestCompanionResponseTriggerUsesSilentModeOutputQueue(t *testing.T) {
 		t.Fatalf("set silent mode: %v", err)
 	}
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -426,7 +426,7 @@ func TestCompanionResponseTriggerDoesNotDuplicateSegment(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.appServerClient = newCompanionAppServerClient(t, "Companion reply.")
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -482,7 +482,7 @@ func TestCompanionResponseTriggerInterruptsPendingTurn(t *testing.T) {
 	t.Setenv("TABURA_INTENT_LLM_URL", "off")
 	app := newAuthedTestApp(t)
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -593,7 +593,7 @@ func TestCompanionResponseTriggerIncludesProjectScopedCompanionContext(t *testin
 	client, promptCh := newCompanionAppServerClientWithCapture(t, "Companion reply.")
 	app.appServerClient = client
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -634,7 +634,7 @@ func TestCompanionResponseTriggerIncludesProjectScopedCompanionContext(t *testin
 		}
 	}
 
-	otherProject, err := app.store.CreateProject("Other Project", "other-project", t.TempDir(), "managed", "", "", false)
+	otherProject, err := app.store.CreateEnrichedWorkspace("Other Project", "other-project", t.TempDir(), "managed", "", "", false)
 	if err != nil {
 		t.Fatalf("create other project: %v", err)
 	}
@@ -707,7 +707,7 @@ func TestCompanionResponseTriggerUsesWorkspaceDirForAppSession(t *testing.T) {
 	client, _, cwdCh := newCompanionAppServerClientWithSessionCapture(t, "Companion reply.")
 	app.appServerClient = client
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -719,7 +719,7 @@ func TestCompanionResponseTriggerUsesWorkspaceDirForAppSession(t *testing.T) {
 	}
 	setLivePolicyForTest(t, app, LivePolicyMeeting)
 
-	session, err := app.chatSessionForProject(project)
+	session, err := app.chatSessionForWorkspace(project)
 	if err != nil {
 		t.Fatalf("chat session: %v", err)
 	}

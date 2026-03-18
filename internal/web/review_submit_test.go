@@ -16,7 +16,7 @@ func TestReviewSubmitWritesMarkdownArtifact(t *testing.T) {
 	if rrProjects.Code != http.StatusOK {
 		t.Fatalf("projects status=%d body=%s", rrProjects.Code, rrProjects.Body.String())
 	}
-	var listPayload projectsListResponse
+	var listPayload workspacesListResponse
 	if err := json.Unmarshal(rrProjects.Body.Bytes(), &listPayload); err != nil {
 		t.Fatalf("decode projects response: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestReviewSubmitWritesMarkdownArtifact(t *testing.T) {
 		t.Fatalf("expected revision paths in response: %v", payload)
 	}
 
-	project, err := app.store.GetProject(workspaceID)
+	project, err := app.store.GetEnrichedWorkspace(workspaceID)
 	if err != nil {
 		t.Fatalf("get project: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestReviewSubmitWritesMarkdownArtifact(t *testing.T) {
 func TestReviewSubmitClearsReviewPendingUnread(t *testing.T) {
 	app := newAuthedTestApp(t)
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("default project: %v", err)
 	}
@@ -107,15 +107,15 @@ func TestReviewSubmitClearsReviewPendingUnread(t *testing.T) {
 		t.Fatalf("set review mode: %v", err)
 	}
 
-	app.markProjectOutput(project.WorkspacePath)
+	app.markWorkspaceOutput(project.WorkspacePath)
 
-	readActivity := func() projectsActivityResponse {
+	readActivity := func() workspacesActivityResponse {
 		t.Helper()
 		rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces/activity", nil)
 		if rr.Code != http.StatusOK {
 			t.Fatalf("activity status=%d body=%s", rr.Code, rr.Body.String())
 		}
-		var payload projectsActivityResponse
+		var payload workspacesActivityResponse
 		if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
 			t.Fatalf("decode activity response: %v", err)
 		}
@@ -126,7 +126,7 @@ func TestReviewSubmitClearsReviewPendingUnread(t *testing.T) {
 		t.Helper()
 		payload := readActivity()
 		for _, item := range payload.Projects {
-			if item.WorkspaceID != projectIDString(project.ID) {
+			if item.WorkspaceID != workspaceIDStr(project.ID) {
 				continue
 			}
 			if item.ChatMode != "review" {
@@ -140,7 +140,7 @@ func TestReviewSubmitClearsReviewPendingUnread(t *testing.T) {
 			}
 			return
 		}
-		t.Fatalf("expected project %q in activity response", projectIDString(project.ID))
+		t.Fatalf("expected project %q in activity response", workspaceIDStr(project.ID))
 	}
 
 	assertState(true, true)
@@ -149,7 +149,7 @@ func TestReviewSubmitClearsReviewPendingUnread(t *testing.T) {
 		t,
 		app.Router(),
 		http.MethodPost,
-		"/api/runtime/workspaces/"+projectIDString(project.ID)+"/activate",
+		"/api/runtime/workspaces/"+workspaceIDStr(project.ID)+"/activate",
 		map[string]any{},
 	)
 	if rrActivate.Code != http.StatusOK {
@@ -177,6 +177,6 @@ func TestReviewSubmitClearsReviewPendingUnread(t *testing.T) {
 	}
 	assertState(false, false)
 
-	app.markProjectOutput(project.WorkspacePath)
+	app.markWorkspaceOutput(project.WorkspacePath)
 	assertState(true, true)
 }

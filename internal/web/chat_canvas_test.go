@@ -684,7 +684,7 @@ func (m *canvasMCPMock) setupServer(t *testing.T) *httptest.Server {
 
 func TestFinalizeAssistantResponse_SilentOverwritesScratchArtifact(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -704,7 +704,7 @@ func TestFinalizeAssistantResponse_SilentOverwritesScratchArtifact(t *testing.T)
 	if err != nil {
 		t.Fatalf("extract port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 	ctx := app.resolveCanvasContext(project.WorkspacePath)
 	if ctx == nil {
 		t.Fatal("expected canvas context")
@@ -748,7 +748,7 @@ func TestFinalizeAssistantResponse_SilentOverwritesScratchArtifact(t *testing.T)
 
 func TestFinalizeAssistantResponse_VoiceExecutesExplicitFileBlocks(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -764,7 +764,7 @@ func TestFinalizeAssistantResponse_VoiceExecutesExplicitFileBlocks(t *testing.T)
 	if err != nil {
 		t.Fatalf("extract port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	var persistedID int64
 	var persistedText string
@@ -805,7 +805,7 @@ Shown from dialogue mode.
 
 func TestFinalizeAssistantResponse_SilentFallsBackToScratchForWorkspaceArtifact(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -832,7 +832,7 @@ func TestFinalizeAssistantResponse_SilentFallsBackToScratchForWorkspaceArtifact(
 	if err != nil {
 		t.Fatalf("extract port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	var persistedID int64
 	var persistedText string
@@ -879,7 +879,7 @@ func TestFinalizeAssistantResponse_SilentFallsBackToScratchForWorkspaceArtifact(
 
 func TestFinalizeAssistantResponse_SilentFallsBackWhenOverwritePathEscapesProject(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -899,7 +899,7 @@ func TestFinalizeAssistantResponse_SilentFallsBackWhenOverwritePathEscapesProjec
 	if err != nil {
 		t.Fatalf("extract port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	var persistedID int64
 	var persistedText string
@@ -931,7 +931,7 @@ func TestFinalizeAssistantResponse_SilentFallsBackWhenOverwritePathEscapesProjec
 
 func TestFinalizeAssistantResponse_SilentResearchWritesMultipleArtifacts(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -950,7 +950,7 @@ func TestFinalizeAssistantResponse_SilentResearchWritesMultipleArtifacts(t *test
 	if err != nil {
 		t.Fatalf("extract port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	response := `Research bundle ready.
 
@@ -1015,7 +1015,7 @@ func TestFinalizeAssistantResponse_SilentResearchWritesMultipleArtifacts(t *test
 
 func TestFinalizeAssistantResponse_SilentFileBlocksKeepExplicitPathsOutsideResearchTurns(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -1034,7 +1034,7 @@ func TestFinalizeAssistantResponse_SilentFileBlocksKeepExplicitPathsOutsideResea
 	if err != nil {
 		t.Fatalf("extract port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	response := `Done.
 

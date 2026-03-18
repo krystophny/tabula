@@ -51,7 +51,7 @@ func TestClassifyAndExecuteSystemActionCreateGitHubIssuePromotesExistingItem(t *
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestClassifyAndExecuteSystemActionCreateGitHubIssueCreatesLinkedItem(t *tes
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestClassifyAndExecuteSystemActionCreateGitHubIssueRejectsMissingWorkspace(
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestClassifyAndExecuteSystemActionCreateGitHubIssueRejectsMissingRemote(t *
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -314,7 +314,7 @@ func TestClassifyAndExecuteSystemActionCreateGitHubIssueSurfacesCreateFailure(t 
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestClassifyAndExecuteSystemActionCreateGitHubIssueRejectsDuplicateLinkedIt
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}

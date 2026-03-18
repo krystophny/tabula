@@ -175,11 +175,11 @@ func (a *App) saveCompanionConfig(target any, cfg companionConfig) error {
 			}
 			return typed.ID, nil
 		case string:
-			project, err := a.store.GetProject(strings.TrimSpace(typed))
+			project, err := a.store.GetEnrichedWorkspace(strings.TrimSpace(typed))
 			if err != nil {
 				return 0, err
 			}
-			workspace, err := a.ensureWorkspaceForProject(project, false)
+			workspace, err := a.ensureWorkspaceReady(project, false)
 			if err != nil {
 				return 0, err
 			}
@@ -196,8 +196,8 @@ func (a *App) saveCompanionConfig(target any, cfg companionConfig) error {
 }
 
 func (a *App) activeCompanionWorkspace() (store.Workspace, error) {
-	if project, err := a.resolveProjectByIDOrActive("active"); err == nil {
-		return a.ensureWorkspaceForProject(project, false)
+	if project, err := a.resolveRuntimeWorkspaceByIDOrActive("active"); err == nil {
+		return a.ensureWorkspaceReady(project, false)
 	} else if err != nil && !isNoRows(err) {
 		return store.Workspace{}, err
 	}
@@ -212,18 +212,18 @@ func (a *App) activeCompanionWorkspace() (store.Workspace, error) {
 }
 
 func (a *App) companionKeyForWorkspace(workspace store.Workspace) string {
-	if project, err := a.projectForWorkspace(workspace); err == nil && project != nil {
+	if project, err := a.workspaceFromStore(workspace); err == nil && project != nil {
 		return strings.TrimSpace(project.WorkspacePath)
 	}
 	return strings.TrimSpace(workspace.DirPath)
 }
 
-func (a *App) companionWorkspaceForWorkspaceIDOrActive(workspaceID string) (store.Workspace, *store.Project, error) {
-	workspace, err := a.resolveWorkspaceByIDOrActive(workspaceID)
+func (a *App) companionWorkspaceForWorkspaceIDOrActive(workspaceID string) (store.Workspace, *store.Workspace, error) {
+	workspace, err := a.resolveRuntimeWorkspaceByIDOrActive(workspaceID)
 	if err != nil {
 		return store.Workspace{}, nil, err
 	}
-	project, err := a.projectForWorkspace(workspace)
+	project, err := a.workspaceFromStore(workspace)
 	if err != nil {
 		return store.Workspace{}, nil, err
 	}
@@ -248,8 +248,8 @@ func (a *App) resolveParticipantProject(chatSessionID string) (string, companion
 	if workspace, err := a.store.GetWorkspaceByPath(cleanSessionID); err == nil {
 		return a.companionKeyForWorkspace(workspace), a.loadCompanionConfig(workspace)
 	}
-	if project, err := a.store.GetProjectByWorkspacePath(cleanSessionID); err == nil {
-		workspace, workspaceErr := a.ensureWorkspaceForProject(project, false)
+	if project, err := a.store.GetWorkspaceByStoredPath(cleanSessionID); err == nil {
+		workspace, workspaceErr := a.ensureWorkspaceReady(project, false)
 		if workspaceErr == nil {
 			return project.WorkspacePath, a.loadCompanionConfig(workspace)
 		}
@@ -392,7 +392,7 @@ func (a *App) handleWorkspaceCompanionState(w http.ResponseWriter, r *http.Reque
 	companionKey := a.companionKeyForWorkspace(workspace)
 	workspaceID := ""
 	if project != nil {
-		workspaceID = projectIDString(project.ID)
+		workspaceID = workspaceIDStr(project.ID)
 	}
 	runtime := a.currentCompanionRuntimeState(companionKey, cfg)
 	gate := a.loadCompanionDirectedSpeechGate(cfg, gateSession)

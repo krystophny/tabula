@@ -16,10 +16,10 @@ func seedActiveIdeaNote(
 	notes []string,
 	refinements []ideaNoteRefinement,
 	withWorkspace bool,
-) (store.Project, store.ChatSession, store.Item, store.Artifact, *canvasMCPMock) {
+) (store.Workspace, store.ChatSession, store.Item, store.Artifact, *canvasMCPMock) {
 	t.Helper()
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -73,7 +73,7 @@ func seedActiveIdeaNote(
 	server := mock.setupServer(t)
 	t.Cleanup(server.Close)
 	port := serverPort(t, server.Listener.Addr())
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	return project, session, item, artifact, mock
 }

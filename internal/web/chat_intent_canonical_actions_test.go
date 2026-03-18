@@ -31,9 +31,9 @@ func TestClassifyAndExecuteSystemActionForTurnSuggestsCanonicalActionsForLowConf
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord() error: %v", err)
+		t.Fatalf("ensureDefaultWorkspace() error: %v", err)
 	}
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {

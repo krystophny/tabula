@@ -80,7 +80,7 @@ func (f *fakeMailDraftProvider) SendDraft(_ context.Context, draftID string, _ e
 
 func TestMailDraftCreateUpdateSendAPI(t *testing.T) {
 	app := newAuthedTestApp(t)
-	mustCreateProject(t, app)
+	mustCreateWorkspace(t, app)
 	account, err := app.store.CreateExternalAccount(store.SpherePrivate, store.ExternalProviderGmail, "Private Gmail", map[string]any{
 		"username": "alice@example.com",
 	})
@@ -160,7 +160,7 @@ func TestMailDraftCreateUpdateSendAPI(t *testing.T) {
 
 func TestMailDraftReplyAPI(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project := mustCreateProject(t, app)
+	project := mustCreateWorkspace(t, app)
 	account, err := app.store.CreateExternalAccount(store.SpherePrivate, store.ExternalProviderGmail, "Private Gmail", map[string]any{
 		"username": "alice@example.com",
 	})
@@ -234,7 +234,7 @@ func TestMailDraftReplyAPI(t *testing.T) {
 
 func TestMailDraftReplyThreadAPI(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project := mustCreateProject(t, app)
+	project := mustCreateWorkspace(t, app)
 	account, err := app.store.CreateExternalAccount(store.SpherePrivate, store.ExternalProviderGmail, "Work Gmail", map[string]any{
 		"username": "user@example.com",
 	})
@@ -296,7 +296,7 @@ func TestMailDraftReplyThreadAPI(t *testing.T) {
 
 func TestMailDraftSendRejectsMissingRecipients(t *testing.T) {
 	app := newAuthedTestApp(t)
-	mustCreateProject(t, app)
+	mustCreateWorkspace(t, app)
 	account, err := app.store.CreateExternalAccount(store.SpherePrivate, store.ExternalProviderGmail, "Private Gmail", map[string]any{
 		"username": "alice@example.com",
 	})
@@ -328,7 +328,7 @@ func TestMailDraftSendRejectsMissingRecipients(t *testing.T) {
 
 func TestMailDraftForwardAPI(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project := mustCreateProject(t, app)
+	project := mustCreateWorkspace(t, app)
 	account, err := app.store.CreateExternalAccount(store.SpherePrivate, store.ExternalProviderGmail, "Private Gmail", map[string]any{
 		"username": "alice@example.com",
 	})
@@ -402,7 +402,7 @@ func TestMailDraftForwardAPI(t *testing.T) {
 
 func TestMailDraftForwardThreadAPI(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project := mustCreateProject(t, app)
+	project := mustCreateWorkspace(t, app)
 	account, err := app.store.CreateExternalAccount(store.SpherePrivate, store.ExternalProviderGmail, "Work Gmail", map[string]any{
 		"username": "user@example.com",
 	})
@@ -467,7 +467,7 @@ func TestMailDraftForwardThreadAPI(t *testing.T) {
 
 func TestMailDraftSendAppendsToThread(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project := mustCreateProject(t, app)
+	project := mustCreateWorkspace(t, app)
 	account, err := app.store.CreateExternalAccount(store.SpherePrivate, store.ExternalProviderGmail, "Private Gmail", map[string]any{
 		"username": "alice@example.com",
 	})
@@ -556,7 +556,7 @@ func TestMailDraftSendAppendsToThread(t *testing.T) {
 
 func TestMailDraftReplyAllAPI(t *testing.T) {
 	app := newAuthedTestApp(t)
-	mustCreateProject(t, app)
+	mustCreateWorkspace(t, app)
 	account, err := app.store.CreateExternalAccount(store.SpherePrivate, store.ExternalProviderGmail, "Private Gmail", map[string]any{
 		"username": "alice@example.com",
 	})
@@ -640,13 +640,13 @@ func TestMailDraftReplyAllAPI(t *testing.T) {
 	}
 }
 
-func mustCreateProject(t *testing.T, app *App) store.Project {
+func mustCreateWorkspace(t *testing.T, app *App) store.Workspace {
 	t.Helper()
-	project, err := app.store.CreateProject("Mail", "mail-project", filepath.Join(t.TempDir(), "mail-project"), "managed", "", "", false)
+	project, err := app.store.CreateEnrichedWorkspace("Mail", "mail-project", filepath.Join(t.TempDir(), "mail-project"), "managed", "", "", false)
 	if err != nil {
 		t.Fatalf("CreateProject() error: %v", err)
 	}
-	if err := app.store.SetActiveWorkspaceID(projectIDString(project.ID)); err != nil {
+	if err := app.store.SetActiveWorkspaceID(workspaceIDStr(project.ID)); err != nil {
 		t.Fatalf("SetActiveWorkspaceID() error: %v", err)
 	}
 	return project

@@ -63,12 +63,8 @@ func (a *App) chatSessionForWorkspacePath(workspacePath string) (store.ChatSessi
 	return a.chatSessionForWorkspace(workspace)
 }
 
-func (a *App) chatSessionForProject(project store.Project) (store.ChatSession, error) {
-	return a.chatSessionForWorkspacePath(project.WorkspacePath)
-}
-
-func (a *App) projectForWorkspace(workspace store.Workspace) (*store.Project, error) {
-	project, err := a.store.GetProjectByWorkspacePath(workspace.DirPath)
+func (a *App) workspaceFromStore(workspace store.Workspace) (*store.Workspace, error) {
+	project, err := a.store.GetWorkspaceByStoredPath(workspace.DirPath)
 	if err != nil {
 		if isNoRows(err) {
 			return nil, nil

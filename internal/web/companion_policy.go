@@ -279,7 +279,7 @@ func (a *App) finishCompanionPendingTurn(chatSessionID, eventType string) {
 	if err != nil {
 		return
 	}
-	project, err := a.store.GetProjectByWorkspacePath(session.WorkspacePath)
+	project, err := a.store.GetWorkspaceByStoredPath(session.WorkspacePath)
 	if err != nil {
 		return
 	}
@@ -323,7 +323,7 @@ func (a *App) interruptCompanionPendingTurn(chatSessionID, participantSessionID 
 	if err != nil {
 		return
 	}
-	project, err := a.store.GetProjectByWorkspacePath(session.WorkspacePath)
+	project, err := a.store.GetWorkspaceByStoredPath(session.WorkspacePath)
 	if err != nil {
 		return
 	}

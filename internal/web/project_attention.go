@@ -5,22 +5,22 @@ import (
 	"sync"
 )
 
-type projectAttentionTracker struct {
+type workspaceAttentionTracker struct {
 	mu                 sync.Mutex
 	lastSeenAt         map[string]int64
 	lastCanvasChangeAt map[string]int64
 	lastReviewSubmitAt map[string]int64
 }
 
-func newProjectAttentionTracker() *projectAttentionTracker {
-	return &projectAttentionTracker{
+func newProjectAttentionTracker() *workspaceAttentionTracker {
+	return &workspaceAttentionTracker{
 		lastSeenAt:         map[string]int64{},
 		lastCanvasChangeAt: map[string]int64{},
 		lastReviewSubmitAt: map[string]int64{},
 	}
 }
 
-func (t *projectAttentionTracker) markSeen(workspacePath string, at int64) {
+func (t *workspaceAttentionTracker) markSeen(workspacePath string, at int64) {
 	key := strings.TrimSpace(workspacePath)
 	if key == "" || at <= 0 {
 		return
@@ -32,7 +32,7 @@ func (t *projectAttentionTracker) markSeen(workspacePath string, at int64) {
 	}
 }
 
-func (t *projectAttentionTracker) markCanvasChange(workspacePath string, at int64) {
+func (t *workspaceAttentionTracker) markCanvasChange(workspacePath string, at int64) {
 	key := strings.TrimSpace(workspacePath)
 	if key == "" || at <= 0 {
 		return
@@ -44,7 +44,7 @@ func (t *projectAttentionTracker) markCanvasChange(workspacePath string, at int6
 	}
 }
 
-func (t *projectAttentionTracker) markReviewSubmitted(workspacePath string, at int64) {
+func (t *workspaceAttentionTracker) markReviewSubmitted(workspacePath string, at int64) {
 	key := strings.TrimSpace(workspacePath)
 	if key == "" || at <= 0 {
 		return
@@ -56,7 +56,7 @@ func (t *projectAttentionTracker) markReviewSubmitted(workspacePath string, at i
 	}
 }
 
-func (t *projectAttentionTracker) snapshot(workspacePath string) (lastSeenAt, lastCanvasChangeAt, lastReviewSubmitAt int64) {
+func (t *workspaceAttentionTracker) snapshot(workspacePath string) (lastSeenAt, lastCanvasChangeAt, lastReviewSubmitAt int64) {
 	key := strings.TrimSpace(workspacePath)
 	if key == "" {
 		return 0, 0, 0

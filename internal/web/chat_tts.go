@@ -62,7 +62,7 @@ func (a *App) handleTTSSpeak(sessionID string, conn *chatWSConn, seq int64, text
 		}
 		log.Printf("tts delivered: session=%s seq=%d bytes=%d", sessionID, result.seq, len(result.audio))
 		if workspacePath != "" {
-			if project, err := a.store.GetProjectByWorkspacePath(workspacePath); err == nil {
+			if project, err := a.store.GetWorkspaceByStoredPath(workspacePath); err == nil {
 				a.settleCompanionRuntimeState(workspacePath, a.loadCompanionConfig(project), "tts_completed")
 			}
 		}

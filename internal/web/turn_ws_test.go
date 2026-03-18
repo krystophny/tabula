@@ -13,9 +13,9 @@ import (
 
 func TestTurnWSRequiresAuth(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
@@ -32,9 +32,9 @@ func TestTurnWSRequiresAuth(t *testing.T) {
 
 func TestTurnWSProducesYieldAndFinalizeActions(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {

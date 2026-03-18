@@ -252,7 +252,7 @@ type dequeuedTurn struct {
 	cursor      *chatCursorContext
 }
 
-type projectRunState struct {
+type workspaceRunState struct {
 	ActiveTurns  int    `json:"active_turns"`
 	QueuedTurns  int    `json:"queued_turns"`
 	IsWorking    bool   `json:"is_working"`
@@ -260,8 +260,8 @@ type projectRunState struct {
 	ActiveTurnID string `json:"active_turn_id,omitempty"`
 }
 
-func newProjectRunState(activeTurns, queuedTurns int, activeTurnID string) projectRunState {
-	state := projectRunState{
+func newProjectRunState(activeTurns, queuedTurns int, activeTurnID string) workspaceRunState {
+	state := workspaceRunState{
 		ActiveTurns: activeTurns,
 		QueuedTurns: queuedTurns,
 		IsWorking:   activeTurns > 0 || queuedTurns > 0,
@@ -324,7 +324,7 @@ type clearAllReport struct {
 	TempFilesCleared int
 }
 
-func (a *App) clearCanvasForProject(workspacePath string) {
+func (a *App) clearCanvasForWorkspace(workspacePath string) {
 	canvasSessionID := strings.TrimSpace(a.resolveCanvasSessionID(workspacePath))
 	if canvasSessionID == "" {
 		return
@@ -339,7 +339,7 @@ func (a *App) clearCanvasForProject(workspacePath string) {
 	})
 }
 
-func (a *App) clearProjectTempCanvasFiles(workspacePath string) int {
+func (a *App) clearWorkspaceTempCanvasFiles(workspacePath string) int {
 	cwd := strings.TrimSpace(a.cwdForWorkspacePath(workspacePath))
 	if cwd == "" {
 		return 0
@@ -369,8 +369,8 @@ func (a *App) clearAllAgentsAndContexts(currentSessionID string) (clearAllReport
 		activeCanceled, queuedCanceled := a.cancelChatWork(session.ID)
 		report.ActiveCanceled += activeCanceled
 		report.QueuedCanceled += queuedCanceled
-		report.TempFilesCleared += a.clearProjectTempCanvasFiles(session.WorkspacePath)
-		a.clearCanvasForProject(session.WorkspacePath)
+		report.TempFilesCleared += a.clearWorkspaceTempCanvasFiles(session.WorkspacePath)
+		a.clearCanvasForWorkspace(session.WorkspacePath)
 		a.broadcastChatEvent(session.ID, map[string]interface{}{
 			"type": "chat_cleared",
 		})
@@ -415,7 +415,7 @@ func (a *App) queuedChatTurnCount(sessionID string) int {
 	return a.turns.queuedCount(sessionID)
 }
 
-func (a *App) projectRunStateForSession(sessionID string) projectRunState {
+func (a *App) workspaceRunStateForSession(sessionID string) workspaceRunState {
 	activeTurns := a.activeChatTurnCount(sessionID)
 	queuedTurns := a.queuedChatTurnCount(sessionID)
 	return newProjectRunState(activeTurns, queuedTurns, a.activeChatTurnID(sessionID))

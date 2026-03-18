@@ -411,7 +411,7 @@ func (a *App) resolvePrintItemTarget(session store.ChatSession, action *SystemAc
 			return a.store.GetItem(itemID)
 		}
 	}
-	project, err := a.systemActionTargetProject(session)
+	project, err := a.systemActionTargetWorkspace(session)
 	if err != nil {
 		return store.Item{}, err
 	}
@@ -441,7 +441,7 @@ func (a *App) resolvePrintItemTarget(session store.ChatSession, action *SystemAc
 	return items[0], nil
 }
 
-func (a *App) resolveCanvasConversationItem(project store.Project) (store.Item, error) {
+func (a *App) resolveCanvasConversationItem(project store.Workspace) (store.Item, error) {
 	canvas := a.resolveConversationCanvasArtifact(project)
 	if canvas == nil {
 		return store.Item{}, sql.ErrNoRows

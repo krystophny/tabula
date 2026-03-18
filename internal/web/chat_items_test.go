@@ -95,7 +95,7 @@ func TestClassifyAndExecuteSystemActionMakeItemCreatesInboxItemFromAssistantCont
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestClassifyAndExecuteSystemActionDelegateItemUsesActorAndCanvasArtifact(t 
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestClassifyAndExecuteSystemActionDelegateItemUsesActorAndCanvasArtifact(t 
 	server := mock.setupServer(t)
 	defer server.Close()
 	port := serverPort(t, server.Listener.Addr())
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	message, payloads, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "delegate this to Codex")
 	if !handled {
@@ -232,7 +232,7 @@ func TestClassifyAndExecuteSystemActionSnoozeItemCreatesWaitingItem(t *testing.T
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestClassifyAndExecuteSystemActionCaptureIdeaCreatesInboxItemFromUserInput(
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestRunAssistantTurnCaptureIdeaPersistsAssistantConfirmation(t *testing.T) 
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -385,7 +385,7 @@ func TestClassifyAndExecuteSystemActionRefineIdeaUpdatesArtifactAndCanvas(t *tes
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestClassifyAndExecuteSystemActionRefineIdeaUpdatesArtifactAndCanvas(t *tes
 	server := mock.setupServer(t)
 	defer server.Close()
 	port := serverPort(t, server.Listener.Addr())
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	message, payloads, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "add pros and cons")
 	if !handled {
@@ -492,7 +492,7 @@ func TestClassifyAndExecuteSystemActionSplitItemsCreatesMultipleItems(t *testing
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -528,7 +528,7 @@ func TestClassifyAndExecuteSystemActionDelegateItemSurfacesMissingActor(t *testi
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -559,7 +559,7 @@ func TestClassifyAndExecuteSystemActionArtifactConfirmationCanBeCanceled(t *test
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}

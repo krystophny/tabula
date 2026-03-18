@@ -11,11 +11,11 @@ import (
 	"github.com/krystophny/tabura/internal/store"
 )
 
-func seedProjectCompanionSession(t *testing.T, app *App) (store.Project, store.ParticipantSession) {
+func seedProjectCompanionSession(t *testing.T, app *App) (store.Workspace, store.ParticipantSession) {
 	t.Helper()
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	session, err := app.store.AddParticipantSession(project.WorkspacePath, "{}")
 	if err != nil {
@@ -54,8 +54,8 @@ func TestProjectCompanionTranscriptAPIAndExports(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode transcript payload: %v", err)
 	}
-	if payload.WorkspaceID != projectIDString(project.ID) {
-		t.Fatalf("workspace_id = %q, want %q", payload.WorkspaceID, projectIDString(project.ID))
+	if payload.WorkspaceID != workspaceIDStr(project.ID) {
+		t.Fatalf("workspace_id = %q, want %q", payload.WorkspaceID, workspaceIDStr(project.ID))
 	}
 	if payload.Session == nil || payload.Session.ID != session.ID {
 		t.Fatalf("selected session = %#v, want %q", payload.Session, session.ID)
@@ -290,7 +290,7 @@ func TestProjectCompanionRoomMemoryIsProjectScoped(t *testing.T) {
 	project, session := seedProjectCompanionSession(t, app)
 	workspace := requireWorkspaceForProject(t, app, project)
 
-	otherProject, err := app.store.CreateProject("Meeting Temp", "meeting-temp", t.TempDir(), "managed", "", "", false)
+	otherProject, err := app.store.CreateEnrichedWorkspace("Meeting Temp", "meeting-temp", t.TempDir(), "managed", "", "", false)
 	if err != nil {
 		t.Fatalf("CreateProject other: %v", err)
 	}

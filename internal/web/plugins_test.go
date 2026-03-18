@@ -125,7 +125,7 @@ func TestHandleChatSessionMessagePreUserPluginRewrite(t *testing.T) {
 		"enabled":  true,
 	})
 	app := newAuthedTestAppWithPluginDir(t, pluginDir)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("default project: %v", err)
 	}
@@ -175,7 +175,7 @@ func TestHandleChatSessionMessagePreUserPluginBlock(t *testing.T) {
 		"enabled":  true,
 	})
 	app := newAuthedTestAppWithPluginDir(t, pluginDir)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("default project: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestFinalizeAssistantResponseAppliesPostPluginHook(t *testing.T) {
 		"enabled":  true,
 	})
 	app := newAuthedTestAppWithPluginDir(t, pluginDir)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("default project: %v", err)
 	}

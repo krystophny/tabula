@@ -141,7 +141,7 @@ func TestMailDraftPolishAPI(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = mockLLM.URL
 	app.intentLLMModel = "test-model"
-	mustCreateProject(t, app)
+	mustCreateWorkspace(t, app)
 
 	account, err := app.store.CreateExternalAccount(store.SpherePrivate, store.ExternalProviderGmail, "Test Gmail", map[string]any{
 		"username": "me@example.com",
@@ -209,7 +209,7 @@ func TestMailDraftPolishNewEmail(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = mockLLM.URL
 	app.intentLLMModel = "test-model"
-	mustCreateProject(t, app)
+	mustCreateWorkspace(t, app)
 
 	account, err := app.store.CreateExternalAccount(store.SpherePrivate, store.ExternalProviderGmail, "Test Gmail", map[string]any{
 		"username": "me@example.com",

@@ -116,7 +116,7 @@ func TestClassifyAndExecuteSystemActionSyncTodoist(t *testing.T) {
 	if _, err := app.store.SetContainerMapping(store.ExternalProviderTodoist, "project", "Admin", &workspace.ID, nil); err != nil {
 		t.Fatalf("SetContainerMapping() error: %v", err)
 	}
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestClassifyAndExecuteSystemActionSyncTodoistPersistsCommentMetadata(t *tes
 	defer server.Close()
 
 	createTodoistTestAccount(t, app, "Personal Todoist", server.URL)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -372,7 +372,7 @@ func TestClassifyAndExecuteSystemActionSyncTodoistUsesAccountSphereAsSourceOfTru
 		t.Fatalf("CreateItem(existing) error: %v", err)
 	}
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestClassifyAndExecuteSystemActionCreateTodoistTask(t *testing.T) {
 	if _, err := app.store.SetContainerMapping(store.ExternalProviderTodoist, "project", "Admin", &workspace.ID, nil); err != nil {
 		t.Fatalf("SetContainerMapping() error: %v", err)
 	}
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}

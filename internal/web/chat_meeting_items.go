@@ -199,17 +199,17 @@ func (a *App) extractMeetingItems(summary string) []proposedMeetingItem {
 	return out
 }
 
-func meetingPayloadProject(workspace store.Workspace, project *store.Project) (string, string) {
+func meetingPayloadProject(workspace store.Workspace, project *store.Workspace) (string, string) {
 	workspaceID := ""
 	workspacePath := strings.TrimSpace(workspace.DirPath)
 	if project != nil {
-		workspaceID = projectIDString(project.ID)
+		workspaceID = workspaceIDStr(project.ID)
 		workspacePath = strings.TrimSpace(project.WorkspacePath)
 	}
 	return workspaceID, workspacePath
 }
 
-func (a *App) loadWorkspaceMeetingItems(w http.ResponseWriter, r *http.Request) (store.Workspace, *store.Project, []store.ParticipantSession, *store.ParticipantSession, string, []proposedMeetingItem, bool) {
+func (a *App) loadWorkspaceMeetingItems(w http.ResponseWriter, r *http.Request) (store.Workspace, *store.Workspace, []store.ParticipantSession, *store.ParticipantSession, string, []proposedMeetingItem, bool) {
 	workspace, project, sessions, session, ok := a.resolveWorkspaceCompanionArtifact(w, r)
 	if !ok {
 		return store.Workspace{}, nil, nil, nil, "", nil, false
@@ -246,7 +246,7 @@ func (a *App) handleWorkspaceMeetingItemsGet(w http.ResponseWriter, r *http.Requ
 	})
 }
 
-func (a *App) ensureMeetingSummaryArtifact(workspace store.Workspace, project *store.Project, session *store.ParticipantSession, summaryText string) (store.Artifact, error) {
+func (a *App) ensureMeetingSummaryArtifact(workspace store.Workspace, project *store.Workspace, session *store.ParticipantSession, summaryText string) (store.Artifact, error) {
 	if session == nil {
 		return store.Artifact{}, errors.New("meeting session is required")
 	}
@@ -316,7 +316,7 @@ func normalizeSelectedMeetingItems(selected []int, limit int) []int {
 	return out
 }
 
-func (a *App) handleCreateMeetingItems(workspace store.Workspace, project *store.Project, session *store.ParticipantSession, summaryText string, proposed []proposedMeetingItem, selected []int) ([]createdMeetingItem, error) {
+func (a *App) handleCreateMeetingItems(workspace store.Workspace, project *store.Workspace, session *store.ParticipantSession, summaryText string, proposed []proposedMeetingItem, selected []int) ([]createdMeetingItem, error) {
 	chosen := normalizeSelectedMeetingItems(selected, len(proposed))
 	if len(chosen) == 0 {
 		return nil, errors.New("at least one proposed item must be selected")

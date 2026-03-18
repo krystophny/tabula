@@ -9,7 +9,7 @@ import (
 
 func TestOpenFileCanvasBuildsMarkdownDocumentAsPDF(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -58,7 +58,7 @@ printf '%%PDF-1.4\n' > "$out"
 	if err != nil {
 		t.Fatalf("extract mock port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	msg, payload, err := app.executeSystemAction(session.ID, session, &SystemAction{
 		Action: "open_file_canvas",
@@ -110,7 +110,7 @@ printf '%%PDF-1.4\n' > "$out"
 
 func TestRenderDocumentArtifactUsesWorkspaceConfigMainFile(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}

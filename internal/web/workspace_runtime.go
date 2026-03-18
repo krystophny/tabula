@@ -15,7 +15,7 @@ import (
 	"github.com/krystophny/tabura/internal/store"
 )
 
-type projectCreateRequest struct {
+type runtimeWorkspaceCreateRequest struct {
 	Name              string `json:"name"`
 	Kind              string `json:"kind"`
 	Path              string `json:"path"`
@@ -24,7 +24,7 @@ type projectCreateRequest struct {
 	Activate          *bool  `json:"activate"`
 }
 
-type projectAPIModel struct {
+type workspaceAPIModel struct {
 	ID                       string          `json:"id"`
 	Name                     string          `json:"name"`
 	Kind                     string          `json:"kind"`
@@ -38,23 +38,23 @@ type projectAPIModel struct {
 	ChatModel                string          `json:"chat_model"`
 	ChatModelReasoningEffort string          `json:"chat_model_reasoning_effort"`
 	CanvasSessionID          string          `json:"canvas_session_id"`
-	RunState                 projectRunState `json:"run_state"`
+	RunState                 workspaceRunState `json:"run_state"`
 	Unread                   bool            `json:"unread"`
 	ReviewPending            bool            `json:"review_pending"`
 }
 
-type projectChatModelRequest struct {
+type workspaceChatModelRequest struct {
 	Model           string `json:"model"`
 	ReasoningEffort string `json:"reasoning_effort"`
 }
 
-type projectFileEntry struct {
+type workspaceFileEntry struct {
 	Name  string `json:"name"`
 	Path  string `json:"path"`
 	IsDir bool   `json:"is_dir"`
 }
 
-type projectWelcomeAction struct {
+type workspaceWelcomeAction struct {
 	Type          string `json:"type"`
 	WorkspaceID   string `json:"workspace_id,omitempty"`
 	Path          string `json:"path,omitempty"`
@@ -62,42 +62,42 @@ type projectWelcomeAction struct {
 	StartupTarget string `json:"startup_behavior,omitempty"`
 }
 
-type projectWelcomeCard struct {
+type workspaceWelcomeCard struct {
 	ID          string               `json:"id"`
 	Title       string               `json:"title"`
 	Subtitle    string               `json:"subtitle,omitempty"`
 	Description string               `json:"description,omitempty"`
-	Action      projectWelcomeAction `json:"action"`
+	Action      workspaceWelcomeAction `json:"action"`
 }
 
-type projectWelcomeSection struct {
+type workspaceWelcomeSection struct {
 	ID    string               `json:"id"`
 	Title string               `json:"title"`
-	Cards []projectWelcomeCard `json:"cards"`
+	Cards []workspaceWelcomeCard `json:"cards"`
 }
 
-type projectWelcomeResponse struct {
+type workspaceWelcomeResponse struct {
 	OK          bool                    `json:"ok"`
 	WorkspaceID string                  `json:"workspace_id"`
-	Project     projectAPIModel         `json:"workspace"`
+	Project     workspaceAPIModel         `json:"workspace"`
 	Scope       string                  `json:"scope"`
 	Title       string                  `json:"title"`
-	Sections    []projectWelcomeSection `json:"sections"`
+	Sections    []workspaceWelcomeSection `json:"sections"`
 }
 
-type projectActivityItem struct {
+type workspaceActivityItem struct {
 	WorkspaceID   string          `json:"workspace_id"`
 	WorkspacePath string          `json:"workspace_path"`
 	Name          string          `json:"name"`
 	Kind          string          `json:"kind"`
 	ChatSessionID string          `json:"chat_session_id"`
 	ChatMode      string          `json:"chat_mode"`
-	RunState      projectRunState `json:"run_state"`
+	RunState      workspaceRunState `json:"run_state"`
 	Unread        bool            `json:"unread"`
 	ReviewPending bool            `json:"review_pending"`
 }
 
-func projectIDString(id int64) string {
+func workspaceIDStr(id int64) string {
 	return strconv.FormatInt(id, 10)
 }
 
@@ -113,7 +113,7 @@ func normalizeProjectKindInput(kind, path string) string {
 	return "managed"
 }
 
-func isTemporaryProjectKind(kind string) bool {
+func isTemporaryWorkspaceKind(kind string) bool {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "meeting", "task":
 		return true
@@ -122,11 +122,11 @@ func isTemporaryProjectKind(kind string) bool {
 	}
 }
 
-func isTemporaryProject(project store.Project) bool {
-	return isTemporaryProjectKind(project.Kind)
+func isTemporaryWorkspace(project store.Workspace) bool {
+	return isTemporaryWorkspaceKind(project.Kind)
 }
 
-func defaultProjectNameFromPath(path string) string {
+func defaultWorkspaceNameFromPath(path string) string {
 	base := strings.TrimSpace(filepath.Base(path))
 	if base == "" || base == "." || base == string(filepath.Separator) {
 		return "Project"
@@ -147,11 +147,11 @@ func isTaburaRepoPath(path string) bool {
 	return strings.Contains(string(data), "module github.com/krystophny/tabura")
 }
 
-func defaultProjectNameForPath(path string) string {
+func defaultWorkspaceNameForPath(path string) string {
 	if isTaburaRepoPath(path) {
 		return "Tabura"
 	}
-	return defaultProjectNameFromPath(path)
+	return defaultWorkspaceNameFromPath(path)
 }
 
 func slugifyProjectName(name string) string {
@@ -183,7 +183,7 @@ func slugifyProjectName(name string) string {
 	return slug
 }
 
-func defaultTemporaryProjectName(kind string, now time.Time) string {
+func defaultTemporaryWorkspaceName(kind string, now time.Time) string {
 	label := "Task"
 	if strings.EqualFold(strings.TrimSpace(kind), "meeting") {
 		label = "Meeting"
@@ -267,9 +267,6 @@ func (a *App) ensureStartupWorkspace() (store.Workspace, error) {
 	workspace, err := a.store.ActiveWorkspace()
 	switch {
 	case err == nil:
-		if workspace.IsDaily && workspaceDailyDate(workspace) != dailyWorkspaceDate(a.runtimeNow()) {
-			return a.ensureTodayDailyWorkspace()
-		}
 		if _, err := a.store.GetOrCreateChatSessionForWorkspace(workspace.ID); err != nil {
 			return store.Workspace{}, err
 		}
@@ -277,49 +274,49 @@ func (a *App) ensureStartupWorkspace() (store.Workspace, error) {
 	case !isNoRows(err):
 		return store.Workspace{}, err
 	default:
-		return a.ensureTodayDailyWorkspace()
+		return a.ensureDefaultWorkspace()
 	}
 }
 
-func (a *App) ensureDefaultProjectRecord() (store.Project, error) {
+func (a *App) ensureDefaultWorkspace() (store.Workspace, error) {
 	localWorkspacePath := strings.TrimSpace(a.localProjectDir)
 	if localWorkspacePath != "" {
-		existing, err := a.store.GetProjectByWorkspacePath(localWorkspacePath)
+		existing, err := a.store.GetWorkspaceByStoredPath(localWorkspacePath)
 		if err == nil {
-			canvasID := a.canvasSessionIDForProject(existing)
+			canvasID := a.canvasSessionIDForWorkspace(existing)
 			mcpURL := strings.TrimSpace(existing.MCPURL)
-			targetName := defaultProjectNameForPath(localWorkspacePath)
+			targetName := defaultWorkspaceNameForPath(localWorkspacePath)
 			if mcpURL == "" {
 				mcpURL = strings.TrimSpace(a.localMCPURL)
 			}
 			if strings.TrimSpace(existing.Name) != targetName {
-				_ = a.store.UpdateProjectLocation(projectIDString(existing.ID), targetName, existing.WorkspacePath, existing.RootPath, existing.Kind)
+				_ = a.store.UpdateWorkspaceLocation2(workspaceIDStr(existing.ID), targetName, existing.WorkspacePath, existing.RootPath, existing.Kind)
 			}
 			if canvasID != strings.TrimSpace(existing.CanvasSessionID) || mcpURL != strings.TrimSpace(existing.MCPURL) || strings.TrimSpace(existing.Name) != targetName {
-				_ = a.store.UpdateProjectRuntime(projectIDString(existing.ID), mcpURL, canvasID)
-				if refreshed, refreshErr := a.store.GetProject(projectIDString(existing.ID)); refreshErr == nil {
+				_ = a.store.UpdateWorkspaceRuntime(workspaceIDStr(existing.ID), mcpURL, canvasID)
+				if refreshed, refreshErr := a.store.GetEnrichedWorkspace(workspaceIDStr(existing.ID)); refreshErr == nil {
 					existing = refreshed
 				}
 			}
 			return existing, nil
 		}
 		if !isNoRows(err) {
-			return store.Project{}, err
+			return store.Workspace{}, err
 		}
 	}
 
-	projects, err := a.store.ListProjects()
+	projects, err := a.store.ListEnrichedWorkspaces()
 	if err != nil {
-		return store.Project{}, err
+		return store.Workspace{}, err
 	}
 	for _, project := range projects {
 		if !project.IsDefault {
 			continue
 		}
-		canvasID := a.canvasSessionIDForProject(project)
+		canvasID := a.canvasSessionIDForWorkspace(project)
 		if canvasID != strings.TrimSpace(project.CanvasSessionID) {
-			if err := a.store.UpdateProjectRuntime(projectIDString(project.ID), strings.TrimSpace(project.MCPURL), canvasID); err == nil {
-				if refreshed, refreshErr := a.store.GetProject(projectIDString(project.ID)); refreshErr == nil {
+			if err := a.store.UpdateWorkspaceRuntime(workspaceIDStr(project.ID), strings.TrimSpace(project.MCPURL), canvasID); err == nil {
+				if refreshed, refreshErr := a.store.GetEnrichedWorkspace(workspaceIDStr(project.ID)); refreshErr == nil {
 					project = refreshed
 				}
 			}
@@ -333,51 +330,51 @@ func (a *App) ensureDefaultProjectRecord() (store.Project, error) {
 	if localWorkspacePath != "" {
 		kind = "linked"
 		rootPath = localWorkspacePath
-		name = defaultProjectNameForPath(rootPath)
+		name = defaultWorkspaceNameForPath(rootPath)
 	}
 	absRoot, err := filepath.Abs(rootPath)
 	if err != nil {
-		return store.Project{}, err
+		return store.Workspace{}, err
 	}
 	absRoot = filepath.Clean(absRoot)
 	if kind == "managed" {
 		if err := os.MkdirAll(absRoot, 0o755); err != nil {
-			return store.Project{}, err
+			return store.Workspace{}, err
 		}
 		boot, err := protocol.BootstrapProject(absRoot)
 		if err != nil {
-			return store.Project{}, err
+			return store.Workspace{}, err
 		}
 		absRoot = filepath.Clean(boot.Paths.ProjectDir)
-		name = defaultProjectNameForPath(absRoot)
+		name = defaultWorkspaceNameForPath(absRoot)
 	}
 	workspacePath := absRoot
-	if existing, err := a.store.GetProjectByWorkspacePath(workspacePath); err == nil {
-		targetName := defaultProjectNameForPath(absRoot)
+	if existing, err := a.store.GetWorkspaceByStoredPath(workspacePath); err == nil {
+		targetName := defaultWorkspaceNameForPath(absRoot)
 		if strings.TrimSpace(existing.Name) != targetName {
-			_ = a.store.UpdateProjectLocation(projectIDString(existing.ID), targetName, existing.WorkspacePath, existing.RootPath, existing.Kind)
-			if refreshed, refreshErr := a.store.GetProject(projectIDString(existing.ID)); refreshErr == nil {
+			_ = a.store.UpdateWorkspaceLocation2(workspaceIDStr(existing.ID), targetName, existing.WorkspacePath, existing.RootPath, existing.Kind)
+			if refreshed, refreshErr := a.store.GetEnrichedWorkspace(workspaceIDStr(existing.ID)); refreshErr == nil {
 				existing = refreshed
 			}
 		}
 		return existing, nil
 	} else if !isNoRows(err) {
-		return store.Project{}, err
+		return store.Workspace{}, err
 	}
-	if existing, err := a.store.GetProjectByRootPath(absRoot); err == nil {
-		targetName := defaultProjectNameForPath(absRoot)
+	if existing, err := a.store.GetWorkspaceByRootPath(absRoot); err == nil {
+		targetName := defaultWorkspaceNameForPath(absRoot)
 		if strings.TrimSpace(existing.Name) != targetName {
-			_ = a.store.UpdateProjectLocation(projectIDString(existing.ID), targetName, existing.WorkspacePath, existing.RootPath, existing.Kind)
-			if refreshed, refreshErr := a.store.GetProject(projectIDString(existing.ID)); refreshErr == nil {
+			_ = a.store.UpdateWorkspaceLocation2(workspaceIDStr(existing.ID), targetName, existing.WorkspacePath, existing.RootPath, existing.Kind)
+			if refreshed, refreshErr := a.store.GetEnrichedWorkspace(workspaceIDStr(existing.ID)); refreshErr == nil {
 				existing = refreshed
 			}
 		}
 		return existing, nil
 	} else if !isNoRows(err) {
-		return store.Project{}, err
+		return store.Workspace{}, err
 	}
 
-	created, err := a.store.CreateProject(
+	created, err := a.store.CreateEnrichedWorkspace(
 		name,
 		workspacePath,
 		absRoot,
@@ -388,41 +385,41 @@ func (a *App) ensureDefaultProjectRecord() (store.Project, error) {
 	)
 	if err != nil {
 		if isUniqueConstraint(err) {
-			if existing, lookupErr := a.store.GetProjectByWorkspacePath(workspacePath); lookupErr == nil {
+			if existing, lookupErr := a.store.GetWorkspaceByStoredPath(workspacePath); lookupErr == nil {
 				return existing, nil
 			}
 		}
-		return store.Project{}, err
+		return store.Workspace{}, err
 	}
 	if _, activeErr := a.store.ActiveWorkspace(); isNoRows(activeErr) {
-		if err := a.store.SetActiveWorkspaceID(projectIDString(created.ID)); err != nil {
-			return store.Project{}, err
+		if err := a.store.SetActiveWorkspaceID(workspaceIDStr(created.ID)); err != nil {
+			return store.Workspace{}, err
 		}
 		if created.ID <= 0 {
-			return store.Project{}, errors.New("invalid workspace id")
+			return store.Workspace{}, errors.New("invalid workspace id")
 		}
 		if err := a.store.SetActiveWorkspace(created.ID); err != nil {
-			return store.Project{}, err
+			return store.Workspace{}, err
 		}
-		created, err = a.store.GetProject(projectIDString(created.ID))
+		created, err = a.store.GetEnrichedWorkspace(workspaceIDStr(created.ID))
 		if err != nil {
-			return store.Project{}, err
+			return store.Workspace{}, err
 		}
 	} else if activeErr != nil {
-		return store.Project{}, activeErr
+		return store.Workspace{}, activeErr
 	}
 	return created, nil
 }
 
-func (a *App) listProjectsWithDefault() ([]store.Project, store.Project, error) {
-	projects, err := a.store.ListProjects()
+func (a *App) listProjectsWithDefault() ([]store.Workspace, store.Workspace, error) {
+	projects, err := a.store.ListEnrichedWorkspaces()
 	if err != nil {
-		return nil, store.Project{}, err
+		return nil, store.Workspace{}, err
 	}
 	if len(projects) == 0 {
-		return nil, store.Project{}, errors.New("no projects available")
+		return nil, store.Workspace{}, errors.New("no projects available")
 	}
-	defaultProject := store.Project{}
+	defaultProject := store.Workspace{}
 	for _, project := range projects {
 		if project.IsDefault {
 			defaultProject = project
@@ -435,41 +432,41 @@ func (a *App) listProjectsWithDefault() ([]store.Project, store.Project, error) 
 	return projects, defaultProject, nil
 }
 
-func (a *App) chooseActiveProject(projects []store.Project, defaultProject store.Project) (store.Project, error) {
+func (a *App) chooseActiveProject(projects []store.Workspace, defaultProject store.Workspace) (store.Workspace, error) {
 	if len(projects) == 0 {
-		return store.Project{}, errors.New("no projects available")
+		return store.Workspace{}, errors.New("no projects available")
 	}
 	activeSphere := a.runtimeActiveSphere()
 	if workspace, err := a.store.ActiveWorkspace(); err == nil {
 		if cleanSphere := normalizeRuntimeActiveSphere(workspace.Sphere); cleanSphere != "" && cleanSphere != activeSphere {
 			if err := a.store.SetActiveSphere(cleanSphere); err != nil {
-				return store.Project{}, err
+				return store.Workspace{}, err
 			}
 			activeSphere = cleanSphere
 		}
 		for _, project := range projects {
 			if project.ID == workspace.ID {
-				if err := a.store.SetActiveWorkspaceID(projectIDString(project.ID)); err != nil {
-					return store.Project{}, err
+				if err := a.store.SetActiveWorkspaceID(workspaceIDStr(project.ID)); err != nil {
+					return store.Workspace{}, err
 				}
 				return project, nil
 			}
 		}
 	} else if !isNoRows(err) {
-		return store.Project{}, err
+		return store.Workspace{}, err
 	}
 	activeID, err := a.store.ActiveWorkspaceID()
 	if err != nil {
-		return store.Project{}, err
+		return store.Workspace{}, err
 	}
 	if activeID != "" {
 		for _, project := range projects {
-			if projectIDString(project.ID) != activeID {
+			if workspaceIDStr(project.ID) != activeID {
 				continue
 			}
-			rank, err := a.projectSelectionRank(project, activeSphere)
+			rank, err := a.workspaceSelectionRank(project, activeSphere)
 			if err != nil {
-				return store.Project{}, err
+				return store.Workspace{}, err
 			}
 			if rank < 4 {
 				return project, nil
@@ -480,9 +477,9 @@ func (a *App) chooseActiveProject(projects []store.Project, defaultProject store
 	bestIndex := -1
 	bestRank := 5
 	for i, project := range projects {
-		rank, err := a.projectSelectionRank(project, activeSphere)
+		rank, err := a.workspaceSelectionRank(project, activeSphere)
 		if err != nil {
-			return store.Project{}, err
+			return store.Workspace{}, err
 		}
 		if rank >= 4 {
 			continue
@@ -499,13 +496,13 @@ func (a *App) chooseActiveProject(projects []store.Project, defaultProject store
 	} else if fallback.ID == 0 {
 		fallback = projects[0]
 	}
-	if err := a.store.SetActiveWorkspaceID(projectIDString(fallback.ID)); err != nil {
-		return store.Project{}, err
+	if err := a.store.SetActiveWorkspaceID(workspaceIDStr(fallback.ID)); err != nil {
+		return store.Workspace{}, err
 	}
 	return fallback, nil
 }
 
-func (a *App) handleProjectsList(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleWorkspacesList(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
@@ -523,9 +520,9 @@ func (a *App) handleProjectsList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	items := make([]projectAPIModel, 0, len(projects))
+	items := make([]workspaceAPIModel, 0, len(projects))
 	for _, project := range projects {
-		item, err := a.buildProjectAPIModel(project)
+		item, err := a.buildWorkspaceAPIModel(project)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -534,13 +531,13 @@ func (a *App) handleProjectsList(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]interface{}{
 		"ok":                   true,
-		"default_workspace_id": projectIDString(defaultProject.ID),
-		"active_workspace_id":  projectIDString(activeProject.ID),
+		"default_workspace_id": workspaceIDStr(defaultProject.ID),
+		"active_workspace_id":  workspaceIDStr(activeProject.ID),
 		"workspaces":           items,
 	})
 }
 
-func (a *App) handleProjectsActivity(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleWorkspacesActivity(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
@@ -553,9 +550,9 @@ func (a *App) handleProjectsActivity(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	items := make([]projectActivityItem, 0, len(projects))
+	items := make([]workspaceActivityItem, 0, len(projects))
 	for _, project := range projects {
-		item, err := a.buildProjectActivityItem(project)
+		item, err := a.buildWorkspaceActivityItem(project)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -568,20 +565,20 @@ func (a *App) handleProjectsActivity(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (a *App) findProjectByCanvasSession(sessionID string) (store.Project, error) {
+func (a *App) findProjectByCanvasSession(sessionID string) (store.Workspace, error) {
 	cleanSessionID := strings.TrimSpace(sessionID)
 	if cleanSessionID == "" {
-		return store.Project{}, sql.ErrNoRows
+		return store.Workspace{}, sql.ErrNoRows
 	}
-	project, err := a.store.GetProjectByCanvasSession(cleanSessionID)
+	project, err := a.store.GetWorkspaceByCanvasSession(cleanSessionID)
 	if err == nil {
 		return project, nil
 	}
 	if !isNoRows(err) {
-		return store.Project{}, err
+		return store.Workspace{}, err
 	}
 	if cleanSessionID == LocalSessionID {
-		return a.ensureDefaultProjectRecord()
+		return a.ensureDefaultWorkspace()
 	}
-	return store.Project{}, sql.ErrNoRows
+	return store.Workspace{}, sql.ErrNoRows
 }

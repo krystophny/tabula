@@ -54,7 +54,7 @@ func (a *App) handleReviewSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	project, err := a.resolveProjectByIDOrActive(req.WorkspaceID)
+	project, err := a.resolveRuntimeWorkspaceByIDOrActive(req.WorkspaceID)
 	if err != nil {
 		if isNoRows(err) {
 			http.Error(w, "project not found", http.StatusNotFound)
@@ -151,7 +151,7 @@ func (a *App) handleReviewSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := a.markProjectReviewSubmitted(project); err != nil {
+	if err := a.markWorkspaceReviewSubmitted(project); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

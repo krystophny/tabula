@@ -125,7 +125,7 @@ func TestDeterministicFastPathCatalogIncludesRuntimeAndUIControls(t *testing.T) 
 
 func TestClassifyAndExecuteSystemActionFastPathBypassesIntentLLM(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestClassifyAndExecuteSystemActionFastPathBypassesIntentLLM(t *testing.T) {
 
 func TestClassifyAndExecuteSystemActionRuntimeControlBypassesIntentLLM(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestClassifyAndExecuteSystemActionStatusFastPathBypassesIntentLLM(t *testin
 		_ = app.Shutdown(context.Background())
 	})
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}

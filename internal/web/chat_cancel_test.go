@@ -83,7 +83,7 @@ func TestExecuteChatCommandStopCancelsWork(t *testing.T) {
 	})
 
 	projectRoot := t.TempDir()
-	project, err := app.store.CreateProject(
+	project, err := app.store.CreateEnrichedWorkspace(
 		"stop-unit",
 		"stop-unit",
 		projectRoot,
@@ -151,7 +151,7 @@ func TestExecuteChatCommandStatusUsesAppServerStatusOutput(t *testing.T) {
 	})
 
 	projectRoot := t.TempDir()
-	project, err := app.store.CreateProject(
+	project, err := app.store.CreateEnrichedWorkspace(
 		"status-project",
 		"status-project",
 		projectRoot,
@@ -198,7 +198,7 @@ func TestHandleChatSessionCommandStatusUsesAppServerStatusOutput(t *testing.T) {
 	})
 
 	projectRoot := t.TempDir()
-	project, err := app.store.CreateProject(
+	project, err := app.store.CreateEnrichedWorkspace(
 		"status-api-project",
 		"status-api-project",
 		projectRoot,
@@ -250,7 +250,7 @@ func TestHandleChatSessionCommandStopCancelsWork(t *testing.T) {
 	})
 
 	projectRoot := t.TempDir()
-	project, err := app.store.CreateProject(
+	project, err := app.store.CreateEnrichedWorkspace(
 		"stop-api",
 		"stop-api",
 		projectRoot,
@@ -308,7 +308,7 @@ func TestHandleChatSessionCancelEndpointStopsWork(t *testing.T) {
 	})
 
 	projectRoot := t.TempDir()
-	project, err := app.store.CreateProject(
+	project, err := app.store.CreateEnrichedWorkspace(
 		"cancel-endpoint",
 		"cancel-endpoint",
 		projectRoot,
@@ -372,7 +372,7 @@ func TestHandleChatSessionCancelStopsActiveTurn(t *testing.T) {
 		_ = app.Shutdown(context.Background())
 	})
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestHandleChatSessionActivityReportsActiveTurns(t *testing.T) {
 		_ = app.Shutdown(context.Background())
 	})
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -486,7 +486,7 @@ func TestHandleChatSessionCancelClearsQueuedTurns(t *testing.T) {
 		_ = app.Shutdown(context.Background())
 	})
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -523,7 +523,7 @@ func TestExecuteChatCommandClearAllResetsChatContext(t *testing.T) {
 		_ = app.Shutdown(context.Background())
 	})
 
-	projectOne, err := app.ensureDefaultProjectRecord()
+	projectOne, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -532,7 +532,7 @@ func TestExecuteChatCommandClearAllResetsChatContext(t *testing.T) {
 		t.Fatalf("create chat session 1: %v", err)
 	}
 	projectTwoRoot := filepath.Join(t.TempDir(), "clear-all-project-2")
-	projectTwo, err := app.store.CreateProject("Clear All Two", "clear-all-project-2", projectTwoRoot, "managed", "", "", false)
+	projectTwo, err := app.store.CreateEnrichedWorkspace("Clear All Two", "clear-all-project-2", projectTwoRoot, "managed", "", "", false)
 	if err != nil {
 		t.Fatalf("CreateProject(project 2) error: %v", err)
 	}

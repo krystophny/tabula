@@ -729,7 +729,7 @@ func (a *App) finalizeAssistantResponseWithMetadata(
 		}
 		*persistedText = chatMarkdown
 	}
-	a.markProjectOutput(workspacePath)
+	a.markWorkspaceOutput(workspacePath)
 	tid := strings.TrimSpace(turnID)
 	if tid == "" {
 		tid = fallbackTurnID
@@ -767,7 +767,7 @@ func (a *App) finalizeAssistantResponseWithMetadata(
 			OutputMode:    outputMode,
 		})
 	} else {
-		if project, err := a.store.GetProjectByWorkspacePath(workspacePath); err == nil {
+		if project, err := a.store.GetWorkspaceByStoredPath(workspacePath); err == nil {
 			a.settleCompanionRuntimeState(workspacePath, a.loadCompanionConfig(project), "assistant_turn_completed")
 		}
 	}

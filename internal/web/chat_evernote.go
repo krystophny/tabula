@@ -139,11 +139,11 @@ func (a *App) evernoteNotebookMappingForAccount(account store.ExternalAccount, m
 
 func (a *App) evernoteProjectHintFromTags(tags []string) *string {
 	for _, tag := range tags {
-		project, err := a.findProjectByName(tag)
+		project, err := a.findWorkspaceByName(tag)
 		if err != nil {
 			continue
 		}
-		workspaceID := projectIDString(project.ID)
+		workspaceID := workspaceIDStr(project.ID)
 		return &workspaceID
 	}
 	return nil

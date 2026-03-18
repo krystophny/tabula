@@ -15,12 +15,12 @@ import (
 	"github.com/krystophny/tabura/internal/store"
 )
 
-type temporaryProjectPersistRequest struct {
+type temporaryWorkspacePersistRequest struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
 }
 
-func (a *App) nextManagedProjectPath(name string) (string, error) {
+func (a *App) nextManagedWorkspacePath(name string) (string, error) {
 	baseDir := filepath.Join(a.dataDir, "projects")
 	if err := os.MkdirAll(baseDir, 0o755); err != nil {
 		return "", err
@@ -39,7 +39,7 @@ func (a *App) nextManagedProjectPath(name string) (string, error) {
 	return "", errors.New("unable to allocate managed project path")
 }
 
-func (a *App) nextTemporaryProjectPath(kind, name string) (string, error) {
+func (a *App) nextTemporaryWorkspacePath(kind, name string) (string, error) {
 	baseDir := filepath.Join(a.dataDir, "projects", "temporary", strings.ToLower(strings.TrimSpace(kind)))
 	if err := os.MkdirAll(baseDir, 0o755); err != nil {
 		return "", err
@@ -58,44 +58,44 @@ func (a *App) nextTemporaryProjectPath(kind, name string) (string, error) {
 	return "", errors.New("unable to allocate temporary project path")
 }
 
-func (a *App) projectSourceByID(workspaceID string) (store.Project, bool, error) {
+func (a *App) workspaceSourceByID(workspaceID string) (store.Workspace, bool, error) {
 	id := strings.TrimSpace(workspaceID)
 	if id == "" {
-		return store.Project{}, false, nil
+		return store.Workspace{}, false, nil
 	}
-	project, err := a.store.GetProject(id)
+	project, err := a.store.GetEnrichedWorkspace(id)
 	if err != nil {
-		return store.Project{}, false, err
+		return store.Workspace{}, false, err
 	}
 	return project, true, nil
 }
 
-func (a *App) inheritProjectSettings(targetID string, source store.Project) error {
+func (a *App) inheritWorkspaceSettings(targetID string, source store.Workspace) error {
 	if strings.TrimSpace(source.ChatModel) != "" {
-		if err := a.store.UpdateProjectChatModel(targetID, source.ChatModel); err != nil {
+		if err := a.store.UpdateEnrichedWorkspaceChatModel(targetID, source.ChatModel); err != nil {
 			return err
 		}
 	}
 	if strings.TrimSpace(source.ChatModelReasoningEffort) != "" {
-		if err := a.store.UpdateProjectChatModelReasoningEffort(targetID, source.ChatModelReasoningEffort); err != nil {
+		if err := a.store.UpdateEnrichedWorkspaceChatModelReasoningEffort(targetID, source.ChatModelReasoningEffort); err != nil {
 			return err
 		}
 	}
 	if strings.TrimSpace(source.CompanionConfigJSON) != "" {
-		if err := a.store.UpdateProjectCompanionConfig(targetID, source.CompanionConfigJSON); err != nil {
+		if err := a.store.UpdateEnrichedWorkspaceCompanionConfig(targetID, source.CompanionConfigJSON); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (a *App) createProject(req projectCreateRequest) (store.Project, bool, error) {
+func (a *App) createWorkspace2(req runtimeWorkspaceCreateRequest) (store.Workspace, bool, error) {
 	kind := normalizeProjectKindInput(req.Kind, req.Path)
 	name := strings.TrimSpace(req.Name)
 	mcpURL := strings.TrimSpace(req.MCPURL)
-	sourceProject, hasSource, err := a.projectSourceByID(req.SourceWorkspaceID)
+	sourceProject, hasSource, err := a.workspaceSourceByID(req.SourceWorkspaceID)
 	if err != nil {
-		return store.Project{}, false, err
+		return store.Workspace{}, false, err
 	}
 
 	var absRoot string
@@ -103,97 +103,97 @@ func (a *App) createProject(req projectCreateRequest) (store.Project, bool, erro
 	case "linked":
 		rootPath := strings.TrimSpace(req.Path)
 		if rootPath == "" {
-			return store.Project{}, false, errors.New("path is required for linked projects")
+			return store.Workspace{}, false, errors.New("path is required for linked projects")
 		}
 		info, err := os.Stat(rootPath)
 		if err != nil {
-			return store.Project{}, false, err
+			return store.Workspace{}, false, err
 		}
 		if !info.IsDir() {
-			return store.Project{}, false, errors.New("path must be a directory")
+			return store.Workspace{}, false, errors.New("path must be a directory")
 		}
 		boot, err := protocol.BootstrapProject(rootPath)
 		if err != nil {
-			return store.Project{}, false, err
+			return store.Workspace{}, false, err
 		}
 		absRoot = filepath.Clean(boot.Paths.ProjectDir)
 	case "meeting", "task":
 		if strings.TrimSpace(req.Path) != "" {
-			return store.Project{}, false, errors.New("path is not supported for temporary projects")
+			return store.Workspace{}, false, errors.New("path is not supported for temporary projects")
 		}
 		if name == "" {
-			name = defaultTemporaryProjectName(kind, time.Now())
+			name = defaultTemporaryWorkspaceName(kind, time.Now())
 		}
-		rootPath, err := a.nextTemporaryProjectPath(kind, name)
+		rootPath, err := a.nextTemporaryWorkspacePath(kind, name)
 		if err != nil {
-			return store.Project{}, false, err
+			return store.Workspace{}, false, err
 		}
 		if err := os.MkdirAll(rootPath, 0o755); err != nil {
-			return store.Project{}, false, err
+			return store.Workspace{}, false, err
 		}
 		boot, err := protocol.BootstrapProject(rootPath)
 		if err != nil {
-			return store.Project{}, false, err
+			return store.Workspace{}, false, err
 		}
 		absRoot = filepath.Clean(boot.Paths.ProjectDir)
 	default:
 		rootPath := strings.TrimSpace(req.Path)
 		if rootPath == "" {
-			nextPath, err := a.nextManagedProjectPath(name)
+			nextPath, err := a.nextManagedWorkspacePath(name)
 			if err != nil {
-				return store.Project{}, false, err
+				return store.Workspace{}, false, err
 			}
 			rootPath = nextPath
 		}
 		if err := os.MkdirAll(rootPath, 0o755); err != nil {
-			return store.Project{}, false, err
+			return store.Workspace{}, false, err
 		}
 		boot, err := protocol.BootstrapProject(rootPath)
 		if err != nil {
-			return store.Project{}, false, err
+			return store.Workspace{}, false, err
 		}
 		absRoot = filepath.Clean(boot.Paths.ProjectDir)
 	}
 
 	if name == "" {
-		name = defaultProjectNameFromPath(absRoot)
+		name = defaultWorkspaceNameFromPath(absRoot)
 	}
 	workspacePath := absRoot
 
-	if existing, err := a.store.GetProjectByWorkspacePath(workspacePath); err == nil {
+	if existing, err := a.store.GetWorkspaceByStoredPath(workspacePath); err == nil {
 		return existing, false, nil
 	} else if !isNoRows(err) {
-		return store.Project{}, false, err
+		return store.Workspace{}, false, err
 	}
-	if existing, err := a.store.GetProjectByRootPath(absRoot); err == nil {
+	if existing, err := a.store.GetWorkspaceByRootPath(absRoot); err == nil {
 		return existing, false, nil
 	} else if !isNoRows(err) {
-		return store.Project{}, false, err
+		return store.Workspace{}, false, err
 	}
 
-	created, err := a.store.CreateProject(name, workspacePath, absRoot, kind, mcpURL, "", false)
+	created, err := a.store.CreateEnrichedWorkspace(name, workspacePath, absRoot, kind, mcpURL, "", false)
 	if err != nil {
 		if isUniqueConstraint(err) {
-			if existing, lookupErr := a.store.GetProjectByWorkspacePath(workspacePath); lookupErr == nil {
+			if existing, lookupErr := a.store.GetWorkspaceByStoredPath(workspacePath); lookupErr == nil {
 				return existing, false, nil
 			}
 		}
-		return store.Project{}, false, err
+		return store.Workspace{}, false, err
 	}
 	if hasSource {
-		if err := a.inheritProjectSettings(projectIDString(created.ID), sourceProject); err != nil {
-			return store.Project{}, false, err
+		if err := a.inheritWorkspaceSettings(workspaceIDStr(created.ID), sourceProject); err != nil {
+			return store.Workspace{}, false, err
 		}
-		refreshed, refreshErr := a.store.GetProject(projectIDString(created.ID))
+		refreshed, refreshErr := a.store.GetEnrichedWorkspace(workspaceIDStr(created.ID))
 		if refreshErr != nil {
-			return store.Project{}, false, refreshErr
+			return store.Workspace{}, false, refreshErr
 		}
 		created = refreshed
 	}
 	return created, true, nil
 }
 
-func (a *App) persistTemporaryProjectTarget(project store.Project, req temporaryProjectPersistRequest) (string, string, error) {
+func (a *App) persistTemporaryWorkspaceTarget(project store.Workspace, req temporaryWorkspacePersistRequest) (string, string, error) {
 	targetName := strings.TrimSpace(req.Name)
 	targetPath := strings.TrimSpace(req.Path)
 	if targetPath == "" {
@@ -205,7 +205,7 @@ func (a *App) persistTemporaryProjectTarget(project store.Project, req temporary
 	}
 	absTarget = filepath.Clean(absTarget)
 	if targetName == "" {
-		targetName = defaultProjectNameFromPath(absTarget)
+		targetName = defaultWorkspaceNameFromPath(absTarget)
 	}
 	if targetName == "" {
 		targetName = project.Name
@@ -216,7 +216,7 @@ func (a *App) persistTemporaryProjectTarget(project store.Project, req temporary
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return "", "", err
 		}
-		if existing, err := a.store.GetProjectByRootPath(absTarget); err == nil && existing.ID != project.ID {
+		if existing, err := a.store.GetWorkspaceByRootPath(absTarget); err == nil && existing.ID != project.ID {
 			return "", "", errors.New("path is already used by another project")
 		} else if err != nil && !isNoRows(err) {
 			return "", "", err
@@ -254,47 +254,47 @@ func (a *App) updateWorkspaceArtifactPaths(workspaceID int64, oldRoot, newRoot s
 	return nil
 }
 
-func (a *App) persistTemporaryProject(workspaceID string, req temporaryProjectPersistRequest) (store.Project, error) {
-	project, err := a.store.GetProject(strings.TrimSpace(workspaceID))
+func (a *App) persistTemporaryWorkspace(workspaceID string, req temporaryWorkspacePersistRequest) (store.Workspace, error) {
+	project, err := a.store.GetEnrichedWorkspace(strings.TrimSpace(workspaceID))
 	if err != nil {
-		return store.Project{}, err
+		return store.Workspace{}, err
 	}
-	if !isTemporaryProject(project) {
-		return store.Project{}, errors.New("project is not temporary")
+	if !isTemporaryWorkspace(project) {
+		return store.Workspace{}, errors.New("project is not temporary")
 	}
-	workspace, err := a.ensureWorkspaceForProject(project, false)
+	workspace, err := a.ensureWorkspaceReady(project, false)
 	if err != nil {
-		return store.Project{}, err
+		return store.Workspace{}, err
 	}
-	targetName, targetPath, err := a.persistTemporaryProjectTarget(project, req)
+	targetName, targetPath, err := a.persistTemporaryWorkspaceTarget(project, req)
 	if err != nil {
-		return store.Project{}, err
+		return store.Workspace{}, err
 	}
 	oldRoot := filepath.Clean(project.RootPath)
 	if targetPath != oldRoot {
 		if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
-			return store.Project{}, err
+			return store.Workspace{}, err
 		}
 		if err := os.Rename(oldRoot, targetPath); err != nil {
-			return store.Project{}, err
+			return store.Workspace{}, err
 		}
 		if _, err := protocol.BootstrapProject(targetPath); err != nil {
-			return store.Project{}, err
+			return store.Workspace{}, err
 		}
 		if err := a.updateWorkspaceArtifactPaths(workspace.ID, oldRoot, targetPath); err != nil {
-			return store.Project{}, err
+			return store.Workspace{}, err
 		}
 	}
 	if _, err := a.store.UpdateWorkspaceLocation(workspace.ID, targetName, targetPath); err != nil {
-		return store.Project{}, err
+		return store.Workspace{}, err
 	}
-	if err := a.store.UpdateProjectLocation(projectIDString(project.ID), targetName, targetPath, targetPath, "managed"); err != nil {
-		return store.Project{}, err
+	if err := a.store.UpdateWorkspaceLocation2(workspaceIDStr(project.ID), targetName, targetPath, targetPath, "managed"); err != nil {
+		return store.Workspace{}, err
 	}
-	return a.activateProject(projectIDString(project.ID))
+	return a.activateWorkspace(workspaceIDStr(project.ID))
 }
 
-func (a *App) temporaryProjectDiscardRoot(project store.Project) string {
+func (a *App) temporaryWorkspaceDiscardRoot(project store.Workspace) string {
 	root := filepath.Clean(project.RootPath)
 	base := filepath.Clean(filepath.Join(a.dataDir, "projects", "temporary"))
 	if !pathWithinRoot(root, base) {
@@ -303,34 +303,34 @@ func (a *App) temporaryProjectDiscardRoot(project store.Project) string {
 	return root
 }
 
-func (a *App) fallbackProjectAfterDiscard(discardedWorkspaceID string) (store.Project, error) {
-	defaultProject, err := a.ensureDefaultProjectRecord()
-	if err == nil && projectIDString(defaultProject.ID) != strings.TrimSpace(discardedWorkspaceID) {
+func (a *App) fallbackWorkspaceAfterDiscard(discardedWorkspaceID string) (store.Workspace, error) {
+	defaultProject, err := a.ensureDefaultWorkspace()
+	if err == nil && workspaceIDStr(defaultProject.ID) != strings.TrimSpace(discardedWorkspaceID) {
 		return defaultProject, nil
 	}
-	projects, err := a.store.ListProjects()
+	projects, err := a.store.ListEnrichedWorkspaces()
 	if err != nil {
-		return store.Project{}, err
+		return store.Workspace{}, err
 	}
 	for _, project := range projects {
-		if projectIDString(project.ID) != strings.TrimSpace(discardedWorkspaceID) {
+		if workspaceIDStr(project.ID) != strings.TrimSpace(discardedWorkspaceID) {
 			return project, nil
 		}
 	}
-	return store.Project{}, sql.ErrNoRows
+	return store.Workspace{}, sql.ErrNoRows
 }
 
-func (a *App) discardTemporaryProject(workspaceID string) (store.Project, error) {
-	project, err := a.store.GetProject(strings.TrimSpace(workspaceID))
+func (a *App) discardTemporaryWorkspace(workspaceID string) (store.Workspace, error) {
+	project, err := a.store.GetEnrichedWorkspace(strings.TrimSpace(workspaceID))
 	if err != nil {
-		return store.Project{}, err
+		return store.Workspace{}, err
 	}
-	if !isTemporaryProject(project) {
-		return store.Project{}, errors.New("project is not temporary")
+	if !isTemporaryWorkspace(project) {
+		return store.Workspace{}, errors.New("project is not temporary")
 	}
-	workspaces, err := a.store.ListWorkspacesForProject(projectIDString(project.ID))
+	workspaces, err := a.store.ListWorkspacesForID(workspaceIDStr(project.ID))
 	if err != nil {
-		return store.Project{}, err
+		return store.Workspace{}, err
 	}
 	if workspace, workspaceErr := a.store.GetWorkspaceByPath(project.RootPath); workspaceErr == nil {
 		found := false
@@ -344,39 +344,39 @@ func (a *App) discardTemporaryProject(workspaceID string) (store.Project, error)
 			workspaces = append(workspaces, workspace)
 		}
 	} else if workspaceErr != nil && !isNoRows(workspaceErr) {
-		return store.Project{}, workspaceErr
+		return store.Workspace{}, workspaceErr
 	}
-	discardRoot := a.temporaryProjectDiscardRoot(project)
-	fallback, fallbackErr := a.fallbackProjectAfterDiscard(projectIDString(project.ID))
-	if err := a.store.DeleteProject(projectIDString(project.ID)); err != nil {
-		return store.Project{}, err
+	discardRoot := a.temporaryWorkspaceDiscardRoot(project)
+	fallback, fallbackErr := a.fallbackWorkspaceAfterDiscard(workspaceIDStr(project.ID))
+	if err := a.store.DeleteEnrichedWorkspace(workspaceIDStr(project.ID)); err != nil {
+		return store.Workspace{}, err
 	}
 	for _, workspace := range workspaces {
 		if err := a.store.DeleteWorkspace(workspace.ID); err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return store.Project{}, err
+			return store.Workspace{}, err
 		}
 	}
 	if discardRoot != "" {
 		if removeErr := os.RemoveAll(discardRoot); removeErr != nil {
-			return store.Project{}, removeErr
+			return store.Workspace{}, removeErr
 		}
 	}
 	if fallbackErr != nil {
-		return store.Project{}, fallbackErr
+		return store.Workspace{}, fallbackErr
 	}
-	return a.activateProject(projectIDString(fallback.ID))
+	return a.activateWorkspace(workspaceIDStr(fallback.ID))
 }
 
-func (a *App) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleRuntimeWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
-	var req projectCreateRequest
+	var req runtimeWorkspaceCreateRequest
 	if err := decodeJSON(r, &req); err != nil {
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	project, created, err := a.createProject(req)
+	project, created, err := a.createWorkspace2(req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -386,12 +386,12 @@ func (a *App) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
 		activate = *req.Activate
 	}
 	if activate {
-		if project, err = a.activateProject(projectIDString(project.ID)); err != nil {
+		if project, err = a.activateWorkspace(workspaceIDStr(project.ID)); err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
 	}
-	item, err := a.buildProjectAPIModel(project)
+	item, err := a.buildWorkspaceAPIModel(project)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -401,11 +401,10 @@ func (a *App) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
 		"created":   created,
 		"activated": activate,
 		"workspace": item,
-		"project":   item,
 	})
 }
 
-func (a *App) handleTemporaryProjectPersist(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleTemporaryWorkspacePersist(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
@@ -414,23 +413,23 @@ func (a *App) handleTemporaryProjectPersist(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "workspace_id is required", http.StatusBadRequest)
 		return
 	}
-	var req temporaryProjectPersistRequest
+	var req temporaryWorkspacePersistRequest
 	if r.ContentLength > 0 {
 		if err := decodeJSON(r, &req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
 	}
-	project, err := a.persistTemporaryProject(workspaceID, req)
+	project, err := a.persistTemporaryWorkspace(workspaceID, req)
 	if err != nil {
 		if isNoRows(err) {
-			http.Error(w, "project not found", http.StatusNotFound)
+			http.Error(w, "workspace not found", http.StatusNotFound)
 			return
 		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	item, err := a.buildProjectAPIModel(project)
+	item, err := a.buildWorkspaceAPIModel(project)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -438,11 +437,10 @@ func (a *App) handleTemporaryProjectPersist(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, map[string]interface{}{
 		"ok":        true,
 		"workspace": item,
-		"project":   item,
 	})
 }
 
-func (a *App) handleTemporaryProjectDiscard(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleTemporaryWorkspaceDiscard(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
 	}
@@ -451,16 +449,16 @@ func (a *App) handleTemporaryProjectDiscard(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "workspace_id is required", http.StatusBadRequest)
 		return
 	}
-	activeProject, err := a.discardTemporaryProject(workspaceID)
+	activeProject, err := a.discardTemporaryWorkspace(workspaceID)
 	if err != nil {
 		if isNoRows(err) {
-			http.Error(w, "project not found", http.StatusNotFound)
+			http.Error(w, "workspace not found", http.StatusNotFound)
 			return
 		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	item, err := a.buildProjectAPIModel(activeProject)
+	item, err := a.buildWorkspaceAPIModel(activeProject)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -468,7 +466,7 @@ func (a *App) handleTemporaryProjectDiscard(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, map[string]interface{}{
 		"ok":                  true,
 		"discarded_workspace": workspaceID,
-		"active_workspace_id": projectIDString(activeProject.ID),
+		"active_workspace_id": workspaceIDStr(activeProject.ID),
 		"active_workspace":    item,
 		"active_project":      item,
 	})

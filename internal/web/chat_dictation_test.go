@@ -59,7 +59,7 @@ func TestChatSessionDictationLifecycle(t *testing.T) {
 	if err := os.MkdirAll(projectRoot, 0755); err != nil {
 		t.Fatalf("mkdir project root: %v", err)
 	}
-	project, err := app.store.CreateProject("Dictation", "dictation-project", projectRoot, "managed", "", "", false)
+	project, err := app.store.CreateEnrichedWorkspace("Dictation", "dictation-project", projectRoot, "managed", "", "", false)
 	if err != nil {
 		t.Fatalf("CreateProject() error: %v", err)
 	}

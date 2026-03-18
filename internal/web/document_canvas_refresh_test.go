@@ -102,7 +102,7 @@ cat "$1" > "$out"
 
 func TestRefreshCanvasFromDisk_RebuildsRenderedDocumentPDF(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestRefreshCanvasFromDisk_RebuildsRenderedDocumentPDF(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extract port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	time.Sleep(20 * time.Millisecond)
 	if err := os.WriteFile(docPath, []byte("version two\n"), 0o644); err != nil {
@@ -176,7 +176,7 @@ func TestRefreshCanvasFromDisk_RebuildsRenderedDocumentPDF(t *testing.T) {
 
 func TestWatchCanvasFile_RebuildsRenderedDocumentPDFOnSourceWrite(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestWatchCanvasFile_RebuildsRenderedDocumentPDFOnSourceWrite(t *testing.T) 
 	if err != nil {
 		t.Fatalf("extract port: %v", err)
 	}
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

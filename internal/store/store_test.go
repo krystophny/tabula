@@ -164,11 +164,11 @@ func TestStoreProjectCompanionConfigPersistsAcrossReopen(t *testing.T) {
 	}
 
 	root := filepath.Join(t.TempDir(), "workspace")
-	project, err := s.CreateProject("Project A", "key-a", root, "managed", "", "", false)
+	project, err := s.CreateEnrichedWorkspace("Workspace A", "key-a", root, "managed", "", "", false)
 	if err != nil {
 		t.Fatalf("CreateProject() error: %v", err)
 	}
-	if err := s.UpdateProjectCompanionConfig(workspaceIDString(project.ID), `{"companion_enabled":false,"language":"de","idle_surface":"black"}`); err != nil {
+	if err := s.UpdateEnrichedWorkspaceCompanionConfig(workspaceIDString(project.ID), `{"companion_enabled":false,"language":"de","idle_surface":"black"}`); err != nil {
 		t.Fatalf("UpdateProjectCompanionConfig() error: %v", err)
 	}
 	if err := s.Close(); err != nil {
@@ -182,7 +182,7 @@ func TestStoreProjectCompanionConfigPersistsAcrossReopen(t *testing.T) {
 	defer func() {
 		_ = reopened.Close()
 	}()
-	got, err := reopened.GetProject(workspaceIDString(project.ID))
+	got, err := reopened.GetEnrichedWorkspace(workspaceIDString(project.ID))
 	if err != nil {
 		t.Fatalf("GetProject() after reopen error: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestStoreProjectCompanionConfigPersistsAcrossReopen(t *testing.T) {
 func TestStoreChatSessionMessageAndThreading(t *testing.T) {
 	s := newTestStore(t)
 	root := filepath.Join(t.TempDir(), "workspace-default")
-	project, err := s.CreateProject("Default", root, root, "managed", "", "", true)
+	project, err := s.CreateEnrichedWorkspace("Default", root, root, "managed", "", "", true)
 	if err != nil {
 		t.Fatalf("CreateProject() error: %v", err)
 	}
@@ -384,7 +384,7 @@ func TestStoreChatSessionMessageAndThreading(t *testing.T) {
 func TestStoreChatSessionsKeyToWorkspace(t *testing.T) {
 	s := newTestStore(t)
 	root := filepath.Join(t.TempDir(), "workspace-alpha")
-	project, err := s.CreateProject("Alpha", "alpha-key", root, "managed", "", "", false)
+	project, err := s.CreateEnrichedWorkspace("Alpha", "alpha-key", root, "managed", "", "", false)
 	if err != nil {
 		t.Fatalf("CreateProject() error: %v", err)
 	}
@@ -428,7 +428,7 @@ func TestStoreChatSessionsKeyToWorkspace(t *testing.T) {
 func TestGetOrCreateChatSessionBlankRefRequiresActiveWorkspace(t *testing.T) {
 	s := newTestStore(t)
 	root := filepath.Join(t.TempDir(), "workspace-default")
-	project, err := s.CreateProject("Default", root, root, "managed", "", "", true)
+	project, err := s.CreateEnrichedWorkspace("Default", root, root, "managed", "", "", true)
 	if err != nil {
 		t.Fatalf("CreateProject() error: %v", err)
 	}
@@ -447,7 +447,7 @@ func TestGetOrCreateChatSessionBlankRefRequiresActiveWorkspace(t *testing.T) {
 func TestGetOrCreateChatSessionCreatesWorkspaceForLegacyProjectFallback(t *testing.T) {
 	s := newTestStore(t)
 	projectRoot := filepath.Join(t.TempDir(), "project-root")
-	project, err := s.CreateProject("Alpha", "alpha-key", projectRoot, "managed", "", "", false)
+	project, err := s.CreateEnrichedWorkspace("Alpha", "alpha-key", projectRoot, "managed", "", "", false)
 	if err != nil {
 		t.Fatalf("CreateProject() error: %v", err)
 	}
@@ -493,14 +493,14 @@ func TestStoreSchemaAndHelperNormalizers(t *testing.T) {
 		t.Fatalf("workspaces missing chat_model_reasoning_effort column: %q", workspaceCols)
 	}
 
-	if got := normalizeProjectName("  hello  "); got != "hello" {
-		t.Fatalf("normalizeProjectName() = %q, want hello", got)
+	if got := normalizeWorkspaceCompatName("  hello  "); got != "hello" {
+		t.Fatalf("normalizeWorkspaceCompatName() = %q, want hello", got)
 	}
-	if got := normalizeProjectChatModel("  Spark "); got != "spark" {
-		t.Fatalf("normalizeProjectChatModel() = %q, want spark", got)
+	if got := normalizeWorkspaceCompatChatModel("  Spark "); got != "spark" {
+		t.Fatalf("normalizeWorkspaceCompatChatModel() = %q, want spark", got)
 	}
-	if got := normalizeProjectChatModelReasoningEffort(" High "); got != "high" {
-		t.Fatalf("normalizeProjectChatModelReasoningEffort() = %q, want high", got)
+	if got := normalizeWorkspaceCompatChatModelReasoningEffort(" High "); got != "high" {
+		t.Fatalf("normalizeWorkspaceCompatChatModelReasoningEffort() = %q, want high", got)
 	}
 	if got := normalizeChatMode("plan"); got != "plan" {
 		t.Fatalf("normalizeChatMode(plan) = %q, want plan", got)
@@ -534,7 +534,7 @@ func TestStoreSchemaAndHelperNormalizers(t *testing.T) {
 func TestStoreDeleteProjectRemovesAssociatedSessions(t *testing.T) {
 	s := newTestStore(t)
 	root := filepath.Join(t.TempDir(), "meeting-temp")
-	project, err := s.CreateProject("Meeting Temp", "meeting-key", root, "meeting", "", "", false)
+	project, err := s.CreateEnrichedWorkspace("Meeting Temp", "meeting-key", root, "meeting", "", "", false)
 	if err != nil {
 		t.Fatalf("CreateProject() error: %v", err)
 	}
@@ -571,10 +571,10 @@ func TestStoreDeleteProjectRemovesAssociatedSessions(t *testing.T) {
 		t.Fatalf("UpsertParticipantRoomState() error: %v", err)
 	}
 
-	if err := s.DeleteProject(workspaceIDString(project.ID)); err != nil {
+	if err := s.DeleteEnrichedWorkspace(workspaceIDString(project.ID)); err != nil {
 		t.Fatalf("DeleteProject() error: %v", err)
 	}
-	if _, err := s.GetProject(workspaceIDString(project.ID)); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := s.GetEnrichedWorkspace(workspaceIDString(project.ID)); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("GetProject(deleted) error = %v, want sql.ErrNoRows", err)
 	}
 	if _, err := s.GetChatSession(chatSession.ID); !errors.Is(err, sql.ErrNoRows) {

@@ -33,7 +33,7 @@ func (a *App) executeSystemActionPlanUnsafe(sessionID string, session store.Chat
 	messages := make([]string, 0, len(actions))
 	payloads := make([]map[string]interface{}, 0, len(actions))
 	lastShellPath := ""
-	targetProject, targetErr := a.systemActionTargetProject(session)
+	targetProject, targetErr := a.systemActionTargetWorkspace(session)
 	targetCWD := a.systemActionTargetCWD(session, targetProject, targetErr)
 	requestHints := extractOpenRequestHints(userText)
 	for _, action := range actions {
@@ -75,23 +75,23 @@ func (a *App) executeSystemActionPlanUnsafe(sessionID string, session store.Chat
 	return strings.Join(messages, "\n\n"), payloads, nil
 }
 
-func (a *App) systemActionTargetProject(session store.ChatSession) (store.Project, error) {
+func (a *App) systemActionTargetWorkspace(session store.ChatSession) (store.Workspace, error) {
 	if focusedWorkspace, explicit, err := a.focusedWorkspace(); err == nil && explicit {
-		if project, projectErr := a.projectForWorkspace(focusedWorkspace); projectErr == nil && project != nil {
+		if project, projectErr := a.workspaceFromStore(focusedWorkspace); projectErr == nil && project != nil {
 			return *project, nil
 		}
 	}
 	workspacePath := strings.TrimSpace(session.WorkspacePath)
 	if workspacePath != "" {
-		project, err := a.store.GetProjectByWorkspacePath(workspacePath)
+		project, err := a.store.GetWorkspaceByStoredPath(workspacePath)
 		if err == nil {
 			return project, nil
 		}
 	}
-	return a.preferredProject()
+	return a.preferredWorkspace()
 }
 
-func (a *App) systemActionTargetCWD(session store.ChatSession, targetProject store.Project, targetErr error) string {
+func (a *App) systemActionTargetCWD(session store.ChatSession, targetProject store.Workspace, targetErr error) string {
 	if focusedWorkspace, explicit, err := a.focusedWorkspace(); err == nil && explicit {
 		if dirPath := strings.TrimSpace(focusedWorkspace.DirPath); dirPath != "" {
 			return dirPath
@@ -353,7 +353,7 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 		return a.applyIdeaPromotion(session, action)
 	case "make_item", "delegate_item", "snooze_item", "split_items":
 		return a.createConversationItem(sessionID, session, action)
-	case "reassign_workspace", "reassign_project", "clear_workspace", "clear_project":
+	case "reassign_workspace", "clear_workspace":
 		return a.executeItemReassignmentAction(session, action)
 	case "link_workspace_artifact":
 		return a.linkWorkspaceArtifact(session, action)
@@ -376,7 +376,7 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 	case "create_github_issue", "create_github_issue_split":
 		return a.createGitHubIssueFromConversation(sessionID, session, action)
 	case "shell":
-		targetProject, err := a.systemActionTargetProject(session)
+		targetProject, err := a.systemActionTargetWorkspace(session)
 		if err != nil {
 			return "", nil, err
 		}
@@ -438,7 +438,7 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 			"workspace_id": targetProject.ID,
 		}, nil
 	case "open_file_canvas":
-		targetProject, err := a.systemActionTargetProject(session)
+		targetProject, err := a.systemActionTargetWorkspace(session)
 		if err != nil {
 			return "", nil, err
 		}
@@ -461,7 +461,7 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 		if info.IsDir() {
 			return "", nil, fmt.Errorf("path %q is a directory", rawPath)
 		}
-		canvasSessionID := strings.TrimSpace(a.canvasSessionIDForProject(targetProject))
+		canvasSessionID := strings.TrimSpace(a.canvasSessionIDForWorkspace(targetProject))
 		if canvasSessionID == "" {
 			return "", nil, errors.New("canvas session is not available")
 		}

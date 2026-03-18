@@ -158,7 +158,7 @@ func TestHandleChatWSTextMessage_CanvasInkQueuesRequestedTurnAndPersistsSnapshot
 	if err != nil {
 		t.Fatalf("GetChatSession: %v", err)
 	}
-	project, err := app.store.GetProjectByWorkspacePath(session.WorkspacePath)
+	project, err := app.store.GetWorkspaceByStoredPath(session.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetProjectByWorkspacePath: %v", err)
 	}

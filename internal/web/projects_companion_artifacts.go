@@ -49,7 +49,7 @@ type companionReferencesResponse struct {
 	TopicTimeline []any                      `json:"topic_timeline"`
 }
 
-func (a *App) resolveWorkspaceCompanionArtifact(w http.ResponseWriter, r *http.Request) (store.Workspace, *store.Project, []store.ParticipantSession, *store.ParticipantSession, bool) {
+func (a *App) resolveWorkspaceCompanionArtifact(w http.ResponseWriter, r *http.Request) (store.Workspace, *store.Workspace, []store.ParticipantSession, *store.ParticipantSession, bool) {
 	workspace, project, err := a.companionWorkspaceForWorkspaceIDOrActive(chi.URLParam(r, "workspace_id"))
 	if err != nil {
 		if isNoRows(err) {
@@ -600,7 +600,7 @@ func (a *App) handleWorkspaceCompanionTranscript(w http.ResponseWriter, r *http.
 	workspaceID := ""
 	workspacePath := a.companionKeyForWorkspace(workspace)
 	if project != nil {
-		workspaceID = projectIDString(project.ID)
+		workspaceID = workspaceIDStr(project.ID)
 	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	fromTS, toTS := parseProjectTranscriptWindow(r)
@@ -643,7 +643,7 @@ func (a *App) handleWorkspaceCompanionSummary(w http.ResponseWriter, r *http.Req
 	workspaceID := ""
 	workspacePath := a.companionKeyForWorkspace(workspace)
 	if project != nil {
-		workspaceID = projectIDString(project.ID)
+		workspaceID = workspaceIDStr(project.ID)
 	}
 	summaryText := ""
 	updatedAt := int64(0)
@@ -688,7 +688,7 @@ func (a *App) handleWorkspaceCompanionReferences(w http.ResponseWriter, r *http.
 	workspaceID := ""
 	workspacePath := a.companionKeyForWorkspace(workspace)
 	if project != nil {
-		workspaceID = projectIDString(project.ID)
+		workspaceID = workspaceIDStr(project.ID)
 	}
 	entities := []string{}
 	topics := []any{}

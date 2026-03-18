@@ -455,8 +455,8 @@ func deriveSplitItemTitles(text string, count int) ([]string, error) {
 	return out, nil
 }
 
-func (a *App) resolveConversationCanvasArtifact(project store.Project) *conversationCanvasArtifact {
-	canvasSessionID := strings.TrimSpace(a.canvasSessionIDForProject(project))
+func (a *App) resolveConversationCanvasArtifact(project store.Workspace) *conversationCanvasArtifact {
+	canvasSessionID := strings.TrimSpace(a.canvasSessionIDForWorkspace(project))
 	if canvasSessionID == "" {
 		return nil
 	}
@@ -549,7 +549,7 @@ func conversationArtifactMeta(source string, text string) *string {
 	return &meta
 }
 
-func (a *App) createConversationArtifact(project store.Project, title string, assistantText string, canvas *conversationCanvasArtifact) (*store.Artifact, error) {
+func (a *App) createConversationArtifact(project store.Workspace, title string, assistantText string, canvas *conversationCanvasArtifact) (*store.Artifact, error) {
 	if canvas == nil && strings.TrimSpace(assistantText) == "" {
 		return nil, nil
 	}
@@ -591,7 +591,7 @@ func (a *App) createConversationArtifact(project store.Project, title string, as
 	return &artifact, nil
 }
 
-func (a *App) resolveConversationWorkspaceID(project store.Project, artifact *store.Artifact) (*int64, error) {
+func (a *App) resolveConversationWorkspaceID(project store.Workspace, artifact *store.Artifact) (*int64, error) {
 	if artifact != nil {
 		if inferred, err := a.store.InferWorkspaceForArtifact(*artifact); err != nil {
 			return nil, err
@@ -623,7 +623,7 @@ func (a *App) resolveConversationWorkspaceID(project store.Project, artifact *st
 	return nil, nil
 }
 
-func (a *App) buildConversationItemContext(sessionID string, project store.Project) (conversationItemContext, error) {
+func (a *App) buildConversationItemContext(sessionID string, project store.Workspace) (conversationItemContext, error) {
 	messages, err := a.store.ListChatMessages(sessionID, 200)
 	if err != nil {
 		return conversationItemContext{}, err
@@ -720,7 +720,7 @@ func (a *App) captureIdeaItem(session store.ChatSession, action *SystemAction) (
 		return "", nil, errors.New("idea title is required")
 	}
 
-	targetProject, err := a.systemActionTargetProject(session)
+	targetProject, err := a.systemActionTargetWorkspace(session)
 	if err != nil {
 		return "", nil, err
 	}
@@ -766,7 +766,7 @@ func (a *App) captureIdeaItem(session store.ChatSession, action *SystemAction) (
 }
 
 func (a *App) createConversationItem(sessionID string, session store.ChatSession, action *SystemAction) (string, map[string]interface{}, error) {
-	targetProject, err := a.systemActionTargetProject(session)
+	targetProject, err := a.systemActionTargetWorkspace(session)
 	if err != nil {
 		return "", nil, err
 	}

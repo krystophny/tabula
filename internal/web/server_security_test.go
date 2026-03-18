@@ -371,7 +371,7 @@ func TestPrivacySTTHTTPCaptureReturnsOnlyTextWithoutTempFiles(t *testing.T) {
 func TestPrivacyNoChatMessageAudioContent(t *testing.T) {
 	app := newAuthedTestApp(t)
 
-	project, err := app.store.CreateProject("test", "test-key", "/tmp/test", "local", "", "local", true)
+	project, err := app.store.CreateEnrichedWorkspace("test", "test-key", "/tmp/test", "local", "", "local", true)
 	if err != nil {
 		t.Fatalf("create project: %v", err)
 	}

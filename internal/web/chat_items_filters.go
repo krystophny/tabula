@@ -90,7 +90,7 @@ func parseInlineItemFilterIntent(text string) *SystemAction {
 				Params: map[string]interface{}{
 					"view": store.ItemStateInbox,
 					"filters": map[string]interface{}{
-						"project":     projectRef,
+						"workspace":   projectRef,
 						"all_spheres": allSpheres,
 					},
 				},

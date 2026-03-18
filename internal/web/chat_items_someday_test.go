@@ -62,7 +62,7 @@ func TestClassifyAndExecuteSystemActionReviewSomedayList(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestClassifyAndExecuteSystemActionTriageSomedayUsesCanvasItem(t *testing.T)
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestClassifyAndExecuteSystemActionTriageSomedayUsesCanvasItem(t *testing.T)
 	server := mock.setupServer(t)
 	defer server.Close()
 	port := serverPort(t, server.Listener.Addr())
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	message, payloads, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "not now")
 	if !handled {
@@ -166,7 +166,7 @@ func TestClassifyAndExecuteSystemActionPromoteSomedayPreservesActor(t *testing.T
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestClassifyAndExecuteSystemActionPromoteSomedayPreservesActor(t *testing.T
 	server := mock.setupServer(t)
 	defer server.Close()
 	port := serverPort(t, server.Listener.Addr())
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	message, payloads, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "bring this back")
 	if !handled {
@@ -269,7 +269,7 @@ func TestClassifyAndExecuteSystemActionPromoteDoneEmailRestoresRemoteInbox(t *te
 		return provider, nil
 	}
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestClassifyAndExecuteSystemActionPromoteDoneEmailRestoresRemoteInbox(t *te
 	server := mock.setupServer(t)
 	defer server.Close()
 	port := serverPort(t, server.Listener.Addr())
-	app.tunnels.setPort(app.canvasSessionIDForProject(project), port)
+	app.tunnels.setPort(app.canvasSessionIDForWorkspace(project), port)
 
 	message, payloads, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "move this mail back to the inbox")
 	if !handled {
@@ -345,7 +345,7 @@ func TestClassifyAndExecuteSystemActionToggleSomedayReminder(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}

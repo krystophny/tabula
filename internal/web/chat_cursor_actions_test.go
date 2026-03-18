@@ -260,7 +260,7 @@ func TestClassifyAndExecuteSystemActionWithCursorMovesDoneEmailBackToInbox(t *te
 		t.Fatalf("TriageItemDone() error: %v", err)
 	}
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestClassifyAndExecuteSystemActionWithNamedItemMovesDoneEmailBackToInbox(t 
 		t.Fatalf("TriageItemDone() error: %v", err)
 	}
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
 		t.Fatalf("ensure default project: %v", err)
 	}

@@ -9,9 +9,9 @@ import (
 	"github.com/krystophny/tabura/internal/store"
 )
 
-func (a *App) workspaceForProject(project store.Project) (*store.Workspace, error) {
+func (a *App) workspaceOfWorkspace(project store.Workspace) (*store.Workspace, error) {
 	rootPath := filepath.Clean(strings.TrimSpace(project.RootPath))
-	workspaces, err := a.store.ListWorkspacesForProject(projectIDString(project.ID))
+	workspaces, err := a.store.ListWorkspacesForID(workspaceIDStr(project.ID))
 	if err != nil {
 		return nil, err
 	}
@@ -54,12 +54,12 @@ func (a *App) workspaceForProject(project store.Project) (*store.Workspace, erro
 	return nil, nil
 }
 
-func (a *App) ensureWorkspaceForProject(project store.Project, activate bool) (store.Workspace, error) {
+func (a *App) ensureWorkspaceReady(project store.Workspace, activate bool) (store.Workspace, error) {
 	rootPath := filepath.Clean(strings.TrimSpace(project.RootPath))
 	if rootPath == "" {
 		return store.Workspace{}, errors.New("project path is required")
 	}
-	workspaceRef, err := a.workspaceForProject(project)
+	workspaceRef, err := a.workspaceOfWorkspace(project)
 	if err != nil {
 		return store.Workspace{}, err
 	}
@@ -88,11 +88,11 @@ func (a *App) ensureWorkspaceForProject(project store.Project, activate bool) (s
 
 func (a *App) ensureStartupProjectWithWorkspace() error {
 	if strings.TrimSpace(a.localProjectDir) != "" {
-		project, err := a.ensureDefaultProjectRecord()
+		project, err := a.ensureDefaultWorkspace()
 		if err != nil {
 			return err
 		}
-		workspace, err := a.ensureWorkspaceForProject(project, false)
+		workspace, err := a.ensureWorkspaceReady(project, false)
 		if err != nil {
 			return err
 		}
@@ -103,7 +103,7 @@ func (a *App) ensureStartupProjectWithWorkspace() error {
 			}
 			a.closeAllAppSessions()
 		}
-		if err := a.store.SetActiveWorkspaceID(projectIDString(project.ID)); err != nil {
+		if err := a.store.SetActiveWorkspaceID(workspaceIDStr(project.ID)); err != nil {
 			return err
 		}
 		return nil

@@ -278,7 +278,7 @@ func (a *App) maybeTriggerCompanionResponse(participantSessionID string, seg sto
 	cfg := defaultCompanionConfig()
 	if workspace, err := a.store.GetWorkspace(session.WorkspaceID); err == nil {
 		cfg = a.loadCompanionConfig(workspace)
-	} else if project, err := a.store.GetProjectByWorkspacePath(session.WorkspacePath); err == nil {
+	} else if project, err := a.store.GetWorkspaceByStoredPath(session.WorkspacePath); err == nil {
 		cfg = a.loadCompanionConfig(project)
 	}
 	if !a.LivePolicy().RequiresExplicitAddress() || !cfg.CompanionEnabled || !cfg.DirectedSpeechGateEnabled {
@@ -396,7 +396,7 @@ func releaseParticipantSession(a *App, conn *chatWSConn) (string, bool) {
 		workspacePath = session.WorkspacePath
 		if workspace, workspaceErr := a.store.GetWorkspace(session.WorkspaceID); workspaceErr == nil {
 			cfg = a.loadCompanionConfig(workspace)
-		} else if project, projectErr := a.store.GetProjectByWorkspacePath(workspacePath); projectErr == nil {
+		} else if project, projectErr := a.store.GetWorkspaceByStoredPath(workspacePath); projectErr == nil {
 			cfg = a.loadCompanionConfig(project)
 		}
 	}

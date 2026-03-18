@@ -120,7 +120,7 @@ type App struct {
 	dictationSessions       *dictationSessionTracker
 	workspaceWatches        *workspaceWatchTracker
 	reviewDispatches        *reviewDispatchTracker
-	projectAttention        *projectAttentionTracker
+	workspaceAttention        *workspaceAttentionTracker
 	emailRefreshes          *emailRefreshQueue
 	mailBackoffs            *mailBackoffTracker
 	tunnels                 *tunnelRegistry
@@ -314,7 +314,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		dictationSessions:       newDictationSessionTracker(),
 		workspaceWatches:        newWorkspaceWatchTracker(),
 		reviewDispatches:        newReviewDispatchTracker(),
-		projectAttention:        newProjectAttentionTracker(),
+		workspaceAttention:        newProjectAttentionTracker(),
 		emailRefreshes:          newEmailRefreshQueue(),
 		mailBackoffs:            newMailBackoffTracker(),
 		tunnels:                 newTunnelRegistry(),
@@ -331,7 +331,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		startedAt:               time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	if strings.TrimSpace(localProjectDir) != "" {
-		if _, err := app.ensureDefaultProjectRecord(); err != nil {
+		if _, err := app.ensureDefaultWorkspace(); err != nil {
 			_ = s.Close()
 			return nil, err
 		}

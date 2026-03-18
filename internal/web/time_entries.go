@@ -212,11 +212,11 @@ func (a *App) summarizeTimeEntries(filter store.TimeEntryListFilter, groupBy str
 	if err != nil {
 		return nil, err
 	}
-	projects, err := a.store.ListProjects()
+	projects, err := a.store.ListEnrichedWorkspaces()
 	if err != nil {
 		return nil, err
 	}
-	var preferred store.Project
+	var preferred store.Workspace
 	for _, project := range projects {
 		if strings.TrimSpace(project.Kind) != "" && !strings.EqualFold(project.Kind, "workspace") {
 			preferred = project
@@ -226,7 +226,7 @@ func (a *App) summarizeTimeEntries(filter store.TimeEntryListFilter, groupBy str
 	if preferred.ID == 0 {
 		activeProjectID, activeErr := a.store.ActiveWorkspaceID()
 		if activeErr == nil && strings.TrimSpace(activeProjectID) != "" {
-			if project, getErr := a.store.GetProject(activeProjectID); getErr == nil {
+			if project, getErr := a.store.GetEnrichedWorkspace(activeProjectID); getErr == nil {
 				preferred = project
 			}
 		}
@@ -239,7 +239,7 @@ func (a *App) summarizeTimeEntries(filter store.TimeEntryListFilter, groupBy str
 	}
 	rowsByProject := map[string]*store.TimeEntrySummary{}
 	for _, row := range workspaceSummary {
-		key := projectIDString(preferred.ID)
+		key := workspaceIDStr(preferred.ID)
 		label := strings.TrimSpace(preferred.Name)
 		current := rowsByProject[key]
 		if current == nil {

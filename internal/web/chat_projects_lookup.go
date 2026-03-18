@@ -44,38 +44,38 @@ func queuedUserMessage(messages []store.ChatMessage, messageID int64) string {
 	return latestUserMessage(messages)
 }
 
-func (a *App) preferredProject() (store.Project, error) {
+func (a *App) preferredWorkspace() (store.Workspace, error) {
 	activeID, err := a.store.ActiveWorkspaceID()
 	if err == nil && strings.TrimSpace(activeID) != "" {
-		if project, getErr := a.store.GetProject(activeID); getErr == nil {
+		if project, getErr := a.store.GetEnrichedWorkspace(activeID); getErr == nil {
 			return project, nil
 		}
 	}
-	defaultProject, err := a.ensureDefaultProjectRecord()
+	defaultProject, err := a.ensureDefaultWorkspace()
 	if err == nil {
 		return defaultProject, nil
 	}
-	projects, listErr := a.store.ListProjects()
+	projects, listErr := a.store.ListEnrichedWorkspaces()
 	if listErr != nil {
-		return store.Project{}, listErr
+		return store.Workspace{}, listErr
 	}
 	if len(projects) == 0 {
-		return store.Project{}, errors.New("no project is available")
+		return store.Workspace{}, errors.New("no project is available")
 	}
 	return projects[0], nil
 }
 
-func (a *App) findProjectByName(name string) (store.Project, error) {
+func (a *App) findWorkspaceByName(name string) (store.Workspace, error) {
 	query := strings.ToLower(strings.TrimSpace(name))
 	if query == "" {
-		return store.Project{}, errors.New("project name is required")
+		return store.Workspace{}, errors.New("project name is required")
 	}
-	projects, err := a.store.ListProjects()
+	projects, err := a.store.ListEnrichedWorkspaces()
 	if err != nil {
-		return store.Project{}, err
+		return store.Workspace{}, err
 	}
-	exact := make([]store.Project, 0, 2)
-	partial := make([]store.Project, 0, 4)
+	exact := make([]store.Workspace, 0, 2)
+	partial := make([]store.Workspace, 0, 4)
 	for _, project := range projects {
 		candidate := strings.ToLower(strings.TrimSpace(project.Name))
 		if candidate == "" {
@@ -101,5 +101,5 @@ func (a *App) findProjectByName(name string) (store.Project, error) {
 		})
 		return partial[0], nil
 	}
-	return store.Project{}, fmt.Errorf("project %q was not found", name)
+	return store.Workspace{}, fmt.Errorf("project %q was not found", name)
 }

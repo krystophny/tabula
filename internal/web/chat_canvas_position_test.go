@@ -8,7 +8,7 @@ import (
 
 func testSessionForCanvasPosition(t *testing.T, app *App) string {
 	t.Helper()
-	projects, err := app.store.ListProjects()
+	projects, err := app.store.ListEnrichedWorkspaces()
 	if err != nil {
 		t.Fatalf("ListProjects: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestHandleChatWSTextMessage_CanvasPositionQueuesRequestedTurn(t *testing.T)
 
 func TestFinalizeAssistantResponse_StripsPositionMarkerBeforePersist(t *testing.T) {
 	app := newAuthedTestApp(t)
-	projects, err := app.store.ListProjects()
+	projects, err := app.store.ListEnrichedWorkspaces()
 	if err != nil {
 		t.Fatalf("ListProjects: %v", err)
 	}

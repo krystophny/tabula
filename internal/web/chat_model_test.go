@@ -11,12 +11,12 @@ func TestEffectiveProjectChatModelFallsBackToSpark(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.appServerModel = modelprofile.ModelSpark
 
-	project := store.Project{}
-	if got := app.effectiveProjectChatModelAlias(project); got != modelprofile.AliasSpark {
-		t.Fatalf("effectiveProjectChatModelAlias() = %q, want %q", got, modelprofile.AliasSpark)
+	project := store.Workspace{}
+	if got := app.effectiveWorkspaceChatModelAlias(project); got != modelprofile.AliasSpark {
+		t.Fatalf("effectiveWorkspaceChatModelAlias() = %q, want %q", got, modelprofile.AliasSpark)
 	}
-	if got := app.effectiveProjectChatModelReasoningEffort(project); got != modelprofile.ReasoningLow {
-		t.Fatalf("effectiveProjectChatModelReasoningEffort() = %q, want %q", got, modelprofile.ReasoningLow)
+	if got := app.effectiveWorkspaceChatModelReasoningEffort(project); got != modelprofile.ReasoningLow {
+		t.Fatalf("effectiveWorkspaceChatModelReasoningEffort() = %q, want %q", got, modelprofile.ReasoningLow)
 	}
 }
 
@@ -24,19 +24,19 @@ func TestEffectiveProjectChatModelDefaultsToSpark(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.appServerModel = ""
 
-	project := store.Project{}
-	if got := app.effectiveProjectChatModelAlias(project); got != modelprofile.AliasSpark {
-		t.Fatalf("effectiveProjectChatModelAlias() = %q, want %q", got, modelprofile.AliasSpark)
+	project := store.Workspace{}
+	if got := app.effectiveWorkspaceChatModelAlias(project); got != modelprofile.AliasSpark {
+		t.Fatalf("effectiveWorkspaceChatModelAlias() = %q, want %q", got, modelprofile.AliasSpark)
 	}
-	if got := app.effectiveProjectChatModelReasoningEffort(project); got != modelprofile.ReasoningLow {
-		t.Fatalf("effectiveProjectChatModelReasoningEffort() = %q, want %q", got, modelprofile.ReasoningLow)
+	if got := app.effectiveWorkspaceChatModelReasoningEffort(project); got != modelprofile.ReasoningLow {
+		t.Fatalf("effectiveWorkspaceChatModelReasoningEffort() = %q, want %q", got, modelprofile.ReasoningLow)
 	}
 }
 
 func TestAppServerModelProfileForProjectUsesStoredAliasAndNormalizesReasoning(t *testing.T) {
 	app := newAuthedTestApp(t)
 
-	profile := app.appServerModelProfileForProject(store.Project{
+	profile := app.appServerModelProfileForWorkspace(store.Workspace{
 		ChatModel:                modelprofile.AliasGPT,
 		ChatModelReasoningEffort: "minimal",
 	})

@@ -32,7 +32,7 @@ func newAuthedTestApp(t *testing.T) *App {
 	return app
 }
 
-func runtimeWorkspaceIDInt64(t *testing.T, project store.Project) int64 {
+func runtimeWorkspaceIDInt64(t *testing.T, project store.Workspace) int64 {
 	t.Helper()
 	if project.ID <= 0 {
 		t.Fatalf("invalid workspace id %d", project.ID)

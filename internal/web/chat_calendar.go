@@ -139,7 +139,7 @@ func (a *App) executeCalendarAction(session store.ChatSession, action *SystemAct
 		activeSphere = store.SpherePrivate
 	}
 
-	targetProject, err := a.systemActionTargetProject(session)
+	targetProject, err := a.systemActionTargetWorkspace(session)
 	if err != nil {
 		return "", nil, err
 	}
@@ -190,7 +190,7 @@ func (a *App) executeCalendarAction(session store.ChatSession, action *SystemAct
 		_ = a.store.LinkArtifactToWorkspace(workspace.ID, artifact.ID)
 	}
 
-	canvasSessionID := strings.TrimSpace(a.canvasSessionIDForProject(targetProject))
+	canvasSessionID := strings.TrimSpace(a.canvasSessionIDForWorkspace(targetProject))
 	if canvasSessionID == "" {
 		return "", nil, fmt.Errorf("canvas session is not available")
 	}
@@ -206,7 +206,7 @@ func (a *App) executeCalendarAction(session store.ChatSession, action *SystemAct
 	}); err != nil {
 		return "", nil, err
 	}
-	a.markProjectOutput(targetProject.WorkspacePath)
+	a.markWorkspaceOutput(targetProject.WorkspacePath)
 
 	return fmt.Sprintf("Opened %s on canvas.", artifactTitle), map[string]interface{}{
 		"type":           "show_calendar",

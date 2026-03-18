@@ -20,7 +20,7 @@ import (
 
 func enableCompanionForTestProject(t *testing.T, app *App, workspacePath string) {
 	t.Helper()
-	project, err := app.store.GetProjectByWorkspacePath(strings.TrimSpace(workspacePath))
+	project, err := app.store.GetWorkspaceByStoredPath(strings.TrimSpace(workspacePath))
 	if err != nil {
 		t.Fatalf("GetProjectByWorkspacePath(%q): %v", workspacePath, err)
 	}
@@ -32,9 +32,9 @@ func enableCompanionForTestProject(t *testing.T, app *App, workspacePath string)
 	setLivePolicyForTest(t, app, LivePolicyMeeting)
 }
 
-func createParticipantSessionProject(t *testing.T, app *App, key string) store.Project {
+func createParticipantSessionProject(t *testing.T, app *App, key string) store.Workspace {
 	t.Helper()
-	project, err := app.store.CreateProject("Participant "+key, key, filepath.Join(t.TempDir(), key), "managed", "", "", false)
+	project, err := app.store.CreateEnrichedWorkspace("Participant "+key, key, filepath.Join(t.TempDir(), key), "managed", "", "", false)
 	if err != nil {
 		t.Fatalf("CreateProject(%q): %v", key, err)
 	}
@@ -118,11 +118,11 @@ func assertNoParticipantMessage(t *testing.T, clientConn *websocket.Conn, timeou
 
 func TestParticipantStartRequiresCapturePolicy(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
-	projectRecord, err := app.store.GetProjectByWorkspacePath(project.WorkspacePath)
+	projectRecord, err := app.store.GetWorkspaceByStoredPath(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetProjectByWorkspacePath: %v", err)
 	}
@@ -509,9 +509,9 @@ func TestParticipantExportMarkdown(t *testing.T) {
 
 func TestPrivacyParticipantConfigNeverStoresAudioPersistence(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 
 	cfg := app.loadCompanionConfig(project)
@@ -524,7 +524,7 @@ func TestPrivacyParticipantConfigNeverStoresAudioPersistence(t *testing.T) {
 		t.Fatalf("save config: %v", err)
 	}
 
-	reloadedProject, err := app.store.GetProject(projectIDString(project.ID))
+	reloadedProject, err := app.store.GetEnrichedWorkspace(workspaceIDStr(project.ID))
 	if err != nil {
 		t.Fatalf("GetProject: %v", err)
 	}
@@ -626,9 +626,9 @@ func TestParticipantBinaryChunkTranscribesWAVSegmentImmediately(t *testing.T) {
 	}))
 	defer sttSrv.Close()
 	app.sttURL = sttSrv.URL
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	enableCompanionForTestProject(t, app, project.WorkspacePath)
 	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
@@ -732,9 +732,9 @@ func TestParticipantBinaryChunkCapturesMeetingNotesAndInboxItems(t *testing.T) {
 	defer sttSrv.Close()
 	app.sttURL = sttSrv.URL
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	enableCompanionForTestProject(t, app, project.WorkspacePath)
 	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
@@ -799,9 +799,9 @@ func TestParticipantBinaryChunkTranscribeFailureSendsParticipantError(t *testing
 	defer sttSrv.Close()
 	app.sttURL = sttSrv.URL
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	enableCompanionForTestProject(t, app, project.WorkspacePath)
 	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
@@ -855,9 +855,9 @@ func TestParticipantStopDropsLateTranscriptCommit(t *testing.T) {
 	defer sttSrv.Close()
 	app.sttURL = sttSrv.URL
 
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	enableCompanionForTestProject(t, app, project.WorkspacePath)
 	chatSession, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
@@ -910,9 +910,9 @@ func TestParticipantStopDropsLateTranscriptCommit(t *testing.T) {
 
 func TestParticipantStartUsesChatSessionWorkspacePath(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
@@ -944,9 +944,9 @@ func TestParticipantStartUsesChatSessionWorkspacePath(t *testing.T) {
 
 func TestParticipantReleaseSessionEndsPersistedSession(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
@@ -996,9 +996,9 @@ func TestParticipantReleaseSessionEndsPersistedSession(t *testing.T) {
 
 func TestParticipantWSStartStop(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	enableCompanionForTestProject(t, app, project.WorkspacePath)
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
@@ -1039,9 +1039,9 @@ func TestParticipantWSStartStop(t *testing.T) {
 
 func TestParticipantDoubleStartReturnsError(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	enableCompanionForTestProject(t, app, project.WorkspacePath)
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
@@ -1077,9 +1077,9 @@ func TestParticipantStopWithoutStartReturnsError(t *testing.T) {
 
 func TestParticipantStartRequiresCompanionEnabled(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	conn, cleanup := newTestWSConn(t)
 	defer cleanup()
@@ -1107,9 +1107,9 @@ func TestParticipantStartRequiresCompanionEnabled(t *testing.T) {
 
 func TestParticipantConfigPutDisableStopsActiveSession(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	enableCompanionForTestProject(t, app, project.WorkspacePath)
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
@@ -1159,9 +1159,9 @@ func TestParticipantConfigPutDisableStopsActiveSession(t *testing.T) {
 
 func TestLivePolicyPostStopsActiveParticipantSession(t *testing.T) {
 	app := newAuthedTestApp(t)
-	project, err := app.ensureDefaultProjectRecord()
+	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
-		t.Fatalf("ensureDefaultProjectRecord: %v", err)
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
 	}
 	enableCompanionForTestProject(t, app, project.WorkspacePath)
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)

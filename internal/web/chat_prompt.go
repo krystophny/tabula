@@ -18,15 +18,15 @@ func (a *App) cwdForWorkspacePath(workspacePath string) string {
 		if key == "" || key == focused.DirPath {
 			return strings.TrimSpace(focused.DirPath)
 		}
-		if project, projectErr := a.projectForWorkspace(focused); projectErr == nil && project != nil {
+		if project, projectErr := a.workspaceFromStore(focused); projectErr == nil && project != nil {
 			if key == strings.TrimSpace(project.WorkspacePath) {
 				return strings.TrimSpace(focused.DirPath)
 			}
 		}
 	}
 	if key != "" {
-		if project, err := a.store.GetProjectByWorkspacePath(key); err == nil {
-			if workspaces, workspaceErr := a.store.ListWorkspacesForProject(projectIDString(project.ID)); workspaceErr == nil {
+		if project, err := a.store.GetWorkspaceByStoredPath(key); err == nil {
+			if workspaces, workspaceErr := a.store.ListWorkspacesForID(workspaceIDStr(project.ID)); workspaceErr == nil {
 				for _, workspace := range workspaces {
 					if dirPath := strings.TrimSpace(workspace.DirPath); dirPath != "" {
 						return dirPath
@@ -72,11 +72,11 @@ func (a *App) resolveCanvasSessionID(workspacePath string) string {
 	if key == "" {
 		return ""
 	}
-	project, err := a.store.GetProjectByWorkspacePath(key)
+	project, err := a.store.GetWorkspaceByStoredPath(key)
 	if err != nil {
 		return ""
 	}
-	return a.canvasSessionIDForProject(project)
+	return a.canvasSessionIDForWorkspace(project)
 }
 
 func (a *App) resolveCanvasContext(workspacePath string) *canvasContext {
@@ -84,11 +84,11 @@ func (a *App) resolveCanvasContext(workspacePath string) *canvasContext {
 	if key == "" {
 		return nil
 	}
-	project, err := a.store.GetProjectByWorkspacePath(key)
+	project, err := a.store.GetWorkspaceByStoredPath(key)
 	if err != nil {
 		return nil
 	}
-	sid := a.canvasSessionIDForProject(project)
+	sid := a.canvasSessionIDForWorkspace(project)
 	port, ok := a.tunnels.getPort(sid)
 	if !ok {
 		return nil

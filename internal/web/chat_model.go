@@ -14,15 +14,15 @@ type appServerModelProfile struct {
 	TurnParams   map[string]interface{}
 }
 
-func (a *App) effectiveProjectChatModelAlias(project store.Project) string {
+func (a *App) effectiveWorkspaceChatModelAlias(project store.Workspace) string {
 	if alias := modelprofile.ResolveAlias(project.ChatModel, ""); alias != "" {
 		return alias
 	}
 	return modelprofile.AliasSpark
 }
 
-func (a *App) effectiveProjectChatModelReasoningEffort(project store.Project) string {
-	alias := a.effectiveProjectChatModelAlias(project)
+func (a *App) effectiveWorkspaceChatModelReasoningEffort(project store.Workspace) string {
+	alias := a.effectiveWorkspaceChatModelAlias(project)
 	effort := modelprofile.NormalizeReasoningEffort(alias, project.ChatModelReasoningEffort)
 	if effort == "" {
 		return modelprofile.MainThreadReasoningEffort(alias)
@@ -30,9 +30,9 @@ func (a *App) effectiveProjectChatModelReasoningEffort(project store.Project) st
 	return effort
 }
 
-func (a *App) appServerModelProfileForProject(project store.Project) appServerModelProfile {
-	alias := a.effectiveProjectChatModelAlias(project)
-	effort := a.effectiveProjectChatModelReasoningEffort(project)
+func (a *App) appServerModelProfileForWorkspace(project store.Workspace) appServerModelProfile {
+	alias := a.effectiveWorkspaceChatModelAlias(project)
+	effort := a.effectiveWorkspaceChatModelReasoningEffort(project)
 	model := modelprofile.ModelForAlias(alias)
 	if model == "" {
 		model = strings.TrimSpace(a.appServerModel)
@@ -53,8 +53,8 @@ func (a *App) appServerModelProfileForProject(project store.Project) appServerMo
 func (a *App) appServerModelProfileForWorkspacePath(workspacePath string) appServerModelProfile {
 	cleanKey := strings.TrimSpace(workspacePath)
 	if cleanKey != "" {
-		if project, err := a.store.GetProjectByWorkspacePath(cleanKey); err == nil {
-			return a.appServerModelProfileForProject(project)
+		if project, err := a.store.GetWorkspaceByStoredPath(cleanKey); err == nil {
+			return a.appServerModelProfileForWorkspace(project)
 		}
 	}
 	alias := modelprofile.AliasSpark
@@ -68,7 +68,7 @@ func (a *App) appServerModelProfileForWorkspacePath(workspacePath string) appSer
 	}
 }
 
-func (a *App) resetProjectChatAppSession(workspacePath string) {
+func (a *App) resetWorkspaceChatAppSession(workspacePath string) {
 	key := strings.TrimSpace(workspacePath)
 	if key == "" {
 		return

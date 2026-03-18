@@ -16,7 +16,7 @@ func TestInkSubmitWritesArtifacts(t *testing.T) {
 	if rrProjects.Code != http.StatusOK {
 		t.Fatalf("projects status=%d body=%s", rrProjects.Code, rrProjects.Body.String())
 	}
-	var listPayload projectsListResponse
+	var listPayload workspacesListResponse
 	if err := json.Unmarshal(rrProjects.Body.Bytes(), &listPayload); err != nil {
 		t.Fatalf("decode projects response: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestInkSubmitWritesArtifacts(t *testing.T) {
 		t.Fatalf("expected ink paths in response: %v", payload)
 	}
 
-	project, err := app.store.GetProject(workspaceID)
+	project, err := app.store.GetEnrichedWorkspace(workspaceID)
 	if err != nil {
 		t.Fatalf("get project: %v", err)
 	}
