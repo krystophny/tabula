@@ -373,21 +373,6 @@ export function renderSidebarTabs(list) {
   });
   tabs.appendChild(filesButton);
   list.appendChild(tabs);
-
-  const sphereRow = document.createElement('div');
-  sphereRow.className = 'sidebar-sphere-row';
-  SPHERE_OPTIONS.forEach((opt) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'sidebar-sphere-btn';
-    if (state.activeSphere === opt.id) btn.classList.add('is-active');
-    btn.textContent = opt.label;
-    btn.addEventListener('click', () => {
-      void setActiveSphere(opt.id);
-    });
-    sphereRow.appendChild(btn);
-  });
-  list.appendChild(sphereRow);
 }
 
 export function renderSidebarRow({

@@ -96,36 +96,6 @@
   line-height: 1.1;
 }
 
-.sidebar-sphere-row {
-  display: flex;
-  gap: 0;
-  border-bottom: 1px solid #e5e7eb;
-  background: #f3f4f6;
-}
-
-.sidebar-sphere-btn {
-  flex: 1;
-  border: 0;
-  border-right: 1px solid #e5e7eb;
-  border-radius: 0;
-  padding: 0.35rem 0.4rem;
-  background: transparent;
-  color: #6b7280;
-  font-size: 0.7rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  touch-action: manipulation;
-}
-
-.sidebar-sphere-btn:last-child {
-  border-right: 0;
-}
-
-.sidebar-sphere-btn.is-active {
-  background: #111827;
-  color: #f9fafb;
-}
 
 .sidebar-actions {
   position: sticky;

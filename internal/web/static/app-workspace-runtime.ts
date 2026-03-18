@@ -80,6 +80,7 @@ export async function fetchProjects() {
 }
 export function projectMatchesSphere(project, sphere = state.activeSphere) {
   if (!project) return false;
+  if (project.is_default) return true;
   const activeSphere = normalizeActiveSphere(sphere);
   const projectSphere = String(project?.sphere || '').trim().toLowerCase();
   return !projectSphere || projectSphere === activeSphere;
@@ -336,7 +337,23 @@ export function resolveInitialWorkspaceID() {
   return state.projects[0]?.id || '';
 }
 
+export function renderEdgeTopSphere() {
+  const host = document.getElementById('edge-top-sphere');
+  if (!(host instanceof HTMLElement)) return;
+  host.innerHTML = '';
+  for (const opt of SPHERE_OPTIONS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'edge-sphere-btn';
+    if (state.activeSphere === opt.id) btn.classList.add('is-active');
+    btn.textContent = opt.label;
+    btn.addEventListener('click', () => { void setActiveSphere(opt.id); });
+    host.appendChild(btn);
+  }
+}
+
 export function renderEdgeTopProjects() {
+  renderEdgeTopSphere();
   const host = document.getElementById('edge-top-projects');
   if (!(host instanceof HTMLElement)) return;
   host.innerHTML = '';
