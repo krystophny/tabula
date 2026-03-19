@@ -249,7 +249,7 @@ install_macos() {
   local plist_src="$REPO_ROOT/deploy/launchd"
   local plist_dst="$HOME/Library/LaunchAgents"
   local data_root="$HOME/Library/Application Support/tabura"
-  local bin_path codex_path web_data_dir piper_model_dir piper_venv_dir
+  local bin_path codex_path voxtype_path web_data_dir piper_model_dir piper_venv_dir
   local effective_llm_url="${REUSE_LLM_URL:-http://127.0.0.1:8081}"
   local web_host="${TABURA_WEB_HOST:-127.0.0.1}"
 
@@ -263,6 +263,7 @@ install_macos() {
 
   bin_path="$REPO_ROOT/tabura"
   codex_path="$(command -v codex)"
+  voxtype_path="$(command -v voxtype 2>/dev/null || echo voxtype)"
   web_data_dir="${data_root}/web-data"
   piper_model_dir="${HOME}/.local/share/tabura-piper-tts/models"
   piper_venv_dir="${HOME}/.local/share/tabura-piper-tts/venv"
@@ -306,6 +307,7 @@ install_macos() {
       -e "s|@@LLM_MODEL_DIR@@|${LLM_MODEL_DIR}|g" \
       -e "s|@@LLAMA_SERVER_BIN@@|${LLAMA_SERVER_BIN_RESOLVED}|g" \
       -e "s|@@STT_SETUP_SCRIPT@@|${REPO_ROOT}/scripts/setup-voxtype-stt.sh|g" \
+      -e "s|@@VOXTYPE_BIN@@|${voxtype_path}|g" \
       -e "s|@@TABURA_INTENT_LLM_URL@@|${effective_llm_url}|g" \
       "$src" > "$dst"
     log "Installed plist: $dst"
