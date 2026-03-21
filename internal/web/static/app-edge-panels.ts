@@ -14,8 +14,11 @@ const applyIPhoneFrameCorners = (...args) => refs.applyIPhoneFrameCorners(...arg
 const isFocusedTextInput = (...args) => refs.isFocusedTextInput(...args);
 const isIPhoneStandalone = (...args) => refs.isIPhoneStandalone(...args);
 const setSyncKeyboardStateNow = (...args) => refs.setSyncKeyboardStateNow(...args);
+const stepCanvasFile = (...args) => refs.stepCanvasFile(...args);
 
 const EDGE_TAP_SIZE_PX = 30;
+const EDGE_TAP_MOVE_THRESHOLD_PX = 10;
+const EDGE_SWIPE_COMMIT_PX = 48;
 
 export function getEdgeTapSizePx() {
   return EDGE_TAP_SIZE_PX;
@@ -107,14 +110,58 @@ export function initEdgePanels() {
   }
 
   // Edge tap buttons: tap to toggle (prevent double-fire from touch+click)
-  const bindEdgeTap = (btn, action) => {
+  const bindEdgeTap = (btn, action, options: Record<string, any> = {}) => {
     if (!btn) return;
     let lastTouchAt = 0;
+    let touchState = null;
+
+    const resetTouchState = () => {
+      touchState = null;
+    };
+
+    btn.addEventListener('touchstart', (ev) => {
+      if (ev.touches.length !== 1) {
+        resetTouchState();
+        return;
+      }
+      const touch = ev.touches[0];
+      touchState = {
+        startX: touch.clientX,
+        startY: touch.clientY,
+        moved: false,
+        swiped: false,
+      };
+    }, { passive: true });
+
+    btn.addEventListener('touchmove', (ev) => {
+      if (!touchState || ev.touches.length !== 1) return;
+      const touch = ev.touches[0];
+      const dx = touch.clientX - touchState.startX;
+      const dy = touch.clientY - touchState.startY;
+      if (!touchState.moved && Math.hypot(dx, dy) > EDGE_TAP_MOVE_THRESHOLD_PX) {
+        touchState.moved = true;
+      }
+      if (!options.allowHorizontalCanvasSwipe || touchState.swiped || !state.hasArtifact) return;
+      if (Math.abs(dx) < EDGE_SWIPE_COMMIT_PX) return;
+      if (Math.abs(dx) <= Math.abs(dy) * 1.25) return;
+      if (!stepCanvasFile(dx < 0 ? 1 : -1)) return;
+      touchState.swiped = true;
+      lastTouchAt = Date.now();
+      ev.preventDefault();
+    }, { passive: false });
+
     btn.addEventListener('touchend', (ev) => {
       ev.preventDefault();
+      if (touchState?.swiped || touchState?.moved) {
+        lastTouchAt = Date.now();
+        resetTouchState();
+        return;
+      }
       lastTouchAt = Date.now();
+      resetTouchState();
       action();
     }, { passive: false });
+    btn.addEventListener('touchcancel', resetTouchState, { passive: true });
     btn.addEventListener('click', (ev) => {
       ev.preventDefault();
       if (Date.now() - lastTouchAt < 500) return;
@@ -122,7 +169,9 @@ export function initEdgePanels() {
     });
   };
   bindEdgeTap(edgeLeftTap, () => toggleFileSidebarFromEdge());
-  bindEdgeTap(edgeRightTap, () => toggleRightEdgeDrawer(edgeRight));
+  bindEdgeTap(edgeRightTap, () => toggleRightEdgeDrawer(edgeRight), {
+    allowHorizontalCanvasSwipe: true,
+  });
   bindEdgeTap(edgeTopTap, () => toggleTopEdgeDrawer(edgeTop));
 
   // Blur chat input when app goes to background

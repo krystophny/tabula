@@ -1469,10 +1469,13 @@ test.describe('Live Dialogue multi-turn', () => {
 
     await triggerVoiceAssistantTTS(page, 'conv-1');
 
-    // Wait for mock TTS playback to complete and listen indicator to appear
+    // The dialogue loop now surfaces listen readiness through lifecycle state
+    // while the companion view can suppress the floating indicator.
     await expect.poll(async () => page.evaluate(() => {
-      const indicator = document.getElementById('indicator');
-      return Boolean(indicator?.classList.contains('is-listening'));
+      const app = (window as any)._taburaApp;
+      const state = app?.getState?.();
+      return Boolean(state?.liveSessionDialogueListenActive)
+        && String(state?.voiceLifecycle || '') === 'listening';
     }), { timeout: 5_000 }).toBe(true);
   });
 

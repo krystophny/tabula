@@ -573,6 +573,7 @@ export async function switchProjectChatModel(modelAlias, reasoningEffort = '') {
 
   state.projectModelSwitchInFlight = true;
   renderEdgeTopModelButtons();
+  renderToolPalette();
   showStatus(`switching model to ${nextAlias}...`);
   try {
     const payload: Record<string, any> = { model: nextAlias };
@@ -601,6 +602,7 @@ export async function switchProjectChatModel(modelAlias, reasoningEffort = '') {
   } finally {
     state.projectModelSwitchInFlight = false;
     renderEdgeTopModelButtons();
+    renderToolPalette();
   }
 }
 

@@ -92,6 +92,7 @@ const maybeHandleInlineBugReport = (...args) => refs.maybeHandleInlineBugReport(
 const openSidebarItem = (...args) => refs.openSidebarItem(...args);
 const loadWorkspaceBrowserPath = (...args) => refs.loadWorkspaceBrowserPath(...args);
 const openWorkspaceSidebarFile = (...args) => refs.openWorkspaceSidebarFile(...args);
+const renderToolPalette = (...args) => refs.renderToolPalette(...args);
 
 export function closeChatWs() {
   state.chatWsToken += 1;
@@ -818,6 +819,7 @@ export async function switchProject(workspaceID) {
 
   state.projectSwitchInFlight = true;
   showStatus('switching workspace...');
+  renderToolPalette();
   await deactivateLiveSession({ silent: true, disableMeetingConfig: true });
   cancelChatVoiceCapture();
   closeChatWs();
@@ -867,6 +869,7 @@ export async function switchProject(workspaceID) {
   } finally {
     state.projectSwitchInFlight = false;
     renderEdgeTopModelButtons();
+    renderToolPalette();
   }
 }
 
