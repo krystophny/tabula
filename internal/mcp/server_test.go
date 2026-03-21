@@ -145,6 +145,7 @@ func TestToolDefinitionsEmitsProperties(t *testing.T) {
 	var tempRemoveDef map[string]interface{}
 	var calendarEventsDef map[string]interface{}
 	var calendarCreateDef map[string]interface{}
+	var mailActionDef map[string]interface{}
 	for _, d := range defs {
 		switch d["name"] {
 		case "temp_file_create":
@@ -155,6 +156,8 @@ func TestToolDefinitionsEmitsProperties(t *testing.T) {
 			calendarEventsDef = d
 		case "calendar_event_create":
 			calendarCreateDef = d
+		case "mail_action":
+			mailActionDef = d
 		}
 	}
 	if tempCreateDef == nil {
@@ -168,6 +171,9 @@ func TestToolDefinitionsEmitsProperties(t *testing.T) {
 	}
 	if calendarCreateDef == nil {
 		t.Fatal("calendar_event_create not found in tool definitions")
+	}
+	if mailActionDef == nil {
+		t.Fatal("mail_action not found in tool definitions")
 	}
 	tempCreateSchema, _ := tempCreateDef["inputSchema"].(map[string]interface{})
 	tempCreateProps, _ := tempCreateSchema["properties"].(map[string]interface{})
@@ -188,6 +194,32 @@ func TestToolDefinitionsEmitsProperties(t *testing.T) {
 	calendarCreateProps, _ := calendarCreateSchema["properties"].(map[string]interface{})
 	if calendarCreateProps["summary"] == nil || calendarCreateProps["start"] == nil || calendarCreateProps["duration_minutes"] == nil || calendarCreateProps["all_day"] == nil {
 		t.Fatalf("calendar_event_create missing expected properties: %#v", calendarCreateProps)
+	}
+	mailActionSchema, _ := mailActionDef["inputSchema"].(map[string]interface{})
+	mailActionProps, _ := mailActionSchema["properties"].(map[string]interface{})
+	if mailActionProps["until"] == nil {
+		t.Fatalf("mail_action missing until property: %#v", mailActionProps)
+	}
+	actionProp, _ := mailActionProps["action"].(map[string]interface{})
+	actionEnum, _ := actionProp["enum"].([]string)
+	if len(actionEnum) == 0 {
+		rawEnum, _ := actionProp["enum"].([]interface{})
+		actionEnum = make([]string, 0, len(rawEnum))
+		for _, value := range rawEnum {
+			if text, ok := value.(string); ok {
+				actionEnum = append(actionEnum, text)
+			}
+		}
+	}
+	foundDefer := false
+	for _, value := range actionEnum {
+		if value == "defer" {
+			foundDefer = true
+			break
+		}
+	}
+	if !foundDefer {
+		t.Fatalf("mail_action enum missing defer: %#v", actionProp["enum"])
 	}
 }
 
