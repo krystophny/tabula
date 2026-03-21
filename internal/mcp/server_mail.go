@@ -176,6 +176,10 @@ func (s *Server) mailAction(args map[string]interface{}) (map[string]interface{}
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
 	}
+	untilAt, untilRaw, err := parseMailActionUntil(args, action)
+	if err != nil {
+		return nil, err
+	}
 	query := strings.TrimSpace(strArg(args, "query"))
 	messageIDs, err := resolveMailActionMessageIDs(context.Background(), provider, args)
 	if err != nil {
@@ -189,9 +193,9 @@ func (s *Server) mailAction(args map[string]interface{}) (map[string]interface{}
 	}
 	byID := mailMessagesByID(context.Background(), provider, messageIDs)
 	targetFolder := mcpMailActionTargetFolder(account, action, folder, label)
-	requestPayload := mailActionRequestPayload(args, action, messageIDs, folder, label, query, archive)
+	requestPayload := mailActionRequestPayload(args, action, messageIDs, folder, label, query, archive, untilRaw)
 	if len(messageIDs) == 0 {
-		return mailActionResult(account, action, nil, 0), nil
+		return mailActionResult(account, action, nil, 0, untilAt), nil
 	}
 	logs := make([]store.MailActionLog, 0, len(messageIDs))
 	for _, messageID := range messageIDs {
@@ -213,7 +217,7 @@ func (s *Server) mailAction(args map[string]interface{}) (map[string]interface{}
 		}
 		logs = append(logs, logEntry)
 	}
-	applied, err := applyMailActionGeneric(context.Background(), account, provider, action, messageIDs, folder, label, archive)
+	applied, err := applyMailActionGeneric(context.Background(), account, provider, action, messageIDs, folder, label, archive, untilAt)
 	if err != nil {
 		for _, logEntry := range logs {
 			_ = st.UpdateMailActionLogResult(logEntry.ID, store.MailActionLogFailed, "", err.Error())
@@ -233,7 +237,7 @@ func (s *Server) mailAction(args map[string]interface{}) (map[string]interface{}
 	for _, logEntry := range logs {
 		_ = st.UpdateMailActionLogResult(logEntry.ID, store.MailActionLogApplied, resolvedByMessageID[strings.TrimSpace(logEntry.MessageID)], "")
 	}
-	return mailActionResult(account, action, messageIDs, applied.Count), nil
+	return mailActionResult(account, action, messageIDs, applied.Count, untilAt), nil
 }
 
 func resolveMailActionMessageIDs(ctx context.Context, provider email.EmailProvider, args map[string]interface{}) ([]string, error) {
@@ -277,7 +281,7 @@ func mailMessagesByID(ctx context.Context, provider email.EmailProvider, message
 	return byID
 }
 
-func mailActionRequestPayload(args map[string]interface{}, action string, messageIDs []string, folder, label, query string, archive *bool) map[string]any {
+func mailActionRequestPayload(args map[string]interface{}, action string, messageIDs []string, folder, label, query string, archive *bool, untilRaw string) map[string]any {
 	requestPayload := map[string]any{
 		"action":      action,
 		"message_ids": append([]string(nil), messageIDs...),
@@ -293,16 +297,23 @@ func mailActionRequestPayload(args map[string]interface{}, action string, messag
 	if archive != nil {
 		requestPayload["archive"] = *archive
 	}
+	if untilRaw != "" {
+		requestPayload["until"] = untilRaw
+	}
 	return requestPayload
 }
 
-func mailActionResult(account store.ExternalAccount, action string, messageIDs []string, succeeded int) map[string]interface{} {
-	return map[string]interface{}{
+func mailActionResult(account store.ExternalAccount, action string, messageIDs []string, succeeded int, untilAt time.Time) map[string]interface{} {
+	result := map[string]interface{}{
 		"account":     account,
 		"action":      action,
 		"message_ids": append([]string(nil), messageIDs...),
 		"succeeded":   succeeded,
 	}
+	if action == "defer" && !untilAt.IsZero() {
+		result["until"] = untilAt.UTC().Format(time.RFC3339)
+	}
+	return result
 }
 
 func (s *Server) mailServerFilterList(args map[string]interface{}) (map[string]interface{}, error) {
@@ -641,7 +652,7 @@ type mcpMailActionApplyResult struct {
 	Resolutions []email.ActionResolution
 }
 
-func applyMailActionGeneric(ctx context.Context, account store.ExternalAccount, provider email.EmailProvider, action string, messageIDs []string, folder, label string, archive *bool) (mcpMailActionApplyResult, error) {
+func applyMailActionGeneric(ctx context.Context, account store.ExternalAccount, provider email.EmailProvider, action string, messageIDs []string, folder, label string, archive *bool, untilAt time.Time) (mcpMailActionApplyResult, error) {
 	switch action {
 	case "mark_read":
 		count, err := provider.MarkRead(ctx, messageIDs)
@@ -673,6 +684,19 @@ func applyMailActionGeneric(ctx context.Context, account store.ExternalAccount, 
 	case "delete":
 		count, err := provider.Delete(ctx, messageIDs)
 		return mcpMailActionApplyResult{Count: count}, err
+	case "defer":
+		actionProvider, ok := provider.(email.MessageActionProvider)
+		if !ok || !actionProvider.SupportsNativeDefer() {
+			return mcpMailActionApplyResult{}, fmt.Errorf("defer is not supported for provider %s", account.Provider)
+		}
+		count := 0
+		for _, messageID := range messageIDs {
+			if _, err := actionProvider.Defer(ctx, messageID, untilAt); err != nil {
+				return mcpMailActionApplyResult{}, err
+			}
+			count++
+		}
+		return mcpMailActionApplyResult{Count: count}, nil
 	case "move_to_folder":
 		folderProvider, ok := provider.(email.NamedFolderProvider)
 		if !ok {
@@ -781,6 +805,8 @@ func mcpMailActionTargetFolder(account store.ExternalAccount, action, folder, la
 			return "Archive"
 		}
 		return "archive"
+	case "defer":
+		return "snoozed"
 	case "move_to_folder":
 		return folder
 	case "archive_label":
@@ -793,6 +819,17 @@ func mcpMailActionTargetFolder(account store.ExternalAccount, action, folder, la
 	default:
 		return ""
 	}
+}
+
+func parseMailActionUntil(args map[string]interface{}, action string) (time.Time, string, error) {
+	if action != "defer" {
+		return time.Time{}, "", nil
+	}
+	untilAt, untilRaw, err := parseCalendarToolTimeArg(args, "until")
+	if err != nil {
+		return time.Time{}, untilRaw, err
+	}
+	return untilAt, untilRaw, nil
 }
 
 func mcpMailActionMessageFolder(message *providerdata.EmailMessage) string {

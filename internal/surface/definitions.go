@@ -595,7 +595,7 @@ var MCPTools = []Tool{
 			"action": {
 				Type:        "string",
 				Description: "Mailbox action.",
-				Enum:        []string{"mark_read", "mark_unread", "archive", "move_to_inbox", "trash", "delete", "move_to_folder", "apply_label", "archive_label"},
+				Enum:        []string{"mark_read", "mark_unread", "archive", "move_to_inbox", "trash", "delete", "defer", "move_to_folder", "apply_label", "archive_label"},
 			},
 			"message_id": {
 				Type:        "string",
@@ -624,6 +624,10 @@ var MCPTools = []Tool{
 			"archive": {
 				Type:        "boolean",
 				Description: "Optional archive hint for apply_label.",
+			},
+			"until": {
+				Type:        "string",
+				Description: "Required for defer. Accepts RFC3339, YYYY-MM-DDTHH:MM, YYYY-MM-DD HH:MM, or YYYY-MM-DD.",
 			},
 		},
 	},

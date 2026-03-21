@@ -14,19 +14,21 @@ import (
 )
 
 type fakeMailProvider struct {
-	labels      []providerdata.Label
-	listIDs     []string
-	pageIDs     []string
-	nextPage    string
-	messages    map[string]*providerdata.EmailMessage
-	attachment  *providerdata.AttachmentData
-	filters     []email.ServerFilter
-	resolvedIDs map[string]string
-	lastOpts    email.SearchOptions
-	lastAction  string
-	lastIDs     []string
-	lastFolder  string
-	lastLabel   string
+	labels        []providerdata.Label
+	listIDs       []string
+	pageIDs       []string
+	nextPage      string
+	messages      map[string]*providerdata.EmailMessage
+	attachment    *providerdata.AttachmentData
+	filters       []email.ServerFilter
+	resolvedIDs   map[string]string
+	lastOpts      email.SearchOptions
+	lastAction    string
+	lastIDs       []string
+	lastFolder    string
+	lastLabel     string
+	lastUntil     time.Time
+	supportsDefer bool
 }
 
 func (p *fakeMailProvider) ListLabels(_ context.Context) ([]providerdata.Label, error) {
@@ -93,8 +95,21 @@ func (p *fakeMailProvider) TrashResolved(_ context.Context, ids []string) ([]ema
 func (p *fakeMailProvider) Delete(_ context.Context, ids []string) (int, error) {
 	return p.record("delete", ids), nil
 }
-func (p *fakeMailProvider) ProviderName() string { return "fake" }
-func (p *fakeMailProvider) Close() error         { return nil }
+func (p *fakeMailProvider) Defer(_ context.Context, messageID string, untilAt time.Time) (email.MessageActionResult, error) {
+	p.record("defer", []string{messageID})
+	p.lastUntil = untilAt
+	return email.MessageActionResult{
+		Provider:              p.ProviderName(),
+		Action:                "defer",
+		MessageID:             messageID,
+		Status:                "ok",
+		EffectiveProviderMode: "native",
+		DeferredUntilAt:       untilAt.UTC().Format(time.RFC3339),
+	}, nil
+}
+func (p *fakeMailProvider) SupportsNativeDefer() bool { return p.supportsDefer }
+func (p *fakeMailProvider) ProviderName() string      { return "fake" }
+func (p *fakeMailProvider) Close() error              { return nil }
 func (p *fakeMailProvider) MoveToFolder(_ context.Context, ids []string, folder string) (int, error) {
 	p.record("move_to_folder", ids)
 	p.lastFolder = folder
@@ -353,6 +368,73 @@ func TestMailActionResolvesTargetsFromQuery(t *testing.T) {
 	}
 }
 
+func TestMailActionDeferResolvesTargetsFromQuery(t *testing.T) {
+	s, st, _ := newDomainServerForTest(t)
+	account, err := st.CreateExternalAccount(store.SphereWork, store.ExternalProviderGmail, "Work Gmail", map[string]any{})
+	if err != nil {
+		t.Fatalf("CreateExternalAccount: %v", err)
+	}
+	now := time.Date(2026, time.March, 19, 9, 0, 0, 0, time.UTC)
+	untilAt := time.Date(2030, time.March, 20, 15, 4, 5, 0, time.UTC)
+	provider := &fakeMailProvider{
+		listIDs:       []string{"m1", "m2"},
+		supportsDefer: true,
+		messages: map[string]*providerdata.EmailMessage{
+			"m1": {ID: "m1", Subject: "Weekly digest", Sender: "newsletter@example.com", Date: now},
+			"m2": {ID: "m2", Subject: "Second digest", Sender: "newsletter@example.com", Date: now.Add(-time.Hour)},
+		},
+	}
+	s.newEmailProvider = func(context.Context, store.ExternalAccount) (email.EmailProvider, error) {
+		return provider, nil
+	}
+
+	acted, err := s.callTool("mail_action", map[string]interface{}{
+		"account_id": account.ID,
+		"action":     "defer",
+		"query":      "from:newsletter@example.com newer_than:7d",
+		"limit":      2,
+		"until":      untilAt.Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatalf("mail_action failed: %v", err)
+	}
+	if provider.lastAction != "defer" {
+		t.Fatalf("lastAction = %q", provider.lastAction)
+	}
+	if len(provider.lastIDs) != 1 || provider.lastIDs[0] != "m2" {
+		t.Fatalf("lastIDs = %#v", provider.lastIDs)
+	}
+	if !provider.lastUntil.Equal(untilAt) {
+		t.Fatalf("lastUntil = %s, want %s", provider.lastUntil.Format(time.RFC3339), untilAt.Format(time.RFC3339))
+	}
+	if got := provider.lastOpts.Text; got != "from:newsletter@example.com newer_than:7d" {
+		t.Fatalf("lastOpts.Text = %q", got)
+	}
+	if got := provider.lastOpts.MaxResults; got != 2 {
+		t.Fatalf("lastOpts.MaxResults = %d", got)
+	}
+	if succeeded, _ := acted["succeeded"].(int); succeeded != 2 {
+		t.Fatalf("succeeded = %#v", acted["succeeded"])
+	}
+	if got := strings.TrimSpace(strFromAny(acted["until"])); got != untilAt.Format(time.RFC3339) {
+		t.Fatalf("until = %q", got)
+	}
+	logs, err := st.ListMailActionLogs(account.ID, 10)
+	if err != nil {
+		t.Fatalf("ListMailActionLogs: %v", err)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("logs len = %d", len(logs))
+	}
+	request := map[string]any{}
+	if err := json.Unmarshal([]byte(logs[0].RequestJSON), &request); err != nil {
+		t.Fatalf("Unmarshal(request_json): %v", err)
+	}
+	if got := strings.TrimSpace(strFromAny(request["until"])); got != untilAt.Format(time.RFC3339) {
+		t.Fatalf("request until = %q", got)
+	}
+}
+
 func TestMailActionRejectsMissingIDsAndQuery(t *testing.T) {
 	s, st, _ := newDomainServerForTest(t)
 	account, err := st.CreateExternalAccount(store.SphereWork, store.ExternalProviderGmail, "Work Gmail", map[string]any{})
@@ -372,6 +454,66 @@ func TestMailActionRejectsMissingIDsAndQuery(t *testing.T) {
 	}
 	if got := err.Error(); got != "message_ids or query are required" {
 		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestMailActionDeferRequiresUntil(t *testing.T) {
+	s, st, _ := newDomainServerForTest(t)
+	account, err := st.CreateExternalAccount(store.SphereWork, store.ExternalProviderGmail, "Work Gmail", map[string]any{})
+	if err != nil {
+		t.Fatalf("CreateExternalAccount: %v", err)
+	}
+	s.newEmailProvider = func(context.Context, store.ExternalAccount) (email.EmailProvider, error) {
+		return &fakeMailProvider{supportsDefer: true}, nil
+	}
+
+	_, err = s.callTool("mail_action", map[string]interface{}{
+		"account_id":  account.ID,
+		"action":      "defer",
+		"message_ids": []interface{}{"m1"},
+	})
+	if err == nil {
+		t.Fatal("mail_action error = nil, want missing until error")
+	}
+	if got := err.Error(); got != "until is required" {
+		t.Fatalf("error = %q", got)
+	}
+}
+
+func TestMailActionDeferRejectsUnsupportedProvider(t *testing.T) {
+	s, st, _ := newDomainServerForTest(t)
+	account, err := st.CreateExternalAccount(store.SphereWork, store.ExternalProviderIMAP, "Work IMAP", map[string]any{})
+	if err != nil {
+		t.Fatalf("CreateExternalAccount: %v", err)
+	}
+	s.newEmailProvider = func(context.Context, store.ExternalAccount) (email.EmailProvider, error) {
+		return &fakeMailProvider{}, nil
+	}
+
+	_, err = s.callTool("mail_action", map[string]interface{}{
+		"account_id":  account.ID,
+		"action":      "defer",
+		"message_ids": []interface{}{"m1"},
+		"until":       "2030-03-20T15:04:05Z",
+	})
+	if err == nil {
+		t.Fatal("mail_action error = nil, want unsupported defer error")
+	}
+	if got := err.Error(); got != "defer is not supported for provider imap" {
+		t.Fatalf("error = %q", got)
+	}
+	logs, err := st.ListMailActionLogs(account.ID, 10)
+	if err != nil {
+		t.Fatalf("ListMailActionLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("logs len = %d", len(logs))
+	}
+	if logs[0].Status != store.MailActionLogFailed {
+		t.Fatalf("log status = %q", logs[0].Status)
+	}
+	if logs[0].ErrorText != "defer is not supported for provider imap" {
+		t.Fatalf("log error = %q", logs[0].ErrorText)
 	}
 }
 
