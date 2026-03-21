@@ -81,6 +81,8 @@ Runtime and chat session management:
 - `GET /api/mail/drafts/{artifact_id}`
 - `PUT /api/mail/drafts/{artifact_id}`
 - `POST /api/mail/drafts/{artifact_id}/send`
+- `POST /api/mail/drafts/{artifact_id}/polish`
+- `POST /api/text/polish`
 - `GET /api/external-accounts/{account_id}/mail/labels`
 - `GET /api/external-accounts/{account_id}/mail/messages`
 - `GET /api/external-accounts/{account_id}/mail/messages/{message_id}`
@@ -90,7 +92,13 @@ Runtime and chat session management:
 - `PUT /api/external-accounts/{account_id}/mail-rules/{rule_id}`
 - `DELETE /api/external-accounts/{account_id}/mail-rules/{rule_id}`
 - `POST /api/external-accounts/{account_id}/mail-triage/preview`
+- `GET /api/external-accounts/{account_id}/mail-triage/report`
+- `POST /api/external-accounts/{account_id}/mail-triage/evaluate`
+- `POST /api/external-accounts/{account_id}/mail-triage/arm`
 - `POST /api/external-accounts/{account_id}/mail-triage/apply`
+- `GET /api/external-accounts/{account_id}/mail-triage/manual/reviews`
+- `POST /api/external-accounts/{account_id}/mail-triage/manual/reviews`
+- `POST /api/external-accounts/{account_id}/mail-triage/manual/reviews/{review_id}/undo`
 - `GET /api/external-accounts/{account_id}/mail-server-filters`
 - `POST /api/external-accounts/{account_id}/mail-server-filters`
 - `PUT /api/external-accounts/{account_id}/mail-server-filters/{filter_id}`
@@ -216,10 +224,12 @@ Defined in `internal/surface/definitions.go` and used by `internal/mcp/server.go
 - `actor_create`
 - `calendar_list`
 - `calendar_events`
+- `calendar_event_create`
 - `mail_account_list`
 - `mail_label_list`
 - `mail_message_list`
 - `mail_message_get`
+- `mail_attachment_get`
 - `mail_action`
 - `mail_server_filter_list`
 - `mail_server_filter_upsert`

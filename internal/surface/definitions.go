@@ -585,7 +585,7 @@ var MCPTools = []Tool{
 	},
 	{
 		Name:        "mail_action",
-		Description: "Apply one mailbox action to one or more messages.",
+		Description: "Apply one mailbox action to one or more messages, optionally resolving targets from a search query.",
 		Required:    []string{"account_id", "action"},
 		Properties: map[string]ToolProperty{
 			"account_id": {
@@ -599,11 +599,19 @@ var MCPTools = []Tool{
 			},
 			"message_id": {
 				Type:        "string",
-				Description: "Optional single provider message id.",
+				Description: "Optional single provider message id. Use message ids or query.",
 			},
 			"message_ids": {
 				Type:        "array",
-				Description: "Optional list of provider message ids.",
+				Description: "Optional list of provider message ids. Use message ids or query.",
+			},
+			"query": {
+				Type:        "string",
+				Description: "Optional free-text search query used to resolve target messages before applying the action.",
+			},
+			"limit": {
+				Type:        "integer",
+				Description: "Optional maximum number of messages to resolve when query is used.",
 			},
 			"folder": {
 				Type:        "string",

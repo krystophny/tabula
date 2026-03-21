@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +22,9 @@ type fakeMailProvider struct {
 	attachment  *providerdata.AttachmentData
 	filters     []email.ServerFilter
 	resolvedIDs map[string]string
+	lastOpts    email.SearchOptions
 	lastAction  string
+	lastIDs     []string
 	lastFolder  string
 	lastLabel   string
 }
@@ -30,7 +33,8 @@ func (p *fakeMailProvider) ListLabels(_ context.Context) ([]providerdata.Label, 
 	return append([]providerdata.Label(nil), p.labels...), nil
 }
 
-func (p *fakeMailProvider) ListMessages(_ context.Context, _ email.SearchOptions) ([]string, error) {
+func (p *fakeMailProvider) ListMessages(_ context.Context, opts email.SearchOptions) ([]string, error) {
+	p.lastOpts = opts
 	return append([]string(nil), p.listIDs...), nil
 }
 
@@ -59,58 +63,52 @@ func (p *fakeMailProvider) GetAttachment(_ context.Context, _, _ string) (*provi
 	return &copyValue, nil
 }
 
-func (p *fakeMailProvider) MarkRead(_ context.Context, _ []string) (int, error) {
-	p.lastAction = "mark_read"
-	return 1, nil
+func (p *fakeMailProvider) MarkRead(_ context.Context, ids []string) (int, error) {
+	return p.record("mark_read", ids), nil
 }
-func (p *fakeMailProvider) MarkUnread(_ context.Context, _ []string) (int, error) {
-	p.lastAction = "mark_unread"
-	return 1, nil
+func (p *fakeMailProvider) MarkUnread(_ context.Context, ids []string) (int, error) {
+	return p.record("mark_unread", ids), nil
 }
-func (p *fakeMailProvider) Archive(_ context.Context, _ []string) (int, error) {
-	p.lastAction = "archive"
-	return 1, nil
+func (p *fakeMailProvider) Archive(_ context.Context, ids []string) (int, error) {
+	return p.record("archive", ids), nil
 }
 func (p *fakeMailProvider) ArchiveResolved(_ context.Context, ids []string) ([]email.ActionResolution, error) {
-	p.lastAction = "archive"
+	p.record("archive", ids)
 	return p.resolutions(ids), nil
 }
-func (p *fakeMailProvider) MoveToInbox(_ context.Context, _ []string) (int, error) {
-	p.lastAction = "move_to_inbox"
-	return 1, nil
+func (p *fakeMailProvider) MoveToInbox(_ context.Context, ids []string) (int, error) {
+	return p.record("move_to_inbox", ids), nil
 }
 func (p *fakeMailProvider) MoveToInboxResolved(_ context.Context, ids []string) ([]email.ActionResolution, error) {
-	p.lastAction = "move_to_inbox"
+	p.record("move_to_inbox", ids)
 	return p.resolutions(ids), nil
 }
-func (p *fakeMailProvider) Trash(_ context.Context, _ []string) (int, error) {
-	p.lastAction = "trash"
-	return 1, nil
+func (p *fakeMailProvider) Trash(_ context.Context, ids []string) (int, error) {
+	return p.record("trash", ids), nil
 }
 func (p *fakeMailProvider) TrashResolved(_ context.Context, ids []string) ([]email.ActionResolution, error) {
-	p.lastAction = "trash"
+	p.record("trash", ids)
 	return p.resolutions(ids), nil
 }
-func (p *fakeMailProvider) Delete(_ context.Context, _ []string) (int, error) {
-	p.lastAction = "delete"
-	return 1, nil
+func (p *fakeMailProvider) Delete(_ context.Context, ids []string) (int, error) {
+	return p.record("delete", ids), nil
 }
 func (p *fakeMailProvider) ProviderName() string { return "fake" }
 func (p *fakeMailProvider) Close() error         { return nil }
-func (p *fakeMailProvider) MoveToFolder(_ context.Context, _ []string, folder string) (int, error) {
-	p.lastAction = "move_to_folder"
+func (p *fakeMailProvider) MoveToFolder(_ context.Context, ids []string, folder string) (int, error) {
+	p.record("move_to_folder", ids)
 	p.lastFolder = folder
-	return 1, nil
+	return len(ids), nil
 }
 func (p *fakeMailProvider) MoveToFolderResolved(_ context.Context, ids []string, folder string) ([]email.ActionResolution, error) {
-	p.lastAction = "move_to_folder"
+	p.record("move_to_folder", ids)
 	p.lastFolder = folder
 	return p.resolutions(ids), nil
 }
-func (p *fakeMailProvider) ApplyNamedLabel(_ context.Context, _ []string, label string, _ bool) (int, error) {
-	p.lastAction = "apply_label"
+func (p *fakeMailProvider) ApplyNamedLabel(_ context.Context, ids []string, label string, _ bool) (int, error) {
+	p.record("apply_label", ids)
 	p.lastLabel = label
-	return 1, nil
+	return len(ids), nil
 }
 func (p *fakeMailProvider) ServerFilterCapabilities() email.ServerFilterCapabilities {
 	return email.ServerFilterCapabilities{SupportsList: true, SupportsUpsert: true, SupportsDelete: true}
@@ -128,6 +126,12 @@ func (p *fakeMailProvider) UpsertServerFilter(_ context.Context, filter email.Se
 func (p *fakeMailProvider) DeleteServerFilter(context.Context, string) error {
 	p.filters = nil
 	return nil
+}
+
+func (p *fakeMailProvider) record(action string, ids []string) int {
+	p.lastAction = action
+	p.lastIDs = append([]string(nil), ids...)
+	return len(ids)
 }
 
 func (p *fakeMailProvider) resolutions(ids []string) []email.ActionResolution {
@@ -281,6 +285,86 @@ func TestMailToolsListReadActAndFilter(t *testing.T) {
 	}
 	if ok, _ := deleted["deleted"].(bool); !ok {
 		t.Fatalf("deleted = %#v", deleted["deleted"])
+	}
+}
+
+func TestMailActionResolvesTargetsFromQuery(t *testing.T) {
+	s, st, _ := newDomainServerForTest(t)
+	account, err := st.CreateExternalAccount(store.SphereWork, store.ExternalProviderGmail, "Work Gmail", map[string]any{})
+	if err != nil {
+		t.Fatalf("CreateExternalAccount: %v", err)
+	}
+	now := time.Date(2026, time.March, 19, 9, 0, 0, 0, time.UTC)
+	provider := &fakeMailProvider{
+		listIDs: []string{"m1", "m2"},
+		messages: map[string]*providerdata.EmailMessage{
+			"m1": {ID: "m1", Subject: "Weekly digest", Sender: "newsletter@example.com", Date: now},
+			"m2": {ID: "m2", Subject: "Second digest", Sender: "newsletter@example.com", Date: now.Add(-time.Hour)},
+		},
+	}
+	s.newEmailProvider = func(context.Context, store.ExternalAccount) (email.EmailProvider, error) {
+		return provider, nil
+	}
+
+	acted, err := s.callTool("mail_action", map[string]interface{}{
+		"account_id": account.ID,
+		"action":     "archive",
+		"query":      "from:newsletter@example.com newer_than:7d",
+		"limit":      2,
+	})
+	if err != nil {
+		t.Fatalf("mail_action failed: %v", err)
+	}
+	if provider.lastAction != "archive" {
+		t.Fatalf("lastAction = %q", provider.lastAction)
+	}
+	if got := provider.lastOpts.Text; got != "from:newsletter@example.com newer_than:7d" {
+		t.Fatalf("lastOpts.Text = %q", got)
+	}
+	if got := provider.lastOpts.MaxResults; got != 2 {
+		t.Fatalf("lastOpts.MaxResults = %d", got)
+	}
+	if succeeded, _ := acted["succeeded"].(int); succeeded != 2 {
+		t.Fatalf("succeeded = %#v", acted["succeeded"])
+	}
+	if gotIDs, _ := acted["message_ids"].([]string); len(gotIDs) != 2 || gotIDs[0] != "m1" || gotIDs[1] != "m2" {
+		t.Fatalf("message_ids = %#v", acted["message_ids"])
+	}
+	logs, err := st.ListMailActionLogs(account.ID, 10)
+	if err != nil {
+		t.Fatalf("ListMailActionLogs: %v", err)
+	}
+	if len(logs) != 2 {
+		t.Fatalf("logs len = %d", len(logs))
+	}
+	request := map[string]any{}
+	if err := json.Unmarshal([]byte(logs[0].RequestJSON), &request); err != nil {
+		t.Fatalf("Unmarshal(request_json): %v", err)
+	}
+	if got := strings.TrimSpace(strFromAny(request["query"])); got != "from:newsletter@example.com newer_than:7d" {
+		t.Fatalf("request query = %q", got)
+	}
+}
+
+func TestMailActionRejectsMissingIDsAndQuery(t *testing.T) {
+	s, st, _ := newDomainServerForTest(t)
+	account, err := st.CreateExternalAccount(store.SphereWork, store.ExternalProviderGmail, "Work Gmail", map[string]any{})
+	if err != nil {
+		t.Fatalf("CreateExternalAccount: %v", err)
+	}
+	s.newEmailProvider = func(context.Context, store.ExternalAccount) (email.EmailProvider, error) {
+		return &fakeMailProvider{}, nil
+	}
+
+	_, err = s.callTool("mail_action", map[string]interface{}{
+		"account_id": account.ID,
+		"action":     "archive",
+	})
+	if err == nil {
+		t.Fatal("mail_action error = nil, want missing target error")
+	}
+	if got := err.Error(); got != "message_ids or query are required" {
+		t.Fatalf("error = %q", got)
 	}
 }
 

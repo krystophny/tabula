@@ -176,9 +176,10 @@ func (s *Server) mailAction(args map[string]interface{}) (map[string]interface{}
 	if action == "" {
 		return nil, fmt.Errorf("action is required")
 	}
-	messageIDs := mailMessageIDsArg(args)
-	if len(messageIDs) == 0 {
-		return nil, fmt.Errorf("message_ids are required")
+	query := strings.TrimSpace(strArg(args, "query"))
+	messageIDs, err := resolveMailActionMessageIDs(context.Background(), provider, args)
+	if err != nil {
+		return nil, err
 	}
 	folder := strings.TrimSpace(strArg(args, "folder"))
 	label := strings.TrimSpace(strArg(args, "label"))
@@ -203,8 +204,22 @@ func (s *Server) mailAction(args map[string]interface{}) (map[string]interface{}
 		"folder":      folder,
 		"label":       label,
 	}
+	if query != "" {
+		requestPayload["query"] = query
+		if limit, ok := args["limit"]; ok {
+			requestPayload["limit"] = limit
+		}
+	}
 	if archive != nil {
 		requestPayload["archive"] = *archive
+	}
+	if len(messageIDs) == 0 {
+		return map[string]interface{}{
+			"account":     account,
+			"action":      action,
+			"message_ids": []string{},
+			"succeeded":   0,
+		}, nil
 	}
 	logs := make([]store.MailActionLog, 0, len(messageIDs))
 	for _, messageID := range messageIDs {
@@ -252,6 +267,33 @@ func (s *Server) mailAction(args map[string]interface{}) (map[string]interface{}
 		"message_ids": messageIDs,
 		"succeeded":   applied.Count,
 	}, nil
+}
+
+func resolveMailActionMessageIDs(ctx context.Context, provider email.EmailProvider, args map[string]interface{}) ([]string, error) {
+	messageIDs := mailMessageIDsArg(args)
+	if len(messageIDs) > 0 {
+		return messageIDs, nil
+	}
+	query := strings.TrimSpace(strArg(args, "query"))
+	if query == "" {
+		return nil, fmt.Errorf("message_ids or query are required")
+	}
+	searchArgs := make(map[string]interface{}, len(args)+1)
+	for key, value := range args {
+		searchArgs[key] = value
+	}
+	if strings.TrimSpace(strArg(searchArgs, "text")) == "" {
+		searchArgs["text"] = query
+	}
+	opts, _, err := mailSearchOptionsFromArgs(searchArgs)
+	if err != nil {
+		return nil, err
+	}
+	ids, _, err := listMailMessageIDs(ctx, provider, opts, "")
+	if err != nil {
+		return nil, err
+	}
+	return compactStringList(ids), nil
 }
 
 func (s *Server) mailServerFilterList(args map[string]interface{}) (map[string]interface{}, error) {
@@ -501,8 +543,19 @@ func mailSearchOptionsFromArgs(args map[string]interface{}) (email.SearchOptions
 		}
 		opts.MaxResults = int64(value)
 	}
-	if raw, ok := args["limit"].(float64); ok && raw > 0 {
-		opts.MaxResults = int64(raw)
+	switch raw := args["limit"].(type) {
+	case float64:
+		if raw > 0 {
+			opts.MaxResults = int64(raw)
+		}
+	case int:
+		if raw > 0 {
+			opts.MaxResults = int64(raw)
+		}
+	case int64:
+		if raw > 0 {
+			opts.MaxResults = raw
+		}
 	}
 	if raw, ok := args["days"].(float64); ok && raw > 0 {
 		opts = opts.WithLastDays(int(raw))
