@@ -753,15 +753,15 @@ export function hasVisibleCanvasArtifact() {
 }
 
 export function shouldShowCompanionIdleSurface() {
-  const dialogueCompanionActive = state.liveSessionActive && state.liveSessionMode === 'dialogue';
+  const dialogueCompanionActive = state.liveSessionActive && state.liveSessionMode === LIVE_SESSION_MODE_DIALOGUE;
   if (!state.companionEnabled && !dialogueCompanionActive) return false;
   if (hasVisibleCanvasArtifact()) return false;
-  if (state.liveSessionActive && state.liveSessionMode !== 'dialogue') return false;
+  if (state.liveSessionActive && state.liveSessionMode !== LIVE_SESSION_MODE_DIALOGUE) return false;
   return true;
 }
 
 function dialogueCompanionState() {
-  if (!state.liveSessionActive || state.liveSessionMode !== 'dialogue') return '';
+  if (!state.liveSessionActive || state.liveSessionMode !== LIVE_SESSION_MODE_DIALOGUE) return '';
   const capture = state.chatVoiceCapture;
   if (capture && (capture.speechDetected === true || capture.stopping === true)) {
     return COMPANION_RUNTIME_STATES.LISTENING;
@@ -774,18 +774,27 @@ function dialogueCompanionState() {
   return COMPANION_RUNTIME_STATES.IDLE;
 }
 
+function shouldUseBlackScreenMode(idleSurface = normalizeCompanionIdleSurface(state.companionIdleSurface)) {
+  return shouldShowCompanionIdleSurface()
+    && idleSurface === COMPANION_IDLE_SURFACES.BLACK
+    && state.liveSessionActive
+    && state.liveSessionMode === LIVE_SESSION_MODE_DIALOGUE;
+}
+
 export function updateCompanionIdleSurface() {
   const surface = companionIdleSurfaceEl();
-  if (!(surface instanceof HTMLElement)) return;
   const visible = shouldShowCompanionIdleSurface();
   const dialogueState = dialogueCompanionState();
   const runtimeState = dialogueState || normalizeCompanionRuntimeState(state.companionRuntimeState);
   const idleSurface = normalizeCompanionIdleSurface(state.companionIdleSurface);
+  const blackScreenActive = shouldUseBlackScreenMode(idleSurface);
+  document.body.classList.toggle('black-screen', blackScreenActive);
+  if (!(surface instanceof HTMLElement)) return;
   const copy = companionStatusCopy(runtimeState);
   surface.dataset.state = runtimeState;
   surface.dataset.surface = idleSurface;
-  surface.setAttribute('aria-hidden', visible ? 'false' : 'true');
-  surface.style.display = visible ? 'block' : 'none';
+  surface.setAttribute('aria-hidden', visible && !blackScreenActive ? 'false' : 'true');
+  surface.style.display = visible && !blackScreenActive ? 'block' : 'none';
   const statusNode = surface.querySelector('.companion-idle-status');
   if (statusNode) statusNode.textContent = copy.label;
   const detailNode = surface.querySelector('.companion-idle-detail');

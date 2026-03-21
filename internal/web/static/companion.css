@@ -178,6 +178,45 @@
   border-radius: 22px 22px 0 0;
 }
 
+body.black-screen {
+  background: #000000 !important;
+  color: #f7f7f7;
+}
+
+body.black-screen #view-main,
+body.black-screen #workspace,
+body.black-screen #canvas-column,
+body.black-screen #canvas-viewport {
+  background: #000000 !important;
+}
+
+body.black-screen #canvas-viewport {
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+body.black-screen #canvas-text,
+body.black-screen #canvas-image,
+body.black-screen #canvas-pdf,
+body.black-screen #ink-layer,
+body.black-screen #ink-controls,
+body.black-screen #pr-file-pane,
+body.black-screen #pr-file-drawer-backdrop,
+body.black-screen #edge-left-tap,
+body.black-screen #edge-right-tap,
+body.black-screen #edge-top-tap,
+body.black-screen #edge-top,
+body.black-screen #edge-right,
+body.black-screen #tool-palette,
+body.black-screen #surface-toggle,
+body.black-screen #floating-input,
+body.black-screen #overlay,
+body.black-screen #status-bar,
+body.black-screen #companion-idle-surface,
+body.black-screen .bug-report-button {
+  display: none !important;
+}
+
 @keyframes companion-idle-listen {
   0%, 100% {
     transform: translateX(-50%) scale(1);

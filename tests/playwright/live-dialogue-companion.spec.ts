@@ -73,14 +73,14 @@ async function switchToTestProject(page: Page) {
   })).toBe('ready');
 }
 
-async function enableCompanion(page: Page) {
-  await page.evaluate(() => {
+async function enableCompanion(page: Page, idleSurface: 'robot' | 'black' = 'robot') {
+  await page.evaluate((nextIdleSurface) => {
     const app = (window as any)._taburaApp;
     const s = app?.getState?.();
     if (!s) throw new Error('app state unavailable');
     s.companionEnabled = true;
-    s.companionIdleSurface = 'robot';
-  });
+    s.companionIdleSurface = nextIdleSurface;
+  }, idleSurface);
 }
 
 async function setDialogueMode(page: Page, enabled: boolean) {
@@ -229,4 +229,39 @@ test('companion reaches thinking state during assistant turn', async ({ page }) 
     const st = surface?.dataset.state || '';
     return st === 'idle' || st === 'listening';
   }), { timeout: 5_000 }).toBe(true);
+});
+
+test('black idle surface turns dialogue into a full-screen black tap target', async ({ page }) => {
+  await setDialogueListenWindowMs(page, 3_000);
+  await setDialogueMode(page, true);
+  await enableCompanion(page, 'black');
+  await page.evaluate(() => {
+    (window as any)._taburaApp?.syncCompanionIdleSurface?.();
+  });
+  await clearLog(page);
+
+  await expect.poll(async () => page.evaluate(() => {
+    const surface = document.getElementById('companion-idle-surface');
+    const indicator = document.getElementById('indicator');
+    return {
+      bodyBlackScreen: document.body.classList.contains('black-screen'),
+      viewportBackground: window.getComputedStyle(document.getElementById('canvas-viewport') as HTMLElement).backgroundColor,
+      companionDisplay: window.getComputedStyle(surface as HTMLElement).display,
+      edgeLeftDisplay: window.getComputedStyle(document.getElementById('edge-left-tap') as HTMLElement).display,
+      indicatorListening: indicator?.classList.contains('is-listening') ?? false,
+    };
+  })).toEqual({
+    bodyBlackScreen: true,
+    viewportBackground: 'rgb(0, 0, 0)',
+    companionDisplay: 'none',
+    edgeLeftDisplay: 'none',
+    indicatorListening: true,
+  });
+
+  await page.mouse.click(640, 520);
+
+  await expect.poll(async () => {
+    const log = await getLog(page);
+    return log.some((entry) => entry.type === 'recorder' && entry.action === 'start');
+  }, { timeout: 5_000 }).toBe(true);
 });

@@ -139,7 +139,9 @@ export function bindUi() {
   let lastMouseX = Math.floor(window.innerWidth / 2);
   let lastMouseY = Math.floor(window.innerHeight / 2);
   let hasLastMousePosition = false;
+  const isBlackScreenMode = () => document.body.classList.contains('black-screen');
   const isInEdgeZone = (x, y) => {
+    if (isBlackScreenMode()) return false;
     const s = getEdgeTapSizePx();
     const top = getTopEdgeTapSizePx();
     return x < s || x > window.innerWidth - s || y < top || y > window.innerHeight - s;
