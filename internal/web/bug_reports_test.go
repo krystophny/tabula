@@ -555,6 +555,28 @@ func TestBugReportIssueTitleUsesStructuredFallbackWithoutFreeText(t *testing.T) 
 	}
 }
 
+func TestBugReportIssueTitleUsesActiveModeFallbackForDefaultWorkspace(t *testing.T) {
+	bundle := bugReportBundle{
+		ActiveMode:      "pen",
+		ActiveWorkspace: "default",
+	}
+
+	title := bugReportIssueTitle(bundle)
+	if title != "Bug report: pen interaction failed in default" {
+		t.Fatalf("bugReportIssueTitle() = %q", title)
+	}
+	body := bugReportIssueBody(bundle, ".tabura/artifacts/bugs/20260321-183934-48759867/bundle.json")
+	for _, needle := range []string{
+		"## Summary\n\npen interaction failed in default",
+		"- Active mode: `pen`",
+		"- Workspace: `default`",
+	} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("bugReportIssueBody() missing %q:\n%s", needle, body)
+		}
+	}
+}
+
 func TestBugReportIssueTitleUsesCanvasStateFallbackForDefaultWorkspace(t *testing.T) {
 	canvasState, err := json.Marshal(map[string]any{
 		"interaction_surface":    "canvas",

@@ -14,6 +14,27 @@ async function waitReady(page: Page) {
   await waitWsReady(page);
 }
 
+async function dispatchPenStroke(page: Page, points: Array<{ x: number; y: number; pressure?: number }>) {
+  await page.evaluate((rawPoints) => {
+    const viewport = document.getElementById('canvas-viewport');
+    if (!(viewport instanceof HTMLElement) || !Array.isArray(rawPoints) || rawPoints.length === 0) return;
+    const mk = (type: string, point: any) => new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 41,
+      pointerType: 'pen',
+      pressure: Number(point.pressure ?? 0.6),
+      clientX: Number(point.x),
+      clientY: Number(point.y),
+    });
+    viewport.dispatchEvent(mk('pointerdown', rawPoints[0]));
+    for (let i = 1; i < rawPoints.length; i += 1) {
+      viewport.dispatchEvent(mk('pointermove', rawPoints[i]));
+    }
+    viewport.dispatchEvent(mk('pointerup', rawPoints[rawPoints.length - 1]));
+  }, points);
+}
+
 test.describe('bug report flow', () => {
   test('floating button captures a bundle with notes and annotations', async ({ page }) => {
     await waitReady(page);
@@ -56,6 +77,27 @@ test.describe('bug report flow', () => {
     await expect(page.locator('#bug-report-sheet')).toBeHidden();
     await expect(page.locator('#canvas-text')).toContainText('Bug report filed');
     await expect(page.locator('#canvas-text')).toContainText('#77');
+  });
+
+  test('pen interaction reports pen mode instead of the active tool id', async ({ page }) => {
+    await waitReady(page);
+
+    await dispatchPenStroke(page, [
+      { x: 90, y: 90, pressure: 0.6 },
+      { x: 150, y: 140, pressure: 0.7 },
+    ]);
+
+    await page.locator('#bug-report-button').click();
+    await page.locator('#bug-report-note').fill('Pen-origin repro.');
+    await page.locator('#bug-report-save').click();
+
+    await expect.poll(async () => {
+      return page.evaluate(() => (window as any).__bugReportRequests.length);
+    }).toBe(1);
+
+    const request = await page.evaluate(() => (window as any).__bugReportRequests[0]);
+    expect(request.active_mode).toBe('pen');
+    expect(request.canvas_state?.last_input_origin).toBe('pen');
   });
 
   test('filed bug reports appear in inbox immediately', async ({ page }) => {

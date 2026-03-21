@@ -346,6 +346,7 @@ export function bindUi() {
       if (ev.target instanceof Element && ev.target.closest('.edge-panel,#pr-file-pane,#pr-file-drawer-backdrop')) return;
       setInteractionToolLocal('ink');
       if (beginInkStroke(ev)) {
+        state.lastInputOrigin = 'pen';
         try { window.getSelection()?.removeAllRanges(); } catch (_) {}
         setPenInkingState(true);
         ev.preventDefault();

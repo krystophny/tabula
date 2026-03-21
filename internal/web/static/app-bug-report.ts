@@ -48,6 +48,35 @@ function safeText(value) {
   return String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
 }
 
+function normalizeBugReportInputMode(value) {
+  const clean = safeText(value).toLowerCase();
+  switch (clean) {
+    case 'pen':
+    case 'voice':
+    case 'keyboard':
+      return clean;
+    case 'text':
+      return 'keyboard';
+    default:
+      return '';
+  }
+}
+
+function hasKeyboardBugReportEvidence(events) {
+  if (!Array.isArray(events)) return false;
+  return events.some((entry) => /^key\b/i.test(safeText(entry).replace(/^\S+\s+/, '')));
+}
+
+function resolveBugReportInputMode(trigger, events) {
+  const origin = normalizeBugReportInputMode(state.lastInputOrigin);
+  if (origin === 'voice' || origin === 'pen') return origin;
+  if (origin === 'keyboard' && hasKeyboardBugReportEvidence(events)) return 'keyboard';
+  const cleanTrigger = safeText(trigger).toLowerCase();
+  if (cleanTrigger === 'voice') return 'voice';
+  if (cleanTrigger === 'shortcut') return 'keyboard';
+  return '';
+}
+
 function bugReportTestEnv() {
   return window.__taburaBugReportTestEnv || {};
 }
@@ -265,7 +294,7 @@ function clearBugReportInk() {
   redrawBugReportInk();
 }
 
-function buildCanvasState() {
+function buildCanvasState(inputMode = '') {
   const uiState = getUiState();
   return {
     has_artifact: Boolean(state.hasArtifact),
@@ -282,7 +311,7 @@ function buildCanvasState() {
     active_workspace_id: safeText(state.activeWorkspaceId),
     item_sidebar_view: safeText(state.itemSidebarView),
     workspace_browser_path: safeText(state.workspaceBrowserPath),
-    last_input_origin: safeText(state.lastInputOrigin),
+    last_input_origin: normalizeBugReportInputMode(inputMode),
     last_input_x: Number.isFinite(uiState?.lastInputX) ? Math.round(uiState.lastInputX) : null,
     last_input_y: Number.isFinite(uiState?.lastInputY) ? Math.round(uiState.lastInputY) : null,
   };
@@ -702,6 +731,8 @@ async function snapshotBugReportContext(trigger, runtime) {
     ? app.getDialogueDiagnostics()
     : null;
   const meetingDiagnostics = await captureMeetingBugReportDiagnostics();
+  const recent = recentEvents.slice();
+  const inputMode = resolveBugReportInputMode(trigger, recent);
   return {
     trigger,
     timestamp: formatNow(),
@@ -709,9 +740,9 @@ async function snapshotBugReportContext(trigger, runtime) {
     version: safeText(runtime?.version),
     bootID: safeText(runtime?.boot_id),
     startedAt: safeText(runtime?.started_at),
-    activeMode: safeText(state.interaction?.tool),
-    canvasState: buildCanvasState(),
-    recentEvents: recentEvents.slice(),
+    activeMode: inputMode,
+    canvasState: buildCanvasState(inputMode),
+    recentEvents: recent,
     browserLogs: browserLogs.slice(),
     device: await buildDeviceState(),
     dialogueDiagnostics,
