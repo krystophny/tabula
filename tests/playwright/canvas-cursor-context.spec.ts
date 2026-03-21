@@ -151,12 +151,15 @@ async function setInteractionTool(page: Page, tool: 'pointer' | 'highlight' | 'i
   }, tool);
 }
 
-async function waitForEdgeButtons(page: Page) {
-  await expect.poll(async () => page.evaluate(() => {
-    const dialogue = document.querySelector('#edge-top-models .edge-live-dialogue-btn');
-    const silent = document.querySelector('#edge-top-models .edge-silent-btn');
-    return Boolean(dialogue && silent);
-  })).toBe(true);
+async function openCircle(page: Page) {
+  await page.evaluate(() => {
+    const button = document.getElementById('tabura-circle-dot');
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error('tabura circle dot not found');
+    }
+    button.click();
+  });
+  await expect(page.locator('#tabura-circle')).toHaveAttribute('data-state', 'expanded');
 }
 
 async function switchToTestProject(page: Page) {
@@ -178,20 +181,18 @@ async function switchToTestProject(page: Page) {
 
 async function setLiveMode(page: Page, mode: 'dialogue' | 'meeting') {
   await switchToTestProject(page);
-  await waitForEdgeButtons(page);
-  const buttonSelector = mode === 'dialogue'
-    ? '#edge-top-models .edge-live-dialogue-btn'
-    : '#edge-top-models .edge-live-meeting-btn';
-  await page.evaluate((selector) => {
-    const button = document.querySelector(selector);
+  await openCircle(page);
+  const buttonId = mode === 'dialogue'
+    ? 'tabura-circle-segment-dialogue'
+    : 'tabura-circle-segment-meeting';
+  await page.evaluate((id) => {
+    const button = document.getElementById(id);
     if (!(button instanceof HTMLButtonElement)) {
-      throw new Error(`live mode button not found: ${selector}`);
+      throw new Error(`live mode button not found: ${id}`);
     }
     button.click();
-  }, buttonSelector);
-  await expect(page.locator('#edge-top-models .edge-live-status')).toContainText(
-    mode === 'dialogue' ? 'Dialogue' : 'Meeting',
-  );
+  }, buttonId);
+  await expect(page.locator(`#${buttonId}`)).toHaveAttribute('aria-pressed', 'true');
 }
 
 async function currentDotPosition(page: Page) {
