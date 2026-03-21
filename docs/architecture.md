@@ -101,12 +101,12 @@ Tabura now exposes one `Live` entry point with two policy variants:
 - `Meeting`
 
 Both share the same browser-side live session owner, hotword pipeline, and
-voice capture path. The built-in hotword remains `Alexa`.
+voice capture path. The built-in hotword target is `Sloppy`.
 
 Wake-word detection runs entirely in the browser using ONNX Runtime Web:
 - `melspectrogram.onnx` extracts mel features from raw audio.
 - `embedding_model.onnx` produces frame-level embeddings.
-- `alexa.onnx` is the keyword classifier (16-frame input, ~1.28s detection latency).
+- `sloppy.onnx` is the keyword classifier (16-frame input, ~1.28s detection latency).
 
 All three models live in `internal/web/static/vendor/openwakeword/`.
 
@@ -118,7 +118,7 @@ Audio pipeline in `hotword.js`:
 
 State transitions:
 - **Quiet**: meeting live session is active and listening for context.
-- **Paused** (black border + pause bars): a live session is active and waiting for `Alexa`.
+- **Paused** (black border + pause bars): a live session is active and waiting for `Sloppy`.
 - **Recording** (red border + red dot): wake word detected or user tapped, capturing speech.
 - **Listening** (blue border + pulse): dialogue follow-up window after TTS response.
 - Follow-up timeout returns to **Paused** and restarts hotword monitoring.

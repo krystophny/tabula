@@ -16,14 +16,22 @@ export function resolveOrtWasmPaths() {
   };
 }
 
+export function hotwordRuntimeConfigForTest() {
+  return {
+    defaultThreshold: HOTWORD_DEFAULT_THRESHOLD,
+    detectionCooldownMs: HOTWORD_DETECTION_COOLDOWN_MS,
+    modelFiles: { ...HOTWORD_MODEL_FILES },
+  };
+}
+
 const HOTWORD_VENDOR_BASE = staticURL('vendor/openwakeword');
 const HOTWORD_MODEL_FILES = {
   mel: `${HOTWORD_VENDOR_BASE}/melspectrogram.onnx`,
   embedding: `${HOTWORD_VENDOR_BASE}/embedding_model.onnx`,
-  keyword: `${HOTWORD_VENDOR_BASE}/alexa.onnx`,
+  keyword: `${HOTWORD_VENDOR_BASE}/sloppy.onnx`,
 };
-const HOTWORD_DEFAULT_THRESHOLD = 0.5;
-const HOTWORD_DETECTION_COOLDOWN_MS = 1500;
+const HOTWORD_DEFAULT_THRESHOLD = 0.3;
+const HOTWORD_DETECTION_COOLDOWN_MS = 800;
 const HOTWORD_TARGET_SAMPLE_RATE = 16000;
 const HOTWORD_FRAME_MS = 80;
 const HOTWORD_TARGET_FRAME_SAMPLES = Math.floor((HOTWORD_TARGET_SAMPLE_RATE * HOTWORD_FRAME_MS) / 1000);

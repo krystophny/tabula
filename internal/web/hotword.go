@@ -5,10 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
-	hotwordModelFileName = "alexa.onnx"
+	hotwordModelFileName = "sloppy.onnx"
 )
 
 var hotwordRuntimeAssetFiles = []string{
@@ -54,10 +55,22 @@ func checkHotwordStatus(root string) map[string]interface{} {
 		}
 	}
 	ready := len(missing) == 0
+	modelPath := hotwordVendorModelPath(root)
+	model := map[string]interface{}{
+		"exists": false,
+		"file":   hotwordModelFileName,
+	}
+	if info, err := os.Stat(modelPath); err == nil && !info.IsDir() {
+		model["exists"] = true
+		model["modified_at"] = info.ModTime().UTC().Format(time.RFC3339)
+		model["size_bytes"] = info.Size()
+	}
 	return map[string]interface{}{
-		"ok":      true,
-		"ready":   ready,
-		"missing": missing,
+		"ok":                   true,
+		"model":                model,
+		"ready":                ready,
+		"missing":              missing,
+		"training_in_progress": false,
 	}
 }
 

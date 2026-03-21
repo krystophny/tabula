@@ -165,6 +165,19 @@ test('hotword runtime pins explicit ONNX wasm asset URLs', async ({ page }) => {
   expect(new URL(paths.wasm).pathname).toContain('/static/vad/ort-wasm-simd-threaded.wasm');
 });
 
+test('hotword runtime uses sloppy model defaults', async ({ page }) => {
+  await waitReady(page);
+
+  const config = await page.evaluate(async () => {
+    const mod = await import('/internal/web/static/hotword.js');
+    return mod.hotwordRuntimeConfigForTest();
+  });
+
+  expect(new URL(config.modelFiles.keyword).pathname).toContain('/static/vendor/openwakeword/sloppy.onnx');
+  expect(config.defaultThreshold).toBe(0.3);
+  expect(config.detectionCooldownMs).toBe(800);
+});
+
 test('hotword ring buffer retains four seconds of pre-roll audio', async ({ page }) => {
   await waitReady(page);
 
@@ -257,7 +270,7 @@ test('standalone hotword falls back to pre-roll audio after silence', async ({ p
   await page.evaluate(async () => {
     const mod = await import('/internal/web/static/hotword.js');
     mod.setPreRollAudioForTest(Float32Array.from({ length: 16_000 }, () => 0.2));
-    (window as any).__setSTTTranscribeResponse({ text: 'Alexa' });
+    (window as any).__setSTTTranscribeResponse({ text: 'Sloppy' });
     (window as any).__setVadDbFrames(Array.from({ length: 220 }, () => -80));
   });
   await clearLog(page);

@@ -94,7 +94,7 @@ Shared baseline:
 
 - local-first
 - Whisper-backed by default
-- built-in `Alexa` hotword
+- built-in `Sloppy` hotword
 - one shared browser audio/runtime owner
 - no floating on-canvas launcher
 
@@ -109,7 +109,7 @@ Shared baseline:
 
 - continuous transcription for context
 - stronger directed-speech gating before speaking
-- `Alexa` remains a direct trigger
+- `Sloppy` remains a direct trigger
 - microphone only, with no separate meeting bot identity
 - face states represent `idle`, `listening`, `thinking`, `talking`, and `error`
 - black mode is the alternate idle surface

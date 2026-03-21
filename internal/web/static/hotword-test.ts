@@ -69,7 +69,7 @@ log('Initializing ONNX models...');
 try {
   const ok = await initHotword();
   if (ok) {
-    statusEl.textContent = 'Models loaded. Click "Start Listening" and say "Alexa".';
+    statusEl.textContent = 'Models loaded. Click "Start Listening" and say "Sloppy".';
     statusEl.className = 'ready';
     btnStart.disabled = false;
     log('ONNX models loaded successfully.');

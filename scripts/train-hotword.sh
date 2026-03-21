@@ -6,6 +6,20 @@ TRAINER_DIR="${TABURA_HOTWORD_TRAINER_DIR:-$ROOT_DIR/tools/openwakeword-trainer}
 CONFIG_PATH="${TABURA_HOTWORD_CONFIG:-$ROOT_DIR/scripts/hotword-config.yaml}"
 OUTPUT_DIR="${TABURA_HOTWORD_OUTPUT_DIR:-$ROOT_DIR/models/hotword}"
 PYTHON_BIN="${PYTHON:-python3.12}"
+SKIP_PIP_INSTALL="${TABURA_HOTWORD_SKIP_PIP_INSTALL:-0}"
+
+read_config_scalar() {
+  local key="$1"
+  awk -F: -v key="$key" '
+    $1 ~ "^[[:space:]]*" key "[[:space:]]*$" {
+      value = substr($0, index($0, ":") + 1)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      gsub(/^["'"'"']|["'"'"']$/, "", value)
+      print value
+      exit
+    }
+  ' "$CONFIG_PATH"
+}
 
 if [[ ! -f "$CONFIG_PATH" ]]; then
   echo "hotword config not found: $CONFIG_PATH" >&2
@@ -13,6 +27,14 @@ if [[ ! -f "$CONFIG_PATH" ]]; then
 fi
 
 mkdir -p "$OUTPUT_DIR"
+
+MODEL_NAME="$(read_config_scalar model_name)"
+if [[ -z "$MODEL_NAME" ]]; then
+  echo "hotword config missing model_name: $CONFIG_PATH" >&2
+  exit 1
+fi
+CONFIG_OUTPUT_DIR="$(read_config_scalar output_dir)"
+TARGET_MODEL_PATH="$OUTPUT_DIR/$MODEL_NAME.onnx"
 
 if [[ ! -d "$TRAINER_DIR/.git" ]]; then
   mkdir -p "$(dirname "$TRAINER_DIR")"
@@ -24,20 +46,49 @@ if [[ ! -x "$VENV_DIR/bin/python" ]]; then
   "$PYTHON_BIN" -m venv "$VENV_DIR"
 fi
 
-"$VENV_DIR/bin/python" -m pip install --upgrade pip 'setuptools<82' wheel >/dev/null
-# piper-phonemize has no wheels for Python >=3.12; use the community fix package.
-"$VENV_DIR/bin/python" -m pip install piper-phonemize-fix >/dev/null
-grep -v '^piper-phonemize' "$TRAINER_DIR/requirements.txt" \
-  | "$VENV_DIR/bin/python" -m pip install -r /dev/stdin >/dev/null
+if [[ "$SKIP_PIP_INSTALL" != "1" ]]; then
+  "$VENV_DIR/bin/python" -m pip install --upgrade pip 'setuptools<82' wheel >/dev/null
+  # piper-phonemize has no wheels for Python >=3.12; use the community fix package.
+  "$VENV_DIR/bin/python" -m pip install piper-phonemize-fix >/dev/null
+  grep -v '^piper-phonemize' "$TRAINER_DIR/requirements.txt" \
+    | "$VENV_DIR/bin/python" -m pip install -r /dev/stdin >/dev/null
+fi
 
 TRAIN_CMD=("$VENV_DIR/bin/python" "$TRAINER_DIR/train_wakeword.py")
 
 "${TRAIN_CMD[@]}" --config "$CONFIG_PATH" "$@"
 
-MODEL_PATH="$OUTPUT_DIR/tabura.onnx"
-if [[ ! -f "$MODEL_PATH" ]]; then
-  echo "training finished but expected model missing: $MODEL_PATH" >&2
+MODEL_SOURCE_PATH=""
+if [[ -n "$CONFIG_OUTPUT_DIR" ]]; then
+  if [[ "$CONFIG_OUTPUT_DIR" = /* ]]; then
+    if [[ -f "$CONFIG_OUTPUT_DIR/$MODEL_NAME.onnx" ]]; then
+      MODEL_SOURCE_PATH="$CONFIG_OUTPUT_DIR/$MODEL_NAME.onnx"
+    fi
+  else
+    for candidate in \
+      "$TRAINER_DIR/$CONFIG_OUTPUT_DIR/$MODEL_NAME.onnx" \
+      "$ROOT_DIR/$CONFIG_OUTPUT_DIR/$MODEL_NAME.onnx" \
+      "$(dirname "$CONFIG_PATH")/$CONFIG_OUTPUT_DIR/$MODEL_NAME.onnx"
+    do
+      if [[ -f "$candidate" ]]; then
+        MODEL_SOURCE_PATH="$candidate"
+        break
+      fi
+    done
+  fi
+fi
+
+if [[ -z "$MODEL_SOURCE_PATH" && -f "$TARGET_MODEL_PATH" ]]; then
+  MODEL_SOURCE_PATH="$TARGET_MODEL_PATH"
+fi
+
+if [[ -z "$MODEL_SOURCE_PATH" ]]; then
+  echo "training finished but expected model missing: $TARGET_MODEL_PATH" >&2
   exit 1
 fi
 
-echo "trained model: $MODEL_PATH"
+if [[ "$MODEL_SOURCE_PATH" != "$TARGET_MODEL_PATH" ]]; then
+  cp "$MODEL_SOURCE_PATH" "$TARGET_MODEL_PATH"
+fi
+
+echo "trained model: $TARGET_MODEL_PATH"

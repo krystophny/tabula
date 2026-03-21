@@ -1,20 +1,25 @@
-model_name: "tabura"
+model_name: "sloppy"
 
 target_phrase:
-  - "tah boo rah"
+  - "slop ee"
 
 custom_negative_phrases:
-  - "taboo"
-  - "abra"
-  - "toolbar"
-  - "tumblr"
-  - "ta da"
+  - "copy"
+  - "happy"
+  - "poppy"
+  - "soapy"
+  - "sleepy"
+  - "slowly"
+  - "sorry"
+  - "soppy"
+  - "stocky"
+  - "rocky"
 
-n_samples: 2000
-n_samples_val: 500
+n_samples: 5000
+n_samples_val: 1000
 tts_batch_size: 25
 augmentation_batch_size: 16
-augmentation_rounds: 3
+augmentation_rounds: 5
 total_length: 32000
 
 piper_sample_generator_path: "data/piper-sample-generator"
@@ -41,8 +46,8 @@ batch_n_per_class:
   "positive": 50
 
 model_type: "dnn"
-layer_size: 32
+layer_size: 64
 
-steps: 50000
-max_negative_weight: 1500
-target_false_positives_per_hour: 0.2
+steps: 100000
+max_negative_weight: 1000
+target_false_positives_per_hour: 1.0

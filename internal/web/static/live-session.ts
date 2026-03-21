@@ -9,7 +9,7 @@ import {
 
 export const LIVE_SESSION_MODE_DIALOGUE = 'dialogue';
 export const LIVE_SESSION_MODE_MEETING = 'meeting';
-export const LIVE_SESSION_HOTWORD_DEFAULT = 'Alexa';
+export const LIVE_SESSION_HOTWORD_DEFAULT = 'Sloppy';
 
 const BARGE_IN_FALLBACK_GRACE_MS = 220;
 

@@ -508,7 +508,7 @@ export async function initHotwordLifecycleWithOptions(options: Record<string, an
     const enabled = await initHotword({ force });
     state.hotwordEnabled = Boolean(enabled);
     if (state.hotwordEnabled) {
-      setHotwordThreshold(0.5);
+      setHotwordThreshold(0.3);
       configureHotwordLifecycle();
     } else {
       console.warn('Hotword unavailable; continuing without wake-word activation.');
