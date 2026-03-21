@@ -69,3 +69,26 @@ func TestAppServerModelProfileForWorkspacePathFallsBackWhenProjectMissing(t *tes
 		t.Fatalf("profile.TurnParams[effort] = %#v, want %q", got, modelprofile.ReasoningLow)
 	}
 }
+
+func TestAssistantTurnModeHonorsConfiguredRouting(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	app.assistantMode = assistantModeLocal
+	if got := app.assistantTurnMode(false); got != assistantModeLocal {
+		t.Fatalf("assistantTurnMode(local) = %q, want %q", got, assistantModeLocal)
+	}
+
+	app.assistantMode = assistantModeCodex
+	if got := app.assistantTurnMode(false); got != assistantModeCodex {
+		t.Fatalf("assistantTurnMode(codex) = %q, want %q", got, assistantModeCodex)
+	}
+
+	app.assistantMode = assistantModeAuto
+	app.appServerClient = nil
+	if got := app.assistantTurnMode(false); got != assistantModeLocal {
+		t.Fatalf("assistantTurnMode(auto, no app-server) = %q, want %q", got, assistantModeLocal)
+	}
+	if got := app.assistantTurnMode(true); got != assistantModeLocal {
+		t.Fatalf("assistantTurnMode(localOnly) = %q, want %q", got, assistantModeLocal)
+	}
+}

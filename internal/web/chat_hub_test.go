@@ -507,6 +507,142 @@ func TestRunAssistantTurnKeepsPlainTextAssistantOutput(t *testing.T) {
 	}
 }
 
+func TestRunAssistantTurnUsesLocalAssistantModeWhenConfigured(t *testing.T) {
+	const localReply = "Running fully unplugged."
+	const codexReply = "This should not be used."
+	const assistantModel = "qwen-local-assistant"
+
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if strings.TrimSpace(r.URL.Path) != "/v1/chat/completions" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		var payload map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		if got := strings.TrimSpace(strFromAny(payload["model"])); got != assistantModel {
+			http.Error(w, "unexpected model "+got, http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message": map[string]interface{}{
+						"content": localReply,
+					},
+				},
+			},
+		})
+	}))
+	defer llm.Close()
+
+	wsServer := setupMockAppServerStatusServer(t, codexReply)
+	defer wsServer.Close()
+	wsURL := "ws" + strings.TrimPrefix(wsServer.URL, "http")
+
+	app, err := New(t.TempDir(), "", "", wsURL, "", "", "", false)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	app.assistantMode = assistantModeLocal
+	app.assistantLLMURL = llm.URL
+	app.assistantLLMModel = assistantModel
+	app.intentLLMURL = ""
+	t.Cleanup(func() {
+		_ = app.Shutdown(context.Background())
+	})
+
+	project, err := app.ensureDefaultWorkspace()
+	if err != nil {
+		t.Fatalf("ensure default project: %v", err)
+	}
+	session, err := app.chatSessionForWorkspace(project)
+	if err != nil {
+		t.Fatalf("project session: %v", err)
+	}
+	if _, err := app.store.AddChatMessage(session.ID, "user", "help me with the plasma analysis", "help me with the plasma analysis", "text"); err != nil {
+		t.Fatalf("add user message: %v", err)
+	}
+
+	app.runAssistantTurn(session.ID, dequeuedTurn{outputMode: turnOutputModeSilent})
+
+	if got := latestAssistantMessage(t, app, session.ID); got != localReply {
+		t.Fatalf("assistant message = %q, want %q", got, localReply)
+	}
+}
+
+func TestRunAssistantTurnUsesAssistantLLMFallbackInAutoModeWithoutAppServer(t *testing.T) {
+	const assistantReply = "Local assistant fallback engaged."
+	const assistantModel = "qwen-auto-fallback"
+
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if strings.TrimSpace(r.URL.Path) != "/v1/chat/completions" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		var payload map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		if got := strings.TrimSpace(strFromAny(payload["model"])); got != assistantModel {
+			http.Error(w, "unexpected model "+got, http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message": map[string]interface{}{
+						"content": assistantReply,
+					},
+				},
+			},
+		})
+	}))
+	defer llm.Close()
+
+	app, err := New(t.TempDir(), "", "", "", "", "", "", false)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	app.assistantLLMURL = llm.URL
+	app.assistantLLMModel = assistantModel
+	app.intentLLMURL = ""
+	t.Cleanup(func() {
+		_ = app.Shutdown(context.Background())
+	})
+
+	project, err := app.ensureDefaultWorkspace()
+	if err != nil {
+		t.Fatalf("ensure default project: %v", err)
+	}
+	session, err := app.chatSessionForWorkspace(project)
+	if err != nil {
+		t.Fatalf("project session: %v", err)
+	}
+	if _, err := app.store.AddChatMessage(session.ID, "user", "summarize the workspace status for me", "summarize the workspace status for me", "text"); err != nil {
+		t.Fatalf("add user message: %v", err)
+	}
+
+	app.runAssistantTurn(session.ID, dequeuedTurn{outputMode: turnOutputModeSilent})
+
+	if got := latestAssistantMessage(t, app, session.ID); got != assistantReply {
+		t.Fatalf("assistant message = %q, want %q", got, assistantReply)
+	}
+}
+
 func TestRunAssistantTurnExecutesHighConfidenceLocalIntent(t *testing.T) {
 	llm := setupMockIntentLLMServer(t, http.StatusOK, `{"action":"toggle_silent"}`)
 	defer llm.Close()

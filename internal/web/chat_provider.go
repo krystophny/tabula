@@ -148,6 +148,9 @@ func (a *App) localAssistantModelLabel() string {
 	if a == nil {
 		return DefaultIntentLLMProfile
 	}
+	if model := strings.TrimSpace(a.assistantLLMModel); model != "" && !strings.EqualFold(model, DefaultIntentLLMModel) {
+		return model
+	}
 	if profile := strings.TrimSpace(a.intentLLMProfile); profile != "" {
 		return profile
 	}

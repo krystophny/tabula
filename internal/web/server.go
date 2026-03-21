@@ -66,6 +66,9 @@ type App struct {
 	appServerURL                  string
 	appServerModel                string
 	appServerSparkReasoningEffort string
+	assistantMode                 string
+	assistantLLMURL               string
+	assistantLLMModel             string
 	intentLLMURL                  string
 	intentLLMModel                string
 	intentLLMProfile              string
@@ -177,6 +180,15 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 	if resolvedTTSURL == "" {
 		resolvedTTSURL = strings.TrimSpace(os.Getenv("TABURA_TTS_URL"))
 	}
+	resolvedAssistantMode := normalizeAssistantMode(os.Getenv("TABURA_ASSISTANT_MODE"))
+	resolvedAssistantLLMURL := strings.TrimSpace(os.Getenv("TABURA_ASSISTANT_LLM_URL"))
+	if strings.EqualFold(resolvedAssistantLLMURL, "off") {
+		resolvedAssistantLLMURL = ""
+	}
+	resolvedAssistantLLMModel := strings.TrimSpace(os.Getenv("TABURA_ASSISTANT_LLM_MODEL"))
+	if strings.EqualFold(resolvedAssistantLLMModel, "off") {
+		resolvedAssistantLLMModel = ""
+	}
 	resolvedIntentLLMURL := strings.TrimSpace(os.Getenv("TABURA_INTENT_LLM_URL"))
 	if strings.EqualFold(resolvedIntentLLMURL, "off") {
 		resolvedIntentLLMURL = ""
@@ -195,6 +207,12 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		resolvedIntentLLMProfileOptions = parseIntentLLMProfileOptions(DefaultIntentLLMProfileOptions)
 	}
 	resolvedIntentLLMProfileOptions = ensureIntentLLMProfileOption(resolvedIntentLLMProfileOptions, resolvedIntentLLMProfile)
+	if resolvedAssistantLLMURL == "" {
+		resolvedAssistantLLMURL = resolvedIntentLLMURL
+	}
+	if resolvedAssistantLLMModel == "" {
+		resolvedAssistantLLMModel = resolvedIntentLLMModel
+	}
 	resolvedSTTURL := strings.TrimSpace(os.Getenv("TABURA_STT_URL"))
 	if strings.EqualFold(resolvedSTTURL, "off") {
 		resolvedSTTURL = ""
@@ -275,6 +293,9 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		appServerURL:                  appServerURL,
 		appServerModel:                resolvedModel,
 		appServerSparkReasoningEffort: resolvedSparkReasoningEffort,
+		assistantMode:                 resolvedAssistantMode,
+		assistantLLMURL:               resolvedAssistantLLMURL,
+		assistantLLMModel:             resolvedAssistantLLMModel,
 		intentLLMURL:                  resolvedIntentLLMURL,
 		intentLLMModel:                resolvedIntentLLMModel,
 		intentLLMProfile:              resolvedIntentLLMProfile,
@@ -558,6 +579,9 @@ func (a *App) handleRuntime(w http.ResponseWriter, r *http.Request) {
 		"app_server_url":              a.appServerURL,
 		"app_server_model":            a.appServerModel,
 		"app_server_reasoning_effort": sparkReasoningEffort,
+		"assistant_mode":              a.assistantRoutingMode(),
+		"assistant_llm_url":           a.assistantLLMBaseURL(),
+		"assistant_llm_model":         a.localAssistantLLMModel(),
 		"intent_llm_url":              a.intentLLMURL,
 		"intent_llm_model":            a.localIntentLLMModel(),
 		"intent_llm_profile":          a.intentLLMProfile,
