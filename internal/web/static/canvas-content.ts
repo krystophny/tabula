@@ -790,11 +790,15 @@ export function renderTextArtifact(root, event, previousState) {
   const shouldHighlightChanges = previousState?.previousArtifactTitle === nextArtifactTitle && priorBlocks.length > 0;
   const oldBlockTexts = shouldHighlightChanges ? priorBlocks.slice() : [];
   const textBody = String(event.text || '');
+  const renderedHTML = String(event.html || '').trim();
   const isUnifiedDiff = textBody.startsWith('diff --git ') || textBody.includes('\ndiff --git ');
   const diffPreview = isUnifiedDiff ? buildMarkdownDiffPreview(textBody, nextArtifactTitle) : null;
   const sourceLang = languageFromArtifactTitle(nextArtifactTitle);
 
-  if (diffPreview) {
+  if (renderedHTML) {
+    root.innerHTML = sanitizeHtml(renderedHTML);
+    typesetMarkdownMath(root);
+  } else if (diffPreview) {
     const markdownSource = diffPreview.markdown;
     const { text: markdownText, stash: mathSegments } = extractMathSegments(markdownSource);
     const tokens = marked.lexer(markdownText);
