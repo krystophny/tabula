@@ -31,6 +31,7 @@ const loadItemSidebarView = (...args) => refs.loadItemSidebarView(...args);
 const refreshItemSidebarCounts = (...args) => refs.refreshItemSidebarCounts(...args);
 const appendPlainMessage = (...args) => refs.appendPlainMessage(...args);
 const appendRenderedAssistant = (...args) => refs.appendRenderedAssistant(...args);
+const findAssistantRowForTurn = (...args) => refs.findAssistantRowForTurn(...args);
 const ensurePendingForTurn = (...args) => refs.ensurePendingForTurn(...args);
 const takePendingRow = (...args) => refs.takePendingRow(...args);
 const takeAnyPendingRow = (...args) => refs.takeAnyPendingRow(...args);
@@ -588,6 +589,30 @@ export function handleChatEvent(payload) {
     state.requestedPositionPrompt = prompt || 'Tap where you want it.';
     showStatus(state.requestedPositionPrompt);
     updateAssistantActivityIndicator();
+    return;
+  }
+
+  if (type === 'render_chat') {
+    const turnID = String(payload.turn_id || '').trim();
+    const markdown = String(payload.markdown || payload.message || '');
+    const html = String(payload.html || '').trim();
+    const row = findAssistantRowForTurn(turnID) || ensurePendingForTurn(turnID);
+    if (row && (markdown.trim() || html)) {
+      const pending = row instanceof HTMLElement ? row.classList.contains('is-pending') : true;
+      updateAssistantRow(row, markdown || '_Thinking..._', pending, { html });
+    }
+    if (!isVoiceTurn()) hideOverlay();
+    return;
+  }
+
+  if (type === 'render_canvas') {
+    state.canvasActionThisTurn = true;
+    renderCanvas(payload);
+    if (Boolean(payload.auto_canvas)) {
+      state.indicatorSuppressedByCanvasUpdate = true;
+      updateAssistantActivityIndicator();
+      if (!isVoiceTurn()) hideOverlay();
+    }
     return;
   }
 

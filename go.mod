@@ -3,10 +3,13 @@ module github.com/krystophny/tabura
 go 1.24.0
 
 require (
+	github.com/alecthomas/chroma/v2 v2.23.1
 	github.com/creack/pty v1.1.24
 	github.com/go-chi/chi/v5 v5.2.3
 	github.com/gorilla/websocket v1.5.3
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
+	github.com/yuin/goldmark v1.7.17
+	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
 	modernc.org/sqlite v1.39.1
 )
 
@@ -16,6 +19,7 @@ require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	github.com/Azure/go-ntlmssp v0.1.0 // indirect
 	github.com/cenkalti/backoff v2.2.1+incompatible // indirect
+	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emersion/go-imap/v2 v2.0.0-beta.7 // indirect
 	github.com/emersion/go-message v0.18.2 // indirect

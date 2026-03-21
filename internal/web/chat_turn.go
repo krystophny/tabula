@@ -171,6 +171,7 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 			"output_mode": turn.outputMode,
 		}
 		shouldBroadcast := true
+		var renderCommand map[string]interface{}
 		switch ev.Type {
 		case "thread_started":
 			// Thread ID already stored on session open.
@@ -186,6 +187,7 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 			persistAssistantSnapshot(ev.Message, renderPlan.RenderOnCanvas, renderPlan.AutoCanvas)
 			payload["message"] = ev.Message
 			payload["delta"] = ev.Delta
+			renderCommand = assistantRenderChatCommand(latestTurnID, turn.outputMode, ev.Message)
 			if renderPlan.RenderOnCanvas {
 				payload["render_on_canvas"] = true
 			}
@@ -200,6 +202,7 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 			renderPlan := assistantRenderPlanForMode(latestMessage, turn.outputMode)
 			persistAssistantSnapshot(latestMessage, renderPlan.RenderOnCanvas, renderPlan.AutoCanvas)
 			payload["message"] = latestMessage
+			renderCommand = assistantRenderChatCommand(latestTurnID, turn.outputMode, latestMessage)
 			if renderPlan.RenderOnCanvas {
 				payload["render_on_canvas"] = true
 			}
@@ -241,6 +244,9 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 		}
 		if shouldBroadcast {
 			a.broadcastChatEvent(sessionID, payload)
+			if renderCommand != nil {
+				a.broadcastChatEvent(sessionID, renderCommand)
+			}
 		}
 	})
 	if err != nil {
@@ -501,6 +507,7 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 			"output_mode": outputMode,
 		}
 		shouldBroadcast := true
+		var renderCommand map[string]interface{}
 		switch ev.Type {
 		case "thread_started":
 			if strings.TrimSpace(ev.ThreadID) != "" {
@@ -518,6 +525,7 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 			persistAssistantSnapshot(ev.Message, renderPlan.RenderOnCanvas, renderPlan.AutoCanvas)
 			payload["message"] = ev.Message
 			payload["delta"] = ev.Delta
+			renderCommand = assistantRenderChatCommand(latestTurnID, outputMode, ev.Message)
 			if renderPlan.RenderOnCanvas {
 				payload["render_on_canvas"] = true
 			}
@@ -532,6 +540,7 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 			renderPlan := assistantRenderPlanForMode(latestMessage, outputMode)
 			persistAssistantSnapshot(latestMessage, renderPlan.RenderOnCanvas, renderPlan.AutoCanvas)
 			payload["message"] = latestMessage
+			renderCommand = assistantRenderChatCommand(latestTurnID, outputMode, latestMessage)
 			if renderPlan.RenderOnCanvas {
 				payload["render_on_canvas"] = true
 			}
@@ -563,6 +572,9 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 		}
 		if shouldBroadcast {
 			a.broadcastChatEvent(sessionID, payload)
+			if renderCommand != nil {
+				a.broadcastChatEvent(sessionID, renderCommand)
+			}
 		}
 	})
 	if err != nil {
@@ -750,6 +762,22 @@ func (a *App) finalizeAssistantResponseWithMetadata(
 	}
 	a.finishCompanionPendingTurn(sessionID, "assistant_turn_completed")
 	a.broadcastChatEvent(sessionID, payload)
+	if renderCommand := assistantRenderChatCommand(tid, outputMode, chatMarkdown); renderCommand != nil {
+		metadata.applyToPayload(renderCommand)
+		a.broadcastChatEvent(sessionID, renderCommand)
+	}
+	if renderOnCanvas || autoCanvas {
+		if renderCommand := assistantRenderCanvasCommand(tid, outputMode, "", "", chatMarkdown); renderCommand != nil {
+			if autoCanvas {
+				renderCommand["auto_canvas"] = true
+			}
+			if renderOnCanvas {
+				renderCommand["render_on_canvas"] = true
+			}
+			metadata.applyToPayload(renderCommand)
+			a.broadcastChatEvent(sessionID, renderCommand)
+		}
+	}
 	a.maybeNotifyCompletedTurn(sessionID, workspacePath, chatPlain)
 	if strings.TrimSpace(positionPrompt) != "" {
 		a.broadcastChatEvent(sessionID, map[string]interface{}{

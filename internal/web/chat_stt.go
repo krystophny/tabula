@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -129,7 +130,9 @@ func handleSTTCancel(conn *chatWSConn, sessionID string) {
 func handleChatWSTextMessage(a *App, conn *chatWSConn, sessionID string, data []byte) {
 	var msg struct {
 		Type             string                    `json:"type"`
+		Kind             string                    `json:"kind"`
 		MimeType         string                    `json:"mime_type"`
+		Data             string                    `json:"data"`
 		Text             string                    `json:"text"`
 		Lang             string                    `json:"lang"`
 		RequestID        string                    `json:"request_id"`
@@ -152,10 +155,30 @@ func handleChatWSTextMessage(a *App, conn *chatWSConn, sessionID string, data []
 	switch msg.Type {
 	case "stt_start":
 		handleSTTStart(conn, sessionID, msg.MimeType)
+	case "audio_start":
+		handleSTTStart(conn, sessionID, msg.MimeType)
 	case "stt_stop":
+		handleSTTStop(a, conn, sessionID)
+	case "audio_stop":
 		handleSTTStop(a, conn, sessionID)
 	case "stt_cancel":
 		handleSTTCancel(conn, sessionID)
+	case "audio_pcm":
+		conn.sttMu.Lock()
+		sttActive := conn.sttActive
+		conn.sttMu.Unlock()
+		if !sttActive {
+			handleSTTStart(conn, sessionID, firstNonEmptyCursorText(msg.MimeType, "application/octet-stream"))
+		}
+		audioBytes, err := decodeCaptureAudioData(msg.Data)
+		if err != nil {
+			_ = conn.writeJSON(sttMessage{Type: "stt_error", Error: "audio data must be base64"})
+			return
+		}
+		if len(audioBytes) == 0 {
+			return
+		}
+		handleSTTBinaryChunk(conn, audioBytes)
 	case "tts_speak":
 		trimmedText := strings.TrimSpace(msg.Text)
 		seq := conn.reserveTTSSeq()
@@ -174,40 +197,15 @@ func handleChatWSTextMessage(a *App, conn *chatWSConn, sessionID string, data []
 			})
 		}
 	case "canvas_position":
-		if !a.chatCanvasPositions.enqueue(sessionID, &chatCanvasPositionEvent{
-			Cursor:    msg.Cursor,
-			Gesture:   msg.Gesture,
-			Requested: msg.RequestResponse,
-		}) {
-			return
-		}
-		if msg.RequestResponse {
-			if a.activeChatTurnCount(sessionID) > 0 || a.queuedChatTurnCount(sessionID) > 0 {
-				return
-			}
-			a.enqueueAssistantTurn(sessionID, normalizeTurnOutputMode(msg.OutputMode))
-		}
+		enqueueRequestedCanvasPosition(a, sessionID, msg.Cursor, msg.Gesture, msg.RequestResponse, msg.OutputMode)
+	case "tap":
+		enqueueRequestedCanvasPosition(a, sessionID, msg.Cursor, "tap", msg.RequestResponse, msg.OutputMode)
+	case "gesture":
+		enqueueRequestedCanvasPosition(a, sessionID, msg.Cursor, firstNonEmptyCursorText(msg.Gesture, msg.Kind, "gesture"), msg.RequestResponse, msg.OutputMode)
 	case "canvas_ink":
-		snapshotPath := a.persistChatCanvasInkSnapshot(sessionID, msg.SnapshotDataURL)
-		if !a.chatCanvasInk.enqueue(sessionID, &chatCanvasInkEvent{
-			Cursor:           msg.Cursor,
-			Gesture:          recognizeChatCanvasInkGesture(msg.Strokes),
-			ArtifactKind:     msg.ArtifactKind,
-			StrokeCount:      maxCanvasInkStrokeCount(msg.TotalStrokes, len(msg.Strokes)),
-			Requested:        msg.RequestResponse,
-			BoundingBox:      msg.BoundingBox,
-			OverlappingLines: msg.OverlappingLines,
-			OverlappingText:  msg.OverlappingText,
-			SnapshotPath:     snapshotPath,
-		}) {
-			return
-		}
-		if msg.RequestResponse {
-			if a.activeChatTurnCount(sessionID) > 0 || a.queuedChatTurnCount(sessionID) > 0 {
-				return
-			}
-			a.enqueueAssistantTurn(sessionID, normalizeTurnOutputMode(msg.OutputMode))
-		}
+		enqueueRequestedCanvasInk(a, sessionID, msg.Cursor, msg.ArtifactKind, msg.OutputMode, msg.RequestResponse, msg.SnapshotDataURL, msg.TotalStrokes, msg.BoundingBox, msg.OverlappingLines, msg.OverlappingText, msg.Strokes)
+	case "ink_commit":
+		enqueueRequestedCanvasInk(a, sessionID, msg.Cursor, msg.ArtifactKind, msg.OutputMode, msg.RequestResponse, msg.SnapshotDataURL, msg.TotalStrokes, msg.BoundingBox, msg.OverlappingLines, msg.OverlappingText, msg.Strokes)
 	}
 }
 
@@ -219,4 +217,74 @@ func maxCanvasInkStrokeCount(total, current int) int {
 		return current
 	}
 	return 1
+}
+
+func enqueueRequestedCanvasPosition(a *App, sessionID string, cursor *chatCursorContext, gesture string, requested bool, outputMode string) {
+	if !a.chatCanvasPositions.enqueue(sessionID, &chatCanvasPositionEvent{
+		Cursor:    cursor,
+		Gesture:   strings.TrimSpace(gesture),
+		Requested: requested,
+	}) {
+		return
+	}
+	if !requested {
+		return
+	}
+	if a.activeChatTurnCount(sessionID) > 0 || a.queuedChatTurnCount(sessionID) > 0 {
+		return
+	}
+	a.enqueueAssistantTurn(sessionID, normalizeTurnOutputMode(outputMode))
+}
+
+func enqueueRequestedCanvasInk(
+	a *App,
+	sessionID string,
+	cursor *chatCursorContext,
+	artifactKind string,
+	outputMode string,
+	requested bool,
+	snapshotDataURL string,
+	totalStrokes int,
+	boundingBox *chatCanvasInkBoundingBox,
+	overlappingLines *chatCanvasInkLineRange,
+	overlappingText string,
+	strokes []inkSubmitStroke,
+) {
+	snapshotPath := a.persistChatCanvasInkSnapshot(sessionID, snapshotDataURL)
+	if !a.chatCanvasInk.enqueue(sessionID, &chatCanvasInkEvent{
+		Cursor:           cursor,
+		Gesture:          recognizeChatCanvasInkGesture(strokes),
+		ArtifactKind:     artifactKind,
+		StrokeCount:      maxCanvasInkStrokeCount(totalStrokes, len(strokes)),
+		Requested:        requested,
+		BoundingBox:      boundingBox,
+		OverlappingLines: overlappingLines,
+		OverlappingText:  overlappingText,
+		SnapshotPath:     snapshotPath,
+	}) {
+		return
+	}
+	if !requested {
+		return
+	}
+	if a.activeChatTurnCount(sessionID) > 0 || a.queuedChatTurnCount(sessionID) > 0 {
+		return
+	}
+	a.enqueueAssistantTurn(sessionID, normalizeTurnOutputMode(outputMode))
+}
+
+func decodeCaptureAudioData(raw string) ([]byte, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	if strings.HasPrefix(trimmed, "data:") {
+		if idx := strings.Index(trimmed, ","); idx >= 0 {
+			trimmed = trimmed[idx+1:]
+		}
+	}
+	if data, err := base64.StdEncoding.DecodeString(trimmed); err == nil {
+		return data, nil
+	}
+	return base64.RawStdEncoding.DecodeString(trimmed)
 }

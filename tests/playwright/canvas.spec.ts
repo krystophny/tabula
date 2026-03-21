@@ -517,6 +517,36 @@ test.describe('canvas - response overlay', () => {
     await expect(page.locator('#chat-history .chat-message.chat-assistant.is-pending')).toHaveCount(0);
   });
 
+  test('render protocol events apply server-rendered html to chat and canvas', async ({ page }) => {
+    await injectChatEvent(page, { type: 'turn_started', turn_id: 'render-protocol-1' });
+    await page.waitForTimeout(80);
+
+    await injectChatEvent(page, {
+      type: 'render_chat',
+      turn_id: 'render-protocol-1',
+      markdown: '## Server heading',
+      html: '<h2>Server heading</h2><p><strong>From Go</strong></p>',
+    });
+    await page.waitForTimeout(80);
+
+    const assistantRow = page.locator('#chat-history .chat-message.chat-assistant').first();
+    await expect(assistantRow.locator('h2')).toContainText('Server heading');
+    await expect(assistantRow.locator('strong')).toContainText('From Go');
+
+    await injectChatEvent(page, {
+      type: 'render_canvas',
+      turn_id: 'render-protocol-1',
+      kind: 'text_artifact',
+      title: 'server.md',
+      text: '## Canvas heading',
+      html: '<article><h2>Canvas heading</h2><p><code>server</code></p></article>',
+    });
+    await page.waitForTimeout(80);
+
+    await expect(page.locator('#canvas-text h2')).toContainText('Canvas heading');
+    await expect(page.locator('#canvas-text code')).toContainText('server');
+  });
+
   test('empty canvas switches from text overlay to symbol on first artifact event', async ({ page }) => {
     await page.evaluate(() => {
       const uiMod = (window as any).__uiModule;
