@@ -33,24 +33,6 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 	if a.maybeRunSilentLiveEditTurn(sessionID, session, userText, cursorCtx, positionCtx, turn.captureMode) {
 		return
 	}
-	if a.assistantTurnMode(turn.localOnly) == assistantModeLocal {
-		a.runLocalAssistantTurn(sessionID, session, messages, userText, cursorCtx, inkCtx, positionCtx, turn.captureMode, turn.outputMode)
-		return
-	}
-	if a.appServerClient == nil {
-		errText := "app-server is not configured"
-		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
-		a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
-		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": errText})
-		return
-	}
-
-	cwd, err := a.effectiveWorkspaceDirForChatSession(session)
-	if err != nil {
-		a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
-		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": err.Error()})
-		return
-	}
 	baseProfile := a.appServerModelProfileForWorkspacePath(session.WorkspacePath)
 	turnProfile := baseProfile
 	if strings.TrimSpace(userText) != "" {
@@ -62,53 +44,88 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 	}
 	baseProfile = a.appServerProfileForChatSession(session, baseProfile)
 	turnProfile = a.appServerProfileForChatSession(session, turnProfile)
+	req := &assistantTurnRequest{
+		sessionID:   sessionID,
+		session:     session,
+		messages:    messages,
+		userText:    userText,
+		cursorCtx:   cursorCtx,
+		inkCtx:      inkCtx,
+		positionCtx: positionCtx,
+		captureMode: turn.captureMode,
+		outputMode:  turn.outputMode,
+		localOnly:   turn.localOnly,
+		turnModel:   requestedTurnAlias,
+		baseProfile: baseProfile,
+		turnProfile: turnProfile,
+	}
+	a.assistantBackendForTurn(req).run(req)
+}
+
+func (a *App) runCodexAssistantTurn(req *assistantTurnRequest) {
+	if a == nil || req == nil {
+		return
+	}
+	if a.appServerClient == nil {
+		errText := "app-server is not configured"
+		_, _ = a.store.AddChatMessage(req.sessionID, "system", errText, errText, "text")
+		a.finishCompanionPendingTurn(req.sessionID, "assistant_turn_failed")
+		a.broadcastChatEvent(req.sessionID, map[string]interface{}{"type": "error", "error": errText})
+		return
+	}
+	cwd, err := a.effectiveWorkspaceDirForChatSession(req.session)
+	if err != nil {
+		a.finishCompanionPendingTurn(req.sessionID, "assistant_turn_failed")
+		a.broadcastChatEvent(req.sessionID, map[string]interface{}{"type": "error", "error": err.Error()})
+		return
+	}
 	turnStartedAt := time.Now()
-	responseMeta := newAssistantResponseMetadata(providerForAppServerProfile(turnProfile), turnProfile.Model, 0)
-	appSess, bindingSessionID, resumed, sessErr := a.getOrCreateAppSession(sessionID, cwd, baseProfile)
+	responseMeta := newAssistantResponseMetadata(providerForAppServerProfile(req.turnProfile), req.turnProfile.Model, 0)
+	appSess, bindingSessionID, resumed, sessErr := a.getOrCreateAppSession(req.sessionID, cwd, req.baseProfile)
 	if sessErr != nil {
-		a.runAssistantTurnLegacy(sessionID, session, messages, cursorCtx, inkCtx, positionCtx, turn.outputMode, baseProfile, turnProfile)
+		a.runAssistantTurnLegacy(req.sessionID, req.session, req.messages, req.cursorCtx, req.inkCtx, req.positionCtx, req.outputMode, req.baseProfile, req.turnProfile)
 		return
 	}
 
-	canvasCtx := a.resolveCanvasContext(session.WorkspacePath)
-	companionCtx := a.loadCompanionPromptContext(session.WorkspacePath)
+	canvasCtx := a.resolveCanvasContext(req.session.WorkspacePath)
+	companionCtx := a.loadCompanionPromptContext(req.session.WorkspacePath)
 	var prompt string
 	if resumed {
-		prompt = buildTurnPromptForSessionWithCompanion(sessionID, messages, canvasCtx, companionCtx, turn.outputMode, turnProfile.Alias)
+		prompt = buildTurnPromptForSessionWithCompanion(req.sessionID, req.messages, canvasCtx, companionCtx, req.outputMode, req.turnProfile.Alias)
 	} else {
-		prompt = buildPromptFromHistoryForSessionWithCompanionPolicy(session.Mode, a.yoloModeEnabled(), sessionID, messages, canvasCtx, companionCtx, turn.outputMode, turnProfile.Alias)
+		prompt = buildPromptFromHistoryForSessionWithCompanionPolicy(req.session.Mode, a.yoloModeEnabled(), req.sessionID, req.messages, canvasCtx, companionCtx, req.outputMode, req.turnProfile.Alias)
 		_ = a.store.UpdateChatSessionThread(bindingSessionID, appSess.ThreadID())
 	}
-	prompt = appendChatCursorPrompt(prompt, cursorCtx)
-	prompt = appendCanvasInkPrompt(prompt, inkCtx)
-	prompt = appendCanvasPositionPrompt(prompt, positionCtx)
+	prompt = appendChatCursorPrompt(prompt, req.cursorCtx)
+	prompt = appendCanvasInkPrompt(prompt, req.inkCtx)
+	prompt = appendCanvasPositionPrompt(prompt, req.positionCtx)
 	if strings.TrimSpace(prompt) == "" {
-		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
+		a.broadcastChatEvent(req.sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
 		return
 	}
-	prompt = a.applyWorkspacePromptContext(session.WorkspacePath, prompt)
-	prompt, err = a.applyPreAssistantPromptHook(context.Background(), sessionID, session.WorkspacePath, turn.outputMode, session.Mode, prompt)
+	prompt = a.applyWorkspacePromptContext(req.session.WorkspacePath, prompt)
+	prompt, err = a.applyPreAssistantPromptHook(context.Background(), req.sessionID, req.session.WorkspacePath, req.outputMode, req.session.Mode, prompt)
 	if err != nil {
 		errText := err.Error()
-		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
-		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": errText})
+		_, _ = a.store.AddChatMessage(req.sessionID, "system", errText, errText, "text")
+		a.broadcastChatEvent(req.sessionID, map[string]interface{}{"type": "error", "error": errText})
 		return
 	}
 	if strings.TrimSpace(prompt) == "" {
-		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
+		a.broadcastChatEvent(req.sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
 		return
 	}
-	turnInput := buildAppServerTurnInput(prompt, latestCanvasPositionVisualAttachment(positionCtx))
+	turnInput := buildAppServerTurnInput(prompt, latestCanvasPositionVisualAttachment(req.positionCtx))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	runID := randomToken()
-	a.registerActiveChatTurn(sessionID, runID, cancel)
+	a.registerActiveChatTurn(req.sessionID, runID, cancel)
 	defer func() {
 		cancel()
-		a.unregisterActiveChatTurn(sessionID, runID)
+		a.unregisterActiveChatTurn(req.sessionID, runID)
 	}()
 
-	go a.watchCanvasFile(ctx, session.WorkspacePath)
+	go a.watchCanvasFile(ctx, req.session.WorkspacePath)
 
 	latestMessage := ""
 	latestTurnID := ""
@@ -129,11 +146,11 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 			return
 		}
 		if persistedAssistantID == 0 {
-			storedAssistant, storeErr := a.store.AddChatMessage(sessionID, "assistant", candidateMarkdown, candidatePlain, candidateFormat, snapshotOpts()...)
+			storedAssistant, storeErr := a.store.AddChatMessage(req.sessionID, "assistant", candidateMarkdown, candidatePlain, candidateFormat, snapshotOpts()...)
 			if storeErr != nil {
 				if !persistWriteFailed {
 					persistWriteFailed = true
-					a.broadcastChatEvent(sessionID, map[string]interface{}{
+					a.broadcastChatEvent(req.sessionID, map[string]interface{}{
 						"type":  "error",
 						"error": storeErr.Error(),
 					})
@@ -154,7 +171,7 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 		if storeErr := a.store.UpdateChatMessageContent(persistedAssistantID, candidateMarkdown, candidatePlain, candidateFormat, snapshotOpts()...); storeErr != nil {
 			if !persistWriteFailed {
 				persistWriteFailed = true
-				a.broadcastChatEvent(sessionID, map[string]interface{}{
+				a.broadcastChatEvent(req.sessionID, map[string]interface{}{
 					"type":  "error",
 					"error": storeErr.Error(),
 				})
@@ -166,12 +183,12 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 		persistedAssistantFormat = candidateFormat
 	}
 
-	appResp, err := appSess.SendTurnInputWithParams(ctx, turnInput, turnProfile.Model, turnProfile.TurnParams, func(ev appserver.StreamEvent) {
+	appResp, err := appSess.SendTurnInputWithParams(ctx, turnInput, req.turnProfile.Model, req.turnProfile.TurnParams, func(ev appserver.StreamEvent) {
 		payload := map[string]interface{}{
 			"type":        ev.Type,
 			"thread_id":   ev.ThreadID,
 			"turn_id":     ev.TurnID,
-			"output_mode": turn.outputMode,
+			"output_mode": req.outputMode,
 		}
 		shouldBroadcast := true
 		var renderCommand map[string]interface{}
@@ -182,15 +199,15 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 			if strings.TrimSpace(ev.TurnID) != "" {
 				latestTurnID = ev.TurnID
 			}
-			a.markCompanionThinking(sessionID, session.WorkspacePath, latestTurnID, turn.outputMode, "assistant_turn_started")
+			a.markCompanionThinking(req.sessionID, req.session.WorkspacePath, latestTurnID, req.outputMode, "assistant_turn_started")
 		case "assistant_message":
 			latestMessage = ev.Message
 			latestTurnID = ev.TurnID
-			renderPlan := assistantRenderPlanForMode(ev.Message, turn.outputMode)
+			renderPlan := assistantRenderPlanForMode(ev.Message, req.outputMode)
 			persistAssistantSnapshot(ev.Message, renderPlan.RenderOnCanvas, renderPlan.AutoCanvas)
 			payload["message"] = ev.Message
 			payload["delta"] = ev.Delta
-			renderCommand = assistantRenderChatCommand(latestTurnID, turn.outputMode, ev.Message)
+			renderCommand = assistantRenderChatCommand(latestTurnID, req.outputMode, ev.Message)
 			if renderPlan.RenderOnCanvas {
 				payload["render_on_canvas"] = true
 			}
@@ -202,10 +219,10 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 				latestMessage = ev.Message
 			}
 			latestTurnID = ev.TurnID
-			renderPlan := assistantRenderPlanForMode(latestMessage, turn.outputMode)
+			renderPlan := assistantRenderPlanForMode(latestMessage, req.outputMode)
 			persistAssistantSnapshot(latestMessage, renderPlan.RenderOnCanvas, renderPlan.AutoCanvas)
 			payload["message"] = latestMessage
-			renderCommand = assistantRenderChatCommand(latestTurnID, turn.outputMode, latestMessage)
+			renderCommand = assistantRenderChatCommand(latestTurnID, req.outputMode, latestMessage)
 			if renderPlan.RenderOnCanvas {
 				payload["render_on_canvas"] = true
 			}
@@ -223,7 +240,7 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 		case "context_compact":
 			// pass through to frontend
 		case "approval_request":
-			decision, decisionErr := a.requestAppServerApproval(ctx, sessionID, ev)
+			decision, decisionErr := a.requestAppServerApproval(ctx, req.sessionID, ev)
 			if decisionErr != nil {
 				if ev.Respond != nil {
 					_ = ev.Respond("cancel")
@@ -246,26 +263,26 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 			shouldBroadcast = false
 		}
 		if shouldBroadcast {
-			a.broadcastChatEvent(sessionID, payload)
+			a.broadcastChatEvent(req.sessionID, payload)
 			if renderCommand != nil {
-				a.broadcastChatEvent(sessionID, renderCommand)
+				a.broadcastChatEvent(req.sessionID, renderCommand)
 			}
 		}
 	})
 	if err != nil {
-		a.closeAppSession(sessionID)
+		a.closeAppSession(req.sessionID)
 		if errors.Is(err, context.Canceled) {
-			a.finishCompanionPendingTurn(sessionID, "assistant_turn_cancelled")
-			a.broadcastChatEvent(sessionID, map[string]interface{}{
+			a.finishCompanionPendingTurn(req.sessionID, "assistant_turn_cancelled")
+			a.broadcastChatEvent(req.sessionID, map[string]interface{}{
 				"type":    "turn_cancelled",
 				"turn_id": latestTurnID,
 			})
 			return
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
-			a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
+			a.finishCompanionPendingTurn(req.sessionID, "assistant_turn_failed")
 			errText := "assistant request timed out"
-			_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
+			_, _ = a.store.AddChatMessage(req.sessionID, "system", errText, errText, "text")
 			payload := map[string]interface{}{
 				"type":  "error",
 				"error": errText,
@@ -273,12 +290,12 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 			if strings.TrimSpace(latestTurnID) != "" {
 				payload["turn_id"] = latestTurnID
 			}
-			a.broadcastChatEvent(sessionID, payload)
+			a.broadcastChatEvent(req.sessionID, payload)
 			return
 		}
-		a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
+		a.finishCompanionPendingTurn(req.sessionID, "assistant_turn_failed")
 		errText := normalizeAssistantError(err)
-		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
+		_, _ = a.store.AddChatMessage(req.sessionID, "system", errText, errText, "text")
 		payload := map[string]interface{}{
 			"type":  "error",
 			"error": errText,
@@ -286,7 +303,7 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 		if strings.TrimSpace(latestTurnID) != "" {
 			payload["turn_id"] = latestTurnID
 		}
-		a.broadcastChatEvent(sessionID, payload)
+		a.broadcastChatEvent(req.sessionID, payload)
 		return
 	}
 
@@ -299,15 +316,15 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 	}
 
 	assistantText = a.finalizeAssistantResponseWithMetadata(
-		sessionID,
-		session.WorkspacePath,
+		req.sessionID,
+		req.session.WorkspacePath,
 		assistantText,
 		&persistedAssistantID,
 		&persistedAssistantText,
 		appResp.TurnID,
 		latestTurnID,
 		appResp.ThreadID,
-		turn.outputMode,
+		req.outputMode,
 		newAssistantResponseMetadata(responseMeta.Provider, responseMeta.ProviderModel, time.Since(turnStartedAt)),
 	)
 	_ = assistantText

@@ -1,13 +1,8 @@
 package web
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"time"
 
@@ -22,7 +17,9 @@ const (
 	assistantLLMRequestTimeout   = 20 * time.Second
 	assistantLLMResponseLimit    = 256 * 1024
 	assistantLLMMaxTokens        = 4096
-	localAssistantDialoguePrompt = "You are Tabura's local assistant. Reply in plain text only. Do not emit JSON, code fences, or tool calls. The request has already passed through local command routing, so answer conversationally and concisely."
+	assistantLLMMaxToolRounds    = 6
+	assistantLLMMalformedRetries = 2
+	localAssistantDialoguePrompt = "You are Tabura's local assistant. Use tools when the task depends on workspace state, shell inspection, or MCP capabilities. Prefer native tool calls when the model supports them. If native tool calls are unavailable, respond with JSON only using either {\"tool_calls\":[...]} or {\"final\":\"...\"}. Available tools: shell with command and optional cwd, and mcp with name, arguments, and optional mcp_url. When a tool fails, recover with another tool call or explain the failure clearly. Do not emit markdown fences around JSON."
 )
 
 func normalizeAssistantMode(raw string) string {
@@ -81,63 +78,6 @@ func (a *App) localAssistantLLMModel() string {
 	return a.localIntentLLMModel()
 }
 
-func (a *App) requestLocalAssistantMessage(ctx context.Context, prompt string, visual *chatVisualAttachment) (string, error) {
-	baseURL := a.assistantLLMBaseURL()
-	if baseURL == "" {
-		return "", errors.New("local assistant is not configured")
-	}
-	requestBody, _ := json.Marshal(map[string]any{
-		"model":       a.localAssistantLLMModel(),
-		"temperature": 0,
-		"max_tokens":  assistantLLMMaxTokens,
-		"chat_template_kwargs": map[string]any{
-			"enable_thinking": false,
-		},
-		"messages": []map[string]any{
-			{"role": "system", "content": localAssistantDialoguePrompt},
-			{"role": "user", "content": buildLocalAssistantUserContent(prompt, visual)},
-		},
-	})
-	requestCtx, cancel := context.WithTimeout(ctx, assistantLLMRequestTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(
-		requestCtx,
-		http.MethodPost,
-		baseURL+"/v1/chat/completions",
-		bytes.NewReader(requestBody),
-	)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, assistantLLMResponseLimit))
-		return "", fmt.Errorf("assistant llm HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-	var payload localIntentLLMChatCompletionResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, assistantLLMResponseLimit)).Decode(&payload); err != nil {
-		return "", err
-	}
-	if len(payload.Choices) == 0 {
-		return "", errors.New("assistant llm returned no choices")
-	}
-	content := strings.TrimSpace(stripCodeFence(payload.Choices[0].Message.Content))
-	if content == "" {
-		return "", errors.New("assistant llm returned empty content")
-	}
-	if classification, err := parseIntentPlanClassification(content); err == nil && classification.LocalAnswer != nil {
-		if text := strings.TrimSpace(classification.LocalAnswer.Text); text != "" {
-			return text, nil
-		}
-	}
-	return content, nil
-}
-
 func (a *App) buildLocalAssistantPrompt(sessionID string, session store.ChatSession, messages []store.ChatMessage, cursorCtx *chatCursorContext, inkCtx []*chatCanvasInkEvent, positionCtx []*chatCanvasPositionEvent, outputMode string) (string, error) {
 	canvasCtx := a.resolveCanvasContext(session.WorkspacePath)
 	companionCtx := a.loadCompanionPromptContext(session.WorkspacePath)
@@ -159,89 +99,103 @@ func (a *App) buildLocalAssistantPrompt(sessionID string, session store.ChatSess
 	return prompt, nil
 }
 
-func (a *App) runLocalAssistantTurn(sessionID string, session store.ChatSession, messages []store.ChatMessage, userText string, cursorCtx *chatCursorContext, inkCtx []*chatCanvasInkEvent, positionCtx []*chatCanvasPositionEvent, captureMode string, outputMode string) {
+func (a *App) runLocalAssistantTurn(req *assistantTurnRequest, evaluation *localTurnEvaluation) {
+	if a == nil || req == nil {
+		return
+	}
 	turnStartedAt := time.Now()
-	actionMessage, actionPayloads, handled := a.classifyAndExecuteSystemActionForTurn(context.Background(), sessionID, session, userText, cursorCtx, captureMode)
-	if handled {
-		if suppressLocalAssistantResponse(actionPayloads) {
-			a.finishCompanionPendingTurn(sessionID, "assistant_turn_suppressed")
+	eval := evaluation
+	if eval == nil {
+		computed := a.evaluateLocalTurn(
+			context.Background(),
+			req.sessionID,
+			req.session,
+			req.userText,
+			req.cursorCtx,
+			req.captureMode,
+		)
+		eval = &computed
+	}
+	if eval != nil && eval.handled {
+		if suppressLocalAssistantResponse(eval.payloads) {
+			a.finishCompanionPendingTurn(req.sessionID, "assistant_turn_suppressed")
 			return
 		}
 		runID := randomToken()
-		a.broadcastChatEvent(sessionID, map[string]interface{}{
+		a.broadcastChatEvent(req.sessionID, map[string]interface{}{
 			"type":    "turn_started",
 			"turn_id": runID,
 		})
-		assistantText := strings.TrimSpace(actionMessage)
+		assistantText := strings.TrimSpace(eval.text)
 		if assistantText == "" {
 			assistantText = "Done."
 		}
-		for _, actionPayload := range actionPayloads {
+		for _, actionPayload := range eval.payloads {
 			if actionPayload == nil {
 				continue
 			}
-			a.broadcastSystemActionEvent(sessionID, actionPayload)
+			a.broadcastSystemActionEvent(req.sessionID, actionPayload)
 		}
 		persistedAssistantID := int64(0)
 		persistedAssistantText := ""
 		a.finalizeAssistantResponseWithMetadata(
-			sessionID,
-			session.WorkspacePath,
+			req.sessionID,
+			req.session.WorkspacePath,
 			assistantText,
 			&persistedAssistantID,
 			&persistedAssistantText,
 			"",
 			runID,
 			"",
-			outputMode,
+			req.outputMode,
 			newAssistantResponseMetadata(a.localAssistantProvider(), a.localAssistantModelLabel(), time.Since(turnStartedAt)),
 		)
 		return
 	}
 
-	prompt, err := a.buildLocalAssistantPrompt(sessionID, session, messages, cursorCtx, inkCtx, positionCtx, outputMode)
+	prompt, err := a.buildLocalAssistantPrompt(req.sessionID, req.session, req.messages, req.cursorCtx, req.inkCtx, req.positionCtx, req.outputMode)
 	if err != nil {
 		errText := err.Error()
-		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
-		a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
-		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": errText})
+		_, _ = a.store.AddChatMessage(req.sessionID, "system", errText, errText, "text")
+		a.finishCompanionPendingTurn(req.sessionID, "assistant_turn_failed")
+		a.broadcastChatEvent(req.sessionID, map[string]interface{}{"type": "error", "error": errText})
 		return
 	}
 	if compactedPrompt, compacted := compactLocalAssistantPrompt(prompt); compacted {
 		prompt = compactedPrompt
-		a.broadcastChatEvent(sessionID, map[string]any{
+		a.broadcastChatEvent(req.sessionID, map[string]any{
 			"type": "context_compact",
 		})
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	runID := randomToken()
-	a.registerActiveChatTurn(sessionID, runID, cancel)
+	a.registerActiveChatTurn(req.sessionID, runID, cancel)
 	defer func() {
 		cancel()
-		a.unregisterActiveChatTurn(sessionID, runID)
+		a.unregisterActiveChatTurn(req.sessionID, runID)
 	}()
 
-	go a.watchCanvasFile(ctx, session.WorkspacePath)
-	a.broadcastChatEvent(sessionID, map[string]interface{}{
+	go a.watchCanvasFile(ctx, req.session.WorkspacePath)
+	a.broadcastChatEvent(req.sessionID, map[string]interface{}{
 		"type":    "turn_started",
 		"turn_id": runID,
 	})
 
-	reply, err := a.requestLocalAssistantMessage(ctx, prompt, latestCanvasPositionVisualAttachment(positionCtx))
+	reply, err := a.runLocalAssistantToolLoop(ctx, req, prompt, latestCanvasPositionVisualAttachment(req.positionCtx))
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
-			a.finishCompanionPendingTurn(sessionID, "assistant_turn_cancelled")
-			a.broadcastChatEvent(sessionID, map[string]interface{}{
+			a.finishCompanionPendingTurn(req.sessionID, "assistant_turn_cancelled")
+			a.broadcastChatEvent(req.sessionID, map[string]interface{}{
 				"type":    "turn_cancelled",
 				"turn_id": runID,
 			})
 			return
 		}
 		errText := normalizeAssistantError(err)
-		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
-		a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
-		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": errText})
+		_, _ = a.store.AddChatMessage(req.sessionID, "system", errText, errText, "text")
+		a.finishCompanionPendingTurn(req.sessionID, "assistant_turn_failed")
+		a.broadcastChatEvent(req.sessionID, map[string]interface{}{"type": "error", "error": errText})
 		return
 	}
 
@@ -252,15 +206,15 @@ func (a *App) runLocalAssistantTurn(sessionID string, session store.ChatSession,
 	persistedAssistantID := int64(0)
 	persistedAssistantText := ""
 	a.finalizeAssistantResponseWithMetadata(
-		sessionID,
-		session.WorkspacePath,
+		req.sessionID,
+		req.session.WorkspacePath,
 		assistantText,
 		&persistedAssistantID,
 		&persistedAssistantText,
 		"",
 		runID,
 		"",
-		outputMode,
+		req.outputMode,
 		newAssistantResponseMetadata(a.localAssistantProvider(), a.localAssistantModelLabel(), time.Since(turnStartedAt)),
 	)
 }

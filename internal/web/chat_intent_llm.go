@@ -24,7 +24,9 @@ type localIntentLLMChoice struct {
 }
 
 type localIntentLLMMessage struct {
-	Content string `json:"content"`
+	Content      string                         `json:"content"`
+	ToolCalls    []localAssistantLLMToolCall    `json:"tool_calls"`
+	FunctionCall *localAssistantLLMFunctionCall `json:"function_call"`
 }
 
 type intentLocalAnswer struct {
