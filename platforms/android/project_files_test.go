@@ -21,6 +21,8 @@ func TestTaburaAndroidProjectIncludesExpectedFiles(t *testing.T) {
 		filepath.Join("app", "src", "main", "kotlin", "com", "tabura", "android", "MainActivity.kt"),
 		filepath.Join("app", "src", "main", "kotlin", "com", "tabura", "android", "TaburaAppModel.kt"),
 		filepath.Join("app", "src", "main", "kotlin", "com", "tabura", "android", "TaburaAudioCaptureService.kt"),
+		filepath.Join("app", "src", "main", "kotlin", "com", "tabura", "android", "TaburaBooxDevice.kt"),
+		filepath.Join("app", "src", "main", "kotlin", "com", "tabura", "android", "TaburaBooxInkSurfaceView.kt"),
 		filepath.Join("app", "src", "main", "kotlin", "com", "tabura", "android", "TaburaCanvasTransport.kt"),
 		filepath.Join("app", "src", "main", "kotlin", "com", "tabura", "android", "TaburaCanvasWebView.kt"),
 		filepath.Join("app", "src", "main", "kotlin", "com", "tabura", "android", "TaburaChatTransport.kt"),
@@ -82,12 +84,29 @@ func TestTaburaAndroidBuildIncludesRealtimeInkStack(t *testing.T) {
 		"androidx.graphics:graphics-core",
 		"androidx.input:input-motionprediction",
 		"androidx.webkit:webkit",
+		"com.onyx.android.sdk:onyxsdk-device:1.1.11",
+		"com.onyx.android.sdk:onyxsdk-pen:1.2.1",
 		"com.squareup.okhttp3:okhttp",
 	}
 	for _, snippet := range required {
 		if !strings.Contains(buildFile, snippet) {
 			t.Fatalf("app/build.gradle.kts missing %q", snippet)
 		}
+	}
+}
+
+func TestTaburaAndroidBuildIncludesBooxRepository(t *testing.T) {
+	projectRoot, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatalf("Abs: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(projectRoot, "settings.gradle.kts"))
+	if err != nil {
+		t.Fatalf("ReadFile(settings.gradle.kts): %v", err)
+	}
+	settings := string(data)
+	if !strings.Contains(settings, "https://repo.boox.com/repository/maven-public/") {
+		t.Fatalf("settings.gradle.kts missing Boox Maven repository")
 	}
 }
 
@@ -126,7 +145,28 @@ func TestTaburaAndroidSourcesCoverThinClientResponsibilities(t *testing.T) {
 		},
 		{
 			relative: filepath.Join("app", "src", "main", "kotlin", "com", "tabura", "android", "TaburaCanvasWebView.kt"),
-			snippets: []string{"WebView", "loadDataWithBaseURL"},
+			snippets: []string{"WebView", "loadDataWithBaseURL", "body.eink-display", "scroll-behavior: auto !important"},
+		},
+		{
+			relative: filepath.Join("app", "src", "main", "kotlin", "com", "tabura", "android", "TaburaBooxDevice.kt"),
+			snippets: []string{
+				"Build.MANUFACTURER.lowercase() == \"onyx\"",
+				"setViewDefaultUpdateMode",
+				"applyGCOnce",
+				"setWebViewContrastOptimize",
+			},
+		},
+		{
+			relative: filepath.Join("app", "src", "main", "kotlin", "com", "tabura", "android", "TaburaBooxInkSurfaceView.kt"),
+			snippets: []string{
+				"TouchHelper.create",
+				"setUseRawInput(true)",
+				"openRawDrawing",
+				"setRawDrawingEnabled(true)",
+				"closeRawDrawing",
+				"onRawDrawingTouchPointListReceived",
+				"TaburaInkStroke",
+			},
 		},
 	}
 	for _, check := range checks {

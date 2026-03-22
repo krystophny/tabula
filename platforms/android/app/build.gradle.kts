@@ -57,6 +57,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.0")
     implementation("androidx.webkit:webkit:1.13.0")
+    implementation("com.onyx.android.sdk:onyxsdk-device:1.1.11")
+    implementation("com.onyx.android.sdk:onyxsdk-pen:1.2.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
