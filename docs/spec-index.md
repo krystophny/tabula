@@ -25,9 +25,10 @@ Read in this order:
 8. `auxiliary-surfaces.md`
 9. `architecture.md`
 10. `native-clients-plan.md`
-11. `live-runtime-whitepaper.md`
-12. `meeting-notes-privacy.md`
-13. `codex-app-server-pivot.md`
+11. `native-clients.md`
+12. `live-runtime-whitepaper.md`
+13. `meeting-notes-privacy.md`
+14. `codex-app-server-pivot.md`
 
 Integrated protocol reference:
 

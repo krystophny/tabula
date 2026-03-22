@@ -97,7 +97,16 @@ func (a *App) assistantBackendForAutoMode(req *assistantTurnRequest) assistantTu
 		req.cursorCtx,
 		req.captureMode,
 	)
-	if evaluation.handled || evaluation.isHighConfidenceLocalAnswer() {
+	if evaluation.handled {
+		// Once a chat session is bound to a persistent app-server thread, keep
+		// short local-answer classifications from breaking the remote dialogue.
+		if !(evaluation.isHighConfidenceLocalAnswer() &&
+			a.appServerClient != nil &&
+			strings.TrimSpace(req.session.AppThreadID) != "") {
+			return &localAssistantBackend{app: a, evaluation: &evaluation}
+		}
+	}
+	if evaluation.isHighConfidenceLocalAnswer() {
 		return &localAssistantBackend{app: a, evaluation: &evaluation}
 	}
 	if a.localAssistantAvailable() && localAssistantAutoRouteCandidate(req.userText) {

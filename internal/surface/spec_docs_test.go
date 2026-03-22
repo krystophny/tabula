@@ -141,3 +141,48 @@ func TestNativeClientsPlanDocIsIndexedAndAnchored(t *testing.T) {
 		t.Fatalf("%s does not reference native-clients-plan.md", specIndexPath)
 	}
 }
+
+func TestNativeClientsGuideIsIndexedAndHonest(t *testing.T) {
+	root := repoRootFromCaller(t)
+
+	guidePath := filepath.Join(root, "docs", "native-clients.md")
+	guideDoc, err := os.ReadFile(guidePath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error: %v", guidePath, err)
+	}
+	content := string(guideDoc)
+
+	requiredSnippets := []string{
+		"release/run/verification guide for the shipped native thin-client slice",
+		"swift test --package-path platforms/ios",
+		"ANDROID_HOME=/home/ert/android-sdk gradle -p platforms/android app:testDebugUnitTest",
+		"gradle -p platforms/android/flow-contracts test",
+		"./scripts/playwright.sh",
+		"The structural tests in `platforms/ios/project_files_test.go` and `platforms/android/project_files_test.go` are regression guards",
+		"Boox raw drawing and e-ink refresh",
+		"Do not describe the native clients as a broader completed product unless the automated checks above pass",
+	}
+	for _, snippet := range requiredSnippets {
+		if !strings.Contains(content, snippet) {
+			t.Fatalf("%s missing snippet %q", guidePath, snippet)
+		}
+	}
+
+	specIndexPath := filepath.Join(root, "docs", "spec-index.md")
+	specIndex, err := os.ReadFile(specIndexPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error: %v", specIndexPath, err)
+	}
+	if !strings.Contains(string(specIndex), "`native-clients.md`") {
+		t.Fatalf("%s does not reference native-clients.md", specIndexPath)
+	}
+
+	planPath := filepath.Join(root, "docs", "native-clients-plan.md")
+	planDoc, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error: %v", planPath, err)
+	}
+	if !strings.Contains(string(planDoc), "[`native-clients.md`](native-clients.md)") {
+		t.Fatalf("%s does not reference native-clients.md", planPath)
+	}
+}

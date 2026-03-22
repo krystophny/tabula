@@ -248,7 +248,11 @@ func (a *App) executeSystemAction(sessionID string, session store.ChatSession, a
 	}
 	switch action.Action {
 	case "switch_workspace":
-		workspace, err := a.resolveWorkspaceReference(session.WorkspacePath, systemActionWorkspaceRef(action.Params))
+		workspaceRef := systemActionWorkspaceRef(action.Params)
+		if strings.TrimSpace(workspaceRef) == "" {
+			return "", nil, errors.New("switch_workspace requires workspace")
+		}
+		workspace, err := a.resolveWorkspaceReference(session.WorkspacePath, workspaceRef)
 		if err != nil {
 			return "", nil, err
 		}

@@ -94,7 +94,11 @@ techniques are anchored in the platform files above.
 
 ## Delivery Status
 
-Dialogue black-screen mode is now intentionally implemented across the shipped
+This is not a claim that the full native-client program is done. The current
+repo claim is limited to the shipped thin-client slice and the black-screen
+dialogue path documented here and in [`native-clients.md`](native-clients.md).
+
+Dialogue black-screen mode is intentionally implemented across the shipped
 clients:
 
 - `#632` server-side render protocol
@@ -108,6 +112,16 @@ clients:
 Issue `#639` remains the broader umbrella for the rest of the native-client
 push. This document only claims the black-screen dialogue slice that is
 implemented in the current repo state.
+
+## Verification and Runbook
+
+Release/run/use instructions and the platform verification checklist live in
+[`native-clients.md`](native-clients.md).
+
+Treat `platforms/ios/project_files_test.go` and
+`platforms/android/project_files_test.go` as packaging regression guards only.
+Completion evidence comes from the platform contract tests, the Playwright
+dialogue coverage, and the manual hardware checklist.
 
 ## Native Dialogue Mode Operation
 
@@ -141,9 +155,20 @@ Use these pass/fail checks when real devices are available:
    then stops the foreground microphone service path.
    Fail: the app stays in the standard shell, the display sleeps, or recording
    state diverges from the foreground-service state.
-3. Server/client wiring
+3. Boox raw drawing and refresh
+   Pass: the Android client reports `Boox E-Ink mode active`, raw stylus input
+   uses the `TouchHelper` path, and canvas/content refreshes do not leave stale
+   e-ink frames behind.
+   Fail: the generic Android path is used on Boox hardware, raw drawing never
+   opens, or stale content remains after refresh.
+4. Server/client wiring
    Pass: switching the surface updates `/api/workspaces/{id}/companion/config`,
    entering dialogue posts `/api/live-policy`, and a server
    `toggle_live_dialogue` action toggles the native mode.
    Fail: native dialogue mode only works as a local visual toggle with no server
    state integration.
+5. Product docs honesty
+   Pass: product docs only claim the shipped thin-client slice and point to
+   [`native-clients.md`](native-clients.md) for run and verification steps.
+   Fail: docs describe the native clients as complete without matching automated
+   and hardware evidence.

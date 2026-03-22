@@ -207,6 +207,8 @@ Participant and STT APIs:
 - `GET /api/hotword/train/recordings/{recording_id}/audio`
 - `POST /api/hotword/train/generate`
 - `GET /api/hotword/train/generate/status`
+- `GET /api/hotword/train/feedback`
+- `POST /api/hotword/train/feedback`
 - `POST /api/hotword/train/start`
 - `GET /api/hotword/train/status`
 - `POST /api/hotword/train/deploy`

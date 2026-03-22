@@ -15,10 +15,23 @@ fun detectTaburaDisplayProfile(context: Context): TaburaDisplayProfile {
 }
 
 private fun isBooxDevice(context: Context): Boolean {
-    if (Build.MANUFACTURER.lowercase() == "onyx") {
-        return true
-    }
-    return hasOnyxSdkPackage(context) || hasClass("com.onyx.android.sdk.pen.TouchHelper")
+    return shouldTreatAsBooxDevice(
+        manufacturer = Build.MANUFACTURER,
+        hasOnyxSdkPackage = hasOnyxSdkPackage(context),
+        hasTouchHelperClass = hasClass("com.onyx.android.sdk.pen.TouchHelper"),
+    )
+}
+
+internal fun shouldTreatAsBooxDevice(
+    manufacturer: String,
+    hasOnyxSdkPackage: Boolean,
+    hasTouchHelperClass: Boolean,
+): Boolean {
+    val normalizedManufacturer = manufacturer.trim().lowercase()
+    return Build.MANUFACTURER.lowercase() == "onyx" ||
+        normalizedManufacturer == "onyx" ||
+        hasOnyxSdkPackage ||
+        hasTouchHelperClass
 }
 
 private fun hasOnyxSdkPackage(context: Context): Boolean {

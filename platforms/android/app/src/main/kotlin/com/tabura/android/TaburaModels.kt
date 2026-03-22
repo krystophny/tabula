@@ -1,12 +1,11 @@
 package com.tabura.android
 
-import android.text.Html
-import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.util.Base64
 
 data class TaburaWorkspaceListResponse(
     val activeWorkspaceId: String,
@@ -169,18 +168,11 @@ data class TaburaDiscoveredServer(
 fun taburaWsUrl(baseUrl: String, path: String): String {
     val base = URI(baseUrl.trim())
     val scheme = if (base.scheme.equals("https", ignoreCase = true)) "wss" else "ws"
+    val authority = base.rawAuthority ?: error("base URL is missing an authority: $baseUrl")
     val encodedPath = path
         .split("/")
         .joinToString("/") { segment -> URLEncoder.encode(segment, StandardCharsets.UTF_8).replace("+", "%20") }
-    return URI(
-        scheme,
-        base.userInfo,
-        base.host,
-        base.port,
-        "/ws/$encodedPath",
-        null,
-        null,
-    ).toString()
+    return "$scheme://$authority/ws/$encodedPath"
 }
 
 fun taburaApiUrl(baseUrl: String, path: String): String {
@@ -311,7 +303,7 @@ fun audioPcmMessage(data: ByteArray): String {
     return JSONObject()
         .put("type", "audio_pcm")
         .put("mime_type", "audio/L16;rate=16000;channels=1")
-        .put("data", Base64.encodeToString(data, Base64.NO_WRAP))
+        .put("data", Base64.getEncoder().withoutPadding().encodeToString(data))
         .toString()
 }
 
@@ -353,6 +345,9 @@ fun inkCommitMessage(strokes: List<TaburaInkStroke>, requestResponse: Boolean): 
 }
 
 private fun wrapCanvasText(text: String): String {
-    val escaped = Html.escapeHtml(text)
+    val escaped = text
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
     return "<pre style=\"white-space: pre-wrap; margin: 24px; font: sans-serif;\">$escaped</pre>"
 }
