@@ -29,6 +29,12 @@ func TestTaburaAndroidProjectIncludesExpectedFiles(t *testing.T) {
 		filepath.Join("app", "src", "main", "kotlin", "com", "tabura", "android", "TaburaInkSurfaceView.kt"),
 		filepath.Join("app", "src", "main", "kotlin", "com", "tabura", "android", "TaburaModels.kt"),
 		filepath.Join("app", "src", "main", "kotlin", "com", "tabura", "android", "TaburaServerDiscovery.kt"),
+		filepath.Join("flow-contracts", "build.gradle.kts"),
+		filepath.Join("flow-contracts", "settings.gradle.kts"),
+		filepath.Join("flow-contracts", "src", "test", "kotlin", "com", "tabura", "android", "flow", "FlowFixture.kt"),
+		filepath.Join("flow-contracts", "src", "test", "kotlin", "com", "tabura", "android", "flow", "FlowRunner.kt"),
+		filepath.Join("flow-contracts", "src", "test", "kotlin", "com", "tabura", "android", "flow", "FlowContractTest.kt"),
+		filepath.Join("flow-contracts", "src", "test", "resources", "flow-fixtures.json"),
 		filepath.Join("app", "src", "main", "res", "values", "strings.xml"),
 		filepath.Join("app", "src", "main", "res", "values", "themes.xml"),
 	}

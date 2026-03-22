@@ -93,3 +93,18 @@ The Playwright adapter executes these flows against the browser harness in
 
 Touch profiles use `page.tap()` while desktop profiles use mouse clicks. Assertions
 such as `cursor_class` are skipped on touch profiles, matching the shared contract.
+
+Native flow contract runners consume generated fixtures derived from the same YAML:
+
+- `node ./scripts/sync-native-flow-fixtures.mjs` refreshes the checked-in native fixtures.
+- `npm run test:flows:ios` runs the Swift flow contract suite in `platforms/ios`.
+- `npm run test:flows:android` runs the Kotlin flow contract suite in `platforms/android/flow-contracts`.
+- `npm run test:flows:native` runs both native suites back to back.
+
+The iOS runner is a Swift package. Run it on a machine with Swift available;
+for this repo the documented macOS host is `faepmac1`.
+
+The generated fixture files live in the native test bundles:
+
+- `platforms/ios/Tests/TaburaFlowContractTests/Resources/flow-fixtures.json`
+- `platforms/android/flow-contracts/src/test/resources/flow-fixtures.json`
