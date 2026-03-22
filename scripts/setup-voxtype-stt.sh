@@ -12,7 +12,9 @@ LANGUAGE_RAW="${TABURA_STT_LANGUAGE:-en,de}"
 THREADS="${TABURA_STT_THREADS:-4}"
 PROMPT="${TABURA_STT_PROMPT:-}"
 MODEL="${TABURA_STT_MODEL:-large-v3-turbo}"
-HOTKEY="${TABURA_STT_HOTKEY:-LEFTCTRL}"
+# Hotkey is read from voxtype's own config (~/.config/voxtype/config.toml).
+# Only override if explicitly set via TABURA_STT_HOTKEY.
+HOTKEY="${TABURA_STT_HOTKEY:-}"
 
 if ! command -v "$VOXTYPE_BIN" >/dev/null 2>&1; then
   echo "voxtype binary not found: $VOXTYPE_BIN" >&2
@@ -40,7 +42,7 @@ if [[ "$LANGUAGE_CSV" == *,* ]]; then
   LANGUAGE_MODE="auto"
 fi
 
-echo "Starting voxtype daemon with STT service at http://$HOST:$PORT (languages=$LANGUAGE_CSV model=$MODEL hotkey=$HOTKEY)"
+echo "Starting voxtype daemon with STT service at http://$HOST:$PORT (languages=$LANGUAGE_CSV model=$MODEL${HOTKEY:+ hotkey=$HOTKEY})"
 
 export VOXTYPE_SERVICE_ENABLED=true
 export VOXTYPE_SERVICE_HOST="$HOST"
@@ -54,11 +56,13 @@ args=(
   --service
   --service-host "$HOST"
   --service-port "$PORT"
-  --hotkey "$HOTKEY"
   --model "$MODEL"
   --language "$LANGUAGE_MODE"
   --threads "$THREADS"
 )
+if [ -n "$HOTKEY" ]; then
+  args+=(--hotkey "$HOTKEY")
+fi
 if [ -n "$PROMPT" ]; then
   args+=(--initial-prompt "$PROMPT")
 fi
