@@ -86,7 +86,7 @@ function renderHotword(hotword: Record<string, any>) {
   host.replaceChildren(
     row('Runtime status', hotword?.ready ? 'The browser hotword runtime can start immediately.' : `Missing: ${missing}`),
     row('Model file', model, 'Open hotword test', appURL('static/hotword-test.html')),
-    row('Training entry', 'Wake word management is split onto this management surface so training and model rollout stay out of the canvas.', 'Open dashboard', appURL('manage')),
+    row('Training entry', 'Use the dedicated training workflow for recordings, generator jobs, trainer runs, and deployment.', 'Open trainer', appURL('hotword-train')),
   );
 }
 

@@ -21,6 +21,7 @@ import (
 	tabcalendar "github.com/krystophny/tabura/internal/calendar"
 	"github.com/krystophny/tabura/internal/email"
 	"github.com/krystophny/tabura/internal/extensions"
+	"github.com/krystophny/tabura/internal/hotwordtrain"
 	"github.com/krystophny/tabura/internal/ics"
 	"github.com/krystophny/tabura/internal/modelprofile"
 	"github.com/krystophny/tabura/internal/plugins"
@@ -137,6 +138,7 @@ type App struct {
 	workspaceWatchProcessor workspaceWatchProcessorFunc
 	reviewEmailSender       reviewDispatchEmailSender
 	presentationRenderer    presentationRenderFunc
+	hotwordTrainer          *hotwordtrain.Manager
 
 	shutdownCtx    context.Context
 	shutdownCancel context.CancelFunc
@@ -351,6 +353,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		workspaceWatchProcessor: nil,
 		reviewEmailSender:       sendReviewDispatchEmail,
 		presentationRenderer:    renderPresentationToPDF,
+		hotwordTrainer:          hotwordtrain.New(dataDir, localProjectDir),
 		shutdownCtx:             shutdownCtx,
 		shutdownCancel:          shutdownCancel,
 		bootID:                  strconv.FormatInt(time.Now().UnixNano(), 16),

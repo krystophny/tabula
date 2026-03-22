@@ -79,5 +79,11 @@ func (a *App) handleHotwordStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	root := a.hotwordProjectRoot()
-	writeJSON(w, checkHotwordStatus(root))
+	status := checkHotwordStatus(root)
+	if a.hotwordTrainer != nil {
+		training := a.hotwordTrainer.TrainingStatus()
+		status["training_in_progress"] = training.State == "running"
+		status["training_status"] = training
+	}
+	writeJSON(w, status)
 }

@@ -82,6 +82,14 @@ const COMMAND_CENTER_COMMANDS: Array<{ id: string; title: string; detail: string
     run: () => openManagementPage('manage'),
   },
   {
+    id: 'train-hotword',
+    title: 'Train Wake Word',
+    detail: 'Open the dedicated wake-word training page.',
+    shortcut: 'Hotword',
+    keywords: 'wake word hotword train sloppy model',
+    run: () => openManagementPage('hotword-train'),
+  },
+  {
     id: 'tool-pointer',
     title: 'Switch To Pointer Tool',
     detail: 'Set the interaction tool to pointer.',

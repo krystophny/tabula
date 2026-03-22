@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <title>Hotword Training | Tabura</title>
+  <link rel="stylesheet" href="./static/hotword-train.css">
+</head>
+<body>
+  <main class="train-shell">
+    <header class="train-header">
+      <div>
+        <p class="train-kicker">Wake Word</p>
+        <h1>Train "Sloppy" in one focused pass.</h1>
+        <p class="train-copy">Record samples, generate synthetic data, run the trainer, then deploy the resulting model without leaving the management surface.</p>
+      </div>
+      <div class="train-header-actions">
+        <a class="train-link" href="./manage/hotword">Manage hotword</a>
+        <a class="train-link train-link-strong" href="./static/hotword-test.html">Open test harness</a>
+      </div>
+    </header>
+
+    <p id="train-banner" class="train-banner" hidden></p>
+
+    <section class="train-grid">
+      <article class="train-card">
+        <div class="train-card-head">
+          <div>
+            <p class="train-step">1. Voice Recording</p>
+            <h2>Capture hotword and reference clips</h2>
+          </div>
+          <span id="recording-badge" class="train-badge">idle</span>
+        </div>
+        <p class="train-copy">Hotword clips are short "Sloppy" takes. Reference clips can be longer free speech for model-specific generation pipelines.</p>
+        <div class="train-record-controls">
+          <label class="train-field">
+            <span>Clip kind</span>
+            <select id="recording-kind">
+              <option value="hotword">Hotword clip</option>
+              <option value="reference">Reference speech</option>
+              <option value="test">Test retry clip</option>
+            </select>
+          </label>
+          <button id="recording-toggle" class="train-button train-button-strong" type="button">Start recording</button>
+          <label class="train-upload">
+            <input id="recording-upload" type="file" accept="audio/wav">
+            <span>Upload WAV</span>
+          </label>
+        </div>
+        <p id="recording-status" class="train-status" role="status" aria-live="polite"></p>
+        <ul id="recording-list" class="train-list"></ul>
+      </article>
+
+      <article class="train-card">
+        <div class="train-card-head">
+          <div>
+            <p class="train-step">2. Generation</p>
+            <h2>Run enabled sample generators</h2>
+          </div>
+          <span id="generation-badge" class="train-badge">idle</span>
+        </div>
+        <div class="train-check-grid">
+          <label><input type="checkbox" name="generator-model" value="piper" checked> Piper</label>
+          <label><input type="checkbox" name="generator-model" value="qwen3tts"> Qwen3-TTS</label>
+          <label><input type="checkbox" name="generator-model" value="gptsovits"> GPT-SoVITS</label>
+          <label><input type="checkbox" name="generator-model" value="kokoro"> Kokoro</label>
+        </div>
+        <label class="train-field">
+          <span>Target samples per model</span>
+          <input id="generation-count" type="number" min="1" step="1" value="250">
+        </label>
+        <div class="train-actions">
+          <button id="generation-start" class="train-button" type="button">Generate training data</button>
+        </div>
+        <p id="generation-status" class="train-status" role="status" aria-live="polite"></p>
+        <ul id="generation-list" class="train-list"></ul>
+      </article>
+
+      <article class="train-card">
+        <div class="train-card-head">
+          <div>
+            <p class="train-step">3. Training</p>
+            <h2>Run the openWakeWord pipeline</h2>
+          </div>
+          <span id="training-badge" class="train-badge">idle</span>
+        </div>
+        <p class="train-copy">This page runs the existing `scripts/train-hotword.sh` pipeline and publishes generated models into the project-local training area.</p>
+        <div class="train-actions">
+          <button id="training-start" class="train-button" type="button">Train model</button>
+        </div>
+        <p id="training-status" class="train-status" role="status" aria-live="polite"></p>
+      </article>
+
+      <article class="train-card">
+        <div class="train-card-head">
+          <div>
+            <p class="train-step">4. Deployment</p>
+            <h2>Promote a trained model</h2>
+          </div>
+          <span id="deployment-badge" class="train-badge">ready</span>
+        </div>
+        <p class="train-copy">Deployment copies the selected model into the browser hotword vendor path and keeps the previous production model as `sloppy.onnx.bak`.</p>
+        <p id="deployment-status" class="train-status" role="status" aria-live="polite"></p>
+        <ul id="model-list" class="train-list"></ul>
+      </article>
+    </section>
+  </main>
+
+  <script type="module" src="./static/hotword-train.js"></script>
+</body>
+</html>
