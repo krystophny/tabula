@@ -401,7 +401,9 @@ test.describe('Tabura Circle', () => {
       const circleButtons = Array.from(document.querySelectorAll('#tabura-circle-menu .tabura-circle-segment')).map((button) => ({
         segment: button.getAttribute('data-segment'),
         kind: button.getAttribute('data-kind'),
-        text: String(button.textContent || '').trim(),
+        icon: button.getAttribute('data-icon'),
+        ariaLabel: button.getAttribute('aria-label'),
+        hasSvg: Boolean(button.querySelector('svg')),
       }));
       const topButtonTexts = Array.from(document.querySelectorAll('#edge-top-models button')).map((button) => String(button.textContent || '').trim());
       const topModels = document.getElementById('edge-top-models');
@@ -433,10 +435,20 @@ test.describe('Tabura Circle', () => {
       'tool',
       'tool',
     ]);
-    expect(snapshot.circleButtons.every((button) => button.text.length > 0)).toBe(true);
+    expect(snapshot.circleButtons.every((button) => typeof button.icon === 'string' && button.icon.length > 0)).toBe(true);
+    expect(snapshot.circleButtons.every((button) => typeof button.ariaLabel === 'string' && button.ariaLabel.length > 0)).toBe(true);
+    expect(snapshot.circleButtons.every((button) => button.hasSvg)).toBe(true);
     expect(snapshot.topButtonTexts).toHaveLength(0);
     expect(snapshot.topButtonCount).toBe(0);
     expect(snapshot.topOverflows).toBe(false);
+  });
+
+  test('top panel exposes bug reporting and corner placement without using circle text labels', async ({ page }) => {
+    await page.locator('#edge-top-tap').click();
+    await expect(page.locator('#bug-report-button')).toBeVisible();
+    await expect(page.locator('#tabura-circle-corner-controls button')).toHaveCount(4);
+    await expect(page.locator('#tabura-circle-corner-controls button[aria-pressed="true"]')).toHaveCount(1);
+    await expect(page.locator('#bug-report-button svg')).toHaveCount(1);
   });
 
   test('circle clicks switch the active interaction mode', async ({ page }) => {

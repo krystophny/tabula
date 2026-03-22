@@ -1,4 +1,5 @@
 import { LIVE_SESSION_HOTWORD_DEFAULT } from './live-session.js';
+import { TABURA_CIRCLE_LAYOUT } from './tabura-circle-contract.js';
 
 export const refs: Record<string, any> = {};
 
@@ -40,7 +41,7 @@ export const ACTIVE_PROJECT_STORAGE_KEY = 'tabura.activeWorkspaceId';
 export const ACTIVE_SPHERE_STORAGE_KEY = 'tabura.activeSphere';
 export const LAST_VIEW_STORAGE_KEY = 'tabura.lastView';
 export const RUNTIME_RELOAD_CONTEXT_STORAGE_KEY = 'tabura.runtimeReloadContext';
-export const TOOL_PALETTE_POSITION_STORAGE_KEY = 'tabura.toolPalettePosition';
+export const TOOL_PALETTE_POSITION_STORAGE_KEY = TABURA_CIRCLE_LAYOUT.storage_key;
 export const SIDEBAR_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.ico', '.avif']);
 export const PANEL_MOTION_WATCH_QUERIES = [
   '(prefers-reduced-motion: reduce)',

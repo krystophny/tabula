@@ -14,6 +14,11 @@ async function waitReady(page: Page) {
   await waitWsReady(page);
 }
 
+async function openTopPanel(page: Page) {
+  await page.locator('#edge-top-tap').click();
+  await expect(page.locator('#bug-report-button')).toBeVisible();
+}
+
 async function dispatchPenStroke(page: Page, points: Array<{ x: number; y: number; pressure?: number }>) {
   await page.evaluate((rawPoints) => {
     const viewport = document.getElementById('canvas-viewport');
@@ -36,10 +41,10 @@ async function dispatchPenStroke(page: Page, points: Array<{ x: number; y: numbe
 }
 
 test.describe('bug report flow', () => {
-  test('floating button captures a bundle with notes and annotations', async ({ page }) => {
+  test('top panel bug action captures a bundle with notes and annotations', async ({ page }) => {
     await waitReady(page);
 
-    await expect(page.locator('#bug-report-button')).toBeVisible();
+    await openTopPanel(page);
     await page.locator('#bug-report-button').click();
     await expect(page.locator('#bug-report-sheet')).toBeVisible();
 
@@ -87,6 +92,7 @@ test.describe('bug report flow', () => {
       { x: 150, y: 140, pressure: 0.7 },
     ]);
 
+    await openTopPanel(page);
     await page.locator('#bug-report-button').click();
     await page.locator('#bug-report-note').fill('Pen-origin repro.');
     await page.locator('#bug-report-save').click();
@@ -106,6 +112,7 @@ test.describe('bug report flow', () => {
     await page.locator('#edge-left-tap').click();
     await expect(page.locator('#pr-file-list')).toContainText('Review parser cleanup');
 
+    await openTopPanel(page);
     await page.locator('#bug-report-button').click();
     await page.locator('#bug-report-note').fill('Harness inbox refresh');
     await page.locator('#bug-report-save').click();
@@ -120,6 +127,7 @@ test.describe('bug report flow', () => {
     await page.locator('#edge-left-tap').click();
     await expect(page.locator('#pr-file-list')).toContainText('Review parser cleanup');
 
+    await openTopPanel(page);
     await page.locator('#bug-report-button').click();
     await page.locator('#bug-report-note').fill('Harness github close refresh');
     await page.locator('#bug-report-save').click();
@@ -225,6 +233,7 @@ test.describe('bug report flow', () => {
       (window as any).__taburaBugReportTestEnv = {};
     });
 
+    await openTopPanel(page);
     await page.locator('#bug-report-button').click();
     await expect(page.locator('#bug-report-sheet')).toBeVisible();
     await expect(page.locator('.bug-report-sheet__preview')).toHaveAttribute('data-capture-mode', 'fallback-firefox');
@@ -302,6 +311,7 @@ test.describe('bug report flow', () => {
       };
     });
 
+    await openTopPanel(page);
     await page.locator('#bug-report-button').click();
     await page.locator('#bug-report-note').fill('Meeting overlap reproduced.');
     await page.locator('#bug-report-save').click();

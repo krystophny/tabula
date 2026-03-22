@@ -153,9 +153,27 @@ The canvas runtime exposes one persistent control surface: the Tabura Circle.
 
 - The collapsed circle shows the active tool in its center and the active live session on the outer ring.
 - Expanding the circle exposes the five interaction tools (`pointer`, `highlight`, `ink`, `text_note`, `prompt`) plus the live-session controls (`dialogue`, `meeting`) and the independent `silent` toggle.
+- The circle is icon-first. Visible segment labels are not part of the runtime shell; accessibility labels and tooltips carry the verbal naming.
+- The circle may live in any of the four screen corners (`top_left`, `top_right`, `bottom_left`, `bottom_right`) and the chosen corner persists locally across sessions on each device.
 - Dialogue and Meeting are zero-or-one runtime sessions. Tapping the active session again returns the runtime to manual mode.
 - Stop is not a dedicated top-panel button. The stop affordance is the active indicator frame, the active circle session segment, or a voice stop intent.
+- Bug reporting is not a competing floating action near the circle. It lives in the top panel / overflow help surface.
 - Management surfaces such as hotword/model/voice configuration live under `/manage`, not in the canvas runtime shell.
+
+## UI Source Of Truth
+
+Tabura uses a layered source of truth for UI behavior across web, iOS, and Android:
+
+- Component contract: `internal/web/static/tabura-circle-contract.ts`
+- Interaction flows: `tests/flows/`
+- Platform target mapping: `tests/flows/targets.cjs`
+
+This means platform variants may use different native widgets, but they must preserve the same:
+
+- semantic ids and accessibility labels
+- icon meanings
+- state model for collapsed, expanded, active session, silent, and selected tool
+- corner placement behavior
 
 ## Canonical Action Semantics
 

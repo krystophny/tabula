@@ -74,3 +74,15 @@ test('silent stays independent from tool selection', async ({ page }) => {
   await expect(page.locator('#tabura-circle-segment-silent')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#tabura-circle-segment-pointer')).toHaveAttribute('aria-pressed', 'true');
 });
+
+test('corner placement persists across reloads', async ({ page }) => {
+  await page.locator('#edge-top-tap').click();
+  await page.locator('#tabura-circle-corner-controls [data-corner="top_left"]').click();
+  await expect(page.locator('#tabura-circle')).toHaveAttribute('data-corner', 'top_left');
+
+  await page.reload();
+  await waitReady(page);
+  await switchToTestProject(page);
+
+  await expect(page.locator('#tabura-circle')).toHaveAttribute('data-corner', 'top_left');
+});

@@ -2,6 +2,7 @@ import { apiURL, getActiveArtifactTitle, getActiveTextEventId, getUiState, isOve
 import { refs, state } from './app-context.js';
 import { showCanvasColumn } from './app-canvas-ui.js';
 import { renderCanvas } from './canvas.js';
+import { TABURA_CIRCLE_BUG_ICON } from './tabura-circle-contract.js';
 
 const showStatus = (...args) => refs.showStatus(...args);
 const fetchRuntimeMeta = (...args) => refs.fetchRuntimeMeta(...args);
@@ -178,13 +179,27 @@ function bugReportNodes() {
 }
 
 function ensureBugReportUi() {
-  if (document.getElementById('bug-report-button')) return;
-  const button = document.createElement('button');
-  button.id = 'bug-report-button';
-  button.type = 'button';
-  button.className = 'bug-report-button';
-  button.textContent = 'Bug';
-  button.setAttribute('aria-label', 'Report bug');
+  let button = document.getElementById('bug-report-button');
+  if (!(button instanceof HTMLButtonElement)) {
+    const edgeTopActions = document.getElementById('edge-top-actions');
+    const nextButton = document.createElement('button');
+    nextButton.id = 'bug-report-button';
+    nextButton.type = 'button';
+    nextButton.className = 'edge-btn edge-icon-btn';
+    nextButton.setAttribute('aria-label', 'Report bug');
+    nextButton.title = 'Report bug';
+    if (edgeTopActions instanceof HTMLElement) {
+      edgeTopActions.insertBefore(nextButton, edgeTopActions.firstChild);
+    } else {
+      document.body.appendChild(nextButton);
+    }
+    button = nextButton;
+  }
+  if (button instanceof HTMLButtonElement) {
+    button.innerHTML = `<span class="tabura-circle-icon" aria-hidden="true">${TABURA_CIRCLE_BUG_ICON}</span>`;
+  }
+
+  if (document.getElementById('bug-report-sheet')) return;
 
   const sheet = document.createElement('section');
   sheet.id = 'bug-report-sheet';
@@ -215,7 +230,6 @@ function ensureBugReportUi() {
       </div>
     </div>
   `;
-  document.body.appendChild(button);
   document.body.appendChild(sheet);
 }
 

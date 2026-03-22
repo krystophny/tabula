@@ -138,9 +138,39 @@ body.panel-motion-enabled {
   font-size: 0.85rem;
 }
 
+.edge-panel-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .edge-btn {
   padding: 0.25rem 0.55rem;
   font-size: 0.75rem;
+}
+
+.edge-icon-btn {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+}
+
+.tabura-circle-corner-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding-right: 0.1rem;
+}
+
+.tabura-circle-corner-btn[aria-pressed="true"] {
+  background: #0f172a;
+  color: #ffffff;
 }
 
 .edge-top {
@@ -154,6 +184,7 @@ body.panel-motion-enabled {
 .edge-top.edge-active,
 .edge-top.edge-pinned {
   transform: translateY(0);
+  z-index: 440;
 }
 
 @media (min-width: 768px) {

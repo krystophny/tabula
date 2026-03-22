@@ -1,0 +1,191 @@
+export type TaburaCircleCorner = 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right';
+export type TaburaCircleSegmentKind = 'session' | 'toggle' | 'tool';
+export type TaburaCircleSegmentID =
+  | 'dialogue'
+  | 'meeting'
+  | 'silent'
+  | 'prompt'
+  | 'text_note'
+  | 'pointer'
+  | 'highlight'
+  | 'ink';
+
+type TaburaCircleSegmentContract = {
+  id: TaburaCircleSegmentID,
+  kind: TaburaCircleSegmentKind,
+  icon: string,
+  icon_id: string,
+  label: string,
+  angle_deg: number,
+  radius_px: number,
+};
+
+type TaburaCircleCornerOption = {
+  id: TaburaCircleCorner,
+  icon: string,
+  label: string,
+};
+
+function strokeIcon(paths: string, fillRule = '') {
+  const fill = fillRule ? ` fill-rule="${fillRule}"` : '';
+  return `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"${fill}>${paths}</svg>`;
+}
+
+function filledIcon(paths: string) {
+  return `<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">${paths}</svg>`;
+}
+
+export const TABURA_CIRCLE_TOOL_ICON_IDS: Record<string, string> = {
+  pointer: 'arrow',
+  highlight: 'marker',
+  ink: 'pen_nib',
+  text_note: 'sticky_note',
+  prompt: 'mic',
+};
+
+export const TABURA_CIRCLE_TOOL_ICONS: Record<string, string> = {
+  pointer: strokeIcon('<path d="m6 4 10 8-4.5 1.3L15 20l-2.4 1-3.4-6.8L6 17Z"/>'),
+  highlight: strokeIcon('<path d="m5 15 4 4"/><path d="m8 18 8.5-8.5a2.1 2.1 0 0 0-3-3L5 15v4h4Z"/><path d="M13 7l4 4"/><path d="M4 21h16"/>'),
+  ink: strokeIcon('<path d="m4 20 4.5-1 9-9a2.1 2.1 0 0 0-3-3l-9 9Z"/><path d="m13 7 4 4"/><path d="M4 20h5"/>'),
+  text_note: strokeIcon('<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M6 10h.01"/><path d="M9 10h.01"/><path d="M12 10h.01"/><path d="M15 10h.01"/><path d="M18 10h.01"/><path d="M6 14h12"/>'),
+  prompt: strokeIcon('<path d="M12 4v8"/><path d="M8.5 8.5a3.5 3.5 0 0 1 7 0V12a3.5 3.5 0 0 1-7 0Z"/><path d="M6 11.5a6 6 0 0 0 12 0"/><path d="M12 17.5V21"/><path d="M9 21h6"/>'),
+};
+
+export const TABURA_CIRCLE_SEGMENTS: TaburaCircleSegmentContract[] = [
+  {
+    id: 'dialogue',
+    kind: 'session',
+    icon_id: 'dialogue',
+    label: 'Live dialogue',
+    angle_deg: 14,
+    radius_px: 84,
+    icon: strokeIcon('<path d="M12 4v9"/><path d="M8.8 8.8a3.2 3.2 0 0 1 6.4 0V13a3.2 3.2 0 0 1-6.4 0Z"/><path d="M6 12.5a6 6 0 0 0 12 0"/><path d="M12 18.5V21"/><path d="M9.5 21h5"/>'),
+  },
+  {
+    id: 'meeting',
+    kind: 'session',
+    icon_id: 'meeting',
+    label: 'Live meeting',
+    angle_deg: 12,
+    radius_px: 152,
+    icon: strokeIcon('<path d="M8 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M16.5 11a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/><path d="M4.5 18a3.5 3.5 0 0 1 7 0"/><path d="M13.5 18a3 3 0 0 1 6 0"/>'),
+  },
+  {
+    id: 'silent',
+    kind: 'toggle',
+    icon_id: 'silent',
+    label: 'Silent mode',
+    angle_deg: 22,
+    radius_px: 214,
+    icon: strokeIcon('<path d="M5 10h4l5-4v12l-5-4H5Z"/><path d="m17 9 4 6"/><path d="m21 9-4 6"/>'),
+  },
+  {
+    id: 'prompt',
+    kind: 'tool',
+    icon_id: 'mic',
+    label: 'Prompt tool',
+    angle_deg: 58,
+    radius_px: 110,
+    icon: TABURA_CIRCLE_TOOL_ICONS.prompt,
+  },
+  {
+    id: 'text_note',
+    kind: 'tool',
+    icon_id: 'sticky_note',
+    label: 'Text note tool',
+    angle_deg: 38,
+    radius_px: 154,
+    icon: TABURA_CIRCLE_TOOL_ICONS.text_note,
+  },
+  {
+    id: 'pointer',
+    kind: 'tool',
+    icon_id: 'arrow',
+    label: 'Pointer tool',
+    angle_deg: 78,
+    radius_px: 158,
+    icon: TABURA_CIRCLE_TOOL_ICONS.pointer,
+  },
+  {
+    id: 'highlight',
+    kind: 'tool',
+    icon_id: 'marker',
+    label: 'Highlight tool',
+    angle_deg: 56,
+    radius_px: 194,
+    icon: TABURA_CIRCLE_TOOL_ICONS.highlight,
+  },
+  {
+    id: 'ink',
+    kind: 'tool',
+    icon_id: 'pen_nib',
+    label: 'Ink tool',
+    angle_deg: 40,
+    radius_px: 228,
+    icon: TABURA_CIRCLE_TOOL_ICONS.ink,
+  },
+];
+
+export const TABURA_CIRCLE_CORNERS: TaburaCircleCornerOption[] = [
+  {
+    id: 'top_left',
+    label: 'Place Tabura Circle in the top left corner',
+    icon: filledIcon('<rect x="4" y="4" width="16" height="16" rx="3" opacity="0.28"/><path d="M4 4h8a0 0 0 0 1 0 0v8a0 0 0 0 1 0 0H7a3 3 0 0 1-3-3V4a0 0 0 0 1 0 0Z"/>'),
+  },
+  {
+    id: 'top_right',
+    label: 'Place Tabura Circle in the top right corner',
+    icon: filledIcon('<rect x="4" y="4" width="16" height="16" rx="3" opacity="0.28"/><path d="M12 4h8a0 0 0 0 1 0 0v5a3 3 0 0 1-3 3h-5a0 0 0 0 1 0 0V4a0 0 0 0 1 0 0Z"/>'),
+  },
+  {
+    id: 'bottom_left',
+    label: 'Place Tabura Circle in the bottom left corner',
+    icon: filledIcon('<rect x="4" y="4" width="16" height="16" rx="3" opacity="0.28"/><path d="M4 12h8a0 0 0 0 1 0 0v8a0 0 0 0 1 0 0H7a3 3 0 0 1-3-3v-5a0 0 0 0 1 0 0Z"/>'),
+  },
+  {
+    id: 'bottom_right',
+    label: 'Place Tabura Circle in the bottom right corner',
+    icon: filledIcon('<rect x="4" y="4" width="16" height="16" rx="3" opacity="0.28"/><path d="M12 12h8a0 0 0 0 1 0 0v5a3 3 0 0 1-3 3h-5a0 0 0 0 1 0 0v-8a0 0 0 0 1 0 0Z"/>'),
+  },
+];
+
+export const TABURA_CIRCLE_BUG_ICON = strokeIcon('<path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="M12 4v2.2"/><path d="M6.5 6.5 8 8"/><path d="M17.5 6.5 16 8"/><path d="M5 11h2"/><path d="M17 11h2"/><path d="M6.5 15.5 8 14"/><path d="M17.5 15.5 16 14"/><path d="M9.4 18h5.2"/>');
+
+export const TABURA_CIRCLE_LAYOUT = Object.freeze({
+  storage_key: 'tabura.toolPalettePosition',
+  bug_report_entry: 'top_panel_overflow',
+  shell_size_px: 286,
+  shell_size_mobile_px: 264,
+  dot_size_px: 58,
+  dot_size_mobile_px: 56,
+  segment_size_px: 56,
+  segment_size_mobile_px: 54,
+  viewport_margin_px: 18,
+  viewport_margin_mobile_px: 14,
+  corners: TABURA_CIRCLE_CORNERS.map((corner) => corner.id),
+  segments: TABURA_CIRCLE_SEGMENTS.map((segment) => ({
+    id: segment.id,
+    kind: segment.kind,
+    icon_id: segment.icon_id,
+    label: segment.label,
+    angle_deg: segment.angle_deg,
+    radius_px: segment.radius_px,
+  })),
+});
+
+export function normalizeTaburaCircleCorner(value: string): TaburaCircleCorner {
+  const clean = String(value || '').trim().toLowerCase();
+  return TABURA_CIRCLE_CORNERS.some((corner) => corner.id === clean)
+    ? clean as TaburaCircleCorner
+    : 'bottom_right';
+}
+
+export function taburaCircleToolIcon(tool: string) {
+  const clean = String(tool || '').trim().toLowerCase();
+  return TABURA_CIRCLE_TOOL_ICONS[clean] || TABURA_CIRCLE_TOOL_ICONS.pointer;
+}
+
+export function taburaCircleToolIconID(tool: string) {
+  const clean = String(tool || '').trim().toLowerCase();
+  return TABURA_CIRCLE_TOOL_ICON_IDS[clean] || TABURA_CIRCLE_TOOL_ICON_IDS.pointer;
+}

@@ -1,18 +1,10 @@
-const toolIcons = {
-  pointer: 'arrow',
-  highlight: 'marker',
-  ink: 'pen_nib',
-  text_note: 'sticky_note',
-  prompt: 'mic',
-};
+import {
+  TABURA_CIRCLE_SEGMENTS,
+  TABURA_CIRCLE_TOOL_ICON_IDS,
+  TABURA_CIRCLE_TOOL_ICONS,
+} from '../../internal/web/static/tabura-circle-contract.js';
 
-const toolGlyphs = {
-  pointer: '↗',
-  highlight: '▰',
-  ink: '✒',
-  text_note: '▣',
-  prompt: '●',
-};
+const toolIcons = { ...TABURA_CIRCLE_TOOL_ICON_IDS };
 
 const indicatorLabels = {
   idle: 'Idle',
@@ -28,6 +20,7 @@ const state = {
   silent: false,
   circleExpanded: false,
   indicatorOverride: '',
+  corner: 'bottom_right',
 };
 let ignoreOutsideCollapseUntil = 0;
 let lastTouchActivationAt = 0;
@@ -71,6 +64,13 @@ function syncSegments() {
   for (const segment of segments) {
     const name = segment.getAttribute('data-segment') || '';
     const kind = segment.getAttribute('data-kind') || '';
+    const segmentContract = TABURA_CIRCLE_SEGMENTS.find((entry) => entry.id === name);
+    if (segmentContract) {
+      segment.innerHTML = `<span class="tabura-circle-icon" aria-hidden="true">${segmentContract.icon}</span>`;
+      segment.dataset.icon = segmentContract.icon_id;
+      segment.setAttribute('aria-label', segmentContract.label);
+      segment.title = segmentContract.label;
+    }
     if (kind === 'tool') {
       segment.setAttribute('aria-pressed', String(name === state.tool));
     } else if (kind === 'session') {
@@ -103,7 +103,8 @@ function sync() {
   circle.classList.toggle('is-collapsed', !state.circleExpanded);
   dot.dataset.icon = toolIcons[state.tool];
   dot.dataset.sessionLabel = state.session === 'none' ? '' : state.session;
-  dot.textContent = toolGlyphs[state.tool];
+  dot.innerHTML = `<span class="tabura-circle-icon" aria-hidden="true">${TABURA_CIRCLE_TOOL_ICONS[state.tool] || TABURA_CIRCLE_TOOL_ICONS.pointer}</span>`;
+  applyCircleGeometry();
 
   indicator.dataset.state = indicatorState;
   indicatorLabel.textContent = indicatorLabels[indicatorState];
@@ -112,6 +113,35 @@ function sync() {
     canvas.dataset.cursorClass = currentCursorClass();
   }
   syncSegments();
+}
+
+function applyCircleGeometry() {
+  const shellSize = 288;
+  const dotSize = 64;
+  const segmentSize = 56;
+  const segmentHalf = segmentSize / 2;
+  const corner = state.corner;
+  const top = corner.startsWith('top_') ? 0 : shellSize - dotSize;
+  const left = corner.endsWith('_left') ? 0 : shellSize - dotSize;
+  const anchor = {
+    x: left + (dotSize / 2),
+    y: top + (dotSize / 2),
+  };
+  const signs = {
+    x: corner.endsWith('_left') ? 1 : -1,
+    y: corner.startsWith('top_') ? 1 : -1,
+  };
+  dot.style.left = `${left}px`;
+  dot.style.top = `${top}px`;
+  for (const segmentContract of TABURA_CIRCLE_SEGMENTS) {
+    const segment = menu.querySelector(`[data-segment="${segmentContract.id}"]`);
+    if (!(segment instanceof HTMLElement)) continue;
+    const theta = (segmentContract.angle_deg * Math.PI) / 180;
+    const dx = Math.cos(theta) * segmentContract.radius_px * signs.x;
+    const dy = Math.sin(theta) * segmentContract.radius_px * signs.y;
+    segment.style.left = `${Math.round(anchor.x + dx - segmentHalf)}px`;
+    segment.style.top = `${Math.round(anchor.y + dy - segmentHalf)}px`;
+  }
 }
 
 function setTool(tool) {

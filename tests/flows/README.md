@@ -2,6 +2,12 @@
 
 `tests/flows/` is the source of truth for cross-platform UI interaction flows.
 
+Tabura now uses a layered UI source of truth:
+
+- `internal/web/static/tabura-circle-contract.ts` is the component contract for the Tabura Circle across web, iOS, and Android.
+- `tests/flows/` is the interaction contract shared across platforms.
+- platform implementations must preserve the same semantic ids, states, icon meanings, and corner-placement model even when rendered with different native toolkits.
+
 Each `.yaml` file defines one platform-agnostic flow:
 
 ```yaml
@@ -46,6 +52,12 @@ Logical targets live in `tests/flows/targets.cjs`. That contract is the shared m
 from logical ids to platform-specific selectors or accessibility ids. Web-only test
 hooks must declare `platforms: [web]` so the linter does not let harness-only steps
 pretend to be portable.
+
+The Tabura Circle UI contract currently defines:
+
+- icon-only segment rendering with accessible labels
+- persisted placement in `top_left|top_right|bottom_left|bottom_right`
+- bug reporting as a top-panel action instead of a competing floating control
 
 Supported logical assertions:
 

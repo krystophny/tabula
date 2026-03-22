@@ -1,33 +1,56 @@
 .tabura-circle {
-  --circle-shell-size: 280px;
-  --circle-dot-size: 56px;
-  --circle-segment-size: 72px;
-  --circle-ring-color: rgba(15, 23, 42, 0.18);
+  --tabura-circle-shell-size: 286px;
+  --tabura-circle-dot-size: 58px;
+  --tabura-circle-segment-size: 56px;
+  --tabura-circle-ring-color: rgba(15, 23, 42, 0.18);
   position: fixed;
-  right: calc(1rem + var(--safe-area-right));
-  bottom: calc(1rem + var(--safe-area-bottom));
-  width: var(--circle-shell-size);
-  height: var(--circle-shell-size);
+  width: var(--tabura-circle-shell-size);
+  height: var(--tabura-circle-shell-size);
   pointer-events: none;
   z-index: 395;
+}
+
+.tabura-circle[data-corner="top_left"] {
+  top: calc(1rem + var(--safe-area-top));
+  left: calc(1rem + var(--safe-area-left));
+}
+
+.tabura-circle[data-corner="top_right"] {
+  top: calc(1rem + var(--safe-area-top));
+  right: calc(1rem + var(--safe-area-right));
+}
+
+.tabura-circle[data-corner="bottom_left"] {
+  left: calc(1rem + var(--safe-area-left));
+  bottom: calc(1rem + var(--safe-area-bottom));
+}
+
+.tabura-circle[data-corner="bottom_right"] {
+  right: calc(1rem + var(--safe-area-right));
+  bottom: calc(1rem + var(--safe-area-bottom));
 }
 
 .tabura-circle.is-expanded {
   pointer-events: auto;
 }
 
+.tabura-circle-dot,
+.tabura-circle-segment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .tabura-circle-dot {
   position: absolute;
-  right: 0;
-  bottom: 0;
-  width: var(--circle-dot-size);
-  height: var(--circle-dot-size);
+  width: var(--tabura-circle-dot-size);
+  height: var(--tabura-circle-dot-size);
   border: 0;
   border-radius: 999px;
-  background: #121926;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.14), transparent 48%),
+    linear-gradient(180deg, #182433, #0f1724);
   color: #fff;
-  font-size: 1.15rem;
-  font-weight: 700;
   box-shadow:
     0 20px 52px rgba(15, 23, 42, 0.24),
     0 0 0 7px rgba(255, 255, 255, 0.66);
@@ -38,17 +61,17 @@
   content: '';
   position: absolute;
   inset: -6px;
-  border: 2px solid var(--circle-ring-color);
+  border: 2px solid var(--tabura-circle-ring-color);
   border-radius: 999px;
   pointer-events: none;
 }
 
 .tabura-circle-dot[data-session="dialogue"]::after {
-  --circle-ring-color: rgba(13, 94, 140, 0.82);
+  --tabura-circle-ring-color: rgba(13, 94, 140, 0.82);
 }
 
 .tabura-circle-dot[data-session="meeting"]::after {
-  --circle-ring-color: rgba(93, 107, 126, 0.86);
+  --tabura-circle-ring-color: rgba(93, 107, 126, 0.86);
 }
 
 .tabura-circle-dot[data-session="dialogue"] {
@@ -59,14 +82,15 @@
 }
 
 .tabura-circle-dot[data-tool="ink"] {
-  background: #142236;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.14), transparent 48%),
+    linear-gradient(180deg, #1b2940, #101826);
 }
 
 .tabura-circle-dot[data-silent="true"]::before {
   content: '';
   position: absolute;
-  inset: auto;
-  width: 40px;
+  width: 41px;
   height: 2px;
   background: rgba(255, 244, 244, 0.96);
   border-radius: 999px;
@@ -77,8 +101,8 @@
   position: absolute;
   inset: 0;
   opacity: 0;
-  transform: scale(0.86);
-  transition: opacity 150ms ease, transform 150ms ease;
+  transform: scale(0.88);
+  transition: opacity 160ms ease, transform 160ms ease;
   pointer-events: none;
 }
 
@@ -90,16 +114,16 @@
 
 .tabura-circle-segment {
   position: absolute;
-  width: var(--circle-segment-size);
-  height: var(--circle-segment-size);
+  width: var(--tabura-circle-segment-size);
+  height: var(--tabura-circle-segment-size);
   border: 1px solid rgba(15, 23, 42, 0.12);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.96);
+  background: rgba(255, 255, 255, 0.98);
   color: #132033;
-  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.13);
-  font-size: 0.74rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  box-shadow:
+    0 14px 36px rgba(15, 23, 42, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84);
+  backdrop-filter: blur(10px);
 }
 
 .tabura-circle-segment[aria-pressed="true"] {
@@ -115,32 +139,50 @@
   background: #6b103f;
 }
 
-.tabura-circle-segment[data-segment="dialogue"] { top: 26px; left: 104px; }
-.tabura-circle-segment[data-segment="meeting"] { top: 68px; left: 186px; }
-.tabura-circle-segment[data-segment="silent"] { top: 112px; left: 14px; }
-.tabura-circle-segment[data-segment="prompt"] { top: 188px; left: 66px; }
-.tabura-circle-segment[data-segment="text_note"] { top: 194px; left: 146px; }
-.tabura-circle-segment[data-segment="pointer"] { top: 106px; left: 206px; }
-.tabura-circle-segment[data-segment="highlight"] { top: 164px; left: 210px; }
-.tabura-circle-segment[data-segment="ink"] { top: 220px; left: 176px; }
+.tabura-circle-segment:disabled {
+  opacity: 0.45;
+}
+
+.tabura-circle-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tabura-circle-dot .tabura-circle-icon {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+.tabura-circle-icon svg {
+  width: 100%;
+  height: 100%;
+}
 
 body.black-screen .tabura-circle {
   opacity: 0.14;
 }
 
 @media (max-width: 720px) {
-  .tabura-circle {
-    --circle-shell-size: 252px;
-    --circle-dot-size: 54px;
-    --circle-segment-size: 68px;
+  .tabura-circle[data-corner="top_left"] {
+    top: calc(0.8rem + var(--safe-area-top));
+    left: calc(0.8rem + var(--safe-area-left));
   }
 
-  .tabura-circle-segment[data-segment="dialogue"] { top: 20px; left: 92px; }
-  .tabura-circle-segment[data-segment="meeting"] { top: 56px; left: 166px; }
-  .tabura-circle-segment[data-segment="silent"] { top: 100px; left: 12px; }
-  .tabura-circle-segment[data-segment="prompt"] { top: 172px; left: 58px; }
-  .tabura-circle-segment[data-segment="text_note"] { top: 176px; left: 130px; }
-  .tabura-circle-segment[data-segment="pointer"] { top: 96px; left: 184px; }
-  .tabura-circle-segment[data-segment="highlight"] { top: 150px; left: 188px; }
-  .tabura-circle-segment[data-segment="ink"] { top: 202px; left: 156px; }
+  .tabura-circle[data-corner="top_right"] {
+    top: calc(0.8rem + var(--safe-area-top));
+    right: calc(0.8rem + var(--safe-area-right));
+  }
+
+  .tabura-circle[data-corner="bottom_left"] {
+    left: calc(0.8rem + var(--safe-area-left));
+    bottom: calc(0.8rem + var(--safe-area-bottom));
+  }
+
+  .tabura-circle[data-corner="bottom_right"] {
+    right: calc(0.8rem + var(--safe-area-right));
+    bottom: calc(0.8rem + var(--safe-area-bottom));
+  }
 }
