@@ -16,8 +16,6 @@
     <string>de,en</string>
     <key>TABURA_STT_MODEL</key>
     <string>large-v3-turbo</string>
-    <key>TABURA_STT_HOTKEY</key>
-    <string>LEFTCTRL</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
