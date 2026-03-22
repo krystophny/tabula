@@ -19,6 +19,11 @@ func TestTaburaIOSProjectIncludesExpectedFiles(t *testing.T) {
 	}
 	project := string(data)
 	expected := []string{
+		"Package.swift",
+		filepath.Join("Sources", "TaburaFlowContract", "FlowFixture.swift"),
+		filepath.Join("Sources", "TaburaFlowContract", "FlowRunner.swift"),
+		filepath.Join("Tests", "TaburaFlowContractTests", "TaburaFlowContractTests.swift"),
+		filepath.Join("Tests", "TaburaFlowContractTests", "Resources", "flow-fixtures.json"),
 		"TaburaIOSApp.swift",
 		"ContentView.swift",
 		"TaburaAppModel.swift",
@@ -32,7 +37,14 @@ func TestTaburaIOSProjectIncludesExpectedFiles(t *testing.T) {
 		"Info.plist",
 	}
 	for _, name := range expected {
-		path := filepath.Join(projectRoot, "TaburaIOS", name)
+		path := filepath.Join(projectRoot, name)
+		if strings.HasPrefix(name, "Sources") || strings.HasPrefix(name, "Tests") || name == "Package.swift" {
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("missing expected file %q: %v", path, err)
+			}
+			continue
+		}
+		path = filepath.Join(projectRoot, "TaburaIOS", name)
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("missing expected file %q: %v", path, err)
 		}
