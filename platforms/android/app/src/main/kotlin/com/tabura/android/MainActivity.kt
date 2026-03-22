@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -160,6 +161,11 @@ private fun TaburaAndroidApp(
     onInkCommit: (List<TaburaInkStroke>) -> Unit,
     onInkRequestsResponseChanged: (Boolean) -> Unit,
 ) {
+    val context = LocalContext.current
+    val displayProfile = remember(context) {
+        detectTaburaDisplayProfile(context)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -204,6 +210,9 @@ private fun TaburaAndroidApp(
                 }
                 Text(state.statusText, style = MaterialTheme.typography.bodySmall)
             }
+            if (displayProfile.isBoox) {
+                Text("Boox E-Ink mode active", style = MaterialTheme.typography.bodySmall)
+            }
             if (state.lastError.isNotBlank()) {
                 Text(state.lastError, color = MaterialTheme.colorScheme.error)
             }
@@ -243,17 +252,27 @@ private fun TaburaAndroidApp(
             TaburaCanvasWebView(
                 html = state.canvas.html,
                 baseUrl = state.serverUrl,
+                isEinkDisplay = displayProfile.isBoox,
                 modifier = Modifier.fillMaxSize(),
             )
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { context ->
-                    TaburaInkSurfaceView(context).apply {
-                        setOnCommit(onInkCommit)
+                    if (displayProfile.isBoox) {
+                        TaburaBooxInkSurfaceView(context).apply {
+                            setOnCommit(onInkCommit)
+                        }
+                    } else {
+                        TaburaInkSurfaceView(context).apply {
+                            setOnCommit(onInkCommit)
+                        }
                     }
                 },
                 update = { view ->
-                    view.setOnCommit(onInkCommit)
+                    when (view) {
+                        is TaburaBooxInkSurfaceView -> view.setOnCommit(onInkCommit)
+                        is TaburaInkSurfaceView -> view.setOnCommit(onInkCommit)
+                    }
                 },
             )
         }
@@ -304,7 +323,6 @@ private fun TaburaAndroidApp(
             Button(onClick = onSendComposer) {
                 Text("Send")
             }
-            val context = LocalContext.current
             Text(
                 text = context.packageName,
                 style = MaterialTheme.typography.bodySmall,
