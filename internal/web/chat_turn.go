@@ -95,6 +95,7 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
 		return
 	}
+	turnInput := buildAppServerTurnInput(prompt, latestCanvasPositionVisualAttachment(positionCtx))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	runID := randomToken()
@@ -162,7 +163,7 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 		persistedAssistantFormat = candidateFormat
 	}
 
-	appResp, err := appSess.SendTurnWithParams(ctx, prompt, turnProfile.Model, turnProfile.TurnParams, func(ev appserver.StreamEvent) {
+	appResp, err := appSess.SendTurnInputWithParams(ctx, turnInput, turnProfile.Model, turnProfile.TurnParams, func(ev appserver.StreamEvent) {
 		payload := map[string]interface{}{
 			"type":        ev.Type,
 			"thread_id":   ev.ThreadID,
@@ -421,6 +422,7 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": errText})
 		return
 	}
+	turnInput := buildAppServerTurnInput(prompt, latestCanvasPositionVisualAttachment(positionCtx))
 	if strings.TrimSpace(prompt) == "" {
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
 		return
@@ -494,6 +496,7 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 	appResp, err := a.appServerClient.SendPromptStream(ctx, appserver.PromptRequest{
 		CWD:          cwd,
 		Prompt:       prompt,
+		TurnInput:    turnInput,
 		Model:        baseProfile.Model,
 		TurnModel:    turnProfile.Model,
 		ThreadParams: baseProfile.ThreadParams,

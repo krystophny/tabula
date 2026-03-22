@@ -1,5 +1,4 @@
 import { AnnotationLayer, GlobalWorkerOptions, TextLayer, getDocument } from './vendor/pdf.mjs';
-import { apiURL } from './paths.js';
 import { renderTextArtifact, sanitizeHtml } from './canvas-content.js';
 import { openMailDraftArtifact, renderMailDraftArtifact } from './app-mail-drafts.js';
 import { renderMailTriageArtifact } from './app-mail-triage.js';
@@ -8,6 +7,16 @@ import {
   renderCanvasApprovalActions,
   renderCanvasArtifactActions,
 } from './canvas-actions.js';
+import {
+  currentCanvasArtifactMeta,
+  currentCanvasSessionID,
+  currentPdfArtifact,
+  captureVisualReasoningContext as captureSurfaceVisualReasoningContext,
+  getTextImageAnchorFromPoint as getVisualTextImageAnchorFromPoint,
+  hydrateTextArtifactImages as hydrateVisualTextArtifactImages,
+  normalizeCanvasPath,
+} from './canvas-visual.js';
+import { apiURL } from './paths.js';
 
 export { escapeHtml, sanitizeHtml } from './canvas-content.js';
 export { resolveCanvasApprovalRequest } from './canvas-actions.js';
@@ -39,7 +48,6 @@ const pdfRenderState = {
   renderTasks: new Set<any>(),
   textLayers: new Set<any>(),
 };
-
 function dispatchCanvasRendered(event) {
   document.dispatchEvent(new CustomEvent('tabura:canvas-rendered', {
     detail: {
@@ -50,11 +58,9 @@ function dispatchCanvasRendered(event) {
     },
   }));
 }
-
 function dispatchCanvasCleared() {
   document.dispatchEvent(new CustomEvent('tabura:canvas-cleared'));
 }
-
 export function getEls() {
   if (!els.text) {
     els.text = document.getElementById('canvas-text');
@@ -65,14 +71,12 @@ export function getEls() {
   }
   return els;
 }
-
 function clearPdfResizeTimer() {
   if (pdfRenderState.resizeTimer) {
     window.clearTimeout(pdfRenderState.resizeTimer);
     pdfRenderState.resizeTimer = null;
   }
 }
-
 function clearPdfRenderArtifacts() {
   for (const task of pdfRenderState.renderTasks) {
     if (task && typeof task.cancel === 'function') {
@@ -87,7 +91,6 @@ function clearPdfRenderArtifacts() {
   }
   pdfRenderState.textLayers.clear();
 }
-
 function cancelPdfRender({ destroyDocument = false } = {}) {
   pdfRenderState.generation += 1;
   clearPdfResizeTimer();
@@ -106,14 +109,12 @@ function cancelPdfRender({ destroyDocument = false } = {}) {
     pdfRenderState.key = '';
   }
 }
-
 function getPdfContainerWidth(container) {
   if (!(container instanceof HTMLElement)) return PDF_MIN_RENDER_WIDTH_PX;
   const rect = container.getBoundingClientRect();
   const measured = Number.isFinite(rect.width) ? rect.width : container.clientWidth;
   return Math.max(PDF_MIN_RENDER_WIDTH_PX, Math.floor(measured || PDF_MIN_RENDER_WIDTH_PX));
 }
-
 function schedulePdfRerender() {
   if (!activePdfEvent) return;
   clearPdfResizeTimer();
@@ -125,7 +126,6 @@ function schedulePdfRerender() {
     void renderPdfSurface(activePdfEvent, { reuseDocument: true });
   }, PDF_RESIZE_DEBOUNCE_MS);
 }
-
 function ensurePdfResizeObserver() {
   const pdfPane = els.pdf;
   if (!pdfPane || pdfRenderState.resizeObserver) return;
@@ -142,7 +142,6 @@ function ensurePdfResizeObserver() {
   });
   pdfRenderState.resizeObserver.observe(pdfPane);
 }
-
 export function hideAll() {
   cancelPdfRender({ destroyDocument: false });
   const e = getEls();
@@ -153,13 +152,11 @@ export function hideAll() {
   if (e.image) e.image.classList.remove('is-active');
   if (e.pdf) e.pdf.classList.remove('is-active');
 }
-
 function isSelectionInside(root, selection) {
   if (!selection || selection.rangeCount === 0) return false;
   const range = selection.getRangeAt(0);
   return root.contains(range.commonAncestorContainer);
 }
-
 function getSelectionOffsets(root, range) {
   const startProbe = range.cloneRange();
   startProbe.selectNodeContents(root);
@@ -173,7 +170,6 @@ function getSelectionOffsets(root, range) {
 
   return { startOffset, endOffset };
 }
-
 function lineFromOffset(lines, charOffset) {
   let charCount = 0;
   for (let i = 0; i < lines.length; i++) {
@@ -184,7 +180,6 @@ function lineFromOffset(lines, charOffset) {
   }
   return Math.max(1, lines.length);
 }
-
 function compactAnchorText(raw, maxChars = 240) {
   const text = String(raw || '').trim();
   if (!text) return '';
@@ -192,7 +187,6 @@ function compactAnchorText(raw, maxChars = 240) {
   if (collapsed.length <= maxChars) return collapsed;
   return `${collapsed.slice(0, maxChars)}...`;
 }
-
 function surroundingTextForLine(lines, line) {
   const lineNumber = Number.parseInt(String(line || ''), 10);
   if (!Array.isArray(lines) || lines.length === 0 || !Number.isFinite(lineNumber) || lineNumber <= 0) {
@@ -206,7 +200,6 @@ function surroundingTextForLine(lines, line) {
     .join('\n')
     .trim();
 }
-
 function textRangeFromClientPoint(clientX, clientY) {
   if (typeof document.caretRangeFromPoint === 'function') {
     return document.caretRangeFromPoint(clientX, clientY);
@@ -221,7 +214,6 @@ function textRangeFromClientPoint(clientX, clientY) {
   }
   return null;
 }
-
 function textRangeFromPointInRoot(root, clientX, clientY) {
   const direct = textRangeFromClientPoint(clientX, clientY);
   if (!(root instanceof HTMLElement)) return direct;
@@ -245,7 +237,6 @@ function textRangeFromPointInRoot(root, clientX, clientY) {
   }
   return direct;
 }
-
 function estimateTextLineAtPoint(root, clientY) {
   if (!(root instanceof HTMLElement)) return null;
   const range = document.createRange();
@@ -290,28 +281,48 @@ function estimateTextLineAtPoint(root, clientY) {
     height: lineRects[nearestIndex].height,
   };
 }
-
 export function getActiveArtifactTitle() {
-  return activeArtifactTitle;
+  if (String(activeArtifactTitle || '').trim()) {
+    return activeArtifactTitle;
+  }
+  return String(currentCanvasArtifactMeta(activeArtifactTitle).title || '').trim();
 }
-
 export function getActiveTextEventId() {
   return activeTextEventId;
 }
-
+function getTextImageAnchorFromPoint(clientX, clientY) {
+  const artifact = currentCanvasArtifactMeta(activeArtifactTitle);
+  return getVisualTextImageAnchorFromPoint(
+    getEls().text,
+    clientX,
+    clientY,
+    artifact.title,
+    compactAnchorText,
+  );
+}
+export function captureVisualReasoningContext(clientX, clientY) {
+  const e = getEls();
+  return captureSurfaceVisualReasoningContext({
+    textRoot: e.text,
+    imagePane: e.image,
+    imageEl: e.img,
+    pdfRoot: e.pdf,
+    clientX,
+    clientY,
+    getPdfPageNodeFromPoint,
+  });
+}
 function parsePositiveInt(raw) {
   const n = Number.parseInt(String(raw || '').trim(), 10);
   if (!Number.isFinite(n) || n <= 0) return null;
   return n;
 }
-
 function getPdfPageNodeFromNode(node) {
   const start = node instanceof Element ? node : node?.parentElement;
   if (!(start instanceof Element)) return null;
   const page = start.closest('.canvas-pdf-page');
   return page instanceof HTMLElement ? page : null;
 }
-
 function getPdfPageNodeFromPoint(pdfRoot, clientX, clientY) {
   if (!(pdfRoot instanceof HTMLElement)) return null;
   const hit = document.elementFromPoint(clientX, clientY);
@@ -328,7 +339,6 @@ function getPdfPageNodeFromPoint(pdfRoot, clientX, clientY) {
   }
   return null;
 }
-
 function estimatePdfLineAtPoint(pageNode, clientX, clientY) {
   if (!(pageNode instanceof HTMLElement)) return null;
   const textLayer = pageNode.querySelector('.textLayer');
@@ -366,10 +376,10 @@ function estimatePdfLineAtPoint(pageNode, clientX, clientY) {
   if (index < 0) return null;
   return index + 1;
 }
-
 function getPdfAnchorFromPoint(clientX, clientY) {
   const e = getEls();
-  if (!e.pdf || !activePdfEvent || !e.pdf.classList.contains('is-active')) return null;
+  const pdfArtifact = currentPdfArtifact(activePdfEvent);
+  if (!e.pdf || !pdfArtifact || !e.pdf.classList.contains('is-active')) return null;
 
   const pageNode = getPdfPageNodeFromPoint(e.pdf, clientX, clientY);
   if (!(pageNode instanceof HTMLElement)) return null;
@@ -377,15 +387,31 @@ function getPdfAnchorFromPoint(clientX, clientY) {
   if (!page) return null;
 
   const title = getActiveArtifactTitle();
+  const pageInner = pageNode.querySelector('.canvas-pdf-page-inner');
+  if (pageInner instanceof HTMLElement) {
+    const rect = pageInner.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      const relativeX = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const relativeY = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+      const line = estimatePdfLineAtPoint(pageNode, clientX, clientY);
+      return {
+        page,
+        line: line || undefined,
+        title,
+        relativeX,
+        relativeY,
+      };
+    }
+  }
   const line = estimatePdfLineAtPoint(pageNode, clientX, clientY);
   if (line) {
     return { page, line, title };
   }
   return { page, title };
 }
-
 function getPdfAnchorFromRange(range) {
   if (!(range instanceof Range)) return null;
+  if (!currentPdfArtifact(activePdfEvent)) return null;
   const pageNode = getPdfPageNodeFromNode(range.startContainer);
   const page = parsePositiveInt(pageNode?.dataset?.page || '');
   if (!page) return null;
@@ -401,7 +427,6 @@ function getPdfAnchorFromRange(range) {
   }
   return { page, title };
 }
-
 function getDiffAnchorContext(node) {
   const start = node instanceof Element ? node : node?.parentElement;
   if (!(start instanceof Element)) return null;
@@ -422,7 +447,6 @@ function getDiffAnchorContext(node) {
     surroundingText: compactAnchorText(lineEl.textContent || ''),
   };
 }
-
 function getMarkdownSourceAnchorContext(node) {
   const start = node instanceof Element ? node : node?.parentElement;
   if (!(start instanceof Element)) return null;
@@ -437,9 +461,12 @@ function getMarkdownSourceAnchorContext(node) {
     surroundingText: compactAnchorText(sourceEl.textContent || ''),
   };
 }
-
 export function getLocationFromPoint(clientX, clientY) {
   const e = getEls();
+  const textImageAnchor = getTextImageAnchorFromPoint(clientX, clientY);
+  if (textImageAnchor) {
+    return textImageAnchor;
+  }
   const range = textRangeFromPointInRoot(e.text, clientX, clientY);
   if (e.text && activeTextEventId && range && e.text.contains(range.startContainer)) {
     const diffAnchor = getDiffAnchorContext(range.startContainer);
@@ -476,8 +503,11 @@ export function getLocationFromPoint(clientX, clientY) {
   if (e.image && e.image.classList.contains('is-active') && e.img instanceof HTMLImageElement) {
     const rect = e.img.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0 && clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
+      const artifact = currentCanvasArtifactMeta(activeArtifactTitle);
       return {
-        title: getActiveArtifactTitle(),
+        title: artifact.title,
+        path: artifact.path,
+        element: 'image',
         relativeX: (clientX - rect.left) / rect.width,
         relativeY: (clientY - rect.top) / rect.height,
       };
@@ -485,7 +515,6 @@ export function getLocationFromPoint(clientX, clientY) {
   }
   return getPdfAnchorFromPoint(clientX, clientY);
 }
-
 function getTextSelectionLocation(e, selection, selectedText) {
   const range = selection.getRangeAt(0);
   const diffAnchor = getDiffAnchorContext(range.startContainer);
@@ -507,7 +536,6 @@ function getTextSelectionLocation(e, selection, selectedText) {
     surroundingText: surroundingTextForLine(lines, line),
   };
 }
-
 export function getLocationFromSelection() {
   const e = getEls();
   const selection = window.getSelection();
@@ -526,7 +554,6 @@ export function getLocationFromSelection() {
   }
   return null;
 }
-
 export function showLineHighlight(clientX, clientY) {
   clearLineHighlight();
   const e = getEls();
@@ -559,16 +586,13 @@ export function showLineHighlight(clientX, clientY) {
   highlight.style.height = `${lineHeight}px`;
   e.text.appendChild(highlight);
 }
-
 export function clearLineHighlight() {
   const e = getEls();
   if (!e.text) return;
   e.text.querySelectorAll('.review-line-highlight').forEach(el => el.remove());
 }
-
 function clearTextInteractionHandlers() {
 }
-
 function getPdfURL(event) {
   const pdfState = (window._taburaApp || {}).getState ? window._taburaApp.getState() : {};
   const pdfSid = String(pdfState.sessionId || '');
@@ -579,7 +603,6 @@ function getPdfURL(event) {
     url: apiURL(`files/${encodeURIComponent(pdfSid)}/${encodeURIComponent(pdfPath)}`),
   };
 }
-
 function renderPdfFallback(host, pdfURL, message) {
   host.innerHTML = '';
   const fallback = document.createElement('div');
@@ -593,7 +616,6 @@ function renderPdfFallback(host, pdfURL, message) {
   fallback.appendChild(link);
   host.appendChild(fallback);
 }
-
 function isPdfCancellationError(err) {
   if (!err) return false;
   const name = String(err.name || '');
@@ -601,7 +623,6 @@ function isPdfCancellationError(err) {
   const message = String(err.message || '').toLowerCase();
   return message.includes('cancel');
 }
-
 function createPdfLinkService() {
   return {
     externalLinkEnabled: true,
@@ -833,7 +854,6 @@ async function renderPdfSurface(event, options: Record<string, any> = {}) {
     dispatchCanvasRendered(event);
   }
 }
-
 export function renderCanvas(event) {
   const e = getEls();
 
@@ -872,6 +892,7 @@ export function renderCanvas(event) {
       previousBlockTexts = nextState.previousBlockTexts;
       previousArtifactTitle = nextState.previousArtifactTitle;
     }
+    hydrateVisualTextArtifactImages(e.text, String(event?.path || '').trim(), currentCanvasSessionID());
     renderCanvasArtifactActions(e.text, event);
     renderCanvasApprovalActions(e.text, event);
     dispatchCanvasRendered(event);
@@ -934,7 +955,6 @@ export function renderCanvas(event) {
     clearCanvas();
   }
 }
-
 export function clearCanvas() {
   clearTextInteractionHandlers();
   hideAll();
@@ -951,7 +971,6 @@ export function clearCanvas() {
   previousArtifactTitle = '';
   dispatchCanvasCleared();
 }
-
 export function getPreviousArtifactText() {
   return previousArtifactText;
 }

@@ -359,6 +359,7 @@ export async function openSidebarArtifactItem(item) {
     kind: 'text_artifact',
     event_id: `sidebar-item-${artifactID}-${Date.now()}`,
     title: String(artifact?.title || item?.artifact_title || item?.title || 'Item'),
+    path: refPath,
     text: buildSidebarItemFallbackText(item, artifact),
     meta: buildSidebarCanvasMeta(item, artifactKind),
   };

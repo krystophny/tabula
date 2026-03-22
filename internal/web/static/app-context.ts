@@ -248,6 +248,7 @@ export const state = {
     kind: '',
     artifactKind: '',
     title: '',
+    path: '',
     surfaceDefault: '',
     itemID: 0,
     artifactID: 0,

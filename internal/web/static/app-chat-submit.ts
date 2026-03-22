@@ -35,7 +35,7 @@ const maybeHandleDictationCommand = (...args) => refs.maybeHandleDictationComman
 const STOP_REQUEST_TIMEOUT_MS = 3500;
 const VOICE_TRANSCRIPT_SUBMIT_GUARD_MS = 220;
 
-function buildCursorPayload(anchor) {
+export function buildCursorPayload(anchor) {
   if (!anchor || typeof anchor !== 'object') return null;
   const payload = {
     view: String(anchor.view || '').trim(),

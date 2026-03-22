@@ -21,10 +21,11 @@ type Client struct {
 type PromptRequest struct {
 	CWD          string
 	Prompt       string
-	Model        string                 // thread-level default model
-	TurnModel    string                 // per-turn model override (sent in turn/start if set)
-	ThreadParams map[string]interface{} // additional params for thread/start
-	TurnParams   map[string]interface{} // additional params for turn/start
+	TurnInput    []map[string]interface{} // explicit turn input items; defaults to Prompt as a text input
+	Model        string                   // thread-level default model
+	TurnModel    string                   // per-turn model override (sent in turn/start if set)
+	ThreadParams map[string]interface{}   // additional params for thread/start
+	TurnParams   map[string]interface{}   // additional params for turn/start
 	Timeout      time.Duration
 }
 
@@ -112,8 +113,8 @@ func (c *Client) SendPromptStream(ctx context.Context, req PromptRequest, onEven
 		return nil, errors.New("app-server URL is empty")
 	}
 	prompt := strings.TrimSpace(req.Prompt)
-	if prompt == "" {
-		return nil, errors.New("prompt is required")
+	if prompt == "" && len(req.TurnInput) == 0 {
+		return nil, errors.New("prompt or turn input is required")
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -215,13 +216,13 @@ func (c *Client) SendPromptStream(ctx context.Context, req PromptRequest, onEven
 		onEvent(StreamEvent{Type: "thread_started", ThreadID: threadID})
 	}
 
+	turnInput := req.TurnInput
+	if len(turnInput) == 0 {
+		turnInput = DefaultTurnInput(prompt)
+	}
 	turnParams := map[string]interface{}{
 		"threadId": threadID,
-		"input": []map[string]interface{}{{
-			"type":          "text",
-			"text":          prompt,
-			"text_elements": []interface{}{},
-		}},
+		"input":    turnInput,
 	}
 	if strings.TrimSpace(req.TurnModel) != "" {
 		turnParams["model"] = strings.TrimSpace(req.TurnModel)

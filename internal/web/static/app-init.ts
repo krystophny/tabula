@@ -85,6 +85,7 @@ const launchReplyAuthoring = (...args) => refs.launchReplyAuthoring(...args);
 const launchReplyAllAuthoring = (...args) => refs.launchReplyAllAuthoring(...args);
 const launchForwardAuthoring = (...args) => refs.launchForwardAuthoring(...args);
 const handleMailTriageShortcut = (...args) => refs.handleMailTriageShortcut(...args);
+const sendCanvasPositionEvent = (...args) => refs.sendCanvasPositionEvent(...args);
 
 function handleMailShortcut(ev) {
   if (ev.metaKey || ev.ctrlKey || ev.altKey) return false;
@@ -149,7 +150,7 @@ export function bindUi() {
   const isVoiceInteractionTarget = (target, x, y) => (
     isInEdgeZone(x, y)
     || (target instanceof Element
-      && target.closest('button,a,input,textarea,select,[contenteditable="true"],.overlay,.floating-input,.edge-panel,.canvas-embedded-ui,#canvas-pdf .canvas-pdf-page,#canvas-pdf .textLayer,#canvas-pdf .annotationLayer'))
+      && target.closest('button,a,input,textarea,select,[contenteditable="true"],.overlay,.floating-input,.edge-panel,.canvas-embedded-ui'))
   );
   const rememberMousePosition = (x, y) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
@@ -178,59 +179,6 @@ export function bindUi() {
     const captureAnchor = anchor || captureAnchorAtPoint(x, y);
     return beginVoiceCapture(x, y, captureAnchor);
   };
-  const buildCanvasPositionPayload = (anchor, options: Record<string, any> = {}) => {
-    if (!anchor || typeof anchor !== 'object') return null;
-    const payload: Record<string, any> = {
-      type: 'canvas_position',
-      gesture: String(options?.gesture || 'tap').trim().toLowerCase() || 'tap',
-      output_mode: state.ttsSilent ? 'silent' : 'voice',
-      cursor: {} as Record<string, any>,
-    };
-    const cursor = payload.cursor;
-    const setTextField = (key, value) => {
-      const text = String(value || '').trim();
-      if (text) cursor[key] = text;
-    };
-    const setIntField = (key, value) => {
-      const num = Number.parseInt(String(value || ''), 10);
-      if (Number.isFinite(num) && num > 0) cursor[key] = num;
-    };
-    const setFloatField = (key, value) => {
-      const num = Number(value);
-      if (Number.isFinite(num)) cursor[key] = num;
-    };
-    setTextField('view', anchor.view);
-    setTextField('element', anchor.element);
-    setTextField('title', anchor.title);
-    setIntField('page', anchor.page);
-    setIntField('line', anchor.line);
-    setFloatField('relative_x', anchor.relativeX);
-    setFloatField('relative_y', anchor.relativeY);
-    setTextField('selected_text', anchor.selectedText);
-    setTextField('surrounding_text', anchor.surroundingText);
-    setIntField('item_id', anchor.itemID || anchor.item_id);
-    setTextField('item_title', anchor.itemTitle || anchor.item_title);
-    setTextField('item_state', anchor.itemState || anchor.item_state);
-    setIntField('workspace_id', anchor.workspaceID || anchor.workspace_id);
-    setTextField('workspace_name', anchor.workspaceName || anchor.workspace_name);
-    setTextField('path', anchor.path);
-    if (anchor.isDir === true || anchor.is_dir === true) {
-      cursor.is_dir = true;
-    }
-    if (options?.requestResponse) {
-      payload.request_response = true;
-    }
-    if (Object.keys(cursor).length === 0) return null;
-    return payload;
-  };
-  const sendCanvasPosition = (anchor, options = {}) => {
-    const payload = buildCanvasPositionPayload(anchor, options);
-    const ws = state.chatWs;
-    if (!payload || !ws || ws.readyState !== WebSocket.OPEN) return false;
-    ws.send(JSON.stringify(payload));
-    return true;
-  };
-
   document.addEventListener('mousemove', (ev) => {
     rememberMousePosition(ev.clientX, ev.clientY);
   }, { passive: true });
@@ -433,7 +381,7 @@ export function bindUi() {
         rememberMousePosition(x, y);
         tapAnchor = tapAnchor || captureAnchorAtPoint(x, y);
         pinCursorAnchor(x, y, tapAnchor);
-        sendCanvasPosition(tapAnchor, { gesture: 'tap' });
+        sendCanvasPositionEvent(tapAnchor, { gesture: 'tap', clientX: x, clientY: y });
         updateAssistantActivityIndicator();
         return;
       }

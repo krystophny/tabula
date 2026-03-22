@@ -6,6 +6,7 @@ export {
   resolveCanvasApprovalRequest,
   getLocationFromPoint,
   getLocationFromSelection,
+  captureVisualReasoningContext,
   clearLineHighlight,
   escapeHtml,
   sanitizeHtml,

@@ -664,6 +664,7 @@ export function applyArtifactEditorText(text) {
     event_id: getActiveTextEventId() || undefined,
     kind: 'text_artifact',
     title: getActiveArtifactTitle() || '',
+    path: String(state.currentCanvasArtifact?.path || '').trim(),
     text: nextText,
   });
   const nextPane = document.getElementById('canvas-text');

@@ -7,6 +7,8 @@ type HarnessLogEntry = {
   [key: string]: unknown;
 };
 
+const TEST_IMAGE_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mP8z/D/PwMDAwMjI4MBAF0CBR8XTur2AAAAAElFTkSuQmCC';
+
 async function getLog(page: Page): Promise<HarnessLogEntry[]> {
   return page.evaluate(() => (window as any).__harnessLog.slice());
 }
@@ -136,6 +138,72 @@ async function renderPdfArtifactMock(page: Page) {
         event_id: 'art-pdf-1',
       },
     }));
+  });
+}
+
+async function renderImageArtifactMock(page: Page) {
+  await page.evaluate(async (dataURL) => {
+    const imagePane = document.getElementById('canvas-image');
+    const image = document.getElementById('canvas-img');
+    if (!(imagePane instanceof HTMLElement) || !(image instanceof HTMLImageElement)) return;
+    imagePane.style.display = '';
+    imagePane.classList.add('is-active');
+    image.src = String(dataURL || '');
+    image.alt = 'test-image.png';
+    image.style.width = '320px';
+    image.style.height = '240px';
+    const app = (window as any)._taburaApp;
+    const state = app?.getState?.();
+    if (state) {
+      state.currentCanvasArtifact = {
+        kind: 'image_artifact',
+        title: 'test-image.png',
+        path: 'docs/test-image.png',
+        event_id: 'art-image-1',
+      };
+      state.hasArtifact = true;
+    }
+    document.dispatchEvent(new CustomEvent('tabura:canvas-rendered', {
+      detail: {
+        kind: 'image_artifact',
+        title: 'test-image.png',
+        path: 'docs/test-image.png',
+        event_id: 'art-image-1',
+      },
+    }));
+    if (!image.complete) {
+      try {
+        await image.decode();
+      } catch (_) {}
+    }
+  }, TEST_IMAGE_DATA_URL);
+}
+
+async function renderMarkdownArtifactWithImage(page: Page) {
+  await page.evaluate(() => {
+    const mod = (window as any).__canvasModule;
+    mod.renderCanvas({
+      event_id: 'markdown-artifact',
+      kind: 'text_artifact',
+      title: 'docs/readme.md',
+      path: 'docs/readme.md',
+      text: '![Diagram](images/diagram.png)',
+    });
+    const pane = document.getElementById('canvas-text');
+    if (pane) {
+      pane.style.display = '';
+      pane.classList.add('is-active');
+    }
+    const app = (window as any)._taburaApp;
+    const state = app?.getState?.();
+    if (state) {
+      state.currentCanvasArtifact = {
+        kind: 'text_artifact',
+        title: 'docs/readme.md',
+        path: 'docs/readme.md',
+      };
+      state.hasArtifact = true;
+    }
   });
 }
 
@@ -345,4 +413,56 @@ test('request_position in prompt tool starts a local capture instead of streamin
   expect(sentEntry?.cursor).toMatchObject({
     title: 'test.txt',
   });
+});
+
+test('meeting image taps include a visual snapshot for multimodal reasoning', async ({ page }) => {
+  await setLiveMode(page, 'meeting');
+  await renderImageArtifactMock(page);
+  await clearLog(page);
+
+  const imageBox = await page.locator('#canvas-img').boundingBox();
+  expect(imageBox).not.toBeNull();
+  await page.mouse.click((imageBox?.x || 0) + (imageBox?.width || 0) * 0.5, (imageBox?.y || 0) + (imageBox?.height || 0) * 0.5);
+  await expect.poll(async () => {
+    const log = await getLog(page);
+    return log.find((entry) => entry.type === 'canvas_position') || null;
+  }).not.toBeNull();
+
+  const log = await getLog(page);
+  const entry = log.find((item) => item.type === 'canvas_position');
+  expect(String(entry?.snapshot_data_url || '')).toContain('data:image/png;base64,');
+  expect(entry?.cursor).toMatchObject({
+    title: 'test-image.png',
+  });
+});
+
+test('pdf meeting taps include a visual snapshot for multimodal reasoning', async ({ page }) => {
+  await setLiveMode(page, 'meeting');
+  await renderPdfArtifactMock(page);
+  await clearLog(page);
+
+  const pageBox = await page.locator('#canvas-pdf .canvas-pdf-page-inner').boundingBox();
+  expect(pageBox).not.toBeNull();
+  await page.mouse.click((pageBox?.x || 0) + (pageBox?.width || 0) * 0.35, (pageBox?.y || 0) + (pageBox?.height || 0) * 0.25);
+  await expect.poll(async () => {
+    const log = await getLog(page);
+    return log.find((entry) => entry.type === 'canvas_position') || null;
+  }).not.toBeNull();
+
+  const log = await getLog(page);
+  const entry = log.find((item) => item.type === 'canvas_position');
+  expect(String(entry?.snapshot_data_url || '')).toContain('data:image/png;base64,');
+  expect(entry?.cursor).toMatchObject({
+    title: 'test.pdf',
+    page: 1,
+  });
+});
+
+test('markdown image paths are rewritten through the canvas file proxy', async ({ page }) => {
+  await renderMarkdownArtifactWithImage(page);
+  await expect.poll(async () => page.evaluate(() => {
+    const img = document.querySelector('#canvas-text img');
+    return img instanceof HTMLImageElement ? img.src : '';
+  })).toContain('/api/files/');
+  await expect(page.locator('#canvas-text img')).toHaveAttribute('src', /docs%2Fimages%2Fdiagram\.png/);
 });

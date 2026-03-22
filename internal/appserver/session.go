@@ -203,10 +203,7 @@ func (s *Session) SendTurn(ctx context.Context, prompt, turnModel string, onEven
 	return s.SendTurnWithParams(ctx, prompt, turnModel, nil, onEvent)
 }
 
-// SendTurnWithParams sends a single turn on the persistent thread and reads events until
-// turn/completed. The onEvent callback receives streaming events including
-// context_usage for token tracking.
-func (s *Session) SendTurnWithParams(ctx context.Context, prompt, turnModel string, turnParams map[string]interface{}, onEvent func(StreamEvent)) (*PromptResponse, error) {
+func (s *Session) SendTurnInputWithParams(ctx context.Context, turnInput []map[string]interface{}, turnModel string, turnParams map[string]interface{}, onEvent func(StreamEvent)) (*PromptResponse, error) {
 	s.mu.Lock()
 	if s.closed || s.conn == nil {
 		s.mu.Unlock()
@@ -214,14 +211,14 @@ func (s *Session) SendTurnWithParams(ctx context.Context, prompt, turnModel stri
 	}
 	s.mu.Unlock()
 
+	if len(turnInput) == 0 {
+		return nil, errors.New("turn input is required")
+	}
+
 	turnRPCID := s.allocID()
 	baseTurnParams := map[string]interface{}{
 		"threadId": s.threadID,
-		"input": []map[string]interface{}{{
-			"type":          "text",
-			"text":          prompt,
-			"text_elements": []interface{}{},
-		}},
+		"input":    turnInput,
 	}
 	turnParams = mergeStringInterfaceParams(baseTurnParams, turnParams)
 	if strings.TrimSpace(turnModel) != "" {
@@ -258,6 +255,13 @@ func (s *Session) SendTurnWithParams(ctx context.Context, prompt, turnModel stri
 		Message:     message,
 		FileChanges: fileChanges,
 	}, nil
+}
+
+// SendTurnWithParams sends a single turn on the persistent thread and reads events until
+// turn/completed. The onEvent callback receives streaming events including
+// context_usage for token tracking.
+func (s *Session) SendTurnWithParams(ctx context.Context, prompt, turnModel string, turnParams map[string]interface{}, onEvent func(StreamEvent)) (*PromptResponse, error) {
+	return s.SendTurnInputWithParams(ctx, DefaultTurnInput(prompt), turnModel, turnParams, onEvent)
 }
 
 func (s *Session) readTurnUntilComplete(ctx context.Context, turnRPCID int, onEvent func(StreamEvent)) (string, string, []string, error) {

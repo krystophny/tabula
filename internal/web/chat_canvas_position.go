@@ -10,10 +10,11 @@ import (
 const chatCanvasPositionMaxEventsPerSecond = 5
 
 type chatCanvasPositionEvent struct {
-	Cursor     *chatCursorContext
-	Gesture    string
-	Requested  bool
-	OccurredAt time.Time
+	Cursor          *chatCursorContext
+	Gesture         string
+	Requested       bool
+	SnapshotDataURL string
+	OccurredAt      time.Time
 }
 
 type chatCanvasPositionTracker struct {
@@ -46,10 +47,11 @@ func normalizeChatCanvasPositionEvent(raw *chatCanvasPositionEvent) *chatCanvasP
 		occurredAt = time.Now().UTC()
 	}
 	return &chatCanvasPositionEvent{
-		Cursor:     cursor,
-		Gesture:    gesture,
-		Requested:  raw.Requested,
-		OccurredAt: occurredAt,
+		Cursor:          cursor,
+		Gesture:         gesture,
+		Requested:       raw.Requested,
+		SnapshotDataURL: normalizeChatVisualDataURL(raw.SnapshotDataURL),
+		OccurredAt:      occurredAt,
 	}
 }
 
@@ -146,6 +148,9 @@ func formatCanvasPositionPromptContext(events []*chatCanvasPositionEvent) string
 		lines = append(lines, "The latest requested position input has arrived. Continue from that request instead of asking for the position again.")
 	} else {
 		lines = append(lines, "The user shared live canvas position input during dialogue.")
+	}
+	if latestCanvasPositionVisualAttachment(filtered) != nil {
+		lines = append(lines, "A visual snapshot of the tapped canvas region is attached. Use it together with the cursor description instead of asking the user to resend the image.")
 	}
 	for i, event := range filtered {
 		lines = append(lines, fmt.Sprintf("%d. %s", i+1, describeCanvasPositionEvent(event)))

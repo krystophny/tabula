@@ -81,7 +81,7 @@ func (a *App) localAssistantLLMModel() string {
 	return a.localIntentLLMModel()
 }
 
-func (a *App) requestLocalAssistantMessage(ctx context.Context, prompt string) (string, error) {
+func (a *App) requestLocalAssistantMessage(ctx context.Context, prompt string, visual *chatVisualAttachment) (string, error) {
 	baseURL := a.assistantLLMBaseURL()
 	if baseURL == "" {
 		return "", errors.New("local assistant is not configured")
@@ -93,9 +93,9 @@ func (a *App) requestLocalAssistantMessage(ctx context.Context, prompt string) (
 		"chat_template_kwargs": map[string]any{
 			"enable_thinking": false,
 		},
-		"messages": []map[string]string{
+		"messages": []map[string]any{
 			{"role": "system", "content": localAssistantDialoguePrompt},
-			{"role": "user", "content": prompt},
+			{"role": "user", "content": buildLocalAssistantUserContent(prompt, visual)},
 		},
 	})
 	requestCtx, cancel := context.WithTimeout(ctx, assistantLLMRequestTimeout)
@@ -222,7 +222,7 @@ func (a *App) runLocalAssistantTurn(sessionID string, session store.ChatSession,
 		"turn_id": runID,
 	})
 
-	reply, err := a.requestLocalAssistantMessage(ctx, prompt)
+	reply, err := a.requestLocalAssistantMessage(ctx, prompt, latestCanvasPositionVisualAttachment(positionCtx))
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(ctx.Err(), context.Canceled) {
 			a.finishCompanionPendingTurn(sessionID, "assistant_turn_cancelled")

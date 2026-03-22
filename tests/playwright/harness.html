@@ -2967,6 +2967,7 @@
               request_response: Boolean(msg.request_response),
               output_mode: msg.output_mode,
               cursor: msg.cursor || null,
+              snapshot_data_url: String(msg.snapshot_data_url || ''),
             });
           } else if (msg.type === 'canvas_ink') {
             window.__harnessLog.push({

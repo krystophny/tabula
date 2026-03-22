@@ -194,6 +194,51 @@ func TestSessionContextUsageTracking(t *testing.T) {
 	}
 }
 
+func TestSessionSendTurnInputWithParams_UsesExplicitImageInput(t *testing.T) {
+	sawImage := false
+	srv := newTestServer(t, func(conn *websocket.Conn, msg map[string]interface{}, turnCount int) {
+		params, _ := msg["params"].(map[string]interface{})
+		input, _ := params["input"].([]interface{})
+		if len(input) != 2 {
+			t.Fatalf("input len = %d, want 2", len(input))
+		}
+		second, _ := input[1].(map[string]interface{})
+		if strings.TrimSpace(second["type"].(string)) != "image_url" {
+			t.Fatalf("input[1].type = %v, want image_url", second["type"])
+		}
+		if strings.TrimSpace(second["image_url"].(string)) == "" {
+			t.Fatal("input[1].image_url should not be empty")
+		}
+		sawImage = true
+		simpleTurnHandler(conn, msg, turnCount)
+	})
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+	client, err := NewClient(wsURL)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	ctx := context.Background()
+	sess, err := client.OpenSession(ctx, "/tmp", "")
+	if err != nil {
+		t.Fatalf("open session: %v", err)
+	}
+	defer sess.Close()
+
+	_, err = sess.SendTurnInputWithParams(ctx, BuildTurnInput([]TurnInputItem{
+		{Type: "text", Text: "inspect this"},
+		{Type: "image_url", ImageURL: "data:image/png;base64,Zm9v"},
+	}), "", nil, nil)
+	if err != nil {
+		t.Fatalf("SendTurnInputWithParams: %v", err)
+	}
+	if !sawImage {
+		t.Fatal("expected explicit image input to be forwarded")
+	}
+}
+
 func TestSessionSendTurnHonorsContextCancel(t *testing.T) {
 	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 	turnStarted := make(chan struct{})

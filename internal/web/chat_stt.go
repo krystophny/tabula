@@ -197,11 +197,11 @@ func handleChatWSTextMessage(a *App, conn *chatWSConn, sessionID string, data []
 			})
 		}
 	case "canvas_position":
-		enqueueRequestedCanvasPosition(a, sessionID, msg.Cursor, msg.Gesture, msg.RequestResponse, msg.OutputMode)
+		enqueueRequestedCanvasPosition(a, sessionID, msg.Cursor, msg.Gesture, msg.RequestResponse, msg.OutputMode, msg.SnapshotDataURL)
 	case "tap":
-		enqueueRequestedCanvasPosition(a, sessionID, msg.Cursor, "tap", msg.RequestResponse, msg.OutputMode)
+		enqueueRequestedCanvasPosition(a, sessionID, msg.Cursor, "tap", msg.RequestResponse, msg.OutputMode, msg.SnapshotDataURL)
 	case "gesture":
-		enqueueRequestedCanvasPosition(a, sessionID, msg.Cursor, firstNonEmptyCursorText(msg.Gesture, msg.Kind, "gesture"), msg.RequestResponse, msg.OutputMode)
+		enqueueRequestedCanvasPosition(a, sessionID, msg.Cursor, firstNonEmptyCursorText(msg.Gesture, msg.Kind, "gesture"), msg.RequestResponse, msg.OutputMode, msg.SnapshotDataURL)
 	case "canvas_ink":
 		enqueueRequestedCanvasInk(a, sessionID, msg.Cursor, msg.ArtifactKind, msg.OutputMode, msg.RequestResponse, msg.SnapshotDataURL, msg.TotalStrokes, msg.BoundingBox, msg.OverlappingLines, msg.OverlappingText, msg.Strokes)
 	case "ink_stroke":
@@ -221,11 +221,12 @@ func maxCanvasInkStrokeCount(total, current int) int {
 	return 1
 }
 
-func enqueueRequestedCanvasPosition(a *App, sessionID string, cursor *chatCursorContext, gesture string, requested bool, outputMode string) {
+func enqueueRequestedCanvasPosition(a *App, sessionID string, cursor *chatCursorContext, gesture string, requested bool, outputMode string, snapshotDataURL string) {
 	if !a.chatCanvasPositions.enqueue(sessionID, &chatCanvasPositionEvent{
-		Cursor:    cursor,
-		Gesture:   strings.TrimSpace(gesture),
-		Requested: requested,
+		Cursor:          cursor,
+		Gesture:         strings.TrimSpace(gesture),
+		Requested:       requested,
+		SnapshotDataURL: snapshotDataURL,
 	}) {
 		return
 	}
