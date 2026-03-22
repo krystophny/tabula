@@ -26,6 +26,7 @@ const (
 	LatestProtocolVersion = "2025-03-26"
 	defaultProducerMCPURL = "http://127.0.0.1:8090/mcp"
 	handoffKindFile       = "file"
+	handoffKindMail       = "mail"
 	tempArtifactsDirRel   = ".tabura/artifacts/tmp"
 )
 
@@ -42,6 +43,7 @@ type RPCError struct {
 type Server struct {
 	adapter                 *canvas.Adapter
 	appServerClient         *appserver.Client
+	handoffs                *handoffRegistry
 	store                   *store.Store
 	newGoogleCalendarReader func(context.Context) (googleCalendarReader, error)
 	newEmailProvider        func(context.Context, store.ExternalAccount) (email.EmailProvider, error)
@@ -74,6 +76,7 @@ func NewServerWithStore(adapter *canvas.Adapter, st *store.Store, appServerClien
 	return &Server{
 		adapter:         adapter,
 		appServerClient: client,
+		handoffs:        newHandoffRegistry(),
 		store:           st,
 		newGoogleCalendarReader: func(ctx context.Context) (googleCalendarReader, error) {
 			return tabcalendar.New(ctx)
@@ -204,6 +207,16 @@ func (s *Server) callTool(name string, args map[string]interface{}) (map[string]
 		return s.adapter.CanvasHistory(sid, intArg(args, "limit", 20)), nil
 	case "canvas_import_handoff":
 		return s.canvasImportHandoff(sid, args)
+	case "handoff.create":
+		return s.handoffCreate(args)
+	case "handoff.peek":
+		return s.handoffPeek(args)
+	case "handoff.consume":
+		return s.handoffConsume(args)
+	case "handoff.revoke":
+		return s.handoffRevoke(args)
+	case "handoff.status":
+		return s.handoffStatus(args)
 	case "temp_file_create":
 		return s.tempFileCreate(args)
 	case "temp_file_remove":

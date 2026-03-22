@@ -219,6 +219,11 @@ Defined in `internal/surface/definitions.go` and used by `internal/mcp/server.go
 - `canvas_artifact_show`
 - `canvas_status`
 - `canvas_import_handoff`
+- `handoff.create`
+- `handoff.peek`
+- `handoff.consume`
+- `handoff.revoke`
+- `handoff.status`
 - `temp_file_create`
 - `temp_file_remove`
 - `workspace_list`

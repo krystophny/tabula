@@ -12,12 +12,14 @@ Primary goals:
 Read in this order:
 1. `spec/overview.md`
 2. `spec/lifecycle.md`
-3. `spec/security.md`
-4. `security/threat-model.md`
+3. `spec/mail.md`
+4. `spec/security.md`
+5. `security/threat-model.md`
 
 Schemas:
 - `schemas/envelope-v1.json`
 - `schemas/kind-file-v1.json`
+- `schemas/kind-mail-v1.json`
 - `schemas/error-v1.json`
 
 Conformance examples:

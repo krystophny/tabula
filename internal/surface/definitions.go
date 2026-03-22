@@ -42,6 +42,70 @@ var MCPTools = []Tool{
 		Required:    []string{"session_id", "handoff_id"},
 	},
 	{
+		Name:        "handoff.create",
+		Description: "Create a producer handoff. Tabura currently supports kind=mail with selector.account_id plus message_id or message_ids.",
+		Required:    []string{"kind", "selector"},
+		Properties: map[string]ToolProperty{
+			"kind": {
+				Type:        "string",
+				Description: "Handoff kind. Tabura currently supports mail.",
+				Enum:        []string{"mail"},
+			},
+			"selector": {
+				Type:        "object",
+				Description: "Kind-specific source selection. For mail, provide account_id and message_id or message_ids.",
+			},
+			"policy": {
+				Type:        "object",
+				Description: "Optional lifecycle policy with ttl_seconds, expires_at, and max_consumes.",
+			},
+		},
+	},
+	{
+		Name:        "handoff.peek",
+		Description: "Read producer handoff metadata without payload bytes.",
+		Required:    []string{"handoff_id"},
+		Properties: map[string]ToolProperty{
+			"handoff_id": {
+				Type:        "string",
+				Description: "Producer handoff identifier.",
+			},
+		},
+	},
+	{
+		Name:        "handoff.consume",
+		Description: "Consume one producer handoff payload and advance policy counters.",
+		Required:    []string{"handoff_id"},
+		Properties: map[string]ToolProperty{
+			"handoff_id": {
+				Type:        "string",
+				Description: "Producer handoff identifier.",
+			},
+		},
+	},
+	{
+		Name:        "handoff.revoke",
+		Description: "Revoke one producer handoff so future consumes are rejected.",
+		Required:    []string{"handoff_id"},
+		Properties: map[string]ToolProperty{
+			"handoff_id": {
+				Type:        "string",
+				Description: "Producer handoff identifier.",
+			},
+		},
+	},
+	{
+		Name:        "handoff.status",
+		Description: "Show producer handoff metadata plus lifecycle counters and revocation state.",
+		Required:    []string{"handoff_id"},
+		Properties: map[string]ToolProperty{
+			"handoff_id": {
+				Type:        "string",
+				Description: "Producer handoff identifier.",
+			},
+		},
+	},
+	{
 		Name:        "temp_file_create",
 		Description: "Create a temporary file under .tabura/artifacts/tmp for file-backed canvas usage.",
 		Properties: map[string]ToolProperty{

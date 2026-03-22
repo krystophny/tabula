@@ -21,6 +21,11 @@
 - `handoff.revoke`
 - `handoff.status`
 
+## Kind notes
+
+- `file` carries file metadata plus encoded content bytes.
+- `mail` carries normalized email metadata and message body fields for downstream mail-aware consumers.
+
 ## Required envelope fields
 
 - `spec_version` (example: `handoff.v1`)

@@ -5,8 +5,9 @@
 ## handoff.create
 
 Input:
-- `kind`: `file`
+- `kind`: producer kind such as `file` or `mail`
 - `selector`: kind-specific source selection
+  - `mail`: `account_id` plus `message_id` or `message_ids`
 - `policy` (optional): `ttl_seconds`, `expires_at`, `max_consumes`
 
 Output:
