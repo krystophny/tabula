@@ -10,7 +10,6 @@ import (
 
 const (
 	assistantProviderLocal  = "local"
-	assistantProviderFast   = "fast"
 	assistantProviderOpenAI = "openai"
 	assistantProviderSpark  = "spark"
 	assistantProviderGPT    = "gpt"
@@ -39,8 +38,6 @@ func normalizeAssistantProvider(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case assistantProviderLocal:
 		return assistantProviderLocal
-	case assistantProviderFast:
-		return assistantProviderFast
 	case assistantProviderOpenAI:
 		return assistantProviderOpenAI
 	case assistantProviderSpark:
@@ -58,8 +55,6 @@ func assistantProviderDisplayLabel(provider, model string) string {
 	switch assistantProviderBadgeKey(provider, model) {
 	case assistantProviderLocal:
 		return "Local"
-	case assistantProviderFast:
-		return "Fast"
 	case assistantProviderSpark:
 		return "Spark"
 	case assistantProviderGPT:
@@ -69,50 +64,27 @@ func assistantProviderDisplayLabel(provider, model string) string {
 	case assistantProviderOpenAI:
 		return "OpenAI"
 	default:
-		return "Assistant"
+		return "Local"
 	}
 }
 
 func assistantProviderBadgeKey(provider, model string) string {
 	normalizedProvider := normalizeAssistantProvider(provider)
 	switch normalizedProvider {
-	case assistantProviderSpark, assistantProviderGPT, assistantProviderMini, assistantProviderFast:
+	case assistantProviderSpark, assistantProviderGPT, assistantProviderMini:
 		return normalizedProvider
 	case assistantProviderLocal:
-		if inferred := inferLocalAssistantProvider(model); inferred != "" {
-			return inferred
-		}
 		return assistantProviderLocal
 	case assistantProviderOpenAI:
 		if alias := modelprofile.ResolveAlias(model, ""); alias != "" {
 			return alias
 		}
-		return assistantProviderOpenAI
+		return assistantProviderGPT
 	case "":
 		if alias := modelprofile.ResolveAlias(model, ""); alias != "" {
 			return alias
 		}
-		if inferred := inferLocalAssistantProvider(model); inferred != "" {
-			return inferred
-		}
-		return ""
-	default:
-		return normalizedProvider
-	}
-}
-
-func inferLocalAssistantProvider(model string) string {
-	lower := strings.ToLower(strings.TrimSpace(model))
-	if lower == "" {
-		return assistantProviderFast
-	}
-	switch {
-	case strings.Contains(lower, "fast"),
-		strings.Contains(lower, "9b"),
-		strings.Contains(lower, "4b"),
-		strings.Contains(lower, "mini"),
-		strings.Contains(lower, "small"):
-		return assistantProviderFast
+		return assistantProviderLocal
 	default:
 		return assistantProviderLocal
 	}
@@ -145,10 +117,7 @@ func providerForAppServerProfile(profile appServerModelProfile) string {
 }
 
 func (a *App) localAssistantProvider() string {
-	if a == nil {
-		return assistantProviderFast
-	}
-	return inferLocalAssistantProvider(a.localAssistantModelLabel())
+	return assistantProviderLocal
 }
 
 func (a *App) localAssistantModelLabel() string {

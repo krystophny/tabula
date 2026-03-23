@@ -497,8 +497,8 @@
         chat_session_id: 'chat-1',
         canvas_session_id: 'local',
         chat_mode: 'chat',
-        chat_model: 'spark',
-        chat_model_reasoning_effort: 'low',
+        chat_model: 'local',
+        chat_model_reasoning_effort: 'none',
         unread: false,
         review_pending: false,
         run_state: { active_turns: 0, queued_turns: 0, is_working: false, status: 'idle' },
@@ -606,8 +606,8 @@
           chat_session_id: String(project?.chat_session_id || `chat-${String(project?.id || '').trim() || 'project'}`).trim(),
           canvas_session_id: String(project?.canvas_session_id || 'local').trim(),
           chat_mode: String(project?.chat_mode || 'chat').trim().toLowerCase() || 'chat',
-          chat_model: String(project?.chat_model || 'spark').trim().toLowerCase() || 'spark',
-          chat_model_reasoning_effort: String(project?.chat_model_reasoning_effort || 'low').trim().toLowerCase() || 'low',
+          chat_model: String(project?.chat_model || 'local').trim().toLowerCase() || 'local',
+          chat_model_reasoning_effort: String(project?.chat_model_reasoning_effort || 'none').trim().toLowerCase() || 'none',
           unread: Boolean(project?.unread),
           review_pending: Boolean(project?.review_pending),
           run_state: {
@@ -1656,8 +1656,8 @@
           chat_session_id: `chat-${id}`,
           canvas_session_id: id,
           chat_mode: 'chat',
-          chat_model: 'spark',
-          chat_model_reasoning_effort: 'low',
+          chat_model: 'local',
+          chat_model_reasoning_effort: 'none',
           unread: false,
           review_pending: false,
           run_state: { active_turns: 0, queued_turns: 0, is_working: false, status: 'idle' },
@@ -1774,8 +1774,8 @@
         } catch (_) {
           body = {};
         }
-        const model = String(body?.model || harnessProjects[index].chat_model || 'spark').trim().toLowerCase();
-        let effort = String(body?.reasoning_effort || harnessProjects[index].chat_model_reasoning_effort || 'low').trim().toLowerCase();
+        const model = String(body?.model || harnessProjects[index].chat_model || 'local').trim().toLowerCase();
+        let effort = String(body?.reasoning_effort || harnessProjects[index].chat_model_reasoning_effort || 'none').trim().toLowerCase();
         if (effort === 'extra_high') effort = 'xhigh';
         harnessProjects[index] = {
           ...harnessProjects[index],

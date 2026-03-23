@@ -278,13 +278,18 @@ function normalizeAssistantProvider(provider) {
   const value = String(provider || '').trim().toLowerCase();
   if (
     value === 'local'
-    || value === 'fast'
     || value === 'openai'
     || value === 'spark'
     || value === 'gpt'
     || value === 'mini'
   ) return value;
   return '';
+}
+
+function activeProjectProviderAlias() {
+  const alias = String(refs.activeProjectChatModelAlias?.() || '').trim().toLowerCase();
+  if (alias === 'spark' || alias === 'gpt' || alias === 'mini') return alias;
+  return 'local';
 }
 
 function providerAliasFromModel(provider, model) {
@@ -295,36 +300,32 @@ function providerAliasFromModel(provider, model) {
     if (normalizedModel.includes('gpt-5-mini')) return 'mini';
     if (normalizedModel.includes('gpt')) return 'gpt';
   }
-  if (normalizedProvider === 'local' || !normalizedProvider) {
-    if (
-      normalizedModel.includes('fast')
-      || normalizedModel.includes('9b')
-      || normalizedModel.includes('4b')
-      || normalizedModel.includes('mini')
-      || normalizedModel.includes('small')
-    ) return 'fast';
+  if (normalizedProvider === 'local') return 'local';
+  if (normalizedProvider === 'spark' || normalizedProvider === 'gpt' || normalizedProvider === 'mini') {
+    return normalizedProvider;
   }
-  return normalizedProvider;
+  return activeProjectProviderAlias();
 }
 
 function assistantProviderLabel(provider, explicitLabel = '', providerModel = '') {
   const label = String(explicitLabel || '').trim();
-  if (label) return label;
+  const explicitAlias = providerAliasFromModel(provider, providerModel);
+  if (label) {
+    const clean = label.toLowerCase();
+    if (clean === 'local' || clean === 'spark' || clean === 'gpt' || clean === 'mini') return label;
+    return assistantProviderLabel(explicitAlias, '', providerModel);
+  }
   switch (providerAliasFromModel(provider, providerModel)) {
     case 'local':
       return 'Local';
-    case 'fast':
-      return 'Fast';
     case 'spark':
       return 'Spark';
     case 'gpt':
       return 'GPT';
     case 'mini':
       return 'Mini';
-    case 'openai':
-      return 'OpenAI';
     default:
-      return 'Assistant';
+      return 'Local';
   }
 }
 
@@ -334,11 +335,11 @@ function setAssistantRowProvider(row, options: Record<string, any> = {}) {
   if (meta instanceof HTMLElement) meta.textContent = '';
   const label = row.querySelector('.chat-assistant-label');
   if (!(label instanceof HTMLElement)) return;
-  const provider = normalizeAssistantProvider(options.provider);
+  const provider = providerAliasFromModel(options.provider, options.providerModel);
   const model = String(options.providerModel || '').trim();
   const display = assistantProviderLabel(provider, options.providerLabel, model);
   label.textContent = display;
-  label.dataset.provider = provider || 'assistant';
+  label.dataset.provider = provider || 'local';
   row.dataset.provider = provider;
   if (model) {
     label.title = model;
@@ -500,7 +501,11 @@ export function ensurePendingForTurn(turnID) {
   }
   let row = state.pendingQueue.shift() || null;
   if (!row) {
-    row = appendRenderedAssistant('_Working..._', { pending: true, localId: nextLocalMessageId() });
+    row = appendRenderedAssistant('_Working..._', {
+      pending: true,
+      localId: nextLocalMessageId(),
+      provider: activeProjectProviderAlias(),
+    });
   }
   if (key) {
     row.dataset.turnId = key;

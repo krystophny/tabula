@@ -40,12 +40,12 @@ test('assistant output shows provider label and model metadata', async ({ page }
 
   const row = page.locator('.chat-message.chat-assistant').last();
   const label = row.locator('.chat-assistant-label');
-  await expect(label).toHaveText('OpenAI');
+  await expect(label).toHaveText('Spark');
   await expect(label).toHaveAttribute('title', 'gpt-5.3-codex-spark');
-  await expect(row).toHaveAttribute('data-provider', 'openai');
+  await expect(row).toHaveAttribute('data-provider', 'spark');
 });
 
-test('unknown provider falls back to Assistant', async ({ page }) => {
+test('unknown provider falls back to Local', async ({ page }) => {
   await waitReady(page);
 
   await injectChatEvent(page, {
@@ -56,7 +56,16 @@ test('unknown provider falls back to Assistant', async ({ page }) => {
   });
 
   const label = page.locator('.chat-message.chat-assistant .chat-assistant-label').last();
-  await expect(label).toHaveText('Assistant');
+  await expect(label).toHaveText('Local');
+});
+
+test('pending assistant row uses active workspace model family', async ({ page }) => {
+  await waitReady(page);
+
+  await injectChatEvent(page, { type: 'turn_started', turn_id: 'provider-turn-pending' });
+
+  const label = page.locator('.chat-message.chat-assistant .chat-assistant-label').last();
+  await expect(label).toHaveText('Local');
 });
 
 test('system notice appends a system chat row', async ({ page }) => {
@@ -99,5 +108,5 @@ test('provisional assistant message is replaced by final output for the same tur
   const rows = page.locator('.chat-message.chat-assistant');
   await expect(rows).toHaveCount(1);
   await expect(rows.first().locator('.chat-assistant-content')).toContainText('Final grounded answer.');
-  await expect(rows.first().locator('.chat-assistant-label')).toHaveText('OpenAI');
+  await expect(rows.first().locator('.chat-assistant-label')).toHaveText('Spark');
 });
