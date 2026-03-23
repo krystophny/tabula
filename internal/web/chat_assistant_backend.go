@@ -127,6 +127,8 @@ func localAssistantAutoRouteCandidate(text string) bool {
 		return true
 	}
 	indicators := []string{
+		"tool",
+		"tools",
 		"shell",
 		"command",
 		"terminal",

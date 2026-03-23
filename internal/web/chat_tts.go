@@ -167,6 +167,23 @@ func (a *App) streamTTSAudio(sessionID string, conn *chatWSConn, seq int64, text
 		log.Printf("tts upstream HTTP %d: session=%s seq=%d body=%s", resp.StatusCode, sessionID, seq, strings.TrimSpace(string(errBody)))
 		return 0, fmt.Sprintf("TTS error: HTTP %d", resp.StatusCode)
 	}
+	contentType := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type")))
+	if strings.HasPrefix(contentType, "audio/") {
+		audio, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Printf("tts raw read error: session=%s seq=%d err=%v", sessionID, seq, err)
+			return 0, "failed to read TTS audio"
+		}
+		if len(audio) <= 44 {
+			return 0, "TTS stream returned no audio"
+		}
+		if err := conn.writeBinary(audio); err != nil {
+			log.Printf("tts websocket write error: session=%s seq=%d bytes=%d err=%v", sessionID, seq, len(audio), err)
+			return 0, err.Error()
+		}
+		log.Printf("tts delivered: session=%s seq=%d chunk=%d bytes=%d raw=true", sessionID, seq, 1, len(audio))
+		return 1, ""
+	}
 
 	scanner := bufio.NewScanner(resp.Body)
 	const maxStreamingLine = 16 * 1024 * 1024

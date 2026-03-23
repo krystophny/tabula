@@ -171,7 +171,7 @@ async function selectCircleSession(session: string) {
 
 function onSegmentClick(event: Event) {
   const target = event.target;
-  if (!(target instanceof HTMLElement)) return;
+  if (!(target instanceof Element)) return;
   const segment = target.closest('.tabura-circle-segment');
   if (!(segment instanceof HTMLButtonElement)) return;
   const kind = String(segment.dataset.kind || '').trim().toLowerCase();

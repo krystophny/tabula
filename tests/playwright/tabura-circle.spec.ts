@@ -1,5 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
 
+async function clearLog(page: Page) {
+  await page.evaluate(() => {
+    (window as any).__harnessLog.splice(0);
+  });
+}
+
+async function getLog(page: Page) {
+  return page.evaluate(() => (window as any).__harnessLog.slice());
+}
+
 async function waitReady(page: Page) {
   await page.goto('/tests/playwright/harness.html');
   await page.waitForFunction(() => {
@@ -98,4 +108,33 @@ test('corner placement persists across reloads', async ({ page }) => {
   await switchToTestProject(page);
 
   await expect(page.locator('#tabura-circle')).toHaveAttribute('data-corner', 'top_left');
+});
+
+test.describe('mobile hit targets', () => {
+  test.use({ viewport: { width: 375, height: 667 } });
+
+  test('right edge strip does not steal live, silent, or tool taps', async ({ page }) => {
+    await waitReady(page);
+    await switchToTestProject(page);
+    await clearLog(page);
+
+    await page.locator('#tabura-circle-dot').click();
+    await expect(page.locator('#tabura-circle')).toHaveAttribute('data-state', 'expanded');
+
+    await page.locator('#tabura-circle-segment-meeting').click();
+    await expect(page.locator('#tabura-circle-segment-meeting')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#edge-top-models .edge-live-status')).toContainText('Meeting');
+
+    await page.locator('#tabura-circle-segment-silent').click();
+    await expect(page.locator('#tabura-circle-segment-silent')).toHaveAttribute('aria-pressed', 'true');
+
+    await page.locator('#tabura-circle-segment-ink').click();
+    await expect(page.locator('#tabura-circle-segment-ink')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#tabura-circle-dot')).toHaveAttribute('data-tool', 'ink');
+
+    const log = await getLog(page);
+    expect(log.some((entry: any) => entry?.type === 'api_fetch' && entry?.action === 'live_policy' && entry?.payload?.policy === 'meeting')).toBe(true);
+    expect(log.some((entry: any) => entry?.type === 'api_fetch' && entry?.action === 'runtime_preferences' && entry?.payload?.silent_mode === true)).toBe(true);
+
+  });
 });

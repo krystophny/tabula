@@ -12,21 +12,21 @@
 
 .tabura-circle[data-corner="top_left"] {
   top: calc(1rem + var(--safe-area-top));
-  left: calc(1rem + var(--safe-area-left));
+  left: calc(1rem + var(--safe-area-left) + var(--file-sidebar-close-strip-width));
 }
 
 .tabura-circle[data-corner="top_right"] {
   top: calc(1rem + var(--safe-area-top));
-  right: calc(1rem + var(--safe-area-right));
+  right: calc(1rem + var(--safe-area-right) + var(--file-sidebar-close-strip-width));
 }
 
 .tabura-circle[data-corner="bottom_left"] {
-  left: calc(1rem + var(--safe-area-left));
+  left: calc(1rem + var(--safe-area-left) + var(--file-sidebar-close-strip-width));
   bottom: calc(1rem + var(--safe-area-bottom));
 }
 
 .tabura-circle[data-corner="bottom_right"] {
-  right: calc(1rem + var(--safe-area-right));
+  right: calc(1rem + var(--safe-area-right) + var(--file-sidebar-close-strip-width));
   bottom: calc(1rem + var(--safe-area-bottom));
 }
 
@@ -201,21 +201,21 @@ body.black-screen .tabura-circle {
 @media (max-width: 720px) {
   .tabura-circle[data-corner="top_left"] {
     top: calc(0.8rem + var(--safe-area-top));
-    left: calc(0.8rem + var(--safe-area-left));
+    left: calc(0.8rem + var(--safe-area-left) + var(--file-sidebar-close-strip-width));
   }
 
   .tabura-circle[data-corner="top_right"] {
     top: calc(0.8rem + var(--safe-area-top));
-    right: calc(0.8rem + var(--safe-area-right));
+    right: calc(0.8rem + var(--safe-area-right) + var(--file-sidebar-close-strip-width));
   }
 
   .tabura-circle[data-corner="bottom_left"] {
-    left: calc(0.8rem + var(--safe-area-left));
+    left: calc(0.8rem + var(--safe-area-left) + var(--file-sidebar-close-strip-width));
     bottom: calc(0.8rem + var(--safe-area-bottom));
   }
 
   .tabura-circle[data-corner="bottom_right"] {
-    right: calc(0.8rem + var(--safe-area-right));
+    right: calc(0.8rem + var(--safe-area-right) + var(--file-sidebar-close-strip-width));
     bottom: calc(0.8rem + var(--safe-area-bottom));
   }
 }

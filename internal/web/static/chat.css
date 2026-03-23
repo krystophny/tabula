@@ -203,7 +203,7 @@
   position: fixed;
   right: 1rem;
   bottom: calc(1rem + var(--safe-area-bottom, 0px));
-  z-index: 55;
+  z-index: 410;
   display: none;
   align-items: center;
   gap: 0.8rem;
