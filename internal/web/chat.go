@@ -79,6 +79,7 @@ type chatMessageRequest struct {
 	CaptureMode string             `json:"capture_mode,omitempty"`
 	Cursor      *chatCursorContext `json:"cursor,omitempty"`
 	LocalOnly   bool               `json:"local_only,omitempty"`
+	FastMode    *bool              `json:"fast_mode,omitempty"`
 }
 
 type chatCommandRequest struct {
@@ -332,6 +333,10 @@ func (a *App) handleChatSessionMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	fastMode := a.fastModeEnabled()
+	if req.FastMode != nil {
+		fastMode = *req.FastMode
+	}
 	a.broadcastChatEvent(sessionID, map[string]interface{}{
 		"type":    "message_accepted",
 		"role":    "user",
@@ -340,6 +345,7 @@ func (a *App) handleChatSessionMessage(w http.ResponseWriter, r *http.Request) {
 	})
 	queuedTurns := a.enqueueAssistantTurn(sessionID, outputMode, chatTurnOptions{
 		localOnly:   req.LocalOnly,
+		fastMode:    fastMode,
 		messageID:   storedUser.ID,
 		captureMode: req.CaptureMode,
 		cursor:      req.Cursor,

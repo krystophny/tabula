@@ -98,6 +98,47 @@ test('silent stays independent from tool selection', async ({ page }) => {
   await expect(page.locator('#tabura-circle-segment-pointer')).toHaveAttribute('aria-pressed', 'true');
 });
 
+test('fast stays orthogonal and surfaces LOCAL plus FAST in runtime summary', async ({ page }) => {
+  await page.evaluate(() => {
+    (window as any).__setProjects([
+      {
+        id: 'test',
+        name: 'Test',
+        kind: 'managed',
+        sphere: 'private',
+        workspace_path: '/tmp/test',
+        root_path: '/tmp/test',
+        chat_session_id: 'chat-1',
+        canvas_session_id: 'local',
+        chat_mode: 'chat',
+        chat_model: 'local',
+        chat_model_reasoning_effort: 'none',
+        unread: false,
+        review_pending: false,
+        run_state: { active_turns: 0, queued_turns: 0, is_working: false, status: 'idle' },
+      },
+    ], 'test');
+  });
+  await switchToTestProject(page);
+  await clearLog(page);
+
+  await expect(page.locator('#edge-top-models .edge-runtime-chip')).toHaveText(['LOCAL', 'Voice']);
+
+  await openCircle(page);
+  await clickSegment(page, 'fast');
+  await expect(page.locator('#tabura-circle-segment-fast')).toHaveAttribute('aria-pressed', 'true');
+
+  await clickSegment(page, 'pointer');
+  await expect(page.locator('#tabura-circle-segment-fast')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#tabura-circle-segment-pointer')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#edge-top-models .edge-runtime-chip')).toHaveText(['LOCAL', 'FAST', 'Voice']);
+
+  const log = await getLog(page);
+  expect(log.some((entry: any) => entry?.type === 'api_fetch'
+    && entry?.action === 'runtime_preferences'
+    && entry?.payload?.fast_mode === true)).toBe(true);
+});
+
 test('corner placement persists across reloads', async ({ page }) => {
   await page.locator('#edge-top-tap').click();
   await page.locator('#tabura-circle-corner-controls [data-corner="top_left"]').click();
@@ -128,6 +169,9 @@ test.describe('mobile hit targets', () => {
     await page.locator('#tabura-circle-segment-silent').click();
     await expect(page.locator('#tabura-circle-segment-silent')).toHaveAttribute('aria-pressed', 'true');
 
+    await page.locator('#tabura-circle-segment-fast').click();
+    await expect(page.locator('#tabura-circle-segment-fast')).toHaveAttribute('aria-pressed', 'true');
+
     await page.locator('#tabura-circle-segment-ink').click();
     await expect(page.locator('#tabura-circle-segment-ink')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#tabura-circle-dot')).toHaveAttribute('data-tool', 'ink');
@@ -135,6 +179,7 @@ test.describe('mobile hit targets', () => {
     const log = await getLog(page);
     expect(log.some((entry: any) => entry?.type === 'api_fetch' && entry?.action === 'live_policy' && entry?.payload?.policy === 'meeting')).toBe(true);
     expect(log.some((entry: any) => entry?.type === 'api_fetch' && entry?.action === 'runtime_preferences' && entry?.payload?.silent_mode === true)).toBe(true);
+    expect(log.some((entry: any) => entry?.type === 'api_fetch' && entry?.action === 'runtime_preferences' && entry?.payload?.fast_mode === true)).toBe(true);
 
   });
 });

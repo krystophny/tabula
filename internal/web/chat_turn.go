@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/krystophny/tabura/internal/appserver"
+	"github.com/krystophny/tabura/internal/modelprofile"
 	"github.com/krystophny/tabura/internal/plugins"
 	"github.com/krystophny/tabura/internal/store"
 )
@@ -29,35 +30,54 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 	positionCtx := a.chatCanvasPositions.consume(sessionID)
 	cursorCtx := turn.cursor
 	userText := queuedUserMessage(messages, turn.messageID)
-	requestedTurnAlias := explicitTurnModelAlias(userText)
-	if a.maybeRunSilentLiveEditTurn(sessionID, session, userText, cursorCtx, positionCtx, turn.captureMode) {
+	directives := parseTurnRoutingDirectives(userText)
+	promptText := directives.PromptText
+	if strings.TrimSpace(promptText) == "" {
+		promptText = strings.TrimSpace(userText)
+	}
+	if !turn.fastMode && a.maybeRunSilentLiveEditTurn(sessionID, session, promptText, cursorCtx, positionCtx, turn.captureMode) {
 		return
 	}
 	baseProfile := a.appServerModelProfileForWorkspacePath(session.WorkspacePath)
 	turnProfile := baseProfile
-	if strings.TrimSpace(userText) != "" {
+	if strings.TrimSpace(promptText) != "" {
 		turnProfile = routeProfileForRouting(
-			requestedTurnAlias,
+			directives.ModelAlias,
 			baseProfile,
 			a.appServerSparkReasoningEffort,
+			directives.ReasoningEffort,
 		)
 	}
 	baseProfile = a.appServerProfileForChatSession(session, baseProfile)
 	turnProfile = a.appServerProfileForChatSession(session, turnProfile)
+	if directives.SearchRequested {
+		turnProfile = a.appServerProfileForChatSession(session, routeProfileForRouting(
+			modelprofile.AliasSpark,
+			baseProfile,
+			a.appServerSparkReasoningEffort,
+			directives.ReasoningEffort,
+		))
+	}
 	req := &assistantTurnRequest{
-		sessionID:   sessionID,
-		session:     session,
-		messages:    messages,
-		userText:    userText,
-		cursorCtx:   cursorCtx,
-		inkCtx:      inkCtx,
-		positionCtx: positionCtx,
-		captureMode: turn.captureMode,
-		outputMode:  turn.outputMode,
-		localOnly:   turn.localOnly,
-		turnModel:   requestedTurnAlias,
-		baseProfile: baseProfile,
-		turnProfile: turnProfile,
+		sessionID:       sessionID,
+		session:         session,
+		messages:        messages,
+		userText:        userText,
+		promptText:      promptText,
+		cursorCtx:       cursorCtx,
+		inkCtx:          inkCtx,
+		positionCtx:     positionCtx,
+		captureMode:     turn.captureMode,
+		outputMode:      turn.outputMode,
+		localOnly:       turn.localOnly,
+		fastMode:        turn.fastMode,
+		messageID:       turn.messageID,
+		turnModel:       directives.ModelAlias,
+		searchTurn:      directives.SearchRequested,
+		transientRemote: directives.SearchRequested || (directives.ModelAlias != "" && directives.ModelAlias != modelprofile.AliasLocal),
+		reasoningEffort: directives.ReasoningEffort,
+		baseProfile:     baseProfile,
+		turnProfile:     turnProfile,
 	}
 	a.assistantBackendForTurn(req).run(req)
 }
@@ -79,11 +99,29 @@ func (a *App) runCodexAssistantTurn(req *assistantTurnRequest) {
 		a.broadcastChatEvent(req.sessionID, map[string]interface{}{"type": "error", "error": err.Error()})
 		return
 	}
+	if req.transientRemote || req.fastMode {
+		a.runAssistantTurnLegacy(
+			req.sessionID,
+			req.session,
+			req.messages,
+			req.messageID,
+			req.promptText,
+			req.cursorCtx,
+			req.inkCtx,
+			req.positionCtx,
+			req.outputMode,
+			req.baseProfile,
+			req.turnProfile,
+			req.fastMode,
+			false,
+		)
+		return
+	}
 	turnStartedAt := time.Now()
 	responseMeta := newAssistantResponseMetadata(providerForAppServerProfile(req.turnProfile), req.turnProfile.Model, 0)
 	appSess, bindingSessionID, resumed, sessErr := a.getOrCreateAppSession(req.sessionID, cwd, req.baseProfile)
 	if sessErr != nil {
-		a.runAssistantTurnLegacy(req.sessionID, req.session, req.messages, req.cursorCtx, req.inkCtx, req.positionCtx, req.outputMode, req.baseProfile, req.turnProfile)
+		a.runAssistantTurnLegacy(req.sessionID, req.session, req.messages, req.messageID, req.promptText, req.cursorCtx, req.inkCtx, req.positionCtx, req.outputMode, req.baseProfile, req.turnProfile, req.fastMode, true)
 		return
 	}
 
@@ -91,9 +129,9 @@ func (a *App) runCodexAssistantTurn(req *assistantTurnRequest) {
 	companionCtx := a.loadCompanionPromptContext(req.session.WorkspacePath)
 	var prompt string
 	if resumed {
-		prompt = buildTurnPromptForSessionWithCompanion(req.sessionID, req.messages, canvasCtx, companionCtx, req.outputMode, req.turnProfile.Alias)
+		prompt = buildTurnPromptForSessionWithCompanion(req.sessionID, withQueuedUserMessage(req.messages, req.messageID, req.promptText), canvasCtx, companionCtx, req.outputMode, req.turnProfile.Alias)
 	} else {
-		prompt = buildPromptFromHistoryForSessionWithCompanionPolicy(req.session.Mode, a.yoloModeEnabled(), req.sessionID, req.messages, canvasCtx, companionCtx, req.outputMode, req.turnProfile.Alias)
+		prompt = buildPromptFromHistoryForSessionWithCompanionPolicy(req.session.Mode, a.yoloModeEnabled(), req.sessionID, withQueuedUserMessage(req.messages, req.messageID, req.promptText), canvasCtx, companionCtx, req.outputMode, req.turnProfile.Alias)
 		_ = a.store.UpdateChatSessionThread(bindingSessionID, appSess.ThreadID())
 	}
 	prompt = appendChatCursorPrompt(prompt, req.cursorCtx)
@@ -415,7 +453,7 @@ func (a *App) broadcastSystemActionEvent(sessionID string, actionPayload map[str
 
 // runAssistantTurnLegacy is the single-shot fallback when persistent session
 // fails to connect. Each call creates a new WS + thread.
-func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession, messages []store.ChatMessage, cursorCtx *chatCursorContext, inkCtx []*chatCanvasInkEvent, positionCtx []*chatCanvasPositionEvent, outputMode string, baseProfile appServerModelProfile, turnProfile appServerModelProfile) {
+func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession, messages []store.ChatMessage, messageID int64, promptText string, cursorCtx *chatCursorContext, inkCtx []*chatCanvasInkEvent, positionCtx []*chatCanvasPositionEvent, outputMode string, baseProfile appServerModelProfile, turnProfile appServerModelProfile, fastMode bool, persistThread bool) {
 	bindingSession, workspace, err := a.appSessionBindingForChatSessionID(sessionID)
 	if err != nil {
 		a.finishCompanionPendingTurn(sessionID, "assistant_turn_failed")
@@ -425,24 +463,29 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 	cwd := workspace.DirPath
 	turnStartedAt := time.Now()
 	responseMeta := newAssistantResponseMetadata(providerForAppServerProfile(turnProfile), turnProfile.Model, 0)
-	canvasCtx := a.resolveCanvasContext(session.WorkspacePath)
-	prompt := buildPromptFromHistoryForSessionWithPolicy(session.Mode, a.yoloModeEnabled(), sessionID, messages, canvasCtx, outputMode, turnProfile.Alias)
-	prompt = appendChatCursorPrompt(prompt, cursorCtx)
-	prompt = appendCanvasInkPrompt(prompt, inkCtx)
-	prompt = appendCanvasPositionPrompt(prompt, positionCtx)
-	if strings.TrimSpace(prompt) == "" {
-		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
-		return
+	prompt := strings.TrimSpace(promptText)
+	var visual *chatVisualAttachment
+	if !fastMode {
+		visual = latestCanvasPositionVisualAttachment(positionCtx)
+		canvasCtx := a.resolveCanvasContext(session.WorkspacePath)
+		prompt = buildPromptFromHistoryForSessionWithPolicy(session.Mode, a.yoloModeEnabled(), sessionID, withQueuedUserMessage(messages, messageID, promptText), canvasCtx, outputMode, turnProfile.Alias)
+		prompt = appendChatCursorPrompt(prompt, cursorCtx)
+		prompt = appendCanvasInkPrompt(prompt, inkCtx)
+		prompt = appendCanvasPositionPrompt(prompt, positionCtx)
+		if strings.TrimSpace(prompt) == "" {
+			a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
+			return
+		}
+		prompt = a.applyWorkspacePromptContext(session.WorkspacePath, prompt)
+		prompt, err = a.applyPreAssistantPromptHook(context.Background(), sessionID, session.WorkspacePath, outputMode, session.Mode, prompt)
+		if err != nil {
+			errText := err.Error()
+			_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
+			a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": errText})
+			return
+		}
 	}
-	prompt = a.applyWorkspacePromptContext(session.WorkspacePath, prompt)
-	prompt, err = a.applyPreAssistantPromptHook(context.Background(), sessionID, session.WorkspacePath, outputMode, session.Mode, prompt)
-	if err != nil {
-		errText := err.Error()
-		_, _ = a.store.AddChatMessage(sessionID, "system", errText, errText, "text")
-		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": errText})
-		return
-	}
-	turnInput := buildAppServerTurnInput(prompt, latestCanvasPositionVisualAttachment(positionCtx))
+	turnInput := buildAppServerTurnInput(prompt, visual)
 	if strings.TrimSpace(prompt) == "" {
 		a.broadcastChatEvent(sessionID, map[string]interface{}{"type": "error", "error": "empty prompt"})
 		return
@@ -513,13 +556,19 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 		persistedAssistantFormat = candidateFormat
 	}
 
+	requestModel := strings.TrimSpace(baseProfile.Model)
+	requestThreadParams := baseProfile.ThreadParams
+	if !persistThread {
+		requestModel = strings.TrimSpace(turnProfile.Model)
+		requestThreadParams = turnProfile.ThreadParams
+	}
 	appResp, err := a.appServerClient.SendPromptStream(ctx, appserver.PromptRequest{
 		CWD:          cwd,
 		Prompt:       prompt,
 		TurnInput:    turnInput,
-		Model:        baseProfile.Model,
+		Model:        requestModel,
 		TurnModel:    turnProfile.Model,
-		ThreadParams: baseProfile.ThreadParams,
+		ThreadParams: requestThreadParams,
 		TurnParams:   turnProfile.TurnParams,
 	}, func(ev appserver.StreamEvent) {
 		payload := map[string]interface{}{
@@ -532,7 +581,7 @@ func (a *App) runAssistantTurnLegacy(sessionID string, session store.ChatSession
 		var renderCommand map[string]interface{}
 		switch ev.Type {
 		case "thread_started":
-			if strings.TrimSpace(ev.ThreadID) != "" {
+			if persistThread && strings.TrimSpace(ev.ThreadID) != "" {
 				_ = a.store.UpdateChatSessionThread(bindingSession.ID, ev.ThreadID)
 			}
 		case "turn_started":

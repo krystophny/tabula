@@ -50,6 +50,7 @@ const (
 	appStateDisclaimerAckKey     = "safety.disclaimer_ack.version"
 	appStateDisclaimerAckAtKey   = "safety.disclaimer_ack.timestamp"
 	appStateSilentModeKey        = "runtime.silent_mode"
+	appStateFastModeKey          = "runtime.fast_mode"
 	appStateToolKey              = "runtime.tool"
 	appStateStartupBehaviorKey   = "runtime.startup_behavior"
 	appStateTurnPolicyProfileKey = "runtime.turn_policy_profile"
@@ -70,6 +71,7 @@ type App struct {
 	assistantMode                 string
 	assistantLLMURL               string
 	assistantLLMModel             string
+	assistantLLMExplicit          bool
 	intentLLMURL                  string
 	intentLLMModel                string
 	intentLLMProfile              string
@@ -170,9 +172,6 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		resolvedModel = strings.TrimSpace(os.Getenv("TABURA_APP_SERVER_MODEL"))
 	}
 	if resolvedModel == "" {
-		resolvedModel = persistedDefaultChatModel(s)
-	}
-	if resolvedModel == "" {
 		resolvedModel = DefaultModel
 	}
 	resolvedModel = resolvePrimaryAppServerModel(resolvedModel)
@@ -186,8 +185,10 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 	}
 	resolvedAssistantMode := normalizeAssistantMode(os.Getenv("TABURA_ASSISTANT_MODE"))
 	resolvedAssistantLLMURL := strings.TrimSpace(os.Getenv("TABURA_ASSISTANT_LLM_URL"))
+	explicitAssistantLLMURL := resolvedAssistantLLMURL != ""
 	if strings.EqualFold(resolvedAssistantLLMURL, "off") {
 		resolvedAssistantLLMURL = ""
+		explicitAssistantLLMURL = false
 	}
 	resolvedAssistantLLMModel := strings.TrimSpace(os.Getenv("TABURA_ASSISTANT_LLM_MODEL"))
 	if strings.EqualFold(resolvedAssistantLLMModel, "off") {
@@ -211,9 +212,6 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		resolvedIntentLLMProfileOptions = parseIntentLLMProfileOptions(DefaultIntentLLMProfileOptions)
 	}
 	resolvedIntentLLMProfileOptions = ensureIntentLLMProfileOption(resolvedIntentLLMProfileOptions, resolvedIntentLLMProfile)
-	if resolvedAssistantLLMURL == "" {
-		resolvedAssistantLLMURL = resolvedIntentLLMURL
-	}
 	if resolvedAssistantLLMModel == "" {
 		resolvedAssistantLLMModel = resolvedIntentLLMModel
 	}
@@ -249,9 +247,9 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 	resolvedSTTPreVADEnabled := parseEnvBoolDefault("TABURA_STT_PREVAD_ENABLED", true)
 	resolvedSTTPreVADThresholdDB := parseEnvFloatDefault("TABURA_STT_PREVAD_THRESHOLD_DB", DefaultSTTPreVADThresholdDB)
 	resolvedSTTPreVADMinSpeechMS := parseEnvIntDefault("TABURA_STT_PREVAD_MIN_SPEECH_MS", DefaultSTTPreVADMinSpeechMS)
-	defaultAlias := modelprofile.ResolveAlias(resolvedModel, modelprofile.AliasSpark)
+	defaultAlias := persistedDefaultChatModelAlias(s)
 	if defaultAlias == "" {
-		defaultAlias = modelprofile.AliasSpark
+		defaultAlias = modelprofile.AliasLocal
 	}
 	if err := s.SetAppState(appStateDefaultChatModelKey, defaultAlias); err != nil {
 		_ = s.Close()
@@ -300,6 +298,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		assistantMode:                 resolvedAssistantMode,
 		assistantLLMURL:               resolvedAssistantLLMURL,
 		assistantLLMModel:             resolvedAssistantLLMModel,
+		assistantLLMExplicit:          explicitAssistantLLMURL,
 		intentLLMURL:                  resolvedIntentLLMURL,
 		intentLLMModel:                resolvedIntentLLMModel,
 		intentLLMProfile:              resolvedIntentLLMProfile,
@@ -393,7 +392,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 	return app, nil
 }
 
-func persistedDefaultChatModel(s *store.Store) string {
+func persistedDefaultChatModelAlias(s *store.Store) string {
 	if s == nil {
 		return ""
 	}
@@ -401,7 +400,7 @@ func persistedDefaultChatModel(s *store.Store) string {
 	if err != nil || strings.TrimSpace(modelValue) == "" {
 		return ""
 	}
-	return modelprofile.ResolveModel(modelValue, "")
+	return modelprofile.ResolveAlias(modelValue, modelprofile.AliasLocal)
 }
 
 func randomToken() string {
@@ -603,6 +602,7 @@ func (a *App) handleRuntime(w http.ResponseWriter, r *http.Request) {
 		"turn_policy_profile":         a.runtimeTurnPolicyProfile(),
 		"turn_eval_logging_enabled":   a.runtimeTurnEvalLoggingEnabled(),
 		"silent_mode":                 a.silentModeEnabled(),
+		"fast_mode":                   a.fastModeEnabled(),
 		"live_policy":                 a.LivePolicy().String(),
 		"tool":                        a.runtimeTool(),
 		"startup_behavior":            a.runtimeStartupBehavior(),

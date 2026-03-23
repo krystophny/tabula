@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+
+	"github.com/krystophny/tabura/internal/modelprofile"
 )
 
 func (s *Store) SetAppState(key, value string) error {
@@ -36,18 +38,25 @@ func (s *Store) AppState(key string) (string, error) {
 }
 
 func normalizeWorkspaceChatModel(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "", "spark":
-		return "spark"
-	default:
-		return strings.ToLower(strings.TrimSpace(raw))
+	alias := modelprofile.ResolveAlias(raw, modelprofile.AliasLocal)
+	if alias == "" {
+		return modelprofile.AliasLocal
 	}
+	return alias
 }
 
 func normalizeWorkspaceChatModelReasoningEffort(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "", "low", "medium", "high", "xhigh":
-		return strings.ToLower(strings.TrimSpace(raw))
+	case "", modelprofile.ReasoningNone:
+		return modelprofile.ReasoningNone
+	case modelprofile.ReasoningLow:
+		return modelprofile.ReasoningLow
+	case modelprofile.ReasoningMedium:
+		return modelprofile.ReasoningMedium
+	case modelprofile.ReasoningHigh:
+		return modelprofile.ReasoningHigh
+	case modelprofile.ReasoningExtraHigh, "extra_high":
+		return modelprofile.ReasoningExtraHigh
 	default:
 		return ""
 	}

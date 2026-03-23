@@ -4,23 +4,30 @@ import (
 	"context"
 	"strings"
 
+	"github.com/krystophny/tabura/internal/modelprofile"
 	"github.com/krystophny/tabura/internal/store"
 )
 
 type assistantTurnRequest struct {
-	sessionID   string
-	session     store.ChatSession
-	messages    []store.ChatMessage
-	userText    string
-	cursorCtx   *chatCursorContext
-	inkCtx      []*chatCanvasInkEvent
-	positionCtx []*chatCanvasPositionEvent
-	captureMode string
-	outputMode  string
-	localOnly   bool
-	turnModel   string
-	baseProfile appServerModelProfile
-	turnProfile appServerModelProfile
+	sessionID       string
+	session         store.ChatSession
+	messages        []store.ChatMessage
+	userText        string
+	promptText      string
+	cursorCtx       *chatCursorContext
+	inkCtx          []*chatCanvasInkEvent
+	positionCtx     []*chatCanvasPositionEvent
+	captureMode     string
+	outputMode      string
+	localOnly       bool
+	fastMode        bool
+	messageID       int64
+	turnModel       string
+	searchTurn      bool
+	transientRemote bool
+	reasoningEffort string
+	baseProfile     appServerModelProfile
+	turnProfile     appServerModelProfile
 }
 
 type assistantTurnBackend interface {
@@ -69,6 +76,15 @@ func (a *App) assistantBackendForTurn(req *assistantTurnRequest) assistantTurnBa
 	if req.localOnly {
 		return &localAssistantBackend{app: a}
 	}
+	if req.turnModel != "" && req.turnModel != modelprofile.AliasLocal {
+		return &codexAssistantBackend{app: a}
+	}
+	if req.baseProfile.Alias == modelprofile.AliasLocal {
+		if !a.localAssistantPreferred() && a.appServerClient != nil {
+			return &codexAssistantBackend{app: a}
+		}
+		return &localAssistantBackend{app: a}
+	}
 	switch a.assistantRoutingMode() {
 	case assistantModeLocal:
 		return &localAssistantBackend{app: a}
@@ -89,6 +105,12 @@ func (a *App) assistantBackendForAutoMode(req *assistantTurnRequest) assistantTu
 	if req == nil {
 		return &codexAssistantBackend{app: a}
 	}
+	if req.baseProfile.Alias == modelprofile.AliasLocal {
+		if !a.localAssistantPreferred() && a.appServerClient != nil {
+			return &codexAssistantBackend{app: a}
+		}
+		return &localAssistantBackend{app: a}
+	}
 	evaluation := a.evaluateLocalTurn(
 		context.Background(),
 		req.sessionID,
@@ -108,7 +130,7 @@ func (a *App) assistantBackendForAutoMode(req *assistantTurnRequest) assistantTu
 	if evaluation.isHighConfidenceLocalAnswer() && !threadBound {
 		return &localAssistantBackend{app: a, evaluation: &evaluation}
 	}
-	if a.localAssistantAvailable() && localAssistantAutoRouteCandidate(req.userText) {
+	if a.localAssistantPreferred() && localAssistantAutoRouteCandidate(req.userText) {
 		return &localAssistantBackend{app: a}
 	}
 	return &codexAssistantBackend{app: a}
@@ -116,6 +138,19 @@ func (a *App) assistantBackendForAutoMode(req *assistantTurnRequest) assistantTu
 
 func (a *App) localAssistantAvailable() bool {
 	return strings.TrimSpace(a.assistantLLMBaseURL()) != ""
+}
+
+func (a *App) localAssistantPreferred() bool {
+	if !a.localAssistantAvailable() {
+		return false
+	}
+	if a.assistantRoutingMode() == assistantModeLocal {
+		return true
+	}
+	if a == nil || a.appServerClient == nil {
+		return true
+	}
+	return a.assistantLLMExplicit
 }
 
 func localAssistantAutoRouteCandidate(text string) bool {

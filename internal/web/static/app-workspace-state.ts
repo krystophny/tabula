@@ -11,7 +11,7 @@ const setFileSidebarAvailability = (...args) => refs.setFileSidebarAvailability(
 
 export function activeProjectChatModelAlias() {
   const alias = normalizeProjectChatModelAlias(activeProject()?.chat_model);
-  return alias || 'spark';
+  return alias || 'local';
 }
 
 export function activeProjectChatModelReasoningEffort() {

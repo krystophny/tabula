@@ -282,6 +282,7 @@ function normalizeAssistantProvider(provider) {
     || value === 'openai'
     || value === 'spark'
     || value === 'gpt'
+    || value === 'mini'
   ) return value;
   return '';
 }
@@ -291,6 +292,7 @@ function providerAliasFromModel(provider, model) {
   const normalizedModel = String(model || '').trim().toLowerCase();
   if (normalizedProvider === 'openai' || !normalizedProvider) {
     if (normalizedModel.includes('spark')) return 'spark';
+    if (normalizedModel.includes('gpt-5-mini')) return 'mini';
     if (normalizedModel.includes('gpt')) return 'gpt';
   }
   if (normalizedProvider === 'local' || !normalizedProvider) {
@@ -317,6 +319,8 @@ function assistantProviderLabel(provider, explicitLabel = '', providerModel = ''
       return 'Spark';
     case 'gpt':
       return 'GPT';
+    case 'mini':
+      return 'Mini';
     case 'openai':
       return 'OpenAI';
     default:

@@ -242,6 +242,7 @@ export async function submitMessage(text, options: Record<string, any> = {}) {
     text: finalText,
     output_mode: state.ttsSilent ? 'silent' : 'voice',
     capture_mode: submitKind === 'voice_transcript' ? 'voice' : 'text',
+    fast_mode: Boolean(state.fastMode),
   };
   const cursorPayload = mergeCursorPayload(buildCursorPayload(anchor), buildSidebarSelectionCursorPayload());
   if (cursorPayload) {

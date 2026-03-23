@@ -120,7 +120,7 @@ func (a *App) runLocalAssistantTurn(req *assistantTurnRequest, evaluation *local
 		)
 		eval = &computed
 	}
-	if eval != nil && eval.handled {
+	if !req.fastMode && eval != nil && eval.handled {
 		if suppressLocalAssistantResponse(eval.payloads) {
 			a.finishCompanionPendingTurn(req.sessionID, "assistant_turn_suppressed")
 			return
@@ -157,19 +157,26 @@ func (a *App) runLocalAssistantTurn(req *assistantTurnRequest, evaluation *local
 		return
 	}
 
-	prompt, err := a.buildLocalAssistantPrompt(req.sessionID, req.session, req.messages, req.cursorCtx, req.inkCtx, req.positionCtx, req.outputMode)
-	if err != nil {
-		errText := err.Error()
-		_, _ = a.store.AddChatMessage(req.sessionID, "system", errText, errText, "text")
-		a.finishCompanionPendingTurn(req.sessionID, "assistant_turn_failed")
-		a.broadcastChatEvent(req.sessionID, map[string]interface{}{"type": "error", "error": errText})
-		return
+	prompt := strings.TrimSpace(req.promptText)
+	if !req.fastMode {
+		promptMessages := withQueuedUserMessage(req.messages, req.messageID, req.promptText)
+		var err error
+		prompt, err = a.buildLocalAssistantPrompt(req.sessionID, req.session, promptMessages, req.cursorCtx, req.inkCtx, req.positionCtx, req.outputMode)
+		if err != nil {
+			errText := err.Error()
+			_, _ = a.store.AddChatMessage(req.sessionID, "system", errText, errText, "text")
+			a.finishCompanionPendingTurn(req.sessionID, "assistant_turn_failed")
+			a.broadcastChatEvent(req.sessionID, map[string]interface{}{"type": "error", "error": errText})
+			return
+		}
 	}
-	if compactedPrompt, compacted := compactLocalAssistantPrompt(prompt); compacted {
-		prompt = compactedPrompt
-		a.broadcastChatEvent(req.sessionID, map[string]any{
-			"type": "context_compact",
-		})
+	if !req.fastMode {
+		if compactedPrompt, compacted := compactLocalAssistantPrompt(prompt); compacted {
+			prompt = compactedPrompt
+			a.broadcastChatEvent(req.sessionID, map[string]any{
+				"type": "context_compact",
+			})
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

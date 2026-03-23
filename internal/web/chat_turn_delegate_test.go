@@ -107,6 +107,25 @@ func setupMockDelegateAppServer(t *testing.T) (*httptest.Server, *mockDelegateAp
 	return server, state
 }
 
+func setupMockLocalAssistantLLM(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		writeJSON(w, map[string]any{
+			"choices": []map[string]any{
+				{
+					"message": map[string]any{
+						"content": "reply via local",
+					},
+				},
+			},
+		})
+	}))
+}
+
 func newAuthedAppWithServer(t *testing.T, appServerURL string) *App {
 	t.Helper()
 	app, err := New(t.TempDir(), "", "", appServerURL, "", "", "", false)
@@ -119,11 +138,17 @@ func newAuthedAppWithServer(t *testing.T, appServerURL string) *App {
 	return app
 }
 
-func TestRunAssistantTurnExplicitGPTRequestUsesTurnOverrideAndReturnsToSpark(t *testing.T) {
+func TestRunAssistantTurnExplicitGPTRequestUsesTurnOverrideAndReturnsToLocal(t *testing.T) {
 	appServer, serverState := setupMockDelegateAppServer(t)
 	defer appServer.Close()
+	localLLM := setupMockLocalAssistantLLM(t)
+	defer localLLM.Close()
 
 	app := newAuthedAppWithServer(t, "ws"+strings.TrimPrefix(appServer.URL, "http"))
+	app.assistantLLMURL = localLLM.URL
+	app.intentLLMURL = localLLM.URL
+	app.assistantLLMModel = "qwen-test"
+	app.assistantLLMExplicit = true
 
 	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
@@ -148,16 +173,13 @@ func TestRunAssistantTurnExplicitGPTRequestUsesTurnOverrideAndReturnsToSpark(t *
 
 	threadStarts, turnModels := serverState.snapshot()
 	if threadStarts != 1 {
-		t.Fatalf("thread starts = %d, want 1 reused thread", threadStarts)
+		t.Fatalf("thread starts = %d, want 1 explicit remote turn", threadStarts)
 	}
-	if len(turnModels) != 2 {
-		t.Fatalf("turn model count = %d, want 2", len(turnModels))
+	if len(turnModels) != 1 {
+		t.Fatalf("turn model count = %d, want 1", len(turnModels))
 	}
 	if turnModels[0] != modelprofile.ModelGPT {
 		t.Fatalf("first turn model = %q, want %q", turnModels[0], modelprofile.ModelGPT)
-	}
-	if turnModels[1] != modelprofile.ModelSpark {
-		t.Fatalf("second turn model = %q, want %q", turnModels[1], modelprofile.ModelSpark)
 	}
 
 	messages, err := app.store.ListChatMessages(session.ID, 10)
@@ -177,7 +199,7 @@ func TestRunAssistantTurnExplicitGPTRequestUsesTurnOverrideAndReturnsToSpark(t *
 	if assistantModels[0] != modelprofile.ModelGPT {
 		t.Fatalf("first assistant provider model = %q, want %q", assistantModels[0], modelprofile.ModelGPT)
 	}
-	if assistantModels[1] != modelprofile.ModelSpark {
-		t.Fatalf("second assistant provider model = %q, want %q", assistantModels[1], modelprofile.ModelSpark)
+	if assistantModels[1] != "qwen-test" {
+		t.Fatalf("second assistant provider model = %q, want %q", assistantModels[1], "qwen-test")
 	}
 }

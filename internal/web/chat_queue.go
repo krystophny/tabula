@@ -17,6 +17,7 @@ type chatTurnTracker struct {
 	queue      map[string]int
 	outputMode map[string][]string
 	localOnly  map[string][]bool
+	fastMode   map[string][]bool
 	messageID  map[string][]int64
 	capture    map[string][]string
 	cursor     map[string][]*chatCursorContext
@@ -34,6 +35,7 @@ func newChatTurnTracker() *chatTurnTracker {
 		queue:      map[string]int{},
 		outputMode: map[string][]string{},
 		localOnly:  map[string][]bool{},
+		fastMode:   map[string][]bool{},
 		messageID:  map[string][]int64{},
 		capture:    map[string][]string{},
 		cursor:     map[string][]*chatCursorContext{},
@@ -100,6 +102,7 @@ func (t *chatTurnTracker) clearQueued(sessionID string) int {
 	delete(t.queue, sessionID)
 	delete(t.outputMode, sessionID)
 	delete(t.localOnly, sessionID)
+	delete(t.fastMode, sessionID)
 	delete(t.messageID, sessionID)
 	delete(t.capture, sessionID)
 	delete(t.cursor, sessionID)
@@ -127,11 +130,12 @@ func (t *chatTurnTracker) queuedCount(sessionID string) int {
 	return t.queue[sessionID]
 }
 
-func (t *chatTurnTracker) enqueue(sessionID, outputMode string, localOnlyFlag bool, messageID int64, captureMode string, cursor *chatCursorContext) (queued int, startWorker bool) {
+func (t *chatTurnTracker) enqueue(sessionID, outputMode string, localOnlyFlag bool, fastModeFlag bool, messageID int64, captureMode string, cursor *chatCursorContext) (queued int, startWorker bool) {
 	mode := normalizeTurnOutputMode(outputMode)
 	t.mu.Lock()
 	t.outputMode[sessionID] = append(t.outputMode[sessionID], mode)
 	t.localOnly[sessionID] = append(t.localOnly[sessionID], localOnlyFlag)
+	t.fastMode[sessionID] = append(t.fastMode[sessionID], fastModeFlag)
 	t.messageID[sessionID] = append(t.messageID[sessionID], messageID)
 	t.capture[sessionID] = append(t.capture[sessionID], normalizeChatCaptureMode(captureMode))
 	t.cursor[sessionID] = append(t.cursor[sessionID], normalizeChatCursorContext(cursor))
@@ -175,6 +179,17 @@ func (t *chatTurnTracker) dequeue(sessionID string) (dequeuedTurn, bool) {
 			t.localOnly[sessionID] = localFlags
 		}
 	}
+	fastFlags := t.fastMode[sessionID]
+	fastModeFlag := false
+	if len(fastFlags) > 0 {
+		fastModeFlag = fastFlags[0]
+		fastFlags = fastFlags[1:]
+		if len(fastFlags) == 0 {
+			delete(t.fastMode, sessionID)
+		} else {
+			t.fastMode[sessionID] = fastFlags
+		}
+	}
 	messageIDs := t.messageID[sessionID]
 	messageID := int64(0)
 	if len(messageIDs) > 0 {
@@ -213,12 +228,14 @@ func (t *chatTurnTracker) dequeue(sessionID string) (dequeuedTurn, bool) {
 		delete(t.queue, sessionID)
 		delete(t.outputMode, sessionID)
 		delete(t.localOnly, sessionID)
+		delete(t.fastMode, sessionID)
 		delete(t.messageID, sessionID)
 		delete(t.capture, sessionID)
 		delete(t.cursor, sessionID)
 		return dequeuedTurn{
 			outputMode:  mode,
 			localOnly:   localOnlyFlag,
+			fastMode:    fastModeFlag,
 			messageID:   messageID,
 			captureMode: captureMode,
 			cursor:      cursor,
@@ -228,6 +245,7 @@ func (t *chatTurnTracker) dequeue(sessionID string) (dequeuedTurn, bool) {
 	return dequeuedTurn{
 		outputMode:  mode,
 		localOnly:   localOnlyFlag,
+		fastMode:    fastModeFlag,
 		messageID:   messageID,
 		captureMode: captureMode,
 		cursor:      cursor,
@@ -247,6 +265,7 @@ func (t *chatTurnTracker) markIdleIfEmpty(sessionID string) bool {
 type dequeuedTurn struct {
 	outputMode  string
 	localOnly   bool
+	fastMode    bool
 	messageID   int64
 	captureMode string
 	cursor      *chatCursorContext
@@ -430,6 +449,7 @@ func (a *App) enqueueAssistantTurn(sessionID, outputMode string, opts ...chatTur
 		sessionID,
 		outputMode,
 		options.localOnly,
+		options.fastMode,
 		options.messageID,
 		options.captureMode,
 		options.cursor,
@@ -494,6 +514,7 @@ func (a *App) runAssistantTurnQueue(sessionID string) {
 
 type chatTurnOptions struct {
 	localOnly   bool
+	fastMode    bool
 	messageID   int64
 	captureMode string
 	cursor      *chatCursorContext

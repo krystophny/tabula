@@ -325,6 +325,20 @@ func (a *App) runWorkspaceWatchLoop(workspaceID int64) {
 			}
 		})
 		a.broadcastWorkspaceWatchStatus(workspaceID)
+		if batchConfigMode(cfg) == batchModeRun {
+			reached, limitErr := a.workspaceWatchLimitReached(watch.CurrentBatchID, cfg)
+			if limitErr != nil {
+				a.setWorkspaceWatchError(workspaceID, limitErr)
+				a.finishWorkspaceWatchBatch(watch.CurrentBatchID)
+				_, _ = a.store.SetWorkspaceWatchEnabled(workspaceID, false)
+				return
+			}
+			if reached {
+				a.finishWorkspaceWatchBatch(watch.CurrentBatchID)
+				_, _ = a.store.SetWorkspaceWatchEnabled(workspaceID, false)
+				return
+			}
+		}
 
 		if a.workspaceWatches.stopRequested(workspaceID) || !watch.Enabled {
 			a.finishWorkspaceWatchBatch(watch.CurrentBatchID)

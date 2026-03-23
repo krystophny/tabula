@@ -20,6 +20,7 @@ const selectInteractionTool = (...args) => refs.selectInteractionTool(...args);
 const activateLiveSession = (...args) => refs.activateLiveSession(...args);
 const deactivateLiveSession = (...args) => refs.deactivateLiveSession(...args);
 const toggleTTSSilentMode = (...args) => refs.toggleTTSSilentMode(...args);
+const toggleFastMode = (...args) => refs.toggleFastMode(...args);
 const handleStopAction = (...args) => refs.handleStopAction(...args);
 const showStatus = (...args) => refs.showStatus(...args);
 const appendPlainMessage = (...args) => refs.appendPlainMessage(...args);
@@ -185,6 +186,10 @@ function onSegmentClick(event: Event) {
     return;
   }
   if (kind === 'toggle') {
+    if (name === 'fast') {
+      toggleFastMode();
+      return;
+    }
     toggleTTSSilentMode();
   }
 }
@@ -395,7 +400,7 @@ export function renderTaburaCircle() {
   dot.title = circleExpanded ? 'Close Tabura Circle' : 'Open Tabura Circle';
   dot.setAttribute(
     'aria-label',
-    `${circleExpanded ? 'Close' : 'Open'} Tabura Circle. Live mode: ${sessionLabel}. Current tool: ${toolLabel}.`,
+    `${circleExpanded ? 'Close' : 'Open'} Tabura Circle. Live mode: ${sessionLabel}. Current tool: ${toolLabel}. Fast mode: ${state.fastMode ? 'on' : 'off'}.`,
   );
   dot.setAttribute('aria-expanded', circleExpanded ? 'true' : 'false');
 
@@ -413,6 +418,11 @@ export function renderTaburaCircle() {
     if (kind === 'session') {
       node.setAttribute('aria-pressed', String(name === session));
       node.disabled = disabled || !state.activeWorkspaceId;
+      return;
+    }
+    if (name === 'fast') {
+      node.setAttribute('aria-pressed', String(Boolean(state.fastMode)));
+      node.disabled = disabled;
       return;
     }
     node.setAttribute('aria-pressed', String(Boolean(state.ttsSilent)));

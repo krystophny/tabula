@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/krystophny/tabura/internal/modelprofile"
 	"github.com/krystophny/tabura/internal/store"
 )
 
@@ -108,15 +109,15 @@ func localAssistantToolDefinitions() []map[string]any {
 	}
 }
 
-func (a *App) requestLocalAssistantCompletion(ctx context.Context, messages []map[string]any) (localIntentLLMMessage, error) {
+func (a *App) requestLocalAssistantCompletion(ctx context.Context, messages []map[string]any, enableThinking bool) (localIntentLLMMessage, error) {
 	baseURL := a.assistantLLMBaseURL()
 	if baseURL == "" {
 		return localIntentLLMMessage{}, errors.New("local assistant is not configured")
 	}
-	return a.requestLocalAssistantCompletionWithConfig(ctx, messages, localAssistantToolDefinitions(), "auto")
+	return a.requestLocalAssistantCompletionWithConfig(ctx, messages, localAssistantToolDefinitions(), "auto", enableThinking)
 }
 
-func (a *App) requestLocalAssistantCompletionWithConfig(ctx context.Context, messages []map[string]any, tools []map[string]any, toolChoice string) (localIntentLLMMessage, error) {
+func (a *App) requestLocalAssistantCompletionWithConfig(ctx context.Context, messages []map[string]any, tools []map[string]any, toolChoice string, enableThinking bool) (localIntentLLMMessage, error) {
 	baseURL := a.assistantLLMBaseURL()
 	if baseURL == "" {
 		return localIntentLLMMessage{}, errors.New("local assistant is not configured")
@@ -126,7 +127,7 @@ func (a *App) requestLocalAssistantCompletionWithConfig(ctx context.Context, mes
 		"temperature": 0,
 		"max_tokens":  assistantLLMMaxTokens,
 		"chat_template_kwargs": map[string]any{
-			"enable_thinking": false,
+			"enable_thinking": enableThinking,
 		},
 		"messages": messages,
 	}
@@ -166,6 +167,28 @@ func (a *App) requestLocalAssistantCompletionWithConfig(ctx context.Context, mes
 	message := payload.Choices[0].Message
 	message.Content = stripLocalAssistantThinkingPreamble(message.Content)
 	return message, nil
+}
+
+func localAssistantThinkingEnabled(req *assistantTurnRequest) bool {
+	if req == nil {
+		return false
+	}
+	effort := modelprofile.NormalizeReasoningEffort(modelprofile.AliasLocal, req.reasoningEffort)
+	return effort != "" && effort != modelprofile.ReasoningNone
+}
+
+func localAssistantReasoningHint(req *assistantTurnRequest) string {
+	if !localAssistantThinkingEnabled(req) {
+		return ""
+	}
+	switch modelprofile.NormalizeReasoningEffort(modelprofile.AliasLocal, req.reasoningEffort) {
+	case modelprofile.ReasoningLow:
+		return "Think briefly before answering."
+	case modelprofile.ReasoningHigh:
+		return "Think carefully and thoroughly before answering."
+	default:
+		return "Think before answering."
+	}
 }
 
 func parseLocalAssistantDecision(message localIntentLLMMessage) (localAssistantDecision, error) {
@@ -424,14 +447,24 @@ func (a *App) runLocalAssistantToolLoop(ctx context.Context, req *assistantTurnR
 		return "", err
 	}
 	conversation := []map[string]any{
-		{"role": "system", "content": localAssistantDialoguePrompt},
+		{"role": "system", "content": strings.TrimSpace(strings.Join([]string{localAssistantDialoguePrompt, localAssistantReasoningHint(req)}, "\n"))},
 		{"role": "user", "content": buildLocalAssistantUserContent(prompt, visual)},
+	}
+	enableThinking := localAssistantThinkingEnabled(req)
+	if req.fastMode {
+		message, err := a.requestLocalAssistantCompletionWithConfig(ctx, []map[string]any{
+			{"role": "user", "content": strings.TrimSpace(req.promptText)},
+		}, nil, "", enableThinking)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(message.Content), nil
 	}
 	if !localAssistantNeedsTools(req, visual) {
 		message, err := a.requestLocalAssistantCompletionWithConfig(ctx, []map[string]any{
-			{"role": "system", "content": localAssistantDirectPrompt},
+			{"role": "system", "content": strings.TrimSpace(strings.Join([]string{localAssistantDirectPrompt, localAssistantReasoningHint(req)}, "\n"))},
 			{"role": "user", "content": buildLocalAssistantUserContent(prompt, visual)},
-		}, nil, "")
+		}, nil, "", enableThinking)
 		if err != nil {
 			return "", err
 		}
@@ -439,7 +472,7 @@ func (a *App) runLocalAssistantToolLoop(ctx context.Context, req *assistantTurnR
 	}
 	malformedRetries := 0
 	for round := 0; round < assistantLLMMaxToolRounds; round++ {
-		message, err := a.requestLocalAssistantCompletion(ctx, conversation)
+		message, err := a.requestLocalAssistantCompletion(ctx, conversation, enableThinking)
 		if err != nil {
 			return "", err
 		}

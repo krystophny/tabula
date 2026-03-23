@@ -339,14 +339,14 @@ func (a *App) updateWorkspaceChatModel(workspaceID, rawModel, rawReasoningEffort
 	if requestedModel != "" && modelAlias == "" {
 		return store.Workspace{}, fmt.Errorf("unsupported model alias: %s", requestedModel)
 	}
-	if modelAlias != "" && modelAlias != modelprofile.AliasSpark {
-		return store.Workspace{}, fmt.Errorf("persistent project model switching is disabled; spark is the only default dialogue model")
+	if modelAlias != "" && modelAlias != modelprofile.AliasLocal {
+		return store.Workspace{}, fmt.Errorf("persistent project model switching is disabled; local is the only default dialogue model")
 	}
 	if modelAlias == "" {
 		modelAlias = a.effectiveWorkspaceChatModelAlias(project)
 	}
 	if modelAlias == "" {
-		modelAlias = modelprofile.AliasSpark
+		modelAlias = modelprofile.AliasLocal
 	}
 	reasoningEffort := strings.TrimSpace(modelprofile.NormalizeReasoningEffort(modelAlias, rawReasoningEffort))
 	if reasoningEffort == "" {

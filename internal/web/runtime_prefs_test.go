@@ -39,6 +39,9 @@ func TestRuntimeIncludesSafetyPreferences(t *testing.T) {
 	if got := boolFromAny(payload["silent_mode"]); got {
 		t.Fatalf("silent_mode = %v, want false", got)
 	}
+	if got := boolFromAny(payload["fast_mode"]); got {
+		t.Fatalf("fast_mode = %v, want false", got)
+	}
 	if got := strFromAny(payload["tool"]); got != "pointer" {
 		t.Fatalf("tool = %q, want %q", got, "pointer")
 	}
@@ -114,6 +117,7 @@ func TestRuntimePreferenceUpdatePersists(t *testing.T) {
 	app := newAuthedTestApp(t)
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPatch, "/api/runtime/preferences", map[string]any{
 		"silent_mode":               true,
+		"fast_mode":                 true,
 		"tool":                      "text_note",
 		"startup_behavior":          "resume_active",
 		"active_sphere":             "work",
@@ -134,6 +138,9 @@ func TestRuntimePreferenceUpdatePersists(t *testing.T) {
 	}
 	if got := boolFromAny(payload["silent_mode"]); !got {
 		t.Fatalf("silent_mode = %v, want true", got)
+	}
+	if got := boolFromAny(payload["fast_mode"]); !got {
+		t.Fatalf("fast_mode = %v, want true", got)
 	}
 	if got := strFromAny(payload["tool"]); got != "text_note" {
 		t.Fatalf("tool = %q, want %q", got, "text_note")

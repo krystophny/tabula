@@ -4,6 +4,7 @@ export type TaburaCircleSegment =
   | 'dialogue'
   | 'meeting'
   | 'silent'
+  | 'fast'
   | 'prompt'
   | 'text_note'
   | 'pointer'
@@ -20,6 +21,7 @@ export async function waitForCircleControls(page: Page) {
   await expect(circleSegment(page, 'dialogue')).toBeAttached();
   await expect(circleSegment(page, 'meeting')).toBeAttached();
   await expect(circleSegment(page, 'silent')).toBeAttached();
+  await expect(circleSegment(page, 'fast')).toBeAttached();
 }
 
 export async function switchToWorkspace(page: Page, workspaceId: string) {

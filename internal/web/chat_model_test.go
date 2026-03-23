@@ -7,29 +7,29 @@ import (
 	"github.com/krystophny/tabura/internal/store"
 )
 
-func TestEffectiveProjectChatModelFallsBackToSpark(t *testing.T) {
+func TestEffectiveProjectChatModelFallsBackToLocal(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.appServerModel = modelprofile.ModelSpark
 
 	project := store.Workspace{}
-	if got := app.effectiveWorkspaceChatModelAlias(project); got != modelprofile.AliasSpark {
-		t.Fatalf("effectiveWorkspaceChatModelAlias() = %q, want %q", got, modelprofile.AliasSpark)
+	if got := app.effectiveWorkspaceChatModelAlias(project); got != modelprofile.AliasLocal {
+		t.Fatalf("effectiveWorkspaceChatModelAlias() = %q, want %q", got, modelprofile.AliasLocal)
 	}
-	if got := app.effectiveWorkspaceChatModelReasoningEffort(project); got != modelprofile.ReasoningLow {
-		t.Fatalf("effectiveWorkspaceChatModelReasoningEffort() = %q, want %q", got, modelprofile.ReasoningLow)
+	if got := app.effectiveWorkspaceChatModelReasoningEffort(project); got != modelprofile.ReasoningNone {
+		t.Fatalf("effectiveWorkspaceChatModelReasoningEffort() = %q, want %q", got, modelprofile.ReasoningNone)
 	}
 }
 
-func TestEffectiveProjectChatModelDefaultsToSpark(t *testing.T) {
+func TestEffectiveProjectChatModelDefaultsToLocal(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.appServerModel = ""
 
 	project := store.Workspace{}
-	if got := app.effectiveWorkspaceChatModelAlias(project); got != modelprofile.AliasSpark {
-		t.Fatalf("effectiveWorkspaceChatModelAlias() = %q, want %q", got, modelprofile.AliasSpark)
+	if got := app.effectiveWorkspaceChatModelAlias(project); got != modelprofile.AliasLocal {
+		t.Fatalf("effectiveWorkspaceChatModelAlias() = %q, want %q", got, modelprofile.AliasLocal)
 	}
-	if got := app.effectiveWorkspaceChatModelReasoningEffort(project); got != modelprofile.ReasoningLow {
-		t.Fatalf("effectiveWorkspaceChatModelReasoningEffort() = %q, want %q", got, modelprofile.ReasoningLow)
+	if got := app.effectiveWorkspaceChatModelReasoningEffort(project); got != modelprofile.ReasoningNone {
+		t.Fatalf("effectiveWorkspaceChatModelReasoningEffort() = %q, want %q", got, modelprofile.ReasoningNone)
 	}
 }
 
@@ -59,14 +59,14 @@ func TestAppServerModelProfileForWorkspacePathFallsBackWhenProjectMissing(t *tes
 	app.appServerModel = modelprofile.ModelSpark
 
 	profile := app.appServerModelProfileForWorkspacePath("missing-project")
-	if profile.Alias != modelprofile.AliasSpark {
-		t.Fatalf("profile.Alias = %q, want %q", profile.Alias, modelprofile.AliasSpark)
+	if profile.Alias != modelprofile.AliasLocal {
+		t.Fatalf("profile.Alias = %q, want %q", profile.Alias, modelprofile.AliasLocal)
 	}
 	if profile.Model != modelprofile.ModelSpark {
 		t.Fatalf("profile.Model = %q, want %q", profile.Model, modelprofile.ModelSpark)
 	}
-	if got := profile.TurnParams["effort"]; got != modelprofile.ReasoningLow {
-		t.Fatalf("profile.TurnParams[effort] = %#v, want %q", got, modelprofile.ReasoningLow)
+	if got := profile.TurnParams["effort"]; got != modelprofile.ReasoningNone {
+		t.Fatalf("profile.TurnParams[effort] = %#v, want %q", got, modelprofile.ReasoningNone)
 	}
 }
 

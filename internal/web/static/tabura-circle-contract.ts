@@ -4,6 +4,7 @@ export type TaburaCircleSegmentID =
   | 'dialogue'
   | 'meeting'
   | 'silent'
+  | 'fast'
   | 'prompt'
   | 'text_note'
   | 'pointer'
@@ -59,7 +60,7 @@ export const TABURA_CIRCLE_SEGMENTS: TaburaCircleSegmentContract[] = [
     label: 'Live mode: Dialogue',
     angle_deg: 14,
     radius_px: 84,
-    icon: strokeIcon('<path d="M5 7.5a3.5 3.5 0 0 1 3.5-3.5h4A3.5 3.5 0 0 1 16 7.5v2A3.5 3.5 0 0 1 12.5 13H10l-3.5 2V13A3.5 3.5 0 0 1 5 9.5Z"/><path d="M14.5 10H16a3 3 0 0 1 3 3v1.5A3 3 0 0 1 16 17h-1.5L12 19v-2"/>'),
+    icon: strokeIcon('<path d="M4.5 8a3.5 3.5 0 0 1 3.5-3.5h5A3.5 3.5 0 0 1 16.5 8v2A3.5 3.5 0 0 1 13 13.5H9.5L6 16v-2.5A3.5 3.5 0 0 1 4.5 10Z"/><path d="M13.5 10.5H16a3 3 0 0 1 3 3V15a3 3 0 0 1-3 3h-2.5L10.5 20v-2"/>'),
   },
   {
     id: 'meeting',
@@ -78,6 +79,15 @@ export const TABURA_CIRCLE_SEGMENTS: TaburaCircleSegmentContract[] = [
     angle_deg: 22,
     radius_px: 214,
     icon: strokeIcon('<path d="M5 10h4l5-4v12l-5-4H5Z"/><path d="m17 9 4 6"/><path d="m21 9-4 6"/>'),
+  },
+  {
+    id: 'fast',
+    kind: 'toggle',
+    icon_id: 'fast',
+    label: 'Turn mode: Fast',
+    angle_deg: 34,
+    radius_px: 246,
+    icon: strokeIcon('<path d="M13 3 6 13h4l-1 8 9-12h-4l1-6Z"/>'),
   },
   {
     id: 'prompt',

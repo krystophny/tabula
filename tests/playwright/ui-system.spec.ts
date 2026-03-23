@@ -419,6 +419,7 @@ test.describe('Tabura Circle', () => {
       'dialogue',
       'meeting',
       'silent',
+      'fast',
       'prompt',
       'text_note',
       'pointer',
@@ -428,6 +429,7 @@ test.describe('Tabura Circle', () => {
     expect(snapshot.circleButtons.map((button) => button.kind)).toEqual([
       'session',
       'session',
+      'toggle',
       'toggle',
       'tool',
       'tool',

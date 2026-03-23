@@ -18,7 +18,7 @@ func (a *App) effectiveWorkspaceChatModelAlias(project store.Workspace) string {
 	if alias := modelprofile.ResolveAlias(project.ChatModel, ""); alias != "" {
 		return alias
 	}
-	return modelprofile.AliasSpark
+	return modelprofile.AliasLocal
 }
 
 func (a *App) effectiveWorkspaceChatModelReasoningEffort(project store.Workspace) string {
@@ -34,7 +34,7 @@ func (a *App) appServerModelProfileForWorkspace(project store.Workspace) appServ
 	alias := a.effectiveWorkspaceChatModelAlias(project)
 	effort := a.effectiveWorkspaceChatModelReasoningEffort(project)
 	model := modelprofile.ModelForAlias(alias)
-	if model == "" {
+	if alias == modelprofile.AliasLocal || model == "" {
 		model = strings.TrimSpace(a.appServerModel)
 	}
 	if model == "" {
@@ -57,8 +57,11 @@ func (a *App) appServerModelProfileForWorkspacePath(workspacePath string) appSer
 			return a.appServerModelProfileForWorkspace(project)
 		}
 	}
-	alias := modelprofile.AliasSpark
-	legacyModel := modelprofile.ModelForAlias(alias)
+	alias := modelprofile.AliasLocal
+	legacyModel := strings.TrimSpace(a.appServerModel)
+	if legacyModel == "" {
+		legacyModel = modelprofile.ModelForAlias(modelprofile.AliasSpark)
+	}
 	legacyReasoning := modelprofile.MainThreadReasoningParamsForEffort(alias, modelprofile.MainThreadReasoningEffort(alias))
 	return appServerModelProfile{
 		Alias:        alias,

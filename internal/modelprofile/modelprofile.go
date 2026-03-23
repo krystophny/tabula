@@ -3,11 +3,16 @@ package modelprofile
 import "strings"
 
 const (
+	AliasLocal = "local"
 	AliasSpark = "spark"
 	AliasGPT   = "gpt"
+	AliasMini  = "mini"
+	AliasCodex = "codex"
 
+	ModelLocal = "local"
 	ModelSpark = "gpt-5.3-codex-spark"
 	ModelGPT   = "gpt-5.4"
+	ModelMini  = "gpt-5-mini"
 
 	ReasoningNone      = "none"
 	ReasoningMinimal   = "minimal"
@@ -20,30 +25,42 @@ const (
 const legacyReasoningExtraHigh = "extra_high"
 
 var aliasToModel = map[string]string{
+	AliasLocal: ModelLocal,
 	AliasSpark: ModelSpark,
 	AliasGPT:   ModelGPT,
+	AliasMini:  ModelMini,
+	AliasCodex: ModelSpark,
 }
 
 var modelToAlias = map[string]string{
+	strings.ToLower(ModelLocal): AliasLocal,
 	strings.ToLower(ModelSpark): AliasSpark,
 	strings.ToLower(ModelGPT):   AliasGPT,
+	strings.ToLower(ModelMini):  AliasMini,
 }
 
 var modelReasoningEfforts = map[string][]string{
+	AliasLocal: {ReasoningNone},
 	AliasSpark: {ReasoningLow, ReasoningMedium, ReasoningHigh, ReasoningExtraHigh},
 	AliasGPT:   {ReasoningLow, ReasoningMedium, ReasoningHigh, ReasoningExtraHigh},
+	AliasMini:  {ReasoningLow, ReasoningMedium, ReasoningHigh, ReasoningExtraHigh},
+	AliasCodex: {ReasoningLow, ReasoningMedium, ReasoningHigh, ReasoningExtraHigh},
 }
 
 func SupportedAliases() []string {
-	return []string{AliasSpark, AliasGPT}
+	return []string{AliasLocal, AliasSpark, AliasCodex, AliasGPT, AliasMini}
 }
 
 func SupportedModels() []string {
-	return []string{ModelSpark, ModelGPT}
+	return []string{ModelLocal, ModelSpark, ModelGPT, ModelMini}
 }
 
 func NormalizeAlias(raw string) string {
 	key := strings.TrimSpace(strings.ToLower(raw))
+	switch key {
+	case AliasCodex:
+		return AliasSpark
+	}
 	if _, ok := aliasToModel[key]; ok {
 		return key
 	}
@@ -101,12 +118,14 @@ func ResolveModel(raw, fallbackAlias string) string {
 
 func MainThreadReasoningEffort(alias string) string {
 	switch NormalizeAlias(alias) {
+	case AliasLocal:
+		return ReasoningNone
 	case AliasSpark:
 		return ReasoningLow
-	case AliasGPT:
+	case AliasGPT, AliasMini:
 		return ReasoningHigh
 	default:
-		return ReasoningLow
+		return ReasoningNone
 	}
 }
 
@@ -123,7 +142,7 @@ func ReasoningEffortsForAlias(alias string) []string {
 	if options, ok := modelReasoningEfforts[NormalizeAlias(alias)]; ok {
 		return append([]string(nil), options...)
 	}
-	return append([]string(nil), modelReasoningEfforts[AliasSpark]...)
+	return append([]string(nil), modelReasoningEfforts[AliasLocal]...)
 }
 
 func NormalizeReasoningEffort(alias, rawEffort string) string {

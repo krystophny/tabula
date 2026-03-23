@@ -455,8 +455,15 @@ export function renderEdgeTopModelButtons() {
 
   const modelChip = document.createElement('span');
   modelChip.className = 'edge-runtime-chip';
-  modelChip.textContent = (activeProjectChatModelAlias() || 'spark').toUpperCase();
+  modelChip.textContent = (activeProjectChatModelAlias() || 'local').toUpperCase();
   actions.appendChild(modelChip);
+
+  if (state.fastMode) {
+    const fastChip = document.createElement('span');
+    fastChip.className = 'edge-runtime-chip';
+    fastChip.textContent = 'FAST';
+    actions.appendChild(fastChip);
+  }
 
   if (state.ttsEnabled) {
     const voiceChip = document.createElement('span');

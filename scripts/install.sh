@@ -795,7 +795,7 @@ Type=simple
 Environment=TABURA_LLM_MODEL_DIR=${LLM_MODEL_DIR}
 Environment=TABURA_LLM_MODEL_FILE=Qwen3.5-9B-Q4_K_M.gguf
 Environment=TABURA_LLM_MODEL_URL=https://huggingface.co/lmstudio-community/Qwen3.5-9B-GGUF/resolve/main/Qwen3.5-9B-Q4_K_M.gguf?download=true
-Environment=TABURA_LLM_CTX=32768
+Environment=TABURA_LLM_CTX=65536
 Environment=LLAMA_SERVER_BIN=${LLAMA_SERVER_BIN_RESOLVED}
 ExecStart=${LLM_SETUP_SCRIPT}
 Restart=on-failure
@@ -843,6 +843,8 @@ Environment=TABURA_INTENT_LLM_URL=${effective_llm_url}
 Environment=TABURA_INTENT_LLM_MODEL=local
 Environment=TABURA_INTENT_LLM_PROFILE=qwen3.5-9b
 Environment=TABURA_INTENT_LLM_PROFILE_OPTIONS=qwen3.5-9b,qwen3.5-4b
+Environment=TABURA_ASSISTANT_LLM_URL=${effective_llm_url}
+Environment=TABURA_ASSISTANT_LLM_MODEL=local
 ExecStart=${BIN_PATH} server --project-dir ${PROJECT_DIR} --data-dir ${WEB_DATA_DIR} --web-host ${web_host} --web-port 8420 --mcp-host 127.0.0.1 --mcp-port 9420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424
 Restart=on-failure
 RestartSec=2

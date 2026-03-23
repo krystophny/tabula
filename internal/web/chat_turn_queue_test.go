@@ -18,8 +18,8 @@ func TestChatTurnTrackerDequeuesQueuedCursorContextInOrder(t *testing.T) {
 		ItemTitle: "Queued mail",
 		ItemState: store.ItemStateDone,
 	}
-	tracker.enqueue("session-1", turnOutputModeVoice, false, 11, chatCaptureModeText, nil)
-	tracker.enqueue("session-1", turnOutputModeSilent, true, 22, chatCaptureModeVoice, cursor)
+	tracker.enqueue("session-1", turnOutputModeVoice, false, false, 11, chatCaptureModeText, nil)
+	tracker.enqueue("session-1", turnOutputModeSilent, true, true, 22, chatCaptureModeVoice, cursor)
 
 	first, ok := tracker.dequeue("session-1")
 	if !ok {
@@ -38,6 +38,9 @@ func TestChatTurnTrackerDequeuesQueuedCursorContextInOrder(t *testing.T) {
 	}
 	if second.captureMode != chatCaptureModeVoice {
 		t.Fatalf("captureMode = %q, want %q", second.captureMode, chatCaptureModeVoice)
+	}
+	if !second.fastMode {
+		t.Fatal("fastMode = false, want true")
 	}
 	if second.cursor == nil || second.cursor.ItemID != 42 || second.cursor.ItemState != store.ItemStateDone {
 		t.Fatalf("cursor = %#v", second.cursor)

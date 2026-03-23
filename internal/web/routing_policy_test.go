@@ -7,52 +7,81 @@ import (
 	"github.com/krystophny/tabura/internal/modelprofile"
 )
 
-func TestExplicitTurnModelAliasDefaultsToSpark(t *testing.T) {
-	if got := explicitTurnModelAlias("summarize this note"); got != "" {
-		t.Fatalf("explicitTurnModelAlias() = %q, want empty", got)
+func TestParseTurnRoutingDirectivesDefaultsToLocal(t *testing.T) {
+	directives := parseTurnRoutingDirectives("summarize this note")
+	if directives.ModelAlias != "" {
+		t.Fatalf("ModelAlias = %q, want empty", directives.ModelAlias)
+	}
+	if directives.ReasoningEffort != "" {
+		t.Fatalf("ReasoningEffort = %q, want empty", directives.ReasoningEffort)
+	}
+	if directives.SearchRequested {
+		t.Fatal("SearchRequested = true, want false")
+	}
+	if directives.PromptText != "summarize this note" {
+		t.Fatalf("PromptText = %q, want original", directives.PromptText)
 	}
 }
 
-func TestExplicitTurnModelAliasOnlyDelegatesOnExplicitGPTRequest(t *testing.T) {
-	if got := explicitTurnModelAlias("Please use GPT for this root-cause analysis."); got != modelprofile.AliasGPT {
-		t.Fatalf("explicitTurnModelAlias() = %q, want %q", got, modelprofile.AliasGPT)
+func TestParseTurnRoutingDirectivesSupportsSparkCodexGPTMiniAndReasoning(t *testing.T) {
+	tests := []struct {
+		name       string
+		text       string
+		wantAlias  string
+		wantEffort string
+	}{
+		{name: "spark", text: "Use Spark for this and think hard: analyze the latest error.", wantAlias: modelprofile.AliasSpark, wantEffort: modelprofile.ReasoningHigh},
+		{name: "codex alias", text: "Lass Codex denk kurz den Buildfehler ansehen.", wantAlias: modelprofile.AliasSpark, wantEffort: modelprofile.ReasoningLow},
+		{name: "gpt", text: "Please use GPT and think quickly about this timeout.", wantAlias: modelprofile.AliasGPT, wantEffort: modelprofile.ReasoningLow},
+		{name: "mini", text: "Let mini think a bit about this API diff.", wantAlias: modelprofile.AliasMini, wantEffort: modelprofile.ReasoningMedium},
 	}
-	if got := explicitTurnModelAlias("Please do a deep dive root cause analysis of this timeout bug."); got != "" {
-		t.Fatalf("explicitTurnModelAlias() = %q, want empty without explicit GPT request", got)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			directives := parseTurnRoutingDirectives(tc.text)
+			if directives.ModelAlias != tc.wantAlias {
+				t.Fatalf("ModelAlias = %q, want %q", directives.ModelAlias, tc.wantAlias)
+			}
+			if directives.ReasoningEffort != tc.wantEffort {
+				t.Fatalf("ReasoningEffort = %q, want %q", directives.ReasoningEffort, tc.wantEffort)
+			}
+			if strings.TrimSpace(directives.PromptText) == "" {
+				t.Fatal("PromptText is empty")
+			}
+		})
 	}
 }
 
-func TestRouteProfileForRoutingAppliesGPTHigh(t *testing.T) {
+func TestParseTurnRoutingDirectivesRoutesSearchesToSpark(t *testing.T) {
+	directives := parseTurnRoutingDirectives("Search the web for today's AMD news.")
+	if !directives.SearchRequested {
+		t.Fatal("SearchRequested = false, want true")
+	}
+	if directives.ModelAlias != modelprofile.AliasSpark {
+		t.Fatalf("ModelAlias = %q, want %q", directives.ModelAlias, modelprofile.AliasSpark)
+	}
+}
+
+func TestRouteProfileForRoutingUsesMiniHighAndLocalFallback(t *testing.T) {
 	base := appServerModelProfile{
-		Alias: modelprofile.AliasSpark,
-		Model: modelprofile.ModelForAlias(modelprofile.AliasSpark),
+		Alias: modelprofile.AliasLocal,
+		Model: modelprofile.ModelLocal,
 	}
-	profile := routeProfileForRouting(modelprofile.AliasGPT, base, modelprofile.ReasoningLow)
-	if profile.Alias != modelprofile.AliasGPT {
-		t.Fatalf("alias = %q, want %q", profile.Alias, modelprofile.AliasGPT)
+	miniProfile := routeProfileForRouting(modelprofile.AliasMini, base, modelprofile.ReasoningLow, "")
+	if miniProfile.Alias != modelprofile.AliasMini {
+		t.Fatalf("mini alias = %q, want %q", miniProfile.Alias, modelprofile.AliasMini)
 	}
-	if profile.Model != modelprofile.ModelForAlias(modelprofile.AliasGPT) {
-		t.Fatalf("model = %q, want gpt model", profile.Model)
+	if miniProfile.Model != modelprofile.ModelMini {
+		t.Fatalf("mini model = %q, want %q", miniProfile.Model, modelprofile.ModelMini)
 	}
-	if got := strings.TrimSpace(strFromAny(profile.TurnParams["effort"])); got != modelprofile.ReasoningHigh {
-		t.Fatalf("effort = %q, want %q", got, modelprofile.ReasoningHigh)
+	if got := strings.TrimSpace(strFromAny(miniProfile.TurnParams["effort"])); got != modelprofile.ReasoningHigh {
+		t.Fatalf("mini effort = %q, want %q", got, modelprofile.ReasoningHigh)
 	}
-}
-
-func TestRouteProfileForRoutingUsesSparkFallbackWithConfiguredEffort(t *testing.T) {
-	base := appServerModelProfile{
-		Alias: modelprofile.AliasSpark,
-		Model: modelprofile.ModelForAlias(modelprofile.AliasSpark),
+	localProfile := routeProfileForRouting("", base, modelprofile.ReasoningMedium, "")
+	if localProfile.Alias != modelprofile.AliasLocal {
+		t.Fatalf("local alias = %q, want %q", localProfile.Alias, modelprofile.AliasLocal)
 	}
-	profile := routeProfileForRouting("", base, modelprofile.ReasoningMedium)
-	if profile.Alias != modelprofile.AliasSpark {
-		t.Fatalf("alias = %q, want %q", profile.Alias, modelprofile.AliasSpark)
-	}
-	if profile.Model != modelprofile.ModelForAlias(modelprofile.AliasSpark) {
-		t.Fatalf("model = %q, want spark model", profile.Model)
-	}
-	if got := strings.TrimSpace(strFromAny(profile.TurnParams["effort"])); got != modelprofile.ReasoningMedium {
-		t.Fatalf("effort = %q, want %q", got, modelprofile.ReasoningMedium)
+	if got := strings.TrimSpace(strFromAny(localProfile.TurnParams["effort"])); got != modelprofile.ReasoningNone {
+		t.Fatalf("local effort = %q, want %q", got, modelprofile.ReasoningNone)
 	}
 }
 
@@ -61,7 +90,7 @@ func TestEnforceRoutingPolicyNormalizesButDoesNotDropActions(t *testing.T) {
 		{Action: "toggle_silent", Params: map[string]interface{}{}},
 		{Action: "show_status", Params: map[string]interface{}{}},
 	}
-	enforced := enforceRoutingPolicy("use GPT for this", actions)
+	enforced := enforceRoutingPolicy("use spark for this", actions)
 	if len(enforced) != 2 {
 		t.Fatalf("enforced length = %d, want 2", len(enforced))
 	}

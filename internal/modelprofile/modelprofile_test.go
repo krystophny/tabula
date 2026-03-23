@@ -10,9 +10,12 @@ func TestResolveModel(t *testing.T) {
 		wantModel    string
 		wantResolved string
 	}{
+		{name: "alias local", raw: "local", fallback: "", wantModel: ModelLocal, wantResolved: AliasLocal},
 		{name: "alias spark", raw: "spark", fallback: "", wantModel: ModelSpark, wantResolved: AliasSpark},
+		{name: "alias codex", raw: "codex", fallback: "", wantModel: ModelSpark, wantResolved: AliasSpark},
 		{name: "full model", raw: ModelGPT, fallback: "", wantModel: ModelGPT, wantResolved: AliasGPT},
-		{name: "default alias", raw: "", fallback: AliasSpark, wantModel: ModelSpark, wantResolved: AliasSpark},
+		{name: "mini alias", raw: "mini", fallback: "", wantModel: ModelMini, wantResolved: AliasMini},
+		{name: "default alias", raw: "", fallback: AliasLocal, wantModel: ModelLocal, wantResolved: AliasLocal},
 		{name: "custom passthrough", raw: "my-custom-model", fallback: "", wantModel: "my-custom-model", wantResolved: ""},
 	}
 	for _, tc := range tests {
@@ -28,11 +31,17 @@ func TestResolveModel(t *testing.T) {
 }
 
 func TestMainThreadReasoningEffort(t *testing.T) {
+	if got := MainThreadReasoningEffort(AliasLocal); got != ReasoningNone {
+		t.Fatalf("local effort = %q, want %q", got, ReasoningNone)
+	}
 	if got := MainThreadReasoningEffort(AliasSpark); got != ReasoningLow {
 		t.Fatalf("spark effort = %q, want %q", got, ReasoningLow)
 	}
 	if got := MainThreadReasoningEffort(AliasGPT); got != ReasoningHigh {
 		t.Fatalf("gpt effort = %q, want %q", got, ReasoningHigh)
+	}
+	if got := MainThreadReasoningEffort(AliasMini); got != ReasoningHigh {
+		t.Fatalf("mini effort = %q, want %q", got, ReasoningHigh)
 	}
 }
 
@@ -42,8 +51,10 @@ func TestAvailableReasoningEffortsByAlias(t *testing.T) {
 		t.Fatalf("expected efforts map")
 	}
 	for alias, expectation := range map[string][]string{
+		AliasLocal: {ReasoningNone},
 		AliasSpark: {ReasoningLow, ReasoningMedium, ReasoningHigh, ReasoningExtraHigh},
 		AliasGPT:   {ReasoningLow, ReasoningMedium, ReasoningHigh, ReasoningExtraHigh},
+		AliasMini:  {ReasoningLow, ReasoningMedium, ReasoningHigh, ReasoningExtraHigh},
 	} {
 		options, ok := efforts[alias]
 		if !ok {

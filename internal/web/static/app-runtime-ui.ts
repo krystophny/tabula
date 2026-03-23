@@ -8,7 +8,7 @@ import {
 } from './app-meeting-document-follow.js';
 
 const { marked, apiURL, wsURL, renderCanvas, clearCanvas, getLocationFromSelection, clearLineHighlight, escapeHtml, sanitizeHtml, getActiveArtifactTitle, getActiveTextEventId, getPreviousArtifactText, getUiState, setUiMode, showIndicatorMode, hideIndicator, showTextInput, hideTextInput, showOverlay, hideOverlay, updateOverlay, isOverlayVisible, isTextInputVisible, isRecording, setRecording, getInputAnchor, setInputAnchor, getAnchorFromPoint, buildContextPrefix, getLastInputPosition, setLastInputPosition, configureLiveSession, getLiveSessionSnapshot, handleLiveSessionMessage, isLiveSessionListenActive, LIVE_SESSION_HOTWORD_DEFAULT, LIVE_SESSION_MODE_DIALOGUE, LIVE_SESSION_MODE_MEETING, onLiveSessionTTSPlaybackComplete, cancelLiveSessionListen, resumeDialogueListen, setDialogueTTSBargeInMode, startLiveSession, stopLiveSession, initHotword, startHotwordMonitor, stopHotwordMonitor, isHotwordActive, onHotwordDetected, setHotwordThreshold, setHotwordAudioContext, getPreRollAudio, getHotwordMicStream, initVAD, ensureVADLoaded, float32ToWav } = env;
-const { refs, state, getState, isVoiceTurn, COMPANION_VIEW_PATH_PREFIX, COMPANION_TRANSCRIPT_VIEW_PATH, COMPANION_SUMMARY_VIEW_PATH, COMPANION_REFERENCES_VIEW_PATH, MEETING_TRANSCRIPT_LABEL, MEETING_SUMMARY_LABEL, MEETING_REFERENCES_LABEL, MEETING_SUMMARY_ITEMS_PANEL_ID, CHAT_CTRL_LONG_PRESS_MS, ARTIFACT_EDIT_LONG_TAP_MS, ITEM_SIDEBAR_VIEWS, ITEM_SIDEBAR_GESTURE_CANCEL_PX, ITEM_SIDEBAR_GESTURE_COMMIT_PX, ITEM_SIDEBAR_GESTURE_LONG_PX, ITEM_SIDEBAR_DEFAULT_LATER_HOUR_UTC, ITEM_SIDEBAR_MENU_ID, DEV_UI_RELOAD_POLL_MS, ASSISTANT_ACTIVITY_POLL_MS, CHAT_WS_STALE_THRESHOLD_MS, ACTIVE_TURN_NO_ID_CLEAR_GRACE_MS, ACTIVE_TURN_ACTIVITY_CLEAR_GRACE_MS, PROJECT_CHAT_MODEL_ALIASES, PROJECT_CHAT_MODEL_REASONING_EFFORTS, TTS_SILENT_STORAGE_KEY, YOLO_MODE_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_ENABLED_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_LAST_SHOWN_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_INTERVAL_MS, ACTIVE_PROJECT_STORAGE_KEY, ACTIVE_SPHERE_STORAGE_KEY, LAST_VIEW_STORAGE_KEY, RUNTIME_RELOAD_CONTEXT_STORAGE_KEY, SIDEBAR_IMAGE_EXTENSIONS, PANEL_MOTION_WATCH_QUERIES, VOICE_LIFECYCLE, COMPANION_IDLE_SURFACES, COMPANION_RUNTIME_STATES, TOOL_PALETTE_MODES } = context;
+const { refs, state, getState, isVoiceTurn, COMPANION_VIEW_PATH_PREFIX, COMPANION_TRANSCRIPT_VIEW_PATH, COMPANION_SUMMARY_VIEW_PATH, COMPANION_REFERENCES_VIEW_PATH, MEETING_TRANSCRIPT_LABEL, MEETING_SUMMARY_LABEL, MEETING_REFERENCES_LABEL, MEETING_SUMMARY_ITEMS_PANEL_ID, CHAT_CTRL_LONG_PRESS_MS, ARTIFACT_EDIT_LONG_TAP_MS, ITEM_SIDEBAR_VIEWS, ITEM_SIDEBAR_GESTURE_CANCEL_PX, ITEM_SIDEBAR_GESTURE_COMMIT_PX, ITEM_SIDEBAR_GESTURE_LONG_PX, ITEM_SIDEBAR_DEFAULT_LATER_HOUR_UTC, ITEM_SIDEBAR_MENU_ID, DEV_UI_RELOAD_POLL_MS, ASSISTANT_ACTIVITY_POLL_MS, CHAT_WS_STALE_THRESHOLD_MS, ACTIVE_TURN_NO_ID_CLEAR_GRACE_MS, ACTIVE_TURN_ACTIVITY_CLEAR_GRACE_MS, PROJECT_CHAT_MODEL_ALIASES, PROJECT_CHAT_MODEL_REASONING_EFFORTS, TTS_SILENT_STORAGE_KEY, FAST_MODE_STORAGE_KEY, YOLO_MODE_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_ENABLED_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_LAST_SHOWN_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_INTERVAL_MS, ACTIVE_PROJECT_STORAGE_KEY, ACTIVE_SPHERE_STORAGE_KEY, LAST_VIEW_STORAGE_KEY, RUNTIME_RELOAD_CONTEXT_STORAGE_KEY, SIDEBAR_IMAGE_EXTENSIONS, PANEL_MOTION_WATCH_QUERIES, VOICE_LIFECYCLE, COMPANION_IDLE_SURFACES, COMPANION_RUNTIME_STATES, TOOL_PALETTE_MODES } = context;
 
 let runtimeReloadBootID = '';
 let runtimeReloadTimer = null;
@@ -65,6 +65,27 @@ export function setTTSSilentMode(silent, { persist = true, pinPanel = true } = {
   }
   renderEdgeTopModelButtons();
   requestHotwordSync();
+}
+
+export function setFastMode(enabled, { persist = true } = {}) {
+  state.fastMode = Boolean(enabled);
+  if (!persist) return;
+  try {
+    window.localStorage.setItem(FAST_MODE_STORAGE_KEY, state.fastMode ? 'true' : 'false');
+  } catch (_) {}
+}
+
+export function toggleFastMode() {
+  const next = !state.fastMode;
+  updateRuntimePreferences({ fast_mode: next })
+    .then(() => {
+      setFastMode(next, { persist: false });
+      showStatus(next ? 'fast mode on' : 'fast mode off');
+    })
+    .catch((err) => {
+      showStatus(`fast update failed: ${String(err?.message || err || 'unknown error')}`);
+      renderEdgeTopModelButtons();
+    });
 }
 
 export function toggleTTSSilentMode() {
@@ -400,6 +421,8 @@ export function applyRuntimePreferences(runtime) {
   }
   const runtimeSilent = parseOptionalBoolean(runtime?.silent_mode);
   setTTSSilentMode(runtimeSilent === true, { persist: false, pinPanel: false });
+  const runtimeFast = parseOptionalBoolean(runtime?.fast_mode);
+  setFastMode(runtimeFast === true, { persist: false });
   state.livePolicy = String(runtime?.live_policy || state.livePolicy || LIVE_SESSION_MODE_DIALOGUE).trim().toLowerCase() === LIVE_SESSION_MODE_MEETING
     ? LIVE_SESSION_MODE_MEETING
     : LIVE_SESSION_MODE_DIALOGUE;
@@ -432,6 +455,10 @@ export async function updateRuntimePreferences(patch) {
   const silent = parseOptionalBoolean(payload?.silent_mode);
   if (silent !== null) {
     setTTSSilentMode(silent, { persist: false, pinPanel: false });
+  }
+  const fast = parseOptionalBoolean(payload?.fast_mode);
+  if (fast !== null) {
+    setFastMode(fast, { persist: false });
   }
   state.interaction.tool = normalizeInteractionTool(payload?.tool || state.interaction.tool || 'pointer');
   if (Object.prototype.hasOwnProperty.call(patch || {}, 'tool')) {
@@ -879,8 +906,8 @@ export function normalizeReasoningEffortOptionsByAlias(rawEfforts) {
       out[alias] = configured;
       continue;
     }
-    const defaults = PROJECT_CHAT_MODEL_REASONING_EFFORTS[alias];
-    out[alias] = Array.isArray(defaults) && defaults.length > 0 ? defaults.slice() : ['low', 'medium', 'high'];
+  const defaults = PROJECT_CHAT_MODEL_REASONING_EFFORTS[alias];
+    out[alias] = Array.isArray(defaults) && defaults.length > 0 ? defaults.slice() : ['none'];
   }
   return out;
 }
@@ -891,6 +918,7 @@ export function applyRuntimeReasoningEffortOptions(rawEfforts) {
 
 export function normalizeProjectChatModelAlias(value) {
   const clean = String(value || '').trim().toLowerCase();
+  if (clean === 'codex') return 'spark';
   if (PROJECT_CHAT_MODEL_ALIASES.includes(clean)) {
     return clean;
   }
@@ -904,12 +932,12 @@ export function reasoningEffortOptionsForAlias(alias) {
     return configured.slice();
   }
   const defaults = PROJECT_CHAT_MODEL_REASONING_EFFORTS[cleanAlias];
-  return Array.isArray(defaults) && defaults.length > 0 ? defaults.slice() : ['low', 'medium', 'high'];
+  return Array.isArray(defaults) && defaults.length > 0 ? defaults.slice() : ['none'];
 }
 
 export function defaultReasoningEffortForAlias(alias) {
   const options = reasoningEffortOptionsForAlias(alias);
-  return options.length > 0 ? options[0] : 'low';
+  return options.length > 0 ? options[0] : 'none';
 }
 
 export function normalizeProjectChatModelReasoningEffort(value, alias) {

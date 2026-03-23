@@ -18,6 +18,7 @@ type runtimeDisclaimerAckRequest struct {
 
 type runtimePreferencesRequest struct {
 	SilentMode             *bool  `json:"silent_mode"`
+	FastMode               *bool  `json:"fast_mode"`
 	Tool                   string `json:"tool"`
 	StartupBehavior        string `json:"startup_behavior"`
 	ActiveSphere           string `json:"active_sphere"`
@@ -78,6 +79,17 @@ func (a *App) silentModeEnabled() bool {
 		return false
 	}
 	value, err := a.store.AppState(appStateSilentModeKey)
+	if err != nil {
+		return false
+	}
+	return parseBoolString(value, false)
+}
+
+func (a *App) fastModeEnabled() bool {
+	if a == nil || a.store == nil {
+		return false
+	}
+	value, err := a.store.AppState(appStateFastModeKey)
 	if err != nil {
 		return false
 	}
@@ -159,6 +171,16 @@ func (a *App) setSilentModeEnabled(enabled bool) error {
 	return a.store.SetAppState(appStateSilentModeKey, "false")
 }
 
+func (a *App) setFastModeEnabled(enabled bool) error {
+	if a == nil || a.store == nil {
+		return nil
+	}
+	if enabled {
+		return a.store.SetAppState(appStateFastModeKey, "true")
+	}
+	return a.store.SetAppState(appStateFastModeKey, "false")
+}
+
 func (a *App) setRuntimeTool(tool string) error {
 	if a == nil || a.store == nil {
 		return nil
@@ -212,6 +234,12 @@ func (a *App) handleRuntimePreferencesUpdate(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
+	if req.FastMode != nil {
+		if err := a.setFastModeEnabled(*req.FastMode); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 	if strings.TrimSpace(req.Tool) != "" {
 		if err := a.setRuntimeTool(req.Tool); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -245,6 +273,7 @@ func (a *App) handleRuntimePreferencesUpdate(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, map[string]interface{}{
 		"ok":                        true,
 		"silent_mode":               a.silentModeEnabled(),
+		"fast_mode":                 a.fastModeEnabled(),
 		"tool":                      a.runtimeTool(),
 		"startup_behavior":          a.runtimeStartupBehavior(),
 		"active_sphere":             a.runtimeActiveSphere(),

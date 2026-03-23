@@ -86,8 +86,8 @@ func TestWorkspaceRuntimeUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetWorkspace(updated) error: %v", err)
 	}
-	if updated.ChatModel != "gpt-5.4" {
-		t.Fatalf("ChatModel = %q, want gpt-5.4", updated.ChatModel)
+	if updated.ChatModel != "gpt" {
+		t.Fatalf("ChatModel = %q, want gpt", updated.ChatModel)
 	}
 	if updated.ChatModelReasoningEffort != "high" {
 		t.Fatalf("ChatModelReasoningEffort = %q, want high", updated.ChatModelReasoningEffort)
@@ -104,11 +104,11 @@ func TestWorkspaceRuntimeUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetWorkspace(reset) error: %v", err)
 	}
-	if updated.ChatModel != "spark" {
-		t.Fatalf("ChatModel = %q, want spark", updated.ChatModel)
+	if updated.ChatModel != "local" {
+		t.Fatalf("ChatModel = %q, want local", updated.ChatModel)
 	}
-	if updated.ChatModelReasoningEffort != "" {
-		t.Fatalf("ChatModelReasoningEffort = %q, want empty", updated.ChatModelReasoningEffort)
+	if updated.ChatModelReasoningEffort != "none" {
+		t.Fatalf("ChatModelReasoningEffort = %q, want none", updated.ChatModelReasoningEffort)
 	}
 }
 
@@ -316,8 +316,8 @@ func TestWorkspaceCompatLookupHelpers(t *testing.T) {
 		t.Fatalf("FindWorkspaceByPath() = %v, want %d", foundID, workspace.ID)
 	}
 
-	if got := s.appServerModelProfileForWorkspacePath(workspace.WorkspacePath); got != "spark" {
-		t.Fatalf("appServerModelProfileForWorkspacePath() = %q, want spark", got)
+	if got := s.appServerModelProfileForWorkspacePath(workspace.WorkspacePath); got != "local" {
+		t.Fatalf("appServerModelProfileForWorkspacePath() = %q, want local", got)
 	}
 }
 
@@ -352,7 +352,7 @@ func TestWorkspaceCompatUpdateOperations(t *testing.T) {
 	if err := s.UpdateEnrichedWorkspaceCanvasSession(workspaceID, "canvas-4"); err != nil {
 		t.Fatalf("UpdateEnrichedWorkspaceCanvasSession() error: %v", err)
 	}
-	if err := s.UpdateEnrichedWorkspaceChatModel(workspaceID, " GPT-5 "); err != nil {
+	if err := s.UpdateEnrichedWorkspaceChatModel(workspaceID, " GPT "); err != nil {
 		t.Fatalf("UpdateEnrichedWorkspaceChatModel() error: %v", err)
 	}
 	if err := s.UpdateEnrichedWorkspaceChatModelReasoningEffort(workspaceID, " medium "); err != nil {
@@ -396,8 +396,8 @@ func TestWorkspaceCompatUpdateOperations(t *testing.T) {
 	if updated.CanvasSessionID != "canvas-4" {
 		t.Fatalf("CanvasSessionID = %q, want canvas-4", updated.CanvasSessionID)
 	}
-	if updated.ChatModel != "gpt-5" {
-		t.Fatalf("ChatModel = %q, want gpt-5", updated.ChatModel)
+	if updated.ChatModel != "gpt" {
+		t.Fatalf("ChatModel = %q, want gpt", updated.ChatModel)
 	}
 	if updated.ChatModelReasoningEffort != "medium" {
 		t.Fatalf("ChatModelReasoningEffort = %q, want medium", updated.ChatModelReasoningEffort)

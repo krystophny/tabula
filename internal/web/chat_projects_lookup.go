@@ -44,6 +44,28 @@ func queuedUserMessage(messages []store.ChatMessage, messageID int64) string {
 	return latestUserMessage(messages)
 }
 
+func withQueuedUserMessage(messages []store.ChatMessage, messageID int64, replacement string) []store.ChatMessage {
+	if len(messages) == 0 || strings.TrimSpace(replacement) == "" {
+		return messages
+	}
+	out := append([]store.ChatMessage(nil), messages...)
+	for i := len(out) - 1; i >= 0; i-- {
+		if messageID > 0 && out[i].ID != messageID {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(out[i].Role), "user") {
+			if messageID > 0 {
+				continue
+			}
+			return out
+		}
+		out[i].ContentPlain = replacement
+		out[i].ContentMarkdown = replacement
+		return out
+	}
+	return out
+}
+
 func (a *App) preferredWorkspace() (store.Workspace, error) {
 	activeID, err := a.store.ActiveWorkspaceID()
 	if err == nil && strings.TrimSpace(activeID) != "" {

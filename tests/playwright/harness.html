@@ -68,6 +68,7 @@
           <button id="tabura-circle-segment-dialogue" class="tabura-circle-segment" type="button" data-kind="session" data-segment="dialogue"></button>
           <button id="tabura-circle-segment-meeting" class="tabura-circle-segment" type="button" data-kind="session" data-segment="meeting"></button>
           <button id="tabura-circle-segment-silent" class="tabura-circle-segment" type="button" data-kind="toggle" data-segment="silent"></button>
+          <button id="tabura-circle-segment-fast" class="tabura-circle-segment" type="button" data-kind="toggle" data-segment="fast"></button>
           <button id="tabura-circle-segment-prompt" class="tabura-circle-segment" type="button" data-kind="tool" data-segment="prompt"></button>
           <button id="tabura-circle-segment-text-note" class="tabura-circle-segment" type="button" data-kind="tool" data-segment="text_note"></button>
           <button id="tabura-circle-segment-pointer" class="tabura-circle-segment" type="button" data-kind="tool" data-segment="pointer"></button>
@@ -228,6 +229,7 @@
       turn_policy_profile: 'balanced',
       turn_eval_logging_enabled: true,
       silent_mode: false,
+      fast_mode: false,
       live_policy: harnessParams.get('live_policy') === 'meeting' ? 'meeting' : 'dialogue',
       tool: 'pointer',
       startup_behavior: 'resume_active',
@@ -290,6 +292,9 @@
       }
       if (Object.prototype.hasOwnProperty.call(next, 'silent_mode')) {
         runtimeState.silent_mode = Boolean(next.silent_mode);
+      }
+      if (Object.prototype.hasOwnProperty.call(next, 'fast_mode')) {
+        runtimeState.fast_mode = Boolean(next.fast_mode);
       }
       if (Object.prototype.hasOwnProperty.call(next, 'live_policy')) {
         runtimeState.live_policy = String(next.live_policy || '').trim().toLowerCase() === 'meeting' ? 'meeting' : 'dialogue';
@@ -1491,6 +1496,9 @@
         if (Object.prototype.hasOwnProperty.call(body, 'silent_mode')) {
           runtimeState.silent_mode = Boolean(body.silent_mode);
         }
+        if (Object.prototype.hasOwnProperty.call(body, 'fast_mode')) {
+          runtimeState.fast_mode = Boolean(body.fast_mode);
+        }
         if (typeof body?.tool === 'string') {
           const normalized = String(body.tool).trim().toLowerCase();
           runtimeState.tool = ['pointer', 'highlight', 'ink', 'text_note', 'prompt'].includes(normalized)
@@ -1522,6 +1530,7 @@
         return new Response(JSON.stringify({
           ok: true,
           silent_mode: runtimeState.silent_mode,
+          fast_mode: runtimeState.fast_mode,
           live_policy: runtimeState.live_policy,
           tool: runtimeState.tool,
           startup_behavior: runtimeState.startup_behavior,

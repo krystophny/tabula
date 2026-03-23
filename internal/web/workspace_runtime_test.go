@@ -15,9 +15,9 @@ import (
 )
 
 type workspacesListResponse struct {
-	OK                 bool               `json:"ok"`
-	DefaultWorkspaceID string             `json:"default_workspace_id"`
-	ActiveWorkspaceID  string             `json:"active_workspace_id"`
+	OK                 bool                 `json:"ok"`
+	DefaultWorkspaceID string               `json:"default_workspace_id"`
+	ActiveWorkspaceID  string               `json:"active_workspace_id"`
 	Projects           []workspaceListEntry `json:"workspaces"`
 }
 
@@ -303,7 +303,7 @@ func TestCreateActivateProjectAffectsChatSessionCreation(t *testing.T) {
 		t.Fatalf("expected create 200, got %d: %s", rrCreate.Code, rrCreate.Body.String())
 	}
 	var createPayload struct {
-		OK      bool `json:"ok"`
+		OK        bool `json:"ok"`
 		Workspace struct {
 			ID string `json:"id"`
 		} `json:"workspace"`
@@ -552,29 +552,29 @@ func TestProjectChatModelUpdate(t *testing.T) {
 	if rrUpdate.Code != http.StatusBadRequest {
 		t.Fatalf("expected update 400, got %d: %s", rrUpdate.Code, rrUpdate.Body.String())
 	}
-	if !strings.Contains(rrUpdate.Body.String(), "spark is the only default dialogue model") {
-		t.Fatalf("expected spark-only error, got %q", rrUpdate.Body.String())
+	if !strings.Contains(rrUpdate.Body.String(), "local is the only default dialogue model") {
+		t.Fatalf("expected local-only error, got %q", rrUpdate.Body.String())
 	}
 
-	rrSpark := doAuthedJSONRequest(
+	rrLocal := doAuthedJSONRequest(
 		t,
 		app.Router(),
 		http.MethodPost,
 		"/api/runtime/workspaces/"+workspaceID+"/chat-model",
-		map[string]any{"model": "spark"},
+		map[string]any{"model": "local"},
 	)
-	if rrSpark.Code != http.StatusOK {
-		t.Fatalf("expected spark update 200, got %d: %s", rrSpark.Code, rrSpark.Body.String())
+	if rrLocal.Code != http.StatusOK {
+		t.Fatalf("expected local update 200, got %d: %s", rrLocal.Code, rrLocal.Body.String())
 	}
 	var updatePayload struct {
-		OK      bool `json:"ok"`
+		OK        bool `json:"ok"`
 		Workspace struct {
 			ID                       string `json:"id"`
 			ChatModel                string `json:"chat_model"`
 			ChatModelReasoningEffort string `json:"chat_model_reasoning_effort"`
 		} `json:"workspace"`
 	}
-	if err := json.Unmarshal(rrSpark.Body.Bytes(), &updatePayload); err != nil {
+	if err := json.Unmarshal(rrLocal.Body.Bytes(), &updatePayload); err != nil {
 		t.Fatalf("decode update response: %v", err)
 	}
 	if !updatePayload.OK {
@@ -583,11 +583,11 @@ func TestProjectChatModelUpdate(t *testing.T) {
 	if updatePayload.Workspace.ID != workspaceID {
 		t.Fatalf("expected updated workspace id %q, got %q", workspaceID, updatePayload.Workspace.ID)
 	}
-	if updatePayload.Workspace.ChatModel != "spark" {
-		t.Fatalf("expected chat model spark, got %q", updatePayload.Workspace.ChatModel)
+	if updatePayload.Workspace.ChatModel != "local" {
+		t.Fatalf("expected chat model local, got %q", updatePayload.Workspace.ChatModel)
 	}
-	if updatePayload.Workspace.ChatModelReasoningEffort != "low" {
-		t.Fatalf("expected spark reasoning effort low, got %q", updatePayload.Workspace.ChatModelReasoningEffort)
+	if updatePayload.Workspace.ChatModelReasoningEffort != "none" {
+		t.Fatalf("expected local reasoning effort none, got %q", updatePayload.Workspace.ChatModelReasoningEffort)
 	}
 
 	rrEffortUpdate := doAuthedJSONRequest(
@@ -596,7 +596,7 @@ func TestProjectChatModelUpdate(t *testing.T) {
 		http.MethodPost,
 		"/api/runtime/workspaces/"+workspaceID+"/chat-model",
 		map[string]any{
-			"model":            "spark",
+			"model":            "local",
 			"reasoning_effort": "extra_high",
 		},
 	)
@@ -604,7 +604,7 @@ func TestProjectChatModelUpdate(t *testing.T) {
 		t.Fatalf("expected effort update 200, got %d: %s", rrEffortUpdate.Code, rrEffortUpdate.Body.String())
 	}
 	var effortPayload struct {
-		OK      bool `json:"ok"`
+		OK        bool `json:"ok"`
 		Workspace struct {
 			ID                       string `json:"id"`
 			ChatModelReasoningEffort string `json:"chat_model_reasoning_effort"`
@@ -616,8 +616,8 @@ func TestProjectChatModelUpdate(t *testing.T) {
 	if !effortPayload.OK {
 		t.Fatalf("expected effort update ok=true")
 	}
-	if effortPayload.Workspace.ChatModelReasoningEffort != "xhigh" {
-		t.Fatalf("expected effort xhigh, got %q", effortPayload.Workspace.ChatModelReasoningEffort)
+	if effortPayload.Workspace.ChatModelReasoningEffort != "none" {
+		t.Fatalf("expected effort none, got %q", effortPayload.Workspace.ChatModelReasoningEffort)
 	}
 
 	rrInvalid := doAuthedJSONRequest(
@@ -861,8 +861,8 @@ func TestProjectChatModelUpdateAllowsDefaultProject(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
 	}
-	if !strings.Contains(rr.Body.String(), "spark is the only default dialogue model") {
-		t.Fatalf("expected spark-only error, got %q", rr.Body.String())
+	if !strings.Contains(rr.Body.String(), "local is the only default dialogue model") {
+		t.Fatalf("expected local-only error, got %q", rr.Body.String())
 	}
 }
 
@@ -1081,7 +1081,7 @@ func TestTemporaryProjectCreationCopiesSourceSettingsAndPersist(t *testing.T) {
 		t.Fatalf("expected create 200, got %d: %s", rrCreate.Code, rrCreate.Body.String())
 	}
 	var createPayload struct {
-		OK      bool `json:"ok"`
+		OK        bool `json:"ok"`
 		Workspace struct {
 			ID        string `json:"id"`
 			Kind      string `json:"kind"`
@@ -1153,7 +1153,7 @@ func TestTemporaryProjectCreationCopiesSourceSettingsAndPersist(t *testing.T) {
 		t.Fatalf("expected persist 200, got %d: %s", rrPersist.Code, rrPersist.Body.String())
 	}
 	var persistPayload struct {
-		OK      bool `json:"ok"`
+		OK        bool `json:"ok"`
 		Workspace struct {
 			ID   string `json:"id"`
 			Kind string `json:"kind"`
@@ -1281,7 +1281,7 @@ func TestTemporaryProjectDiscardRemovesProjectDataAndFallsBackToDefaultProject(t
 	var discardPayload struct {
 		OK                bool   `json:"ok"`
 		ActiveWorkspaceID string `json:"active_workspace_id"`
-		ActiveWorkspace struct {
+		ActiveWorkspace   struct {
 			ID   string `json:"id"`
 			Kind string `json:"kind"`
 		} `json:"active_workspace"`

@@ -14,6 +14,7 @@ const (
 	assistantProviderOpenAI = "openai"
 	assistantProviderSpark  = "spark"
 	assistantProviderGPT    = "gpt"
+	assistantProviderMini   = "mini"
 )
 
 type assistantResponseMetadata struct {
@@ -46,6 +47,8 @@ func normalizeAssistantProvider(raw string) string {
 		return assistantProviderSpark
 	case assistantProviderGPT:
 		return assistantProviderGPT
+	case assistantProviderMini:
+		return assistantProviderMini
 	default:
 		return ""
 	}
@@ -61,6 +64,8 @@ func assistantProviderDisplayLabel(provider, model string) string {
 		return "Spark"
 	case assistantProviderGPT:
 		return "GPT"
+	case assistantProviderMini:
+		return "Mini"
 	case assistantProviderOpenAI:
 		return "OpenAI"
 	default:
@@ -71,7 +76,7 @@ func assistantProviderDisplayLabel(provider, model string) string {
 func assistantProviderBadgeKey(provider, model string) string {
 	normalizedProvider := normalizeAssistantProvider(provider)
 	switch normalizedProvider {
-	case assistantProviderSpark, assistantProviderGPT, assistantProviderFast:
+	case assistantProviderSpark, assistantProviderGPT, assistantProviderMini, assistantProviderFast:
 		return normalizedProvider
 	case assistantProviderLocal:
 		if inferred := inferLocalAssistantProvider(model); inferred != "" {
@@ -128,6 +133,8 @@ func (m assistantResponseMetadata) applyToPayload(payload map[string]interface{}
 
 func providerForAppServerProfile(profile appServerModelProfile) string {
 	switch modelprofile.ResolveAlias(profile.Alias, profile.Model) {
+	case modelprofile.AliasMini:
+		return assistantProviderMini
 	case modelprofile.AliasGPT:
 		return assistantProviderGPT
 	case modelprofile.AliasSpark:

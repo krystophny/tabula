@@ -32,11 +32,15 @@ export const ASSISTANT_ACTIVITY_POLL_MS = 1200;
 export const CHAT_WS_STALE_THRESHOLD_MS = 20000;
 export const ACTIVE_TURN_NO_ID_CLEAR_GRACE_MS = 1500;
 export const ACTIVE_TURN_ACTIVITY_CLEAR_GRACE_MS = 450;
-export const PROJECT_CHAT_MODEL_ALIASES = ['spark'];
+export const PROJECT_CHAT_MODEL_ALIASES = ['local', 'spark', 'gpt', 'mini'];
 export const PROJECT_CHAT_MODEL_REASONING_EFFORTS = {
+  local: ['none'],
   spark: ['low', 'medium', 'high', 'xhigh'],
+  gpt: ['low', 'medium', 'high', 'xhigh'],
+  mini: ['low', 'medium', 'high', 'xhigh'],
 };
 export const TTS_SILENT_STORAGE_KEY = 'tabura.ttsSilent';
+export const FAST_MODE_STORAGE_KEY = 'tabura.fastMode';
 export const YOLO_MODE_STORAGE_KEY = 'tabura.yoloMode';
 export const SOMEDAY_REVIEW_NUDGE_ENABLED_STORAGE_KEY = 'tabura.somedayReviewNudgeEnabled';
 export const SOMEDAY_REVIEW_NUDGE_LAST_SHOWN_STORAGE_KEY = 'tabura.somedayReviewNudgeLastShownAt';
@@ -138,6 +142,7 @@ export const state = {
   startupBehavior: 'resume_active',
   ttsEnabled: false,
   ttsSilent: false,
+  fastMode: false,
   yoloMode: false,
   disclaimerAckRequired: false,
   disclaimerVersion: '',
@@ -224,7 +229,10 @@ export const state = {
     undoing: false,
   },
   reasoningEffortsByAlias: {
+    local: ['none'],
     spark: ['low', 'medium', 'high', 'xhigh'],
+    gpt: ['low', 'medium', 'high', 'xhigh'],
+    mini: ['low', 'medium', 'high', 'xhigh'],
   },
   contextUsed: 0,
   contextMax: 0,
