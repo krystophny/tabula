@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestAssistantBackendForTurnRoutesLocalByDefaultAndCodexOnlyForRemoteTurns(t *testing.T) {
@@ -53,8 +54,8 @@ func TestAssistantBackendForTurnRoutesLocalByDefaultAndCodexOnlyForRemoteTurns(t
 
 	app.assistantLLMURL = ""
 	app.intentLLMURL = ""
-	if got := app.assistantBackendForTurn(localReq).mode(); got != assistantModeLocal {
-		t.Fatalf("backend without local assistant config = %q, want %q", got, assistantModeLocal)
+	if got := app.assistantBackendForTurn(localReq).mode(); got != assistantModeCodex {
+		t.Fatalf("backend without local assistant config = %q, want %q", got, assistantModeCodex)
 	}
 }
 
@@ -167,9 +168,194 @@ func TestExecuteLocalAssistantMCPToolUsesConfiguredEndpoint(t *testing.T) {
 	}
 }
 
+func TestAssistantLLMRequestTimeoutUsesEnvOverride(t *testing.T) {
+	t.Setenv("TABURA_ASSISTANT_LLM_TIMEOUT", "")
+	if got := assistantLLMRequestTimeout(); got != defaultAssistantLLMTimeout {
+		t.Fatalf("assistantLLMRequestTimeout() default = %s, want %s", got, defaultAssistantLLMTimeout)
+	}
+
+	t.Setenv("TABURA_ASSISTANT_LLM_TIMEOUT", "45s")
+	if got := assistantLLMRequestTimeout(); got != 45*time.Second {
+		t.Fatalf("assistantLLMRequestTimeout() override = %s, want %s", got, 45*time.Second)
+	}
+
+	t.Setenv("TABURA_ASSISTANT_LLM_TIMEOUT", "nope")
+	if got := assistantLLMRequestTimeout(); got != defaultAssistantLLMTimeout {
+		t.Fatalf("assistantLLMRequestTimeout() invalid = %s, want %s", got, defaultAssistantLLMTimeout)
+	}
+}
+
+func TestRunAssistantTurnFastLocalSkipsIntentEvalAndCapsOutput(t *testing.T) {
+	var intentCalls atomic.Int32
+	var llmCalls atomic.Int32
+
+	intent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		intentCalls.Add(1)
+		t.Fatalf("fast local turn should not call intent llm")
+	}))
+	defer intent.Close()
+
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		llmCalls.Add(1)
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode llm payload: %v", err)
+		}
+		if got := intFromAny(payload["max_tokens"], -1); got != assistantLLMFastMaxTokens {
+			t.Fatalf("fast local max_tokens = %d, want %d", got, assistantLLMFastMaxTokens)
+		}
+		messages, _ := payload["messages"].([]any)
+		if len(messages) != 1 {
+			t.Fatalf("fast local message count = %d, want 1", len(messages))
+		}
+		first, _ := messages[0].(map[string]any)
+		if got := strings.TrimSpace(strFromAny(first["role"])); got != "user" {
+			t.Fatalf("fast local first role = %q, want user", got)
+		}
+		if got := strings.TrimSpace(strFromAny(first["content"])); got != "Explain me who you are" {
+			t.Fatalf("fast local prompt = %q, want direct user prompt", got)
+		}
+		templateKwargs, _ := payload["chat_template_kwargs"].(map[string]any)
+		if got, ok := templateKwargs["enable_thinking"].(bool); !ok || got {
+			t.Fatalf("fast local enable_thinking = %#v, want false", templateKwargs["enable_thinking"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{
+				"message": map[string]any{
+					"content": "Short direct reply.",
+				},
+			}},
+		})
+	}))
+	defer llm.Close()
+
+	app, err := New(t.TempDir(), "", "", "", "", "", "", false)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	app.assistantMode = assistantModeLocal
+	app.assistantLLMURL = llm.URL
+	app.intentLLMURL = intent.URL
+	t.Cleanup(func() {
+		_ = app.Shutdown(context.Background())
+	})
+
+	project, err := app.ensureDefaultWorkspace()
+	if err != nil {
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
+	}
+	session, err := app.chatSessionForWorkspace(project)
+	if err != nil {
+		t.Fatalf("chatSessionForWorkspace: %v", err)
+	}
+	if _, err := app.store.AddChatMessage(session.ID, "user", "Explain me who you are", "Explain me who you are", "text"); err != nil {
+		t.Fatalf("AddChatMessage: %v", err)
+	}
+
+	app.runAssistantTurn(session.ID, dequeuedTurn{outputMode: turnOutputModeSilent, fastMode: true})
+
+	if got := latestAssistantMessage(t, app, session.ID); got != "Short direct reply." {
+		t.Fatalf("assistant message = %q, want direct fast reply", got)
+	}
+	if llmCalls.Load() != 1 {
+		t.Fatalf("llm call count = %d, want 1", llmCalls.Load())
+	}
+	if intentCalls.Load() != 0 {
+		t.Fatalf("intent llm call count = %d, want 0", intentCalls.Load())
+	}
+}
+
+func TestRunAssistantTurnNonFastLocalUsesSingleToolAwarePrompt(t *testing.T) {
+	var intentCalls atomic.Int32
+	var llmCalls atomic.Int32
+
+	intent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		intentCalls.Add(1)
+		t.Fatalf("non-fast local turn should not call intent llm")
+	}))
+	defer intent.Close()
+
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		llmCalls.Add(1)
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode llm payload: %v", err)
+		}
+		if got := intFromAny(payload["max_tokens"], -1); got != assistantLLMDirectMaxTokens {
+			t.Fatalf("non-fast local max_tokens = %d, want %d", got, assistantLLMDirectMaxTokens)
+		}
+		tools, _ := payload["tools"].([]any)
+		if len(tools) == 0 {
+			t.Fatal("non-fast local request missing tool definitions")
+		}
+		messages, _ := payload["messages"].([]any)
+		if len(messages) != 2 {
+			t.Fatalf("non-fast local message count = %d, want 2", len(messages))
+		}
+		first, _ := messages[0].(map[string]any)
+		if got := strings.TrimSpace(strFromAny(first["role"])); got != "system" {
+			t.Fatalf("non-fast local first role = %q, want system", got)
+		}
+		second, _ := messages[1].(map[string]any)
+		if got := strings.TrimSpace(strFromAny(second["role"])); got != "user" {
+			t.Fatalf("non-fast local second role = %q, want user", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{
+				"message": map[string]any{
+					"content": "Direct non-fast reply.",
+				},
+			}},
+		})
+	}))
+	defer llm.Close()
+
+	app, err := New(t.TempDir(), "", "", "", "", "", "", false)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	app.assistantMode = assistantModeLocal
+	app.assistantLLMURL = llm.URL
+	app.intentLLMURL = intent.URL
+	t.Cleanup(func() {
+		_ = app.Shutdown(context.Background())
+	})
+
+	project, err := app.ensureDefaultWorkspace()
+	if err != nil {
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
+	}
+	session, err := app.chatSessionForWorkspace(project)
+	if err != nil {
+		t.Fatalf("chatSessionForWorkspace: %v", err)
+	}
+	if _, err := app.store.AddChatMessage(session.ID, "user", "Explain me who you are", "Explain me who you are", "text"); err != nil {
+		t.Fatalf("AddChatMessage: %v", err)
+	}
+
+	app.runAssistantTurn(session.ID, dequeuedTurn{outputMode: turnOutputModeSilent})
+
+	if got := latestAssistantMessage(t, app, session.ID); got != "Direct non-fast reply." {
+		t.Fatalf("assistant message = %q, want direct non-fast reply", got)
+	}
+	if llmCalls.Load() != 1 {
+		t.Fatalf("llm call count = %d, want 1", llmCalls.Load())
+	}
+	if intentCalls.Load() != 0 {
+		t.Fatalf("intent llm call count = %d, want 0", intentCalls.Load())
+	}
+}
+
 func TestRunAssistantTurnLocalAssistantCompletesMultiToolLoop(t *testing.T) {
+	var intentCalls atomic.Int32
 	var llmCalls atomic.Int32
 	mcpCalls := atomic.Int32{}
+
+	intent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		intentCalls.Add(1)
+		t.Fatalf("non-fast local tool loop should not call intent llm")
+	}))
+	defer intent.Close()
 
 	mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mcpCalls.Add(1)
@@ -201,6 +387,13 @@ func TestRunAssistantTurnLocalAssistantCompletesMultiToolLoop(t *testing.T) {
 		messages, _ := payload["messages"].([]any)
 		switch call {
 		case 1:
+			if got := intFromAny(payload["max_tokens"], -1); got != assistantLLMDirectMaxTokens {
+				t.Fatalf("initial tool-aware max_tokens = %d, want %d", got, assistantLLMDirectMaxTokens)
+			}
+			tools, _ := payload["tools"].([]any)
+			if len(tools) == 0 {
+				t.Fatal("initial tool-aware request missing tools")
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"choices": []map[string]any{{
 					"message": map[string]any{
@@ -216,6 +409,9 @@ func TestRunAssistantTurnLocalAssistantCompletesMultiToolLoop(t *testing.T) {
 				}},
 			})
 		case 2:
+			if got := intFromAny(payload["max_tokens"], -1); got != assistantLLMToolMaxTokens {
+				t.Fatalf("follow-up tool-aware max_tokens = %d, want %d", got, assistantLLMToolMaxTokens)
+			}
 			last, _ := messages[len(messages)-1].(map[string]any)
 			if got := strings.TrimSpace(strFromAny(last["content"])); !strings.Contains(got, "shell-step") {
 				t.Fatalf("second llm call missing shell output: %q", got)
@@ -235,6 +431,9 @@ func TestRunAssistantTurnLocalAssistantCompletesMultiToolLoop(t *testing.T) {
 				}},
 			})
 		default:
+			if got := intFromAny(payload["max_tokens"], -1); got != assistantLLMToolMaxTokens {
+				t.Fatalf("final tool-aware max_tokens = %d, want %d", got, assistantLLMToolMaxTokens)
+			}
 			last, _ := messages[len(messages)-1].(map[string]any)
 			if got := strings.TrimSpace(strFromAny(last["content"])); !strings.Contains(got, `"status":"ready"`) {
 				t.Fatalf("final llm call missing mcp result: %q", got)
@@ -256,7 +455,7 @@ func TestRunAssistantTurnLocalAssistantCompletesMultiToolLoop(t *testing.T) {
 	}
 	app.assistantMode = assistantModeLocal
 	app.assistantLLMURL = llm.URL
-	app.intentLLMURL = ""
+	app.intentLLMURL = intent.URL
 	t.Cleanup(func() {
 		_ = app.Shutdown(context.Background())
 	})
@@ -283,6 +482,9 @@ func TestRunAssistantTurnLocalAssistantCompletesMultiToolLoop(t *testing.T) {
 	}
 	if mcpCalls.Load() != 1 {
 		t.Fatalf("mcp call count = %d, want 1", mcpCalls.Load())
+	}
+	if intentCalls.Load() != 0 {
+		t.Fatalf("intent llm call count = %d, want 0", intentCalls.Load())
 	}
 }
 

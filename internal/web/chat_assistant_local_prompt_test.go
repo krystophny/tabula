@@ -71,11 +71,11 @@ func TestStripLocalAssistantThinkingPreamble(t *testing.T) {
 	}
 }
 
-func TestLocalAssistantNeedsTools(t *testing.T) {
-	if localAssistantNeedsTools(&assistantTurnRequest{userText: "what is a large language model?"}, nil) {
-		t.Fatal("plain knowledge question should not require tools")
+func TestNormalizeTruncatedAssistantText(t *testing.T) {
+	if got := normalizeTruncatedAssistantText("Hello world from Tabura"); got != "Hello world from..." {
+		t.Fatalf("normalizeTruncatedAssistantText() = %q, want %q", got, "Hello world from...")
 	}
-	if !localAssistantNeedsTools(&assistantTurnRequest{userText: "show me the README file"}, nil) {
-		t.Fatal("workspace action should require tools")
+	if got := normalizeTruncatedAssistantText("Done."); got != "Done." {
+		t.Fatalf("normalizeTruncatedAssistantText() punctuation = %q, want %q", got, "Done.")
 	}
 }

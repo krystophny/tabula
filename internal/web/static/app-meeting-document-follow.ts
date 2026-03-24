@@ -64,6 +64,12 @@ function scheduleViewportPositionBroadcast(gesture = 'viewport_change') {
   }, 120);
 }
 
+export function cancelPendingMeetingDocumentPositionBroadcast() {
+  if (!viewportTimer) return;
+  window.clearTimeout(viewportTimer);
+  viewportTimer = 0;
+}
+
 async function decideMeetingDocumentFollow(text) {
   const transcript = String(text || '').trim();
   if (!transcript) return null;

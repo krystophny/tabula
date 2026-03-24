@@ -14,14 +14,19 @@ const (
 	assistantModeLocal           = "local"
 	assistantModeCodex           = "codex"
 	DefaultAssistantMode         = assistantModeAuto
-	assistantLLMRequestTimeout   = 20 * time.Second
+	defaultAssistantLLMTimeout   = 2 * time.Minute
+	assistantLLMFastMaxTokens    = 96
+	assistantLLMDirectMaxTokens  = 192
+	assistantLLMToolMaxTokens    = 256
 	assistantLLMResponseLimit    = 256 * 1024
-	assistantLLMMaxTokens        = 4096
 	assistantLLMMaxToolRounds    = 6
 	assistantLLMMalformedRetries = 2
-	localAssistantDialoguePrompt = "You are Tabura's local assistant. Use shell or mcp tools only when needed. Otherwise answer directly. If native tool calls are unavailable, return JSON only: {\"tool_calls\":[...]} or {\"final\":\"...\"}. No markdown fences around JSON."
-	localAssistantDirectPrompt   = "You are Tabura's local assistant. Answer directly and briefly. No tools. No markdown fences. No <think> tags."
+	localAssistantDialoguePrompt = "You are Tabura's local assistant. Available tools are declared in the request. Use native tool calls only when needed; otherwise answer directly. Keep replies brief. No markdown fences. No <think> tags."
 )
+
+func assistantLLMRequestTimeout() time.Duration {
+	return parseEnvDurationDefault("TABURA_ASSISTANT_LLM_TIMEOUT", defaultAssistantLLMTimeout)
+}
 
 func normalizeAssistantMode(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
@@ -103,59 +108,21 @@ func (a *App) buildLocalAssistantPrompt(sessionID string, session store.ChatSess
 	return prompt, nil
 }
 
-func (a *App) runLocalAssistantTurn(req *assistantTurnRequest, evaluation *localTurnEvaluation) {
+func (a *App) runLocalAssistantTurn(req *assistantTurnRequest) {
 	if a == nil || req == nil {
 		return
 	}
-	turnStartedAt := time.Now()
-	eval := evaluation
-	if eval == nil {
-		computed := a.evaluateLocalTurn(
-			context.Background(),
-			req.sessionID,
-			req.session,
-			req.userText,
-			req.cursorCtx,
-			req.captureMode,
-		)
-		eval = &computed
-	}
-	if !req.fastMode && eval != nil && eval.handled {
-		if suppressLocalAssistantResponse(eval.payloads) {
-			a.finishCompanionPendingTurn(req.sessionID, "assistant_turn_suppressed")
+	if strings.TrimSpace(a.assistantLLMBaseURL()) == "" {
+		if a.tryRunLocalSystemActionTurn(req.sessionID, req.session, req.userText, req.cursorCtx, req.captureMode, req.outputMode, req.localOnly) {
 			return
 		}
-		runID := randomToken()
-		a.broadcastChatEvent(req.sessionID, map[string]interface{}{
-			"type":    "turn_started",
-			"turn_id": runID,
-		})
-		assistantText := strings.TrimSpace(eval.text)
-		if assistantText == "" {
-			assistantText = "Done."
-		}
-		for _, actionPayload := range eval.payloads {
-			if actionPayload == nil {
-				continue
-			}
-			a.broadcastSystemActionEvent(req.sessionID, actionPayload)
-		}
-		persistedAssistantID := int64(0)
-		persistedAssistantText := ""
-		a.finalizeAssistantResponseWithMetadata(
-			req.sessionID,
-			req.session.WorkspacePath,
-			assistantText,
-			&persistedAssistantID,
-			&persistedAssistantText,
-			"",
-			runID,
-			"",
-			req.outputMode,
-			newAssistantResponseMetadata(a.localAssistantProvider(), a.localAssistantModelLabel(), time.Since(turnStartedAt)),
-		)
+		errText := errLocalAssistantNotConfigured.Error()
+		_, _ = a.store.AddChatMessage(req.sessionID, "system", errText, errText, "text")
+		a.finishCompanionPendingTurn(req.sessionID, "assistant_turn_failed")
+		a.broadcastChatEvent(req.sessionID, map[string]interface{}{"type": "error", "error": errText})
 		return
 	}
+	turnStartedAt := time.Now()
 
 	prompt := strings.TrimSpace(req.promptText)
 	if !req.fastMode {

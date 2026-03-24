@@ -260,7 +260,7 @@ func (a *App) requestSilentLiveEdit(ctx context.Context, prompt string, visual *
 	requestBody, _ := json.Marshal(map[string]any{
 		"model":       a.localAssistantLLMModel(),
 		"temperature": 0,
-		"max_tokens":  assistantLLMMaxTokens,
+		"max_tokens":  assistantLLMToolMaxTokens,
 		"response_format": map[string]any{
 			"type": "json_object",
 		},
@@ -272,7 +272,7 @@ func (a *App) requestSilentLiveEdit(ctx context.Context, prompt string, visual *
 			{"role": "user", "content": buildLocalAssistantUserContent(prompt, visual)},
 		},
 	})
-	requestCtx, cancel := context.WithTimeout(ctx, assistantLLMRequestTimeout)
+	requestCtx, cancel := context.WithTimeout(ctx, assistantLLMRequestTimeout())
 	defer cancel()
 	req, err := http.NewRequestWithContext(
 		requestCtx,

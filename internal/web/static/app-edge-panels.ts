@@ -177,29 +177,6 @@ export function initEdgePanels() {
   });
   bindEdgeTap(edgeTopTap, () => toggleTopEdgeDrawer(edgeTop));
 
-  if (edgeTop instanceof HTMLElement && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
-    const syncTopEdgeHover = (clientX, clientY) => {
-      if (edgeTop.classList.contains('edge-pinned')) return;
-      const rect = edgeTop.getBoundingClientRect();
-      const hoveringPanel = rect.width > 0
-        && rect.height > 0
-        && clientX >= rect.left
-        && clientX <= rect.right
-        && clientY >= rect.top
-        && clientY <= rect.bottom;
-      const hoveringTapStrip = clientY <= getTopEdgeTapSizePx();
-      edgeTop.classList.toggle('edge-active', hoveringPanel || hoveringTapStrip);
-    };
-
-    document.addEventListener('mousemove', (ev) => {
-      syncTopEdgeHover(ev.clientX, ev.clientY);
-    }, { passive: true });
-    document.addEventListener('mouseleave', () => {
-      if (edgeTop.classList.contains('edge-pinned')) return;
-      edgeTop.classList.remove('edge-active');
-    });
-  }
-
   // Blur chat input when app goes to background
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {

@@ -22,7 +22,6 @@ const state = {
   indicatorOverride: '',
   corner: 'bottom_right',
 };
-let ignoreOutsideCollapseUntil = 0;
 let lastTouchActivationAt = 0;
 
 const body = document.body;
@@ -230,7 +229,6 @@ menu.addEventListener('touchend', (event) => {
 
 function handleDotActivation(event) {
   event.stopPropagation();
-  ignoreOutsideCollapseUntil = performance.now() + 220;
   toggleCircle();
 }
 
@@ -308,12 +306,20 @@ bindTouchAwareButton('indicator-override-clear', () => {
 
 document.addEventListener('click', (event) => {
   if (!state.circleExpanded) return;
-  if (performance.now() < ignoreOutsideCollapseUntil) return;
+  if (ignoreSyntheticClick()) return;
   const target = event.target;
   if (!(target instanceof Node)) return;
   if (circle.contains(target)) return;
   collapseCircle();
 });
+
+document.addEventListener('touchend', (event) => {
+  if (!state.circleExpanded) return;
+  const touchTarget = event.target;
+  if (!(touchTarget instanceof Node)) return;
+  if (circle.contains(touchTarget)) return;
+  collapseCircle();
+}, { passive: true });
 
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape' || !state.circleExpanded) return;
@@ -324,39 +330,46 @@ window.__flowHarness = {
   activateTarget(target) {
     switch (String(target || '')) {
       case 'tabura_circle_dot':
-        ignoreOutsideCollapseUntil = performance.now() + 220;
         toggleCircle();
         return true;
       case 'tabura_circle_segment_pointer':
         setTool('pointer');
+        state.circleExpanded = true;
         sync();
         return true;
       case 'tabura_circle_segment_highlight':
         setTool('highlight');
+        state.circleExpanded = true;
         sync();
         return true;
       case 'tabura_circle_segment_ink':
         setTool('ink');
+        state.circleExpanded = true;
         sync();
         return true;
       case 'tabura_circle_segment_text_note':
         setTool('text_note');
+        state.circleExpanded = true;
         sync();
         return true;
       case 'tabura_circle_segment_prompt':
         setTool('prompt');
+        state.circleExpanded = true;
         sync();
         return true;
       case 'tabura_circle_segment_dialogue':
         setSession('dialogue');
+        state.circleExpanded = true;
         sync();
         return true;
       case 'tabura_circle_segment_meeting':
         setSession('meeting');
+        state.circleExpanded = true;
         sync();
         return true;
       case 'tabura_circle_segment_silent':
         setSilent(!state.silent);
+        state.circleExpanded = true;
         sync();
         return true;
       case 'indicator_border':

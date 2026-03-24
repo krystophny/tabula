@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/krystophny/tabura/internal/stt"
 )
@@ -115,6 +116,18 @@ func parseEnvIntDefault(key string, fallback int) int {
 	}
 	value, err := strconv.Atoi(raw)
 	if err != nil {
+		return fallback
+	}
+	return value
+}
+
+func parseEnvDurationDefault(key string, fallback time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	value, err := time.ParseDuration(raw)
+	if err != nil || value <= 0 {
 		return fallback
 	}
 	return value

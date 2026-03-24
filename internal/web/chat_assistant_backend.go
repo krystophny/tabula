@@ -35,8 +35,7 @@ type assistantTurnBackend interface {
 }
 
 type localAssistantBackend struct {
-	app        *App
-	evaluation *localTurnEvaluation
+	app *App
 }
 
 func (b *localAssistantBackend) mode() string {
@@ -47,7 +46,7 @@ func (b *localAssistantBackend) run(req *assistantTurnRequest) {
 	if b == nil || b.app == nil || req == nil {
 		return
 	}
-	b.app.runLocalAssistantTurn(req, b.evaluation)
+	b.app.runLocalAssistantTurn(req)
 }
 
 type codexAssistantBackend struct {
@@ -78,7 +77,8 @@ func (a *App) assistantBackendForTurn(req *assistantTurnRequest) assistantTurnBa
 	if req.searchTurn || (req.turnModel != "" && req.turnModel != modelprofile.AliasLocal) {
 		return &codexAssistantBackend{app: a}
 	}
-	if modelprofile.ResolveAlias(req.baseProfile.Alias, modelprofile.AliasLocal) == modelprofile.AliasLocal {
+	localConfigured := strings.TrimSpace(a.assistantLLMURL) != "" || a.appServerClient == nil || a.assistantRoutingMode() == assistantModeLocal
+	if modelprofile.ResolveAlias(req.baseProfile.Alias, modelprofile.AliasLocal) == modelprofile.AliasLocal && localConfigured {
 		return &localAssistantBackend{app: a}
 	}
 	switch a.assistantRoutingMode() {
@@ -92,56 +92,4 @@ func (a *App) assistantBackendForTurn(req *assistantTurnRequest) assistantTurnBa
 		}
 		return &localAssistantBackend{app: a}
 	}
-}
-
-func localAssistantAutoRouteCandidate(text string) bool {
-	lower := strings.ToLower(strings.TrimSpace(text))
-	if lower == "" {
-		return false
-	}
-	if requestRequiresOpenCanvasAction(lower) {
-		return true
-	}
-	indicators := []string{
-		"tool",
-		"tools",
-		"shell",
-		"command",
-		"terminal",
-		"repo",
-		"repository",
-		"workspace",
-		"file",
-		"folder",
-		"directory",
-		"canvas",
-		"mcp",
-		"calendar",
-		"mail",
-		"email",
-		"todoist",
-		"evernote",
-		"zotero",
-		"github",
-		"issue",
-		"pull request",
-		"pr ",
-		"rg ",
-		"grep ",
-		"find ",
-		"ls ",
-		"pwd",
-		"cat ",
-		"open ",
-		"show ",
-		"display ",
-		"list ",
-		"inspect ",
-	}
-	for _, indicator := range indicators {
-		if strings.Contains(lower, indicator) {
-			return true
-		}
-	}
-	return false
 }

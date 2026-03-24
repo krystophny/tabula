@@ -20,7 +20,8 @@ type localIntentLLMChatCompletionResponse struct {
 }
 
 type localIntentLLMChoice struct {
-	Message localIntentLLMMessage `json:"message"`
+	Message      localIntentLLMMessage `json:"message"`
+	FinishReason string                `json:"finish_reason,omitempty"`
 }
 
 type localIntentLLMMessage struct {

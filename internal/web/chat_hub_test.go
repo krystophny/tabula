@@ -48,6 +48,58 @@ func setupMockIntentLLMServer(t *testing.T, status int, content string) *httptes
 	}))
 }
 
+func setupMockLocalAssistantServer(t *testing.T, responder func(call int, payload map[string]any) map[string]any) *httptest.Server {
+	t.Helper()
+	call := 0
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if strings.TrimSpace(r.URL.Path) != "/v1/chat/completions" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		call++
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{
+				"message": responder(call, payload),
+			}},
+		})
+	}))
+}
+
+func localAssistantContentText(raw any) string {
+	switch typed := raw.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case []any:
+		parts := make([]string, 0, len(typed))
+		for _, item := range typed {
+			obj, _ := item.(map[string]any)
+			if obj == nil {
+				continue
+			}
+			if strings.TrimSpace(strFromAny(obj["type"])) != "text" {
+				continue
+			}
+			text := strings.TrimSpace(strFromAny(obj["text"]))
+			if text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	default:
+		return strings.TrimSpace(strFromAny(raw))
+	}
+}
+
 func setupMockCanvasShowServer(t *testing.T, seen *int, observed *map[string]interface{}) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -650,14 +702,30 @@ func TestRunAssistantTurnUsesAssistantLLMFallbackInAutoModeWithoutAppServer(t *t
 }
 
 func TestRunAssistantTurnExecutesHighConfidenceLocalIntent(t *testing.T) {
-	llm := setupMockIntentLLMServer(t, http.StatusOK, `{"action":"toggle_silent"}`)
+	llm := setupMockLocalAssistantServer(t, func(call int, payload map[string]any) map[string]any {
+		if call == 1 {
+			return map[string]any{
+				"tool_calls": []map[string]any{{
+					"id":   "call-toggle",
+					"type": "function",
+					"function": map[string]any{
+						"name":      "system_action",
+						"arguments": `{"action":"toggle_silent"}`,
+					},
+				}},
+			}
+		}
+		return map[string]any{"content": "Toggled silent mode."}
+	})
 	defer llm.Close()
 
 	app, err := New(t.TempDir(), "", "", "", "", "", "", false)
 	if err != nil {
 		t.Fatalf("new app: %v", err)
 	}
-	app.intentLLMURL = llm.URL
+	app.assistantMode = assistantModeLocal
+	app.assistantLLMURL = llm.URL
+	app.intentLLMURL = ""
 	t.Cleanup(func() {
 		_ = app.Shutdown(context.Background())
 	})
@@ -682,14 +750,30 @@ func TestRunAssistantTurnExecutesHighConfidenceLocalIntent(t *testing.T) {
 }
 
 func TestRunAssistantTurnExecutesHighConfidenceLocalIntentInProjectSession(t *testing.T) {
-	llm := setupMockIntentLLMServer(t, http.StatusOK, `{"action":"toggle_silent"}`)
+	llm := setupMockLocalAssistantServer(t, func(call int, payload map[string]any) map[string]any {
+		if call == 1 {
+			return map[string]any{
+				"tool_calls": []map[string]any{{
+					"id":   "call-toggle",
+					"type": "function",
+					"function": map[string]any{
+						"name":      "system_action",
+						"arguments": `{"action":"toggle_silent"}`,
+					},
+				}},
+			}
+		}
+		return map[string]any{"content": "Toggled silent mode."}
+	})
 	defer llm.Close()
 
 	app, err := New(t.TempDir(), "", "", "", "", "", "", false)
 	if err != nil {
 		t.Fatalf("new app: %v", err)
 	}
-	app.intentLLMURL = llm.URL
+	app.assistantMode = assistantModeLocal
+	app.assistantLLMURL = llm.URL
+	app.intentLLMURL = ""
 	t.Cleanup(func() {
 		_ = app.Shutdown(context.Background())
 	})
@@ -748,34 +832,31 @@ func TestRunAssistantTurnPersistsLocalAnswer(t *testing.T) {
 
 func TestRunAssistantTurnOpenReadmeUsesMultiActionPlanAndOpensCanvas(t *testing.T) {
 	llmCalls := 0
-	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if strings.TrimSpace(r.URL.Path) != "/v1/chat/completions" {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
+	llm := setupMockLocalAssistantServer(t, func(call int, payload map[string]any) map[string]any {
 		llmCalls++
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"choices": []map[string]interface{}{
-				{
-					"message": map[string]interface{}{
-						"content": `{"actions":[{"action":"shell","command":"ls -1"},{"action":"shell","command":"find . -maxdepth 2 -type f -iname 'README*' | head -n 1"},{"action":"open_file_canvas","path":"$last_shell_path"}]}`,
+		if call == 1 {
+			return map[string]any{
+				"tool_calls": []map[string]any{{
+					"id":   "call-open-readme",
+					"type": "function",
+					"function": map[string]any{
+						"name":      "system_action",
+						"arguments": `{"actions":[{"action":"shell","command":"ls -1"},{"action":"shell","command":"find . -maxdepth 2 -type f -iname 'README*' | head -n 1"},{"action":"open_file_canvas","path":"$last_shell_path"}]}`,
 					},
-				},
-			},
-		})
-	}))
+				}},
+			}
+		}
+		return map[string]any{"content": "Opened README.md on canvas."}
+	})
 	defer llm.Close()
 
 	app, err := New(t.TempDir(), "", "", "", "", "", "", false)
 	if err != nil {
 		t.Fatalf("new app: %v", err)
 	}
-	app.intentLLMURL = llm.URL
+	app.assistantMode = assistantModeLocal
+	app.assistantLLMURL = llm.URL
+	app.intentLLMURL = ""
 	t.Cleanup(func() {
 		_ = app.Shutdown(context.Background())
 	})
@@ -809,7 +890,7 @@ func TestRunAssistantTurnOpenReadmeUsesMultiActionPlanAndOpensCanvas(t *testing.
 	app.runAssistantTurn(session.ID, dequeuedTurn{outputMode: turnOutputModeVoice})
 
 	if llmCalls == 0 {
-		t.Fatalf("expected intent LLM to be called")
+		t.Fatalf("expected local assistant to be called")
 	}
 	if showCalls < 1 {
 		t.Fatalf("canvas_artifact_show calls = %d, want >= 1", showCalls)
@@ -858,15 +939,31 @@ func TestRunAssistantTurnReportsErrorWhenLocalAssistantUnavailable(t *testing.T)
 	}
 }
 
-func TestRunAssistantTurnUsesIntentLLMPlanForSystemAction(t *testing.T) {
-	llm := setupMockIntentLLMServer(t, http.StatusOK, "```json\n{\"action\":\"toggle_silent\"}\n```")
+func TestRunAssistantTurnUsesLocalAssistantSystemActionTool(t *testing.T) {
+	llm := setupMockLocalAssistantServer(t, func(call int, payload map[string]any) map[string]any {
+		if call == 1 {
+			return map[string]any{
+				"tool_calls": []map[string]any{{
+					"id":   "call-toggle",
+					"type": "function",
+					"function": map[string]any{
+						"name":      "system_action",
+						"arguments": `{"action":"toggle_silent"}`,
+					},
+				}},
+			}
+		}
+		return map[string]any{"content": "Toggled silent mode."}
+	})
 	defer llm.Close()
 
 	app, err := New(t.TempDir(), "", "", "", "", "", "", false)
 	if err != nil {
 		t.Fatalf("new app: %v", err)
 	}
-	app.intentLLMURL = llm.URL
+	app.assistantMode = assistantModeLocal
+	app.assistantLLMURL = llm.URL
+	app.intentLLMURL = ""
 	t.Cleanup(func() {
 		_ = app.Shutdown(context.Background())
 	})
@@ -891,49 +988,41 @@ func TestRunAssistantTurnUsesIntentLLMPlanForSystemAction(t *testing.T) {
 }
 
 func TestRunAssistantTurnPreservesClarificationContextForLocalLLM(t *testing.T) {
-	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if strings.TrimSpace(r.URL.Path) != "/v1/chat/completions" {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		var payload map[string]interface{}
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			http.Error(w, "invalid json", http.StatusBadRequest)
-			return
-		}
-		messages, _ := payload["messages"].([]interface{})
-		if len(messages) == 0 {
-			http.Error(w, "missing messages", http.StatusBadRequest)
-			return
-		}
-		last, _ := messages[len(messages)-1].(map[string]interface{})
-		content := strings.TrimSpace(strFromAny(last["content"]))
-		reply := `{}`
-		if strings.Contains(content, "Show me my contacts") && strings.Contains(content, "On the canvas") {
-			reply = `{"action":"toggle_silent"}`
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"choices": []map[string]interface{}{
-				{
-					"message": map[string]interface{}{
-						"content": reply,
+	llm := setupMockLocalAssistantServer(t, func(call int, payload map[string]any) map[string]any {
+		if call == 1 {
+			messages, _ := payload["messages"].([]any)
+			if len(messages) < 2 {
+				t.Fatalf("message count = %d, want at least 2", len(messages))
+			}
+			last, _ := messages[len(messages)-1].(map[string]any)
+			content := localAssistantContentText(last["content"])
+			for _, snippet := range []string{"Show me my contacts", "Where should I show them?", "On the canvas"} {
+				if !strings.Contains(content, snippet) {
+					t.Fatalf("clarification prompt missing %q:\n%s", snippet, content)
+				}
+			}
+			return map[string]any{
+				"tool_calls": []map[string]any{{
+					"id":   "call-toggle",
+					"type": "function",
+					"function": map[string]any{
+						"name":      "system_action",
+						"arguments": `{"action":"toggle_silent"}`,
 					},
-				},
-			},
-		})
-	}))
+				}},
+			}
+		}
+		return map[string]any{"content": "Toggled silent mode."}
+	})
 	defer llm.Close()
 
 	app, err := New(t.TempDir(), "", "", "", "", "", "", false)
 	if err != nil {
 		t.Fatalf("new app: %v", err)
 	}
-	app.intentLLMURL = llm.URL
+	app.assistantMode = assistantModeLocal
+	app.assistantLLMURL = llm.URL
+	app.intentLLMURL = ""
 	t.Cleanup(func() {
 		_ = app.Shutdown(context.Background())
 	})
@@ -963,14 +1052,18 @@ func TestRunAssistantTurnPreservesClarificationContextForLocalLLM(t *testing.T) 
 }
 
 func TestRunAssistantTurnReportsErrorWhenLocalAssistantReturnsControlEnvelope(t *testing.T) {
-	llm := setupMockIntentLLMServer(t, http.StatusOK, `{"action":"switch_workspace"}`)
+	llm := setupMockLocalAssistantServer(t, func(call int, payload map[string]any) map[string]any {
+		return map[string]any{"content": `{"action":"switch_workspace"}`}
+	})
 	defer llm.Close()
 
 	app, err := New(t.TempDir(), "", "", "", "", "", "", false)
 	if err != nil {
 		t.Fatalf("new app: %v", err)
 	}
-	app.intentLLMURL = llm.URL
+	app.assistantMode = assistantModeLocal
+	app.assistantLLMURL = llm.URL
+	app.intentLLMURL = ""
 	t.Cleanup(func() {
 		_ = app.Shutdown(context.Background())
 	})

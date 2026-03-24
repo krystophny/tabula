@@ -1,5 +1,6 @@
 import * as env from './app-env.js';
 import * as context from './app-context.js';
+import { cancelPendingMeetingDocumentPositionBroadcast } from './app-meeting-document-follow.js';
 import {
   beginHorizontalSwipe,
   horizontalSwipeDelta,
@@ -399,6 +400,7 @@ export function bindUi() {
         rememberMousePosition(x, y);
         tapAnchor = tapAnchor || captureAnchorAtPoint(x, y);
         pinCursorAnchor(x, y, tapAnchor);
+        cancelPendingMeetingDocumentPositionBroadcast();
         sendCanvasPositionEvent(tapAnchor, { gesture: 'tap', clientX: x, clientY: y });
         updateAssistantActivityIndicator();
         void beginVoiceCaptureFromPoint(x, y, tapAnchor);
