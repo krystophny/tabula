@@ -138,99 +138,31 @@ func TestExecuteLocalAssistantShellToolTracksWorkingDirectory(t *testing.T) {
 	}
 }
 
-func TestBuildLocalAssistantToolCatalogUsesExplicitMCPToolNamesAndBoundDefaults(t *testing.T) {
-	var calls atomic.Int32
-	mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var payload map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode mcp payload: %v", err)
-		}
-		switch strings.TrimSpace(strFromAny(payload["method"])) {
-		case "tools/list":
-			calls.Add(1)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"result": map[string]any{
-					"tools": []map[string]any{{
-						"name":        "echo_status",
-						"description": "Echo a ready status.",
-						"inputSchema": map[string]any{
-							"type": "object",
-							"properties": map[string]any{
-								"status": map[string]any{"type": "string"},
-							},
-							"required": []string{"status"},
-						},
-					}, {
-						"name":        "canvas_artifact_show",
-						"description": "Show one artifact kind in canvas.",
-						"inputSchema": map[string]any{
-							"type": "object",
-							"properties": map[string]any{
-								"session_id": map[string]any{"type": "string"},
-								"kind":       map[string]any{"type": "string"},
-							},
-							"required": []string{"session_id", "kind"},
-						},
-					}, {
-						"name":        "temp_file_create",
-						"description": "Create a temp file.",
-						"inputSchema": map[string]any{
-							"type": "object",
-							"properties": map[string]any{
-								"cwd":    map[string]any{"type": "string"},
-								"prefix": map[string]any{"type": "string"},
-							},
-						},
-					}},
-				},
-			})
-		default:
-			t.Fatalf("unexpected MCP method %q", payload["method"])
-		}
-	}))
-	defer mcp.Close()
-
+func TestBuildLocalAssistantToolCatalogUsesSmallCanvasFamily(t *testing.T) {
 	app := newAuthedTestApp(t)
 	state := localAssistantTurnState{
 		sessionID:    "local-session",
 		canvasID:     "canvas-session",
 		workspaceDir: t.TempDir(),
-		mcpURL:       mcp.URL,
 	}
-	catalog, err := app.buildLocalAssistantToolCatalog(state)
+	catalog, err := app.buildLocalAssistantToolCatalog(state, localAssistantToolFamilyCanvas)
 	if err != nil {
 		t.Fatalf("buildLocalAssistantToolCatalog() error: %v", err)
 	}
-	echoTool, ok := catalog.ToolsByName["mcp__echo_status"]
+	canvasTextTool, ok := catalog.ToolsByName["canvas_write_text"]
 	if !ok {
-		t.Fatalf("missing explicit mcp__echo_status tool: %#v", catalog.ToolsByName)
-	}
-	if echoTool.InternalName != "echo_status" {
-		t.Fatalf("echo tool internal name = %q, want echo_status", echoTool.InternalName)
-	}
-	canvasTool, ok := catalog.ToolsByName["mcp__canvas_artifact_show"]
-	if !ok {
-		t.Fatalf("missing explicit mcp__canvas_artifact_show tool")
-	}
-	if got := strings.TrimSpace(strFromAny(canvasTool.DefaultArgs["session_id"])); got != "canvas-session" {
-		t.Fatalf("canvas session default = %q, want canvas-session", got)
-	}
-	tempTool, ok := catalog.ToolsByName["mcp__temp_file_create"]
-	if !ok {
-		t.Fatalf("missing explicit mcp__temp_file_create tool")
-	}
-	if got := strings.TrimSpace(strFromAny(tempTool.DefaultArgs["cwd"])); got != state.workspaceDir {
-		t.Fatalf("temp file cwd default = %q, want %q", got, state.workspaceDir)
-	}
-	canvasTextTool, ok := catalog.ToolsByName["canvas_show_text"]
-	if !ok {
-		t.Fatalf("missing explicit canvas_show_text tool")
+		t.Fatalf("missing explicit canvas_write_text tool")
 	}
 	if got := strings.TrimSpace(strFromAny(canvasTextTool.DefaultArgs["session_id"])); got != "canvas-session" {
-		t.Fatalf("canvas_show_text session default = %q, want canvas-session", got)
+		t.Fatalf("canvas_write_text session default = %q, want canvas-session", got)
 	}
-	if calls.Load() != 1 {
-		t.Fatalf("mcp list count = %d, want 1", calls.Load())
+	for _, name := range []string{"workspace_read", "action__open_file_canvas", "action__navigate_canvas"} {
+		if _, ok := catalog.ToolsByName[name]; !ok {
+			t.Fatalf("missing canvas family tool %q: %#v", name, catalog.ToolsByName)
+		}
+	}
+	if len(catalog.ToolsByName) != 4 {
+		t.Fatalf("canvas family tool count = %d, want 4", len(catalog.ToolsByName))
 	}
 }
 
@@ -309,17 +241,16 @@ func TestExecuteLocalAssistantBoundMCPToolUsesCanvasTunnelForCanvasTools(t *test
 		workspaceDir: t.TempDir(),
 		mcpURL:       generalMCP.URL,
 	}
-	catalog, err := app.buildLocalAssistantToolCatalog(state)
+	catalog, err := app.buildLocalAssistantToolCatalog(state, localAssistantToolFamilyCanvas)
 	if err != nil {
 		t.Fatalf("buildLocalAssistantToolCatalog() error: %v", err)
 	}
 	result, err := app.executeLocalAssistantToolCall(context.Background(), &state, catalog, localAssistantToolCall{
 		ID:   "call-canvas",
-		Name: "mcp__canvas_artifact_show",
+		Name: "canvas_write_text",
 		Arguments: map[string]any{
-			"kind":             "text",
-			"title":            "Tool Test",
-			"markdown_or_text": "Orbit Canvas",
+			"title":   "Tool Test",
+			"content": "Orbit Canvas",
 		},
 	})
 	if err != nil {
@@ -328,8 +259,8 @@ func TestExecuteLocalAssistantBoundMCPToolUsesCanvasTunnelForCanvasTools(t *test
 	if result.IsError {
 		t.Fatalf("canvas tool returned error: %+v", result)
 	}
-	if listCalls.Load() != 1 {
-		t.Fatalf("general MCP list count = %d, want 1", listCalls.Load())
+	if listCalls.Load() != 0 {
+		t.Fatalf("general MCP list count = %d, want 0", listCalls.Load())
 	}
 	if canvasCalls.Load() != 1 {
 		t.Fatalf("canvas MCP call count = %d, want 1", canvasCalls.Load())
@@ -475,7 +406,7 @@ func TestRunAssistantTurnNonFastLocalUsesSinglePromptWithoutToolsForDirectReply(
 		if got := strings.TrimSpace(strFromAny(first["role"])); got != "system" {
 			t.Fatalf("non-fast local first role = %q, want system", got)
 		}
-		if got := strings.TrimSpace(strFromAny(first["content"])); !strings.Contains(got, "No tools are needed for this request. Answer directly.") {
+		if got := strings.TrimSpace(strFromAny(first["content"])); !strings.Contains(got, "No tools are available in this turn. Answer directly.") {
 			t.Fatalf("non-fast local system prompt = %q, want no-tools instruction", got)
 		}
 		second, _ := messages[1].(map[string]any)
@@ -602,16 +533,15 @@ func TestRunAssistantTurnNonFastLocalUsesPrunedExplicitToolPromptForCanvasReques
 		messages, _ := payload["messages"].([]any)
 		system, _ := messages[0].(map[string]any)
 		systemPrompt := strings.TrimSpace(strFromAny(system["content"]))
-		for _, want := range []string{"Available tools in this turn:", "canvas_show_text", "mcp__canvas_artifact_show", "mcp__temp_file_create"} {
+		for _, want := range []string{"Available tools in this turn:", "canvas_write_text", "workspace_read", "action__open_file_canvas"} {
 			if !strings.Contains(systemPrompt, want) {
 				t.Fatalf("system prompt missing %q: %q", want, systemPrompt)
 			}
 		}
-		if strings.Contains(systemPrompt, "mcp__mail_message_list") {
-			t.Fatalf("system prompt should not include pruned mail tool: %q", systemPrompt)
-		}
-		if strings.Contains(systemPrompt, "action__toggle_silent") {
-			t.Fatalf("system prompt should not include unrelated status tool: %q", systemPrompt)
+		for _, blocked := range []string{"mcp__mail_message_list", "mcp__canvas_artifact_show", "mcp__temp_file_create", "action__toggle_silent"} {
+			if strings.Contains(systemPrompt, blocked) {
+				t.Fatalf("system prompt should not include %q: %q", blocked, systemPrompt)
+			}
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{{
@@ -655,8 +585,8 @@ func TestRunAssistantTurnNonFastLocalUsesPrunedExplicitToolPromptForCanvasReques
 	if llmCalls.Load() != 1 {
 		t.Fatalf("llm call count = %d, want 1", llmCalls.Load())
 	}
-	if mcpListCalls.Load() != 1 {
-		t.Fatalf("mcp list call count = %d, want 1", mcpListCalls.Load())
+	if mcpListCalls.Load() != 0 {
+		t.Fatalf("mcp list call count = %d, want 0", mcpListCalls.Load())
 	}
 	if intentCalls.Load() != 0 {
 		t.Fatalf("intent llm call count = %d, want 0", intentCalls.Load())
@@ -673,24 +603,6 @@ func TestRunAssistantTurnNonFastLocalRepairsPlanningTextIntoCanvasToolCall(t *te
 			t.Fatalf("decode mcp payload: %v", err)
 		}
 		switch strings.TrimSpace(strFromAny(payload["method"])) {
-		case "tools/list":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"result": map[string]any{
-					"tools": []map[string]any{{
-						"name":        "canvas_artifact_show",
-						"description": "Show one artifact on canvas.",
-						"inputSchema": map[string]any{
-							"type": "object",
-							"properties": map[string]any{
-								"session_id":       map[string]any{"type": "string"},
-								"kind":             map[string]any{"type": "string"},
-								"title":            map[string]any{"type": "string"},
-								"markdown_or_text": map[string]any{"type": "string"},
-							},
-						},
-					}},
-				},
-			})
 		case "tools/call":
 			mcpCalls.Add(1)
 			params, _ := payload["params"].(map[string]any)
@@ -743,8 +655,8 @@ func TestRunAssistantTurnNonFastLocalRepairsPlanningTextIntoCanvasToolCall(t *te
 							"id":   "call-canvas",
 							"type": "function",
 							"function": map[string]any{
-								"name":      "canvas_show_text",
-								"arguments": `{"title":"Tool Test","text":"Orbit Canvas"}`,
+								"name":      "canvas_write_text",
+								"arguments": `{"title":"Tool Test","content":"Orbit Canvas"}`,
 							},
 						}},
 					},
@@ -819,14 +731,13 @@ func TestRunAssistantTurnLocalAssistantCompletesMultiToolLoop(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"result": map[string]any{
 					"tools": []map[string]any{{
-						"name":        "echo_status",
-						"description": "Echo a ready status.",
+						"name":        "item_list",
+						"description": "List items.",
 						"inputSchema": map[string]any{
 							"type": "object",
 							"properties": map[string]any{
-								"status": map[string]any{"type": "string"},
+								"limit": map[string]any{"type": "integer"},
 							},
-							"required": []string{"status"},
 						},
 					}},
 				},
@@ -834,14 +745,14 @@ func TestRunAssistantTurnLocalAssistantCompletesMultiToolLoop(t *testing.T) {
 		case "tools/call":
 			mcpCalls.Add(1)
 			params, _ := payload["params"].(map[string]any)
-			if got := strings.TrimSpace(strFromAny(params["name"])); got != "echo_status" {
-				t.Fatalf("tool name = %q, want echo_status", got)
+			if got := strings.TrimSpace(strFromAny(params["name"])); got != "item_list" {
+				t.Fatalf("tool name = %q, want item_list", got)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"result": map[string]any{
 					"structuredContent": map[string]any{
-						"ok":     true,
-						"status": "ready",
+						"ok":    true,
+						"items": []string{"alpha", "beta"},
 					},
 				},
 			})
@@ -869,37 +780,22 @@ func TestRunAssistantTurnLocalAssistantCompletesMultiToolLoop(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"choices": []map[string]any{{
 					"message": map[string]any{
-						"content": `{"tool_calls":[{"name":"shell","arguments":{"command":"printf 'shell-step'"}}]}`,
-					},
-				}},
-			})
-		case 2:
-			if got := intFromAny(payload["max_tokens"], -1); got != assistantLLMToolMaxTokens {
-				t.Fatalf("follow-up tool-aware max_tokens = %d, want %d", got, assistantLLMToolMaxTokens)
-			}
-			last, _ := messages[len(messages)-1].(map[string]any)
-			if got := strings.TrimSpace(strFromAny(last["content"])); !strings.Contains(got, "shell-step") {
-				t.Fatalf("second llm call missing shell output: %q", got)
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"choices": []map[string]any{{
-					"message": map[string]any{
-						"content": `{"tool_calls":[{"name":"mcp__echo_status","arguments":{"status":"ready"}}]}`,
+						"content": `{"tool_calls":[{"name":"mcp__item_list","arguments":{"limit":2}}]}`,
 					},
 				}},
 			})
 		default:
 			if got := intFromAny(payload["max_tokens"], -1); got != assistantLLMToolMaxTokens {
-				t.Fatalf("final tool-aware max_tokens = %d, want %d", got, assistantLLMToolMaxTokens)
+				t.Fatalf("follow-up tool-aware max_tokens = %d, want %d", got, assistantLLMToolMaxTokens)
 			}
 			last, _ := messages[len(messages)-1].(map[string]any)
-			if got := strings.TrimSpace(strFromAny(last["content"])); !strings.Contains(got, `"status":"ready"`) {
-				t.Fatalf("final llm call missing mcp result: %q", got)
+			if got := strings.TrimSpace(strFromAny(last["content"])); !strings.Contains(got, `"items":["alpha","beta"]`) {
+				t.Fatalf("follow-up llm call missing item_list result: %q", got)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"choices": []map[string]any{{
 					"message": map[string]any{
-						"content": "Local backend completed shell and MCP steps.",
+						"content": "Local backend completed the item lookup.",
 					},
 				}},
 			})
@@ -926,17 +822,17 @@ func TestRunAssistantTurnLocalAssistantCompletesMultiToolLoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("chatSessionForWorkspace: %v", err)
 	}
-	if _, err := app.store.AddChatMessage(session.ID, "user", "inspect the workspace and use MCP", "inspect the workspace and use MCP", "text"); err != nil {
+	if _, err := app.store.AddChatMessage(session.ID, "user", "show my items and use MCP", "show my items and use MCP", "text"); err != nil {
 		t.Fatalf("AddChatMessage: %v", err)
 	}
 
 	app.runAssistantTurn(session.ID, dequeuedTurn{outputMode: turnOutputModeSilent})
 
-	if got := latestAssistantMessage(t, app, session.ID); got != "Local backend completed shell and MCP steps." {
+	if got := latestAssistantMessage(t, app, session.ID); got != "Local backend completed the item lookup." {
 		t.Fatalf("assistant message = %q", got)
 	}
-	if llmCalls.Load() != 3 {
-		t.Fatalf("llm call count = %d, want 3", llmCalls.Load())
+	if llmCalls.Load() != 2 {
+		t.Fatalf("llm call count = %d, want 2", llmCalls.Load())
 	}
 	if mcpCalls.Load() != 1 {
 		t.Fatalf("mcp call count = %d, want 1", mcpCalls.Load())

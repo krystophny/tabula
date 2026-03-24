@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -64,8 +65,10 @@ func TestLocalSystemActionTurnPublishesLocalProviderMetadata(t *testing.T) {
 	}
 }
 
-func TestLocalSystemActionTurnHandlesDirectCanvasTextShortcut(t *testing.T) {
+func TestLocalAssistantTurnHandlesCanvasWriteTextTool(t *testing.T) {
+	var mcpCalls atomic.Int32
 	mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mcpCalls.Add(1)
 		var payload map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode mcp payload: %v", err)
@@ -89,8 +92,36 @@ func TestLocalSystemActionTurnHandlesDirectCanvasTextShortcut(t *testing.T) {
 	}))
 	defer mcp.Close()
 
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode llm payload: %v", err)
+		}
+		messages, _ := payload["messages"].([]any)
+		last, _ := messages[len(messages)-1].(map[string]any)
+		if strings.Contains(strings.TrimSpace(strFromAny(last["content"])), `"ok":true`) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"choices": []map[string]any{{
+					"message": map[string]any{
+						"content": "DONE",
+					},
+				}},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{
+				"message": map[string]any{
+					"content": `{"tool_calls":[{"name":"canvas_write_text","arguments":{"title":"Tool Test","content":"Orbit Canvas"}}]}`,
+				},
+			}},
+		})
+	}))
+	defer llm.Close()
+
 	app := newAuthedTestApp(t)
-	app.intentLLMURL = ""
+	app.assistantMode = assistantModeLocal
+	app.assistantLLMURL = llm.URL
 	app.localMCPURL = mcp.URL
 
 	project, err := app.ensureDefaultWorkspace()
@@ -108,9 +139,10 @@ func TestLocalSystemActionTurnHandlesDirectCanvasTextShortcut(t *testing.T) {
 	defer app.hub.unregisterChat(session.ID, conn)
 
 	prompt := "Show a text artifact on the canvas titled Tool Test with the exact body Orbit Canvas. Then reply with the single word DONE."
-	if handled := app.tryRunLocalSystemActionTurn(session.ID, session, prompt, nil, "", turnOutputModeVoice, false); !handled {
-		t.Fatal("expected direct canvas text shortcut to be handled")
+	if _, err := app.store.AddChatMessage(session.ID, "user", prompt, prompt, "text"); err != nil {
+		t.Fatalf("AddChatMessage: %v", err)
 	}
+	app.runAssistantTurn(session.ID, dequeuedTurn{outputMode: turnOutputModeVoice})
 
 	actionPayload := waitForWSJSONMessageType(t, clientConn, 2*time.Second, "system_action")
 	action, _ := actionPayload["action"].(map[string]any)
@@ -121,12 +153,14 @@ func TestLocalSystemActionTurnHandlesDirectCanvasTextShortcut(t *testing.T) {
 	if got := strFromAny(payload["message"]); got != "DONE" {
 		t.Fatalf("assistant message = %q, want DONE", got)
 	}
+	if mcpCalls.Load() != 1 {
+		t.Fatalf("mcp call count = %d, want 1", mcpCalls.Load())
+	}
 }
 
-func TestLocalSystemActionTurnHandlesDirectDirectoryListShortcut(t *testing.T) {
+func TestLocalAssistantTurnListsDirectoryWithWorkspaceReadTool(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.assistantMode = assistantModeLocal
-	app.assistantLLMURL = ""
 
 	project, err := app.ensureDefaultWorkspace()
 	if err != nil {
@@ -138,6 +172,33 @@ func TestLocalSystemActionTurnHandlesDirectDirectoryListShortcut(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(project.DirPath, "docs"), 0o755); err != nil {
 		t.Fatalf("mkdir docs: %v", err)
 	}
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode llm payload: %v", err)
+		}
+		messages, _ := payload["messages"].([]any)
+		last, _ := messages[len(messages)-1].(map[string]any)
+		if strings.Contains(strings.TrimSpace(strFromAny(last["content"])), `"entries"`) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"choices": []map[string]any{{
+					"message": map[string]any{
+						"content": "Top-level entries in this directory: alpha.txt, docs/",
+					},
+				}},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{
+				"message": map[string]any{
+					"content": `{"tool_calls":[{"name":"workspace_read","arguments":{"operation":"list_top_level"}}]}`,
+				},
+			}},
+		})
+	}))
+	defer llm.Close()
+	app.assistantLLMURL = llm.URL
 	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
 	if err != nil {
 		t.Fatalf("GetOrCreateChatSession: %v", err)

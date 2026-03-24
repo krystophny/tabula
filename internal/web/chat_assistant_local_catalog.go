@@ -12,7 +12,8 @@ const (
 	localAssistantToolKindShell                localAssistantToolKind = "shell"
 	localAssistantToolKindSystemAction         localAssistantToolKind = "system_action"
 	localAssistantToolKindMCP                  localAssistantToolKind = "mcp"
-	localAssistantToolKindCanvasText           localAssistantToolKind = "canvas_text"
+	localAssistantToolKindWorkspaceRead        localAssistantToolKind = "workspace_read"
+	localAssistantToolKindCanvasWriteText      localAssistantToolKind = "canvas_write_text"
 	localAssistantToolKindWebSearchUnavailable localAssistantToolKind = "web_search_unavailable"
 )
 
@@ -25,172 +26,148 @@ type localAssistantExecutableTool struct {
 }
 
 type localAssistantToolCatalog struct {
+	Family      localAssistantToolFamily
 	Definitions []map[string]any
 	ToolsByName map[string]localAssistantExecutableTool
 }
 
-func (a *App) buildLocalAssistantToolCatalog(state localAssistantTurnState) (localAssistantToolCatalog, error) {
+func (a *App) buildLocalAssistantToolCatalog(state localAssistantTurnState, family localAssistantToolFamily) (localAssistantToolCatalog, error) {
 	out := localAssistantToolCatalog{
-		Definitions: make([]map[string]any, 0, 8),
+		Family:      family,
+		Definitions: nil,
 		ToolsByName: map[string]localAssistantExecutableTool{},
 	}
-	for _, tool := range append(
-		[]localAssistantExecutableTool{
-			localAssistantShellTool(),
-			localAssistantCanvasShowTextTool(state),
-			localAssistantWebSearchUnavailableTool(),
-		},
-		localAssistantSystemActionTools()...,
-	) {
+	for _, tool := range localAssistantCoreTools(state, family) {
 		out.add(tool)
 	}
-	if strings.TrimSpace(state.mcpURL) == "" {
+	if !localAssistantFamilyNeedsMCP(family) || strings.TrimSpace(state.mcpURL) == "" {
 		return out, nil
 	}
 	mcpTools, err := mcpToolsListURL(state.mcpURL)
 	if err != nil {
 		return localAssistantToolCatalog{}, err
 	}
-	for _, tool := range localAssistantMCPTools(state, mcpTools) {
+	for _, tool := range localAssistantMCPToolsForFamily(state, mcpTools, family) {
 		out.add(tool)
 	}
 	return out, nil
 }
 
-func localAssistantNeedsTools(text string) bool {
-	lower := strings.ToLower(strings.TrimSpace(text))
-	if lower == "" {
+func localAssistantCoreTools(state localAssistantTurnState, family localAssistantToolFamily) []localAssistantExecutableTool {
+	switch family {
+	case localAssistantToolFamilyCanvas:
+		return []localAssistantExecutableTool{
+			localAssistantWorkspaceReadTool(),
+			localAssistantCanvasWriteTextTool(state),
+			localAssistantSystemActionTool("open_file_canvas"),
+			localAssistantSystemActionTool("navigate_canvas"),
+		}
+	case localAssistantToolFamilyWorkspace:
+		return []localAssistantExecutableTool{
+			localAssistantWorkspaceReadTool(),
+			localAssistantSystemActionTool("open_file_canvas"),
+		}
+	case localAssistantToolFamilyShell:
+		return []localAssistantExecutableTool{
+			localAssistantShellTool(),
+			localAssistantSystemActionTool("open_file_canvas"),
+		}
+	case localAssistantToolFamilyRuntime:
+		return []localAssistantExecutableTool{
+			localAssistantSystemActionTool("toggle_silent"),
+			localAssistantSystemActionTool("toggle_live_dialogue"),
+			localAssistantSystemActionTool("show_status"),
+			localAssistantSystemActionTool("show_busy_state"),
+			localAssistantSystemActionTool("cancel_work"),
+		}
+	case localAssistantToolFamilyWeb:
+		return []localAssistantExecutableTool{
+			localAssistantWebSearchUnavailableTool(),
+		}
+	default:
+		return nil
+	}
+}
+
+func localAssistantFamilyNeedsMCP(family localAssistantToolFamily) bool {
+	switch family {
+	case localAssistantToolFamilyMail, localAssistantToolFamilyCalendar, localAssistantToolFamilyItems:
+		return true
+	default:
 		return false
 	}
-	keywords := []string{
-		"tool",
-		"canvas",
-		"show ",
-		"open ",
-		"display ",
-		"draw ",
-		"render ",
-		"file",
-		"folder",
-		"directory",
-		"path",
-		"workspace",
-		"project",
-		"artifact",
-		"calendar",
-		"event",
-		"mail",
-		"email",
-		"inbox",
-		"item",
-		"task",
-		"todo",
-		"shell",
-		"command",
-		"terminal",
-		"run ",
-		"latest",
-		"website",
-		"web search",
-		"news",
-	}
-	for _, keyword := range keywords {
-		if strings.Contains(lower, keyword) {
-			return true
-		}
-	}
-	return false
 }
 
-func pruneLocalAssistantToolCatalog(catalog localAssistantToolCatalog, text string) localAssistantToolCatalog {
-	if len(catalog.Definitions) == 0 {
-		return catalog
+func localAssistantWorkspaceReadTool() localAssistantExecutableTool {
+	return localAssistantExecutableTool{
+		ModelName:    "workspace_read",
+		Kind:         localAssistantToolKindWorkspaceRead,
+		InternalName: "workspace_read",
+		Definition: map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":        "workspace_read",
+				"description": "Inspect workspace files without using a shell. Use this to list top-level entries, read a file, or find a matching file path.",
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"operation": map[string]any{
+							"type":        "string",
+							"description": "One of list_top_level, read_file, or find_file.",
+						},
+						"path": map[string]any{
+							"type":        "string",
+							"description": "Relative or absolute workspace path for read_file.",
+						},
+						"query": map[string]any{
+							"type":        "string",
+							"description": "Loose file query for find_file, such as README or local tools.",
+						},
+						"max_results": map[string]any{
+							"type":        "integer",
+							"description": "Optional limit for find_file results.",
+						},
+					},
+				},
+			},
+		},
 	}
-	lower := strings.ToLower(strings.TrimSpace(text))
-	if lower == "" {
-		return localAssistantToolCatalog{}
-	}
-	wantsCanvas := containsAnyLocalAssistantKeyword(lower, "canvas", "show ", "open ", "display ", "draw ", "render ", "image", "pdf", "document", "artifact")
-	wantsWorkspace := containsAnyLocalAssistantKeyword(lower, "workspace", "project", "folder", "directory", "file", "path")
-	wantsMail := containsAnyLocalAssistantKeyword(lower, "mail", "email", "inbox", "message")
-	wantsCalendar := containsAnyLocalAssistantKeyword(lower, "calendar", "event", "meeting")
-	wantsItems := containsAnyLocalAssistantKeyword(lower, "item", "task", "todo", "actor", "note", "idea")
-	wantsShell := containsAnyLocalAssistantKeyword(lower, "shell", "command", "terminal", "run ", "list ", "find ", "grep", "rg ")
-	wantsMCP := containsAnyLocalAssistantKeyword(lower, "mcp")
-	wantsWeb := containsAnyLocalAssistantKeyword(lower, "website", "web search", "latest", "news")
-	wantsStatus := containsAnyLocalAssistantKeyword(lower, "status", "silent", "dialogue", "meeting mode")
-
-	out := localAssistantToolCatalog{
-		Definitions: make([]map[string]any, 0, len(catalog.Definitions)),
-		ToolsByName: map[string]localAssistantExecutableTool{},
-	}
-	for name, tool := range catalog.ToolsByName {
-		if localAssistantIncludeTool(tool, wantsCanvas, wantsWorkspace, wantsMail, wantsCalendar, wantsItems, wantsShell, wantsMCP, wantsWeb, wantsStatus) {
-			out.add(tool)
-		}
-		if strings.HasPrefix(name, "mcp__canvas_") && wantsCanvas {
-			out.add(tool)
-		}
-	}
-	return out
 }
 
-func containsAnyLocalAssistantKeyword(text string, keywords ...string) bool {
-	for _, keyword := range keywords {
-		if strings.Contains(text, keyword) {
-			return true
-		}
+func localAssistantCanvasWriteTextTool(state localAssistantTurnState) localAssistantExecutableTool {
+	if strings.TrimSpace(state.canvasID) == "" {
+		return localAssistantExecutableTool{}
 	}
-	return false
-}
-
-func localAssistantIncludeTool(tool localAssistantExecutableTool, wantsCanvas, wantsWorkspace, wantsMail, wantsCalendar, wantsItems, wantsShell, wantsMCP, wantsWeb, wantsStatus bool) bool {
-	if tool.Kind == localAssistantToolKindShell {
-		return wantsShell || wantsCanvas || wantsWorkspace
+	return localAssistantExecutableTool{
+		ModelName:    "canvas_write_text",
+		Kind:         localAssistantToolKindCanvasWriteText,
+		InternalName: "canvas_artifact_show",
+		DefaultArgs: map[string]any{
+			"session_id": state.canvasID,
+			"kind":       "text",
+		},
+		Definition: map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":        "canvas_write_text",
+				"description": "Show new text on canvas. Use this for notes, ASCII diagrams, schematics, flowcharts, sketches, or any generated text artifact.",
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"title": map[string]any{
+							"type":        "string",
+							"description": "Optional canvas title.",
+						},
+						"content": map[string]any{
+							"type":        "string",
+							"description": "The exact text to place on canvas.",
+						},
+					},
+					"required": []string{"content"},
+				},
+			},
+		},
 	}
-	if tool.Kind == localAssistantToolKindCanvasText {
-		return wantsCanvas
-	}
-	if tool.Kind == localAssistantToolKindWebSearchUnavailable {
-		return wantsWeb
-	}
-	if tool.Kind == localAssistantToolKindMCP && wantsMCP {
-		return true
-	}
-	name := tool.InternalName
-	switch {
-	case strings.HasPrefix(name, "canvas_"), strings.HasPrefix(name, "temp_file_"):
-		return wantsCanvas
-	case strings.HasPrefix(name, "workspace_"):
-		return wantsWorkspace
-	case strings.HasPrefix(name, "artifact_"):
-		return wantsWorkspace
-	case strings.HasPrefix(name, "mail_"), strings.HasPrefix(name, "handoff."):
-		return wantsMail
-	case strings.HasPrefix(name, "calendar_"):
-		return wantsCalendar
-	case strings.HasPrefix(name, "item_"), strings.HasPrefix(name, "actor_"):
-		return wantsItems
-	}
-	switch name {
-	case "open_file_canvas", "navigate_canvas", "cursor_open_path":
-		return wantsCanvas || wantsWorkspace
-	case "show_status", "show_busy_state", "toggle_silent", "toggle_live_dialogue":
-		return wantsStatus
-	case "make_item", "delegate_item", "snooze_item", "split_items", "print_item":
-		return wantsItems
-	case "show_calendar", "create_calendar_event", "update_calendar_event", "delete_calendar_event":
-		return wantsCalendar
-	}
-	return false
-}
-
-func (c *localAssistantToolCatalog) add(tool localAssistantExecutableTool) {
-	if c == nil || strings.TrimSpace(tool.ModelName) == "" || tool.Definition == nil {
-		return
-	}
-	c.Definitions = append(c.Definitions, tool.Definition)
-	c.ToolsByName[tool.ModelName] = tool
 }
 
 func localAssistantShellTool() localAssistantExecutableTool {
@@ -202,7 +179,7 @@ func localAssistantShellTool() localAssistantExecutableTool {
 			"type": "function",
 			"function": map[string]any{
 				"name":        "shell",
-				"description": "Run a shell command inside the active workspace and inspect or modify files there.",
+				"description": "Run a shell command inside the active workspace. Use this only for explicit shell or terminal requests.",
 				"parameters": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -216,42 +193,6 @@ func localAssistantShellTool() localAssistantExecutableTool {
 						},
 					},
 					"required": []string{"command"},
-				},
-			},
-		},
-	}
-}
-
-func localAssistantCanvasShowTextTool(state localAssistantTurnState) localAssistantExecutableTool {
-	if strings.TrimSpace(state.canvasID) == "" {
-		return localAssistantExecutableTool{}
-	}
-	return localAssistantExecutableTool{
-		ModelName:    "canvas_show_text",
-		Kind:         localAssistantToolKindCanvasText,
-		InternalName: "canvas_artifact_show",
-		DefaultArgs: map[string]any{
-			"session_id": state.canvasID,
-			"kind":       "text",
-		},
-		Definition: map[string]any{
-			"type": "function",
-			"function": map[string]any{
-				"name":        "canvas_show_text",
-				"description": "Show plain text directly on canvas. Use this for requests like show or draw this text on canvas. Do not search for an existing artifact first.",
-				"parameters": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"title": map[string]any{
-							"type":        "string",
-							"description": "Optional canvas title.",
-						},
-						"text": map[string]any{
-							"type":        "string",
-							"description": "The exact text to show on canvas.",
-						},
-					},
-					"required": []string{"text"},
 				},
 			},
 		},
@@ -282,29 +223,24 @@ func localAssistantWebSearchUnavailableTool() localAssistantExecutableTool {
 	}
 }
 
-func localAssistantSystemActionTools() []localAssistantExecutableTool {
-	names := append([]string(nil), supportedSystemActionNames...)
-	slices.Sort(names)
-	out := make([]localAssistantExecutableTool, 0, len(names)-1)
-	for _, action := range names {
-		if action == "shell" {
-			continue
-		}
-		out = append(out, localAssistantExecutableTool{
-			ModelName:    "action__" + action,
-			Kind:         localAssistantToolKindSystemAction,
-			InternalName: action,
-			Definition: map[string]any{
-				"type": "function",
-				"function": map[string]any{
-					"name":        "action__" + action,
-					"description": localAssistantSystemActionDescription(action),
-					"parameters":  localAssistantSystemActionSchema(action),
-				},
-			},
-		})
+func localAssistantSystemActionTool(action string) localAssistantExecutableTool {
+	action = strings.TrimSpace(action)
+	if action == "" {
+		return localAssistantExecutableTool{}
 	}
-	return out
+	return localAssistantExecutableTool{
+		ModelName:    "action__" + action,
+		Kind:         localAssistantToolKindSystemAction,
+		InternalName: action,
+		Definition: map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":        "action__" + action,
+				"description": localAssistantSystemActionDescription(action),
+				"parameters":  localAssistantSystemActionSchema(action),
+			},
+		},
+	}
 }
 
 func localAssistantSystemActionDescription(action string) string {
@@ -321,14 +257,8 @@ func localAssistantSystemActionDescription(action string) string {
 		return "Show the current runtime or workspace status."
 	case "show_busy_state":
 		return "Show the current busy state."
-	case "clear_workspace":
-		return "Clear the current workspace conversation state."
-	case "cursor_open_path":
-		return "Open a specific file path in the current cursor context."
-	case "cursor_open_item":
-		return "Open an item in the cursor context."
-	case "cursor_triage_item":
-		return "Triage an item in the cursor context."
+	case "cancel_work":
+		return "Stop the active assistant turn or work loop."
 	default:
 		return "Execute native Tabura action " + action + "."
 	}
@@ -338,7 +268,7 @@ func localAssistantSystemActionSchema(action string) map[string]any {
 	switch action {
 	case "toggle_silent", "toggle_live_dialogue", "cancel_work", "show_busy_state", "show_status":
 		return map[string]any{"type": "object"}
-	case "open_file_canvas", "cursor_open_path":
+	case "open_file_canvas":
 		return map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -356,23 +286,15 @@ func localAssistantSystemActionSchema(action string) map[string]any {
 			},
 			"required": []string{"direction"},
 		}
-	case "cursor_open_item", "cursor_triage_item", "delegate_item", "snooze_item", "print_item":
-		return map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"item_id": map[string]any{"type": "integer", "description": "Target item id."},
-				"title":   map[string]any{"type": "string", "description": "Target item title when id is unknown."},
-			},
-		}
 	default:
 		return map[string]any{"type": "object"}
 	}
 }
 
-func localAssistantMCPTools(state localAssistantTurnState, tools []mcpListedTool) []localAssistantExecutableTool {
+func localAssistantMCPToolsForFamily(state localAssistantTurnState, tools []mcpListedTool, family localAssistantToolFamily) []localAssistantExecutableTool {
 	out := make([]localAssistantExecutableTool, 0, len(tools))
 	for _, tool := range tools {
-		if strings.TrimSpace(tool.Name) == "" {
+		if strings.TrimSpace(tool.Name) == "" || !localAssistantIncludeMCPToolForFamily(tool.Name, family) {
 			continue
 		}
 		defaultArgs := localAssistantMCPDefaultArgs(state, tool.Name)
@@ -394,11 +316,21 @@ func localAssistantMCPTools(state localAssistantTurnState, tools []mcpListedTool
 	return out
 }
 
+func localAssistantIncludeMCPToolForFamily(name string, family localAssistantToolFamily) bool {
+	switch family {
+	case localAssistantToolFamilyMail:
+		return strings.HasPrefix(name, "mail_") || strings.HasPrefix(name, "handoff_")
+	case localAssistantToolFamilyCalendar:
+		return strings.HasPrefix(name, "calendar_")
+	case localAssistantToolFamilyItems:
+		return strings.HasPrefix(name, "item_") || strings.HasPrefix(name, "actor_")
+	default:
+		return false
+	}
+}
+
 func localAssistantMCPDefaultArgs(state localAssistantTurnState, name string) map[string]any {
 	defaults := map[string]any{}
-	if strings.HasPrefix(name, "canvas_") && strings.TrimSpace(state.canvasID) != "" {
-		defaults["session_id"] = state.canvasID
-	}
 	switch name {
 	case "temp_file_create", "temp_file_remove":
 		defaults["cwd"] = state.workspaceDir
@@ -440,23 +372,15 @@ func sanitizeLocalAssistantToolToken(raw string) string {
 
 func localAssistantMCPDescription(name, description string, defaults map[string]any) string {
 	desc := strings.TrimSpace(description)
-	switch name {
-	case "canvas_artifact_show":
-		desc = "Show an artifact on canvas. Use this for canvas display."
-	case "temp_file_create":
-		desc = "Create a temporary file under .tabura/artifacts/tmp for file-backed canvas content."
-	case "temp_file_remove":
-		desc = "Remove a temporary canvas file."
-	}
 	if len(defaults) == 0 {
 		return desc
 	}
-	bound := make([]string, 0, len(defaults))
+	keys := make([]string, 0, len(defaults))
 	for key := range defaults {
-		bound = append(bound, key)
+		keys = append(keys, key)
 	}
-	slices.Sort(bound)
-	return strings.TrimSpace(desc + " Runtime-bound arguments: " + strings.Join(bound, ", ") + ".")
+	slices.Sort(keys)
+	return strings.TrimSpace(desc + " Runtime-bound arguments: " + strings.Join(keys, ", ") + ".")
 }
 
 func localAssistantVisibleSchema(schema map[string]any, defaults map[string]any) map[string]any {
@@ -476,7 +400,8 @@ func localAssistantVisibleSchema(schema map[string]any, defaults map[string]any)
 			delete(out, "properties")
 		}
 	}
-	if required, ok := out["required"].([]any); ok {
+	switch required := out["required"].(type) {
+	case []any:
 		filtered := make([]any, 0, len(required))
 		for _, item := range required {
 			key := strings.TrimSpace(fmt.Sprint(item))
@@ -493,8 +418,7 @@ func localAssistantVisibleSchema(schema map[string]any, defaults map[string]any)
 		} else {
 			delete(out, "required")
 		}
-	}
-	if required, ok := out["required"].([]string); ok {
+	case []string:
 		filtered := make([]string, 0, len(required))
 		for _, key := range required {
 			if _, hidden := defaults[key]; hidden {
@@ -541,24 +465,52 @@ func mergeLocalAssistantToolArguments(defaults, args map[string]any) map[string]
 
 func buildLocalAssistantToolPolicy(catalog localAssistantToolCatalog) string {
 	if len(catalog.Definitions) == 0 {
-		return "No tools are needed for this request. Answer directly."
+		return "No tools are available in this turn. Answer directly."
 	}
 	lines := []string{
-		"Tool policy:",
-		"- If you need a tool, respond with JSON only: {\"tool_calls\":[{\"name\":\"tool_name\",\"arguments\":{...}}]}. Do not add prose before or after that JSON.",
-		"- After tool results are returned, either respond with another tool_calls JSON object or with the final plain-text answer.",
-		"- For files or code in the active workspace, use shell or the matching mcp__ tool instead of guessing.",
-		"- For plain text that should appear on canvas, use canvas_show_text. Do not describe a plan and do not search for an existing artifact first.",
-		"- For show, open, display, or draw requests on canvas, use tools. For generated canvas content, create a file with mcp__temp_file_create and show it with mcp__canvas_artifact_show.",
-		"- To open an existing workspace file on canvas directly, use action__open_file_canvas.",
-		"- Use mcp__... tools for canvas, artifacts, workspace, items, calendar, mail, actors, and other MCP-backed operations.",
-		"- Use action__... tools for native Tabura runtime actions such as toggles, cursor actions, status, or opening an existing file on canvas.",
-		"- If the user asks for websites, latest news, or web search, call web_search_unavailable and then explain the limitation briefly.",
-		"- When a tool is clearly required, never reply with a plan such as I need to, let me, or first I will. Call the tool instead.",
-		fmt.Sprintf("- Tool count: %d explicit tools are available in this turn.", len(catalog.Definitions)),
+		"Tool protocol:",
+		"- Either answer with plain text or return JSON only in this exact form: {\"tool_calls\":[{\"name\":\"tool_name\",\"arguments\":{...}}]}.",
+		"- Never mix prose with tool JSON.",
+		"- After tool results arrive, either call another tool with the same JSON shape or answer plainly.",
 	}
+	lines = append(lines, localAssistantFamilyPolicyLines(catalog.Family)...)
 	lines = append(lines, localAssistantToolCatalogLines(catalog)...)
 	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func localAssistantFamilyPolicyLines(family localAssistantToolFamily) []string {
+	switch family {
+	case localAssistantToolFamilyCanvas:
+		return []string{
+			"- This is a canvas request.",
+			"- Use canvas_write_text for new generated text, diagrams, schematics, or ASCII sketches on canvas.",
+			"- Use action__open_file_canvas only for an existing workspace file.",
+			"- Use workspace_read first only if you genuinely need to inspect or find a file path.",
+		}
+	case localAssistantToolFamilyWorkspace:
+		return []string{
+			"- This is a workspace file request.",
+			"- Use workspace_read instead of shell for listing files, reading files, or finding a path.",
+			"- Use action__open_file_canvas only when the user wants an existing file shown on canvas.",
+		}
+	case localAssistantToolFamilyShell:
+		return []string{
+			"- This is an explicit terminal or shell request.",
+			"- Use shell directly. Do not invent higher-level wrappers.",
+		}
+	case localAssistantToolFamilyMail:
+		return []string{"- This is a mail request. Use only the listed mail tools."}
+	case localAssistantToolFamilyCalendar:
+		return []string{"- This is a calendar request. Use only the listed calendar tools."}
+	case localAssistantToolFamilyItems:
+		return []string{"- This is an items or task request. Use only the listed item tools."}
+	case localAssistantToolFamilyRuntime:
+		return []string{"- This is a runtime control request. Use only the listed runtime action tools."}
+	case localAssistantToolFamilyWeb:
+		return []string{"- This is a web request. Call web_search_unavailable, then explain the limitation briefly."}
+	default:
+		return nil
+	}
 }
 
 func localAssistantToolCatalogLines(catalog localAssistantToolCatalog) []string {
@@ -584,18 +536,15 @@ func localAssistantToolSummary(tool localAssistantExecutableTool) string {
 	desc = strings.ReplaceAll(desc, "\n", " ")
 	desc = strings.Join(strings.Fields(desc), " ")
 	if desc == "" || desc == "<nil>" {
-		switch tool.Kind {
-		case localAssistantToolKindShell:
-			return "Run a shell command in the active workspace."
-		case localAssistantToolKindSystemAction:
-			return "Execute a native Tabura action."
-		case localAssistantToolKindMCP:
-			return "Call an MCP-backed tool."
-		case localAssistantToolKindWebSearchUnavailable:
-			return "Report that web search is unavailable in local mode."
-		default:
-			return "Execute this tool when needed."
-		}
+		return "Execute this tool when needed."
 	}
 	return desc
+}
+
+func (c *localAssistantToolCatalog) add(tool localAssistantExecutableTool) {
+	if c == nil || strings.TrimSpace(tool.ModelName) == "" || tool.Definition == nil {
+		return
+	}
+	c.Definitions = append(c.Definitions, tool.Definition)
+	c.ToolsByName[tool.ModelName] = tool
 }

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/krystophny/tabura/internal/modelprofile"
@@ -16,6 +18,11 @@ import (
 var (
 	errLocalAssistantNotConfigured       = errors.New("local assistant is not configured")
 	errLocalAssistantUnsupportedResponse = errors.New("local assistant returned unsupported control envelope")
+)
+
+const (
+	localAssistantWorkspaceReadBytes       = 16 * 1024
+	localAssistantWorkspaceFindResultLimit = 12
 )
 
 type localAssistantLLMToolCall struct {
@@ -97,28 +104,12 @@ func parseLocalAssistantDecision(message localIntentLLMMessage) (localAssistantD
 		}
 		return localAssistantDecision{ToolCalls: calls}, nil
 	}
-	if message.FunctionCall != nil && strings.TrimSpace(message.FunctionCall.Name) != "" {
-		calls, err := parseLocalAssistantToolCalls([]localAssistantLLMToolCall{{
-			ID:       randomToken(),
-			Type:     "function",
-			Function: *message.FunctionCall,
-		}})
-		if err != nil {
-			return localAssistantDecision{}, err
-		}
-		return localAssistantDecision{ToolCalls: calls}, nil
-	}
 	content := strings.TrimSpace(stripCodeFence(message.Content))
 	if content == "" {
 		return localAssistantDecision{}, errors.New("assistant llm returned empty content")
 	}
 	if localAssistantUnsupportedControlEnvelope(content) {
 		return localAssistantDecision{}, errLocalAssistantUnsupportedResponse
-	}
-	if classification, err := parseIntentPlanClassification(content); err == nil && classification.LocalAnswer != nil {
-		if text := strings.TrimSpace(classification.LocalAnswer.Text); text != "" {
-			return localAssistantDecision{FinalText: text}, nil
-		}
 	}
 	if decoded, ok := decodeLocalAssistantEnvelope(content); ok {
 		switch typed := decoded.(type) {
@@ -304,47 +295,13 @@ func localAssistantAssistantMessage(message localIntentLLMMessage) map[string]an
 
 func localAssistantRepairPrompt(err error) string {
 	return fmt.Sprintf(
-		"Your last response could not be executed: %s. Reply with either plain text or JSON only in the form {\"tool_calls\":[{\"name\":\"tool_name\",\"arguments\":{...}}]}.",
+		"Your last response could not be executed: %s. Reply with either plain text or JSON only in the exact form {\"tool_calls\":[{\"name\":\"tool_name\",\"arguments\":{...}}]}.",
 		strings.TrimSpace(err.Error()),
 	)
 }
 
 func localAssistantToolRequiredPrompt() string {
 	return "A tool is required for the user's request. Do not describe a plan. Call the correct explicit tool now, then finish with a short final reply."
-}
-
-func localAssistantRequiresToolExecution(text string) bool {
-	lower := strings.ToLower(strings.TrimSpace(text))
-	if lower == "" {
-		return false
-	}
-	actionPhrases := []string{
-		"use tool",
-		"use tools",
-		"show ",
-		"open ",
-		"display ",
-		"draw ",
-		"render ",
-		"create ",
-		"make ",
-		"list ",
-		"archive ",
-		"delete ",
-		"move ",
-	}
-	for _, phrase := range actionPhrases {
-		if strings.Contains(lower, phrase) {
-			return true
-		}
-	}
-	nouns := []string{"canvas", "file", "folder", "directory", "workspace", "calendar", "event", "mail", "email", "inbox", "item", "task"}
-	for _, noun := range nouns {
-		if strings.Contains(lower, noun) {
-			return true
-		}
-	}
-	return false
 }
 
 func localAssistantLooksLikeToolPlanning(text string) bool {
@@ -403,16 +360,13 @@ func (a *App) runLocalAssistantToolLoop(ctx context.Context, req *assistantTurnR
 		toolText = strings.TrimSpace(req.promptText)
 	}
 	toolText = normalizeLocalAssistantAddress(toolText)
-	catalog := localAssistantToolCatalog{
-		Definitions: nil,
-		ToolsByName: map[string]localAssistantExecutableTool{},
-	}
-	if localAssistantNeedsTools(toolText) {
-		fullCatalog, err := a.buildLocalAssistantToolCatalog(state)
+	family := selectLocalAssistantToolFamily(toolText)
+	catalog := localAssistantToolCatalog{Family: family, ToolsByName: map[string]localAssistantExecutableTool{}}
+	if family != localAssistantToolFamilyNone {
+		catalog, err = a.buildLocalAssistantToolCatalog(state, family)
 		if err != nil {
 			return "", err
 		}
-		catalog = pruneLocalAssistantToolCatalog(fullCatalog, toolText)
 	}
 	conversation := []map[string]any{
 		{"role": "system", "content": buildLocalAssistantDialoguePrompt(buildLocalAssistantToolPolicy(catalog), localAssistantReasoningHint(req))},
@@ -436,7 +390,7 @@ func (a *App) runLocalAssistantToolLoop(ctx context.Context, req *assistantTurnR
 		return strings.TrimSpace(message.Content), nil
 	}
 	malformedRetries := 0
-	toolRequired := localAssistantRequiresToolExecution(toolText) && len(catalog.Definitions) > 0
+	toolRequired := family != localAssistantToolFamilyNone && len(catalog.Definitions) > 0
 	toolPlanRetries := 0
 	for round := 0; round < assistantLLMMaxToolRounds; round++ {
 		maxTokens := assistantLLMDirectMaxTokens
@@ -557,8 +511,10 @@ func (a *App) executeLocalAssistantToolCall(ctx context.Context, state *localAss
 		return result, nil
 	case localAssistantToolKindSystemAction:
 		return a.executeLocalAssistantExplicitSystemActionTool(state, executable, call, args)
-	case localAssistantToolKindCanvasText:
-		return a.executeLocalAssistantCanvasTextTool(ctx, state, executable, call, args)
+	case localAssistantToolKindCanvasWriteText:
+		return a.executeLocalAssistantCanvasWriteTextTool(ctx, state, executable, call, args)
+	case localAssistantToolKindWorkspaceRead:
+		return executeLocalAssistantWorkspaceReadTool(state, executable, call, args), nil
 	case localAssistantToolKindMCP:
 		return a.executeLocalAssistantBoundMCPTool(ctx, state, executable, call, args)
 	case localAssistantToolKindWebSearchUnavailable:
@@ -576,8 +532,8 @@ func (a *App) executeLocalAssistantToolCall(ctx context.Context, state *localAss
 	}
 }
 
-func (a *App) executeLocalAssistantCanvasTextTool(ctx context.Context, state *localAssistantTurnState, tool localAssistantExecutableTool, call localAssistantToolCall, args map[string]any) (localAssistantToolResult, error) {
-	text := strings.TrimSpace(fmt.Sprint(args["text"]))
+func (a *App) executeLocalAssistantCanvasWriteTextTool(ctx context.Context, state *localAssistantTurnState, tool localAssistantExecutableTool, call localAssistantToolCall, args map[string]any) (localAssistantToolResult, error) {
+	text := firstNonEmptyLocalAssistantArgument(args, "content", "text", "body", "markdown_or_text")
 	if text == "" || text == "<nil>" {
 		return localAssistantToolResult{
 			ToolCallID: call.ID,
@@ -679,6 +635,71 @@ func executeLocalAssistantShellTool(state *localAssistantTurnState, call localAs
 	return result
 }
 
+func executeLocalAssistantWorkspaceReadTool(state *localAssistantTurnState, tool localAssistantExecutableTool, call localAssistantToolCall, args map[string]any) localAssistantToolResult {
+	result := localAssistantToolResult{
+		ToolCallID: call.ID,
+		ModelName:  tool.ModelName,
+		Name:       tool.InternalName,
+		Kind:       string(tool.Kind),
+		Arguments:  args,
+	}
+	operation := normalizeLocalAssistantWorkspaceReadOperation(firstNonEmptyLocalAssistantArgument(args, "operation", "mode", "action"))
+	switch operation {
+	case "list_top_level":
+		entries, err := localAssistantWorkspaceTopLevelEntries(state.workspaceDir)
+		if err != nil {
+			result.IsError = true
+			result.Error = err.Error()
+			return result
+		}
+		result.Output = "Top-level entries: " + strings.Join(entries, ", ")
+		result.StructuredContent = map[string]any{
+			"operation": "list_top_level",
+			"entries":   entries,
+		}
+		return result
+	case "read_file":
+		path := firstNonEmptyLocalAssistantArgument(args, "path", "file", "target")
+		body, resolved, truncated, err := localAssistantReadWorkspaceFile(state.workspaceDir, path)
+		if err != nil {
+			result.IsError = true
+			result.Error = err.Error()
+			return result
+		}
+		result.Output = body
+		result.StructuredContent = map[string]any{
+			"operation": "read_file",
+			"path":      resolved,
+			"truncated": truncated,
+			"content":   body,
+		}
+		return result
+	case "find_file":
+		query := firstNonEmptyLocalAssistantArgument(args, "query", "path", "file", "target")
+		limit := intFromAny(args["max_results"], localAssistantWorkspaceFindResultLimit)
+		if limit <= 0 {
+			limit = localAssistantWorkspaceFindResultLimit
+		}
+		matches, err := localAssistantFindWorkspaceFiles(state.workspaceDir, query, limit)
+		if err != nil {
+			result.IsError = true
+			result.Error = err.Error()
+			return result
+		}
+		result.Output = "Matches: " + strings.Join(matches, ", ")
+		result.StructuredContent = map[string]any{
+			"operation": "find_file",
+			"query":     query,
+			"matches":   matches,
+		}
+		return result
+	default:
+		result.IsError = true
+		result.Error = "workspace_read operation must be list_top_level, read_file, or find_file"
+		return result
+	}
+}
+
 func (a *App) executeLocalAssistantBoundMCPTool(ctx context.Context, state *localAssistantTurnState, tool localAssistantExecutableTool, call localAssistantToolCall, args map[string]any) (localAssistantToolResult, error) {
 	result := localAssistantToolResult{
 		ToolCallID: call.ID,
@@ -758,6 +779,16 @@ func localAssistantToolPayloads(result localAssistantToolResult, workspaceID int
 			"error":        result.Error,
 			"workspace_id": workspaceID,
 		}}
+	case string(localAssistantToolKindCanvasWriteText):
+		return []map[string]any{{
+			"type":         "mcp_tool",
+			"name":         result.Name,
+			"arguments":    result.Arguments,
+			"result":       result.StructuredContent,
+			"is_error":     result.IsError,
+			"error":        result.Error,
+			"workspace_id": workspaceID,
+		}}
 	default:
 		return nil
 	}
@@ -821,4 +852,134 @@ func localAssistantNextWorkingDir(command string, workspaceDir string, currentDi
 		return ""
 	}
 	return resolved
+}
+
+func firstNonEmptyLocalAssistantArgument(args map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value := strings.TrimSpace(fmt.Sprint(args[key]))
+		if value != "" && value != "<nil>" {
+			return value
+		}
+	}
+	return ""
+}
+
+func normalizeLocalAssistantWorkspaceReadOperation(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "list", "list_files", "ls", "list_top_level":
+		return "list_top_level"
+	case "read", "read_file", "open":
+		return "read_file"
+	case "find", "find_file", "search":
+		return "find_file"
+	default:
+		return strings.ToLower(strings.TrimSpace(raw))
+	}
+}
+
+func localAssistantWorkspaceTopLevelEntries(workspaceDir string) ([]string, error) {
+	entries, err := os.ReadDir(workspaceDir)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() {
+			name += "/"
+		}
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	if len(names) == 0 {
+		return []string{"(empty)"}, nil
+	}
+	return names, nil
+}
+
+func localAssistantReadWorkspaceFile(workspaceDir string, rawPath string) (string, string, bool, error) {
+	resolved, err := resolveLocalAssistantWorkspacePath(workspaceDir, rawPath)
+	if err != nil {
+		return "", "", false, err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", "", false, err
+	}
+	if info.IsDir() {
+		return "", "", false, fmt.Errorf("%q is a directory", rawPath)
+	}
+	body, err := os.ReadFile(resolved)
+	if err != nil {
+		return "", "", false, err
+	}
+	truncated := false
+	if len(body) > localAssistantWorkspaceReadBytes {
+		body = body[:localAssistantWorkspaceReadBytes]
+		truncated = true
+	}
+	text := string(body)
+	if truncated {
+		text += "\n\n[truncated]"
+	}
+	return text, resolved, truncated, nil
+}
+
+func localAssistantFindWorkspaceFiles(workspaceDir string, query string, limit int) ([]string, error) {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		query = "readme"
+	}
+	matches := make([]string, 0, limit)
+	err := filepath.WalkDir(workspaceDir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if len(matches) >= limit {
+			return filepath.SkipAll
+		}
+		rel, err := filepath.Rel(workspaceDir, path)
+		if err != nil || rel == "." {
+			return nil
+		}
+		normalized := strings.ToLower(filepath.ToSlash(rel))
+		if strings.Contains(normalized, query) {
+			if d.IsDir() {
+				rel += "/"
+			}
+			matches = append(matches, rel)
+		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, filepath.SkipAll) {
+		return nil, err
+	}
+	if len(matches) == 0 {
+		return []string{"(no matches)"}, nil
+	}
+	slices.Sort(matches)
+	return matches, nil
+}
+
+func resolveLocalAssistantWorkspacePath(workspaceDir string, raw string) (string, error) {
+	target := strings.TrimSpace(raw)
+	if target == "" || target == "<nil>" {
+		target = workspaceDir
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(workspaceDir, target)
+	}
+	target = filepath.Clean(target)
+	root := filepath.Clean(strings.TrimSpace(workspaceDir))
+	if root == "" {
+		return "", errors.New("workspace path is required")
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path %q escapes the workspace", raw)
+	}
+	return target, nil
 }

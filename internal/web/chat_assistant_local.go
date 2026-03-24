@@ -20,7 +20,7 @@ const (
 	assistantLLMToolMaxTokens        = 1024
 	assistantLLMResponseLimit        = 256 * 1024
 	assistantLLMMaxToolRounds        = 6
-	assistantLLMMalformedRetries     = 2
+	assistantLLMMalformedRetries     = 1
 	localAssistantDialoguePromptBase = "You are Tabura, the assistant inside the current workspace. If the user says Tabura, Sloppy, or computer, they are addressing you, not asking about those words. Use the explicit tools in this request instead of inventing plans or wrapper calls. Answer directly when no tool is needed. Default to plain text, not markdown. Do not use headings, bullets, numbered lists, or tables unless the user explicitly asks for them. Keep replies brief: default to 1-3 short sentences. If a single word or short phrase answers the request, reply with exactly that. No markdown fences. No <think> tags."
 )
 
@@ -121,14 +121,6 @@ func (a *App) buildLocalAssistantPrompt(sessionID string, session store.ChatSess
 
 func (a *App) runLocalAssistantTurn(req *assistantTurnRequest) {
 	if a == nil || req == nil {
-		return
-	}
-	if actionMessage, handled := a.tryRunDirectLocalDirectoryListTurn(req.sessionID, req.session, req.userText); handled {
-		a.finalizeHandledLocalActionTurn(req.sessionID, req.session.WorkspacePath, req.outputMode, time.Now(), actionMessage, nil)
-		return
-	}
-	if actionMessage, actionPayloads, handled := a.tryRunDirectLocalCanvasTextTurn(req.sessionID, req.session, req.userText); handled {
-		a.finalizeHandledLocalActionTurn(req.sessionID, req.session.WorkspacePath, req.outputMode, time.Now(), actionMessage, actionPayloads)
 		return
 	}
 	if strings.TrimSpace(a.assistantLLMBaseURL()) == "" {

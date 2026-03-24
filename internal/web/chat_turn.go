@@ -412,10 +412,7 @@ func (a *App) tryRunLocalSystemActionTurn(sessionID string, session store.ChatSe
 		return false
 	}
 	turnStartedAt := time.Now()
-	actionMessage, actionPayloads, handled := a.tryRunDirectLocalCanvasTextTurn(sessionID, session, userText)
-	if !handled {
-		actionMessage, actionPayloads, handled = a.classifyAndExecuteSystemActionForTurn(context.Background(), sessionID, session, userText, cursorCtx, captureMode)
-	}
+	actionMessage, actionPayloads, handled := a.classifyAndExecuteSystemActionForTurn(context.Background(), sessionID, session, userText, cursorCtx, captureMode)
 	if !handled && !localOnly {
 		return false
 	}
