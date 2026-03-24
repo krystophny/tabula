@@ -392,6 +392,10 @@ function applyAssistantContent(content, markdownText, options: Record<string, an
     content.innerHTML = sanitizeHtml(renderedHTML);
     return;
   }
+  if (options?.pending) {
+    content.textContent = String(markdownText || '');
+    return;
+  }
   const { text: markdownBody, stash: mathSegments } = extractMathSegments(markdownText);
   const rendered = marked.parse(markdownBody || '');
   content.innerHTML = restoreMathSegments(sanitizeHtml(rendered), mathSegments);
@@ -489,7 +493,7 @@ export function updateAssistantRow(row, markdownText, pending = true, options: R
   setAssistantRowProvider(row, options);
   const body = assistantRowBodyEl(row);
   if (!(body instanceof HTMLElement)) return;
-  applyAssistantContent(body, markdownText, options);
+  applyAssistantContent(body, markdownText, { ...options, pending });
   syncChatScroll(host);
   void typesetMath(body).finally(() => syncChatScroll(host));
 }

@@ -25,6 +25,8 @@ func buildLeanLocalAssistantPrompt(
 	appendLeanLocalAssistantCompanion(&b, companion)
 	if isVoiceOutputMode(outputMode) {
 		b.WriteString("Reply briefly for speech.\n")
+	} else {
+		b.WriteString("Default to one short paragraph in plain text unless the user explicitly asks for a list, code, or markdown.\n")
 	}
 	appendLeanLocalAssistantHistory(&b, messages)
 	return strings.TrimSpace(b.String())

@@ -1890,6 +1890,32 @@ test.describe('mobile viewport', () => {
     expect(finalTTSCalls).toEqual(['Hello there.', 'How are you?']);
   });
 
+  test('pending assistant stream stays plain text until final markdown render', async ({ page }) => {
+    await injectChatEvent(page, { type: 'turn_started', turn_id: 'pending-md-1' });
+    await injectChatEvent(page, {
+      type: 'assistant_message',
+      turn_id: 'pending-md-1',
+      message: '1. First item\n2. Second item\n\n### Heading',
+      delta: '1. First item\n2. Second item\n\n### Heading',
+    });
+
+    const content = page.locator('[data-turn-id="pending-md-1"] .chat-assistant-content');
+    await expect(content.locator('ol')).toHaveCount(0);
+    await expect(content.locator('h3')).toHaveCount(0);
+    await expect(content).toContainText('1. First item');
+
+    await injectChatEvent(page, {
+      type: 'assistant_output',
+      role: 'assistant',
+      turn_id: 'pending-md-1',
+      message: '1. First item\n2. Second item\n\n### Heading',
+      auto_canvas: false,
+    });
+
+    await expect(content.locator('ol')).toHaveCount(1);
+    await expect(content.locator('h3')).toHaveCount(1);
+  });
+
   test('touch tap stop during working mode cancels turn', async ({ page }) => {
     await clearLog(page);
 

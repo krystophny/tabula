@@ -46,6 +46,20 @@ func TestBuildLeanLocalAssistantPromptIsCompact(t *testing.T) {
 	}
 }
 
+func TestBuildLeanLocalAssistantPrompt_DefaultsToPlainShortChat(t *testing.T) {
+	workspace := &store.Workspace{Name: "Tabura", DirPath: "/tmp/tabura"}
+	prompt := buildLeanLocalAssistantPrompt(
+		workspace,
+		[]store.ChatMessage{{Role: "user", ContentPlain: "explain fusion"}},
+		nil,
+		nil,
+		turnOutputModeSilent,
+	)
+	if !strings.Contains(prompt, "Default to one short paragraph in plain text unless the user explicitly asks for a list, code, or markdown.") {
+		t.Fatalf("prompt missing plain short chat guidance:\n%s", prompt)
+	}
+}
+
 func TestCollectLeanLocalAssistantHistoryKeepsRecentMessages(t *testing.T) {
 	messages := []store.ChatMessage{
 		{Role: "user", ContentPlain: strings.Repeat("a", 2600)},

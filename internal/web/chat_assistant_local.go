@@ -15,13 +15,13 @@ const (
 	assistantModeCodex           = "codex"
 	DefaultAssistantMode         = assistantModeAuto
 	defaultAssistantLLMTimeout   = 2 * time.Minute
-	assistantLLMFastMaxTokens    = 2048
-	assistantLLMDirectMaxTokens  = 4096
-	assistantLLMToolMaxTokens    = 4096
+	assistantLLMFastMaxTokens    = 512
+	assistantLLMDirectMaxTokens  = 1024
+	assistantLLMToolMaxTokens    = 1024
 	assistantLLMResponseLimit    = 256 * 1024
 	assistantLLMMaxToolRounds    = 6
 	assistantLLMMalformedRetries = 2
-	localAssistantDialoguePrompt = "You are Tabura's local assistant. Available tools are declared in the request. Use native tool calls only when needed; otherwise answer directly. Keep replies brief. No markdown fences. No <think> tags."
+	localAssistantDialoguePrompt = "You are Tabura's local assistant. Available tools are declared in the request. Use native tool calls only when needed; otherwise answer directly. Default to plain text, not markdown, unless the user explicitly asks for structure, code, a table, or a list. Keep replies brief: for normal questions, answer in one short paragraph with 2-5 sentences. If the user asks a simple factual question, answer in 1-3 sentences. No markdown fences. No <think> tags."
 )
 
 func assistantLLMRequestTimeout() time.Duration {
