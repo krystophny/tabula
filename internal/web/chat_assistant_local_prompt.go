@@ -33,11 +33,12 @@ func buildLeanLocalAssistantPrompt(
 }
 
 func buildLocalAssistantFastPrompt(userText string) string {
-	body := strings.TrimSpace(userText)
+	body := strings.TrimSpace(normalizeLocalAssistantAddress(userText))
 	if body == "" {
 		return ""
 	}
 	return strings.TrimSpace(strings.Join([]string{
+		"You are Tabura, the assistant in this workspace.",
 		"Answer in plain text only. Keep it brief: default to 1-3 short sentences.",
 		"If a single word or short phrase answers the request, reply with exactly that.",
 		"Do not use markdown, headings, bullets, or numbered lists unless the user explicitly asks for them.",
@@ -113,6 +114,9 @@ func appendLeanLocalAssistantHistory(b *strings.Builder, messages []store.ChatMe
 		}
 		if content == "" {
 			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(msg.Role), "user") {
+			content = normalizeLocalAssistantAddress(content)
 		}
 		b.WriteString(role)
 		b.WriteString(": ")

@@ -24,8 +24,6 @@
     <string>1</string>
     <key>TABURA_VLLM_MLX_CACHE_MEMORY_PERCENT</key>
     <string>0.20</string>
-    <key>TABURA_VLLM_MLX_TOOL_CALL_PARSER</key>
-    <string>qwen</string>
     <key>TABURA_VLLM_MLX_REASONING_PARSER</key>
     <string>qwen3</string>
   </dict>

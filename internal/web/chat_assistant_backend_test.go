@@ -84,17 +84,9 @@ func TestParseLocalAssistantDecisionParsesNativeToolCalls(t *testing.T) {
 	}
 }
 
-func TestParseLocalAssistantDecisionParsesLegacyToolEnvelope(t *testing.T) {
+func TestParseLocalAssistantDecisionParsesJSONToolEnvelope(t *testing.T) {
 	decision, err := parseLocalAssistantDecision(localIntentLLMMessage{
-		Content: `<tool_call><function=system_action>
-<parameter=action>
-create_text_artifact
- </parameter>
-<parameter=params>
-{"title":"Tool Test","body":"Orbit Canvas"}
-</parameter>
-</function>
-</tool_call>`,
+		Content: `{"tool_calls":[{"name":"mcp__canvas_artifact_show","arguments":{"kind":"text","title":"Tool Test","markdown_or_text":"Orbit Canvas"}}]}`,
 	})
 	if err != nil {
 		t.Fatalf("parseLocalAssistantDecision() error: %v", err)
@@ -604,25 +596,8 @@ func TestRunAssistantTurnNonFastLocalUsesPrunedExplicitToolPromptForCanvasReques
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode llm payload: %v", err)
 		}
-		tools, _ := payload["tools"].([]any)
-		if len(tools) == 0 {
-			t.Fatal("canvas request should include tools")
-		}
-		names := map[string]bool{}
-		for _, item := range tools {
-			entry, _ := item.(map[string]any)
-			function, _ := entry["function"].(map[string]any)
-			names[strings.TrimSpace(strFromAny(function["name"]))] = true
-		}
-		for _, want := range []string{"shell", "canvas_show_text", "mcp__canvas_artifact_show", "mcp__temp_file_create"} {
-			if !names[want] {
-				t.Fatalf("canvas tool request missing %q in %#v", want, names)
-			}
-		}
-		for _, blocked := range []string{"mcp__mail_message_list", "action__toggle_silent"} {
-			if names[blocked] {
-				t.Fatalf("canvas tool request should not include %q in %#v", blocked, names)
-			}
+		if _, ok := payload["tools"]; ok {
+			t.Fatal("canvas request should not send OpenAI tool definitions")
 		}
 		messages, _ := payload["messages"].([]any)
 		system, _ := messages[0].(map[string]any)
@@ -634,6 +609,9 @@ func TestRunAssistantTurnNonFastLocalUsesPrunedExplicitToolPromptForCanvasReques
 		}
 		if strings.Contains(systemPrompt, "mcp__mail_message_list") {
 			t.Fatalf("system prompt should not include pruned mail tool: %q", systemPrompt)
+		}
+		if strings.Contains(systemPrompt, "action__toggle_silent") {
+			t.Fatalf("system prompt should not include unrelated status tool: %q", systemPrompt)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{{
@@ -885,21 +863,13 @@ func TestRunAssistantTurnLocalAssistantCompletesMultiToolLoop(t *testing.T) {
 			if got := intFromAny(payload["max_tokens"], -1); got != assistantLLMDirectMaxTokens {
 				t.Fatalf("initial tool-aware max_tokens = %d, want %d", got, assistantLLMDirectMaxTokens)
 			}
-			tools, _ := payload["tools"].([]any)
-			if len(tools) == 0 {
-				t.Fatal("initial tool-aware request missing tools")
+			if _, ok := payload["tools"]; ok {
+				t.Fatal("initial local request should not send OpenAI tool definitions")
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"choices": []map[string]any{{
 					"message": map[string]any{
-						"tool_calls": []map[string]any{{
-							"id":   "call-shell",
-							"type": "function",
-							"function": map[string]any{
-								"name":      "shell",
-								"arguments": `{"command":"printf 'shell-step'"}`,
-							},
-						}},
+						"content": `{"tool_calls":[{"name":"shell","arguments":{"command":"printf 'shell-step'"}}]}`,
 					},
 				}},
 			})
@@ -914,14 +884,7 @@ func TestRunAssistantTurnLocalAssistantCompletesMultiToolLoop(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"choices": []map[string]any{{
 					"message": map[string]any{
-						"tool_calls": []map[string]any{{
-							"id":   "call-mcp",
-							"type": "function",
-							"function": map[string]any{
-								"name":      "mcp__echo_status",
-								"arguments": `{"status":"ready"}`,
-							},
-						}},
+						"content": `{"tool_calls":[{"name":"mcp__echo_status","arguments":{"status":"ready"}}]}`,
 					},
 				}},
 			})
@@ -998,14 +961,7 @@ func TestRunAssistantTurnLocalAssistantRecoversMalformedToolCall(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"choices": []map[string]any{{
 					"message": map[string]any{
-						"tool_calls": []map[string]any{{
-							"id":   "call-bad",
-							"type": "function",
-							"function": map[string]any{
-								"name":      "shll",
-								"arguments": `{"command":"printf 'broken'"}`,
-							},
-						}},
+						"content": `{"tool_calls":[{"name":"shll","arguments":{"command":"printf 'broken'"}}]}`,
 					},
 				}},
 			})
@@ -1017,14 +973,7 @@ func TestRunAssistantTurnLocalAssistantRecoversMalformedToolCall(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"choices": []map[string]any{{
 					"message": map[string]any{
-						"tool_calls": []map[string]any{{
-							"id":   "call-shell",
-							"type": "function",
-							"function": map[string]any{
-								"name":      "shell",
-								"arguments": `{"command":"printf 'recovered'"}`,
-							},
-						}},
+						"content": `{"tool_calls":[{"name":"shell","arguments":{"command":"printf 'recovered'"}}]}`,
 					},
 				}},
 			})

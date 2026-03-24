@@ -76,6 +76,7 @@ func TestBuildLeanLocalAssistantPrompt_VoiceKeepsPlainShortSpeech(t *testing.T) 
 func TestBuildLocalAssistantFastPromptAddsShortPlainGuidance(t *testing.T) {
 	prompt := buildLocalAssistantFastPrompt("Reply with the single word ORBIT.")
 	for _, snippet := range []string{
+		"You are Tabura, the assistant in this workspace.",
 		"Answer in plain text only. Keep it brief: default to 1-3 short sentences.",
 		"If a single word or short phrase answers the request, reply with exactly that.",
 		"Do not use markdown, headings, bullets, or numbered lists unless the user explicitly asks for them.",
@@ -84,6 +85,16 @@ func TestBuildLocalAssistantFastPromptAddsShortPlainGuidance(t *testing.T) {
 		if !strings.Contains(prompt, snippet) {
 			t.Fatalf("fast prompt missing %q:\n%s", snippet, prompt)
 		}
+	}
+}
+
+func TestBuildLocalAssistantFastPromptStripsLeadingAssistantName(t *testing.T) {
+	prompt := buildLocalAssistantFastPrompt("Tabura, what's up")
+	if strings.Contains(strings.ToLower(prompt), "user request:\ntabura, what's up") {
+		t.Fatalf("fast prompt should strip leading assistant name:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "User request:\nwhat's up") {
+		t.Fatalf("fast prompt missing normalized request:\n%s", prompt)
 	}
 }
 

@@ -44,7 +44,17 @@ func annotateLocalAssistantSafetyStop(raw string) string {
 
 func localAssistantHiddenControlEnvelope(raw string) bool {
 	trimmed := strings.TrimSpace(raw)
-	return strings.HasPrefix(trimmed, "<tool_call>")
+	if trimmed == "" {
+		return false
+	}
+	if strings.Contains(trimmed, "<tool_call") || strings.Contains(trimmed, "<function=") || strings.Contains(trimmed, "<parameter=") {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		lower := strings.ToLower(trimmed)
+		return strings.Contains(lower, "\"tool_calls\"") || strings.Contains(lower, "\"function_call\"")
+	}
+	return false
 }
 
 func localAssistantVisibleStreamDelta(delta localIntentLLMStreamDelta, enableThinking bool) string {
@@ -172,7 +182,7 @@ func decodeLocalAssistantStreamingPayload(body io.Reader, enableThinking bool, o
 	return message, finishReason, nil
 }
 
-func (a *App) requestLocalAssistantCompletionWithConfig(ctx context.Context, messages []map[string]any, tools []map[string]any, toolChoice string, enableThinking bool, maxTokens int, onDelta func(fullText string, delta string)) (localIntentLLMMessage, error) {
+func (a *App) requestLocalAssistantCompletionWithConfig(ctx context.Context, messages []map[string]any, _ []map[string]any, _ string, enableThinking bool, maxTokens int, onDelta func(fullText string, delta string)) (localIntentLLMMessage, error) {
 	baseURL := a.assistantLLMBaseURL()
 	if baseURL == "" {
 		return localIntentLLMMessage{}, errLocalAssistantNotConfigured
@@ -189,10 +199,6 @@ func (a *App) requestLocalAssistantCompletionWithConfig(ctx context.Context, mes
 			"enable_thinking": enableThinking,
 		},
 		"messages": messages,
-	}
-	if len(tools) > 0 {
-		request["tools"] = tools
-		request["tool_choice"] = firstNonEmptyCursorText(strings.TrimSpace(toolChoice), "auto")
 	}
 	requestBody, _ := json.Marshal(request)
 	requestCtx, cancel := context.WithTimeout(ctx, assistantLLMRequestTimeout())

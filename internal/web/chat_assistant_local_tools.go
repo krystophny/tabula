@@ -112,9 +112,6 @@ func parseLocalAssistantDecision(message localIntentLLMMessage) (localAssistantD
 	if content == "" {
 		return localAssistantDecision{}, errors.New("assistant llm returned empty content")
 	}
-	if calls, ok := parseLegacyLocalAssistantToolCalls(content); ok {
-		return localAssistantDecision{ToolCalls: calls}, nil
-	}
 	if localAssistantUnsupportedControlEnvelope(content) {
 		return localAssistantDecision{}, errLocalAssistantUnsupportedResponse
 	}
@@ -145,164 +142,6 @@ func parseLocalAssistantDecision(message localIntentLLMMessage) (localAssistantD
 		return localAssistantDecision{}, errors.New("assistant emitted malformed tool JSON")
 	}
 	return localAssistantDecision{FinalText: content}, nil
-}
-
-func parseLegacyLocalAssistantToolCalls(raw string) ([]localAssistantToolCall, bool) {
-	trimmed := strings.TrimSpace(raw)
-	if !strings.Contains(trimmed, "<tool_call>") || !strings.Contains(trimmed, "</tool_call>") {
-		return nil, false
-	}
-	calls := []localAssistantToolCall{}
-	rest := trimmed
-	for {
-		start := strings.Index(rest, "<tool_call>")
-		if start < 0 {
-			break
-		}
-		rest = rest[start+len("<tool_call>"):]
-		end := strings.Index(rest, "</tool_call>")
-		if end < 0 {
-			return nil, false
-		}
-		call, ok := parseLegacyLocalAssistantToolCallBlock(rest[:end])
-		if !ok {
-			return nil, false
-		}
-		calls = append(calls, call)
-		rest = rest[end+len("</tool_call>"):]
-	}
-	return calls, len(calls) > 0
-}
-
-func parseLegacyLocalAssistantToolCallBlock(raw string) (localAssistantToolCall, bool) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return localAssistantToolCall{}, false
-	}
-	functionStart := strings.Index(trimmed, "<function=")
-	if functionStart < 0 {
-		return localAssistantToolCall{}, false
-	}
-	functionBody := trimmed[functionStart+len("<function="):]
-	functionEnd := strings.Index(functionBody, ">")
-	if functionEnd < 0 {
-		return localAssistantToolCall{}, false
-	}
-	name := strings.TrimSpace(functionBody[:functionEnd])
-	rest := functionBody[functionEnd+1:]
-	args := map[string]any{}
-	for {
-		paramStart := strings.Index(rest, "<parameter=")
-		if paramStart < 0 {
-			break
-		}
-		rest = rest[paramStart+len("<parameter="):]
-		paramEnd := strings.Index(rest, ">")
-		if paramEnd < 0 {
-			break
-		}
-		key := strings.TrimSpace(rest[:paramEnd])
-		if key == "" {
-			rest = rest[paramEnd+1:]
-			continue
-		}
-		rest = rest[paramEnd+1:]
-		nextParam := strings.Index(rest, "<parameter=")
-		nextFunction := strings.Index(rest, "</function>")
-		nextBoundary := len(rest)
-		if nextParam >= 0 && nextParam < nextBoundary {
-			nextBoundary = nextParam
-		}
-		if nextFunction >= 0 && nextFunction < nextBoundary {
-			nextBoundary = nextFunction
-		}
-		value := rest[:nextBoundary]
-		if closeParam := strings.Index(value, "</parameter>"); closeParam >= 0 {
-			value = value[:closeParam]
-		}
-		value = strings.TrimSpace(value)
-		if value == "" {
-			args[key] = ""
-		} else if decoded, err := parseLocalAssistantToolArguments(value); err == nil {
-			args[key] = decoded
-		} else {
-			args[key] = value
-		}
-		rest = rest[nextBoundary:]
-	}
-	if strings.TrimSpace(name) == "" {
-		return localAssistantToolCall{}, false
-	}
-	return translateLegacyLocalAssistantToolCall(localAssistantToolCall{
-		ID:        randomToken(),
-		Name:      name,
-		Arguments: args,
-	}), true
-}
-
-func translateLegacyLocalAssistantToolCall(call localAssistantToolCall) localAssistantToolCall {
-	name := strings.ToLower(strings.TrimSpace(call.Name))
-	switch name {
-	case "system", "action":
-		name = "system_action"
-	case "mcp_tool", "mcp_call":
-		name = "mcp"
-	}
-	switch name {
-	case "mcp":
-		toolName := strings.TrimSpace(fmt.Sprint(call.Arguments["name"]))
-		if toolName == "" || toolName == "<nil>" {
-			return call
-		}
-		toolArgs, err := parseLocalAssistantToolArguments(call.Arguments["arguments"])
-		if err != nil {
-			return call
-		}
-		call.Name = localAssistantMCPModelName(toolName)
-		call.Arguments = toolArgs
-		return call
-	case "system_action":
-		action := strings.ToLower(strings.TrimSpace(fmt.Sprint(call.Arguments["action"])))
-		if action == "create_text_artifact" {
-			params, err := parseLocalAssistantToolArguments(call.Arguments["params"])
-			if err != nil {
-				return call
-			}
-			body := ""
-			for _, key := range []string{"markdown_or_text", "body", "text", "content"} {
-				value := strings.TrimSpace(fmt.Sprint(params[key]))
-				if value == "" || value == "<nil>" {
-					continue
-				}
-				body = value
-				break
-			}
-			call.Name = localAssistantMCPModelName("canvas_artifact_show")
-			call.Arguments = map[string]any{
-				"kind":             "text",
-				"title":            strings.TrimSpace(fmt.Sprint(params["title"])),
-				"markdown_or_text": body,
-			}
-			return call
-		}
-		if normalized := normalizeSystemActionName(action); normalized != "" {
-			params, err := parseLocalAssistantToolArguments(call.Arguments["params"])
-			if err != nil {
-				params = map[string]any{}
-			}
-			for key, value := range call.Arguments {
-				if key == "action" || key == "params" {
-					continue
-				}
-				params[key] = value
-			}
-			call.Name = "action__" + normalized
-			call.Arguments = params
-			return call
-		}
-	}
-	call.Name = name
-	return call
 }
 
 func decodeLocalAssistantEnvelope(raw string) (any, bool) {
@@ -457,22 +296,15 @@ func parseLocalAssistantToolArguments(raw any) (map[string]any, error) {
 }
 
 func localAssistantAssistantMessage(message localIntentLLMMessage) map[string]any {
-	payload := map[string]any{
+	return map[string]any{
 		"role":    "assistant",
 		"content": strings.TrimSpace(message.Content),
 	}
-	if len(message.ToolCalls) > 0 {
-		payload["tool_calls"] = message.ToolCalls
-	}
-	if message.FunctionCall != nil && strings.TrimSpace(message.FunctionCall.Name) != "" {
-		payload["function_call"] = message.FunctionCall
-	}
-	return payload
 }
 
 func localAssistantRepairPrompt(err error) string {
 	return fmt.Sprintf(
-		"Your last tool response could not be executed: %s. Return a valid tool call or a valid {\"final\":\"...\"} object now.",
+		"Your last response could not be executed: %s. Reply with either plain text or JSON only in the form {\"tool_calls\":[{\"name\":\"tool_name\",\"arguments\":{...}}]}.",
 		strings.TrimSpace(err.Error()),
 	)
 }
@@ -570,6 +402,7 @@ func (a *App) runLocalAssistantToolLoop(ctx context.Context, req *assistantTurnR
 	if toolText == "" {
 		toolText = strings.TrimSpace(req.promptText)
 	}
+	toolText = normalizeLocalAssistantAddress(toolText)
 	catalog := localAssistantToolCatalog{
 		Definitions: nil,
 		ToolsByName: map[string]localAssistantExecutableTool{},
@@ -611,10 +444,10 @@ func (a *App) runLocalAssistantToolLoop(ctx context.Context, req *assistantTurnR
 			maxTokens = assistantLLMToolMaxTokens
 		}
 		emitDelta := onDelta
-		if round > 0 {
+		if round > 0 || len(catalog.Definitions) > 0 {
 			emitDelta = nil
 		}
-		message, err := a.requestLocalAssistantCompletionWithConfig(ctx, conversation, catalog.Definitions, "auto", enableThinking, maxTokens, emitDelta)
+		message, err := a.requestLocalAssistantCompletionWithConfig(ctx, conversation, nil, "", enableThinking, maxTokens, emitDelta)
 		if err != nil {
 			return "", err
 		}

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -118,6 +120,44 @@ func TestLocalSystemActionTurnHandlesDirectCanvasTextShortcut(t *testing.T) {
 	payload := waitForWSJSONMessageType(t, clientConn, 2*time.Second, "assistant_output")
 	if got := strFromAny(payload["message"]); got != "DONE" {
 		t.Fatalf("assistant message = %q, want DONE", got)
+	}
+}
+
+func TestLocalSystemActionTurnHandlesDirectDirectoryListShortcut(t *testing.T) {
+	app := newAuthedTestApp(t)
+	app.assistantMode = assistantModeLocal
+	app.assistantLLMURL = ""
+
+	project, err := app.ensureDefaultWorkspace()
+	if err != nil {
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(project.DirPath, "alpha.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatalf("write alpha.txt: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(project.DirPath, "docs"), 0o755); err != nil {
+		t.Fatalf("mkdir docs: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
+	if err != nil {
+		t.Fatalf("GetOrCreateChatSession: %v", err)
+	}
+
+	conn, clientConn, cleanup := newParticipantTestWSConn(t)
+	defer cleanup()
+	app.hub.registerChat(session.ID, conn)
+	defer app.hub.unregisterChat(session.ID, conn)
+
+	prompt := "What files are in this directory?"
+	if _, err := app.store.AddChatMessage(session.ID, "user", prompt, prompt, "text"); err != nil {
+		t.Fatalf("AddChatMessage: %v", err)
+	}
+	app.runAssistantTurn(session.ID, dequeuedTurn{outputMode: turnOutputModeVoice})
+
+	payload := waitForWSJSONMessageType(t, clientConn, 2*time.Second, "assistant_output")
+	message := strFromAny(payload["message"])
+	if !strings.Contains(message, "alpha.txt") || !strings.Contains(message, "docs/") {
+		t.Fatalf("assistant message = %q, want directory entries", message)
 	}
 }
 

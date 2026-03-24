@@ -1,6 +1,9 @@
 package web
 
 import (
+	"fmt"
+	"os"
+	"slices"
 	"strings"
 
 	"github.com/krystophny/tabura/internal/store"
@@ -10,6 +13,25 @@ type localDirectCanvasTextAction struct {
 	Title string
 	Body  string
 	Reply string
+}
+
+func normalizeLocalAssistantAddress(text string) string {
+	clean := strings.TrimSpace(text)
+	if clean == "" {
+		return ""
+	}
+	lower := strings.ToLower(clean)
+	for _, name := range []string{"tabura", "sloppy", "computer"} {
+		for _, prefix := range []string{name + " ", name + ",", name + ":", name + ";"} {
+			if strings.HasPrefix(lower, prefix) {
+				return strings.TrimSpace(clean[len(prefix):])
+			}
+		}
+		if lower == name {
+			return ""
+		}
+	}
+	return clean
 }
 
 func parseLocalDirectCanvasTextAction(text string) (localDirectCanvasTextAction, bool) {
@@ -72,6 +94,76 @@ func parseLocalDirectReplyWord(text string) string {
 
 func normalizeLocalShortcutText(text string) string {
 	return strings.Trim(strings.TrimSpace(text), `"'`)
+}
+
+func wantsDirectLocalDirectoryList(text string) bool {
+	lower := strings.ToLower(normalizeLocalAssistantAddress(text))
+	if lower == "" {
+		return false
+	}
+	phrases := []string{
+		"what files are in this directory",
+		"what files are in the directory",
+		"what files are in this folder",
+		"what's in this directory",
+		"whats in this directory",
+		"list files in this directory",
+		"list the files in this directory",
+		"show files in this directory",
+	}
+	for _, phrase := range phrases {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func buildLocalDirectoryListReply(dir string) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", err
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() {
+			name += "/"
+		}
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	if len(names) == 0 {
+		return "This directory is empty.", nil
+	}
+	const limit = 40
+	if len(names) > limit {
+		return fmt.Sprintf(
+			"Top-level entries in this directory: %s. ... (%d more)",
+			strings.Join(names[:limit], ", "),
+			len(names)-limit,
+		), nil
+	}
+	return "Top-level entries in this directory: " + strings.Join(names, ", "), nil
+}
+
+func (a *App) tryRunDirectLocalDirectoryListTurn(sessionID string, session store.ChatSession, userText string) (string, bool) {
+	if a == nil || !wantsDirectLocalDirectoryList(userText) {
+		return "", false
+	}
+	workspace, err := a.effectiveWorkspaceForChatSession(session)
+	if err != nil {
+		return "", false
+	}
+	dir := strings.TrimSpace(workspace.DirPath)
+	if dir == "" {
+		return "", false
+	}
+	reply, err := buildLocalDirectoryListReply(dir)
+	if err != nil {
+		return "", false
+	}
+	return reply, true
 }
 
 func (a *App) tryRunDirectLocalCanvasTextTurn(sessionID string, session store.ChatSession, userText string) (string, []map[string]interface{}, bool) {

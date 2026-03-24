@@ -545,6 +545,8 @@ func buildLocalAssistantToolPolicy(catalog localAssistantToolCatalog) string {
 	}
 	lines := []string{
 		"Tool policy:",
+		"- If you need a tool, respond with JSON only: {\"tool_calls\":[{\"name\":\"tool_name\",\"arguments\":{...}}]}. Do not add prose before or after that JSON.",
+		"- After tool results are returned, either respond with another tool_calls JSON object or with the final plain-text answer.",
 		"- For files or code in the active workspace, use shell or the matching mcp__ tool instead of guessing.",
 		"- For plain text that should appear on canvas, use canvas_show_text. Do not describe a plan and do not search for an existing artifact first.",
 		"- For show, open, display, or draw requests on canvas, use tools. For generated canvas content, create a file with mcp__temp_file_create and show it with mcp__canvas_artifact_show.",
