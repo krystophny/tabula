@@ -1849,6 +1849,47 @@ test.describe('mobile viewport', () => {
     expect(ttsCalls[0]!.text).toContain('Here is your answer');
   });
 
+  test('streaming assistant deltas start TTS before final output and preserve spacing', async ({ page }) => {
+    await clearLog(page);
+    await page.evaluate(() => {
+      const app = (window as any)._taburaApp;
+      const s = app.getState();
+      s.lastInputOrigin = 'voice';
+      s.voiceAwaitingTurn = true;
+    });
+
+    await injectChatEvent(page, { type: 'turn_started', turn_id: 'stream-tts-1' });
+    await injectChatEvent(page, {
+      type: 'assistant_message',
+      turn_id: 'stream-tts-1',
+      message: 'Hello there. How',
+      delta: 'Hello there. How',
+    });
+    await injectChatEvent(page, {
+      type: 'assistant_message',
+      turn_id: 'stream-tts-1',
+      message: 'Hello there. How are you?',
+      delta: ' are you?',
+    });
+
+    await expect.poll(async () => {
+      const log = await getLog(page);
+      return log.filter(e => e.type === 'tts').map(e => e.text);
+    }).toEqual(['Hello there.', 'How are you?']);
+
+    await injectChatEvent(page, {
+      type: 'assistant_output',
+      role: 'assistant',
+      turn_id: 'stream-tts-1',
+      message: 'Hello there. How are you?',
+      auto_canvas: false,
+    });
+
+    const finalLog = await getLog(page);
+    const finalTTSCalls = finalLog.filter(e => e.type === 'tts').map(e => e.text);
+    expect(finalTTSCalls).toEqual(['Hello there.', 'How are you?']);
+  });
+
   test('touch tap stop during working mode cancels turn', async ({ page }) => {
     await clearLog(page);
 

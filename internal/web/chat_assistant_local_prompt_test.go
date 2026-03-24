@@ -76,3 +76,19 @@ func TestAnnotateLocalAssistantSafetyStop(t *testing.T) {
 		t.Fatalf("annotateLocalAssistantSafetyStop() = %q", got)
 	}
 }
+
+func TestLocalAssistantVisibleStreamDeltaPreservesSpaces(t *testing.T) {
+	chunks := []localIntentLLMStreamDelta{
+		{Reasoning: "Yes,"},
+		{Reasoning: " everything"},
+		{Reasoning: " is"},
+		{Reasoning: " fine!"},
+	}
+	var got string
+	for _, chunk := range chunks {
+		got += localAssistantVisibleStreamDelta(chunk, false)
+	}
+	if got != "Yes, everything is fine!" {
+		t.Fatalf("streamed text = %q", got)
+	}
+}

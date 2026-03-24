@@ -658,8 +658,8 @@ export function ensureTTSChunker() {
 
 export function queueTTSDiff(diffText) {
   if (!canSpeakTTS()) return;
-  const fragment = String(diffText || '').trim();
-  if (!fragment) return;
+  const fragment = String(diffText || '');
+  if (fragment === '') return;
   ensureTTSChunker();
   ttsSentenceChunker.add(fragment);
 }

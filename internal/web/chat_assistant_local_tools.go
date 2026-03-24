@@ -405,19 +405,21 @@ func localAssistantRepairPrompt(err error) string {
 }
 
 func stripLocalAssistantThinkingPreamble(raw string) string {
-	clean := strings.TrimSpace(raw)
-	if clean == "" {
-		return clean
+	if strings.TrimSpace(raw) == "" {
+		return ""
 	}
+	clean := strings.TrimLeft(raw, " \t\r\n")
 	if strings.HasPrefix(clean, "<think>") {
 		if idx := strings.Index(clean, "</think>"); idx >= 0 {
 			clean = clean[idx+len("</think>"):]
 		}
+		return strings.TrimLeft(clean, " \t\r\n")
 	}
 	if strings.HasPrefix(clean, "</think>") {
 		clean = clean[len("</think>"):]
+		return strings.TrimLeft(clean, " \t\r\n")
 	}
-	return strings.TrimSpace(clean)
+	return raw
 }
 
 func (a *App) runLocalAssistantToolLoop(ctx context.Context, req *assistantTurnRequest, prompt string, visual *chatVisualAttachment, onDelta func(fullText string, delta string)) (string, error) {

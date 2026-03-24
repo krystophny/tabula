@@ -677,18 +677,18 @@ export function handleChatEvent(payload) {
       updateAssistantRow(row, '_Working..._', true);
     }
 
-    // First non-empty response: start TTS as soon as a sentence is ready.
+    // Feed every streamed assistant delta into the sentence chunker so voice
+    // playback can start before the final assistant_output event.
     const trimmedMd = String(md || '').trim();
     const shouldSpeakStreaming = isVoiceOutputModePayload(payload) || (turnID ? state.voiceTurns.has(turnID) : false) || isVoiceTurn();
     if (trimmedMd && !state.turnFirstResponseShown) {
       state.turnFirstResponseShown = true;
-      if (shouldSpeakStreaming && canSpeakTTS()) {
-        const { ttsText, ttsLang } = extractTTSText(md);
-        const { ttsText: hintedDeltaText } = extractTTSText(String(payload.delta || ''));
-        if (ttsLang) setTTSSpeakLang(ttsLang);
-        const diff = computeTTSDiff(ttsText, hintedDeltaText);
-        queueTTSDiff(diff);
-      }
+    }
+    if (shouldSpeakStreaming && canSpeakTTS()) {
+      const { ttsText, ttsLang } = extractTTSText(md);
+      if (ttsLang) setTTSSpeakLang(ttsLang);
+      const diff = computeTTSDiff(ttsText);
+      queueTTSDiff(diff);
     }
 
     if (!isVoiceTurn()) hideOverlay();
@@ -727,9 +727,8 @@ export function handleChatEvent(payload) {
 
     if (shouldSpeakTurn && canSpeakTTS() && md.trim()) {
       const { ttsText, ttsLang } = extractTTSText(md);
-      const { ttsText: hintedDeltaText } = extractTTSText(String(payload.delta || ''));
       if (ttsLang) setTTSSpeakLang(ttsLang);
-      const diff = computeTTSDiff(ttsText, hintedDeltaText);
+      const diff = computeTTSDiff(ttsText);
       queueTTSDiff(diff);
     }
 

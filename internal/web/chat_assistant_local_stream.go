@@ -13,16 +13,25 @@ import (
 	"strings"
 )
 
+func firstNonEmptyLocalAssistantChunk(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func visibleLocalAssistantText(message localIntentLLMMessage, enableThinking bool) string {
-	content := stripLocalAssistantThinkingPreamble(strings.TrimSpace(message.Content))
+	content := strings.TrimSpace(stripLocalAssistantThinkingPreamble(message.Content))
 	if content != "" || enableThinking {
 		return content
 	}
-	fallback := firstNonEmptyCursorText(
-		strings.TrimSpace(message.ReasoningContent),
-		strings.TrimSpace(message.Reasoning),
+	fallback := firstNonEmptyLocalAssistantChunk(
+		message.ReasoningContent,
+		message.Reasoning,
 	)
-	return stripLocalAssistantThinkingPreamble(strings.TrimSpace(fallback))
+	return strings.TrimSpace(stripLocalAssistantThinkingPreamble(fallback))
 }
 
 func annotateLocalAssistantSafetyStop(raw string) string {
@@ -34,15 +43,15 @@ func annotateLocalAssistantSafetyStop(raw string) string {
 }
 
 func localAssistantVisibleStreamDelta(delta localIntentLLMStreamDelta, enableThinking bool) string {
-	content := stripLocalAssistantThinkingPreamble(strings.TrimSpace(delta.Content))
+	content := stripLocalAssistantThinkingPreamble(delta.Content)
 	if content != "" || enableThinking {
 		return content
 	}
-	fallback := firstNonEmptyCursorText(
-		strings.TrimSpace(delta.ReasoningContent),
-		strings.TrimSpace(delta.Reasoning),
+	fallback := firstNonEmptyLocalAssistantChunk(
+		delta.ReasoningContent,
+		delta.Reasoning,
 	)
-	return stripLocalAssistantThinkingPreamble(strings.TrimSpace(fallback))
+	return stripLocalAssistantThinkingPreamble(fallback)
 }
 
 func accumulateLocalAssistantToolDelta(calls map[int]*localAssistantLLMToolCall, delta localAssistantLLMToolCallDelta) {
