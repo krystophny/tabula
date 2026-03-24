@@ -20,12 +20,21 @@ wait_for_command() {
   fail "$description"
 }
 
+poll_command() {
+  local attempts="$1"
+  shift
+  local try
+  for ((try = 1; try <= attempts; try++)); do
+    if "$@" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 local_intent_runtime_live() {
-  python3 - <<'PY' >/dev/null 2>&1
-import socket
-sock = socket.create_connection(("127.0.0.1", 8081), timeout=3)
-sock.close()
-PY
+  curl -fsS --max-time 3 http://127.0.0.1:8081/health >/dev/null
 }
 
 latest_workspace_epoch() {
@@ -66,6 +75,12 @@ maybe_sync_live_runtime() {
       'Tabura web server did not come back on :8420 after restart' \
       30 \
       curl -fsS --max-time 3 http://127.0.0.1:8420/api/setup
+    if launchctl list io.tabura.llm >/dev/null 2>&1; then
+      wait_for_command \
+        'Local intent runtime did not come back on :8081 after restart' \
+        30 \
+        local_intent_runtime_live
+    fi
     return
   else
     local started_at started_epoch latest_epoch
@@ -84,6 +99,12 @@ maybe_sync_live_runtime() {
       'Tabura web server did not come back on :8420 after restart' \
       30 \
       curl -fsS --max-time 3 http://127.0.0.1:8420/api/setup
+    if systemctl --user is-active --quiet tabura-llm.service; then
+      wait_for_command \
+        'Local intent runtime did not come back on :8081 after restart' \
+        30 \
+        local_intent_runtime_live
+    fi
   fi
 }
 
@@ -105,7 +126,7 @@ curl -fsS --max-time 3 -o /dev/null -w '' \
 curl -fsS --max-time 3 http://127.0.0.1:8427/healthz >/dev/null \
   || fail 'voxtype STT not running on :8427'
 
-if wait_for_command 'Local intent runtime probe timed out on :8081' 5 local_intent_runtime_live >/dev/null 2>&1; then
+if poll_command 5 local_intent_runtime_live; then
   printf 'Local intent runtime detected on :8081.\n'
 else
   printf 'Local intent runtime not detected on :8081; continuing with live runtime defaults.\n'
