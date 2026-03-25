@@ -338,7 +338,7 @@ test('dialogue tap starts local capture with the tapped cursor context', async (
   });
 });
 
-test('meeting taps stay inert and do not start prompt capture', async ({ page }) => {
+test('meeting taps start direct capture without dispatching canvas cursor prompts', async ({ page }) => {
   await setLiveMode(page, 'meeting');
   await renderTestArtifact(page);
   await clearLog(page);
@@ -354,7 +354,7 @@ test('meeting taps stay inert and do not start prompt capture', async ({ page })
   await page.waitForTimeout(120);
 
   const log = await getLog(page);
-  expect(log.some((entry) => entry.type === 'recorder' && entry.action === 'start')).toBe(false);
+  expect(log.some((entry) => entry.type === 'recorder' && entry.action === 'start')).toBe(true);
   expect(log.some((entry) => entry.type === 'canvas_position')).toBe(false);
 });
 
@@ -412,7 +412,7 @@ test('request_position in prompt tool starts a local capture instead of streamin
   });
 });
 
-test('meeting image taps do not dispatch canvas cursor prompts', async ({ page }) => {
+test('meeting image taps start direct capture without dispatching canvas cursor prompts', async ({ page }) => {
   await setLiveMode(page, 'meeting');
   await renderImageArtifactMock(page);
   await clearLog(page);
@@ -427,10 +427,10 @@ test('meeting image taps do not dispatch canvas cursor prompts', async ({ page }
   await page.waitForTimeout(200);
   const log = await getLog(page);
   expect(log.some((entry) => entry.type === 'canvas_position')).toBe(false);
-  expect(log.some((entry) => entry.type === 'recorder' && entry.action === 'start')).toBe(false);
+  expect(log.some((entry) => entry.type === 'recorder' && entry.action === 'start')).toBe(true);
 });
 
-test('pdf meeting taps do not dispatch canvas cursor prompts', async ({ page }) => {
+test('pdf meeting taps start direct capture without dispatching canvas cursor prompts', async ({ page }) => {
   await setLiveMode(page, 'meeting');
   await renderPdfArtifactMock(page);
   await clearLog(page);
@@ -441,7 +441,7 @@ test('pdf meeting taps do not dispatch canvas cursor prompts', async ({ page }) 
   await page.waitForTimeout(200);
   const log = await getLog(page);
   expect(log.some((entry) => entry.type === 'canvas_position')).toBe(false);
-  expect(log.some((entry) => entry.type === 'recorder' && entry.action === 'start')).toBe(false);
+  expect(log.some((entry) => entry.type === 'recorder' && entry.action === 'start')).toBe(true);
 });
 
 test('markdown image paths are rewritten through the canvas file proxy', async ({ page }) => {

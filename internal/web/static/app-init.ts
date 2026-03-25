@@ -379,16 +379,6 @@ export function bindUi() {
         void handleStopAction();
         return;
       }
-      const liveSessionPointerMode = state.liveSessionActive
-        && state.liveSessionMode === LIVE_SESSION_MODE_MEETING;
-      if (liveSessionPointerMode) {
-        if (isUiStopGestureActive()) {
-          void handleStopAction();
-          return;
-        }
-        updateAssistantActivityIndicator();
-        return;
-      }
       const requestedPositionPrompt = String(state.requestedPositionPrompt || '').trim();
       let tapAnchor = null;
       if (requestedPositionPrompt) {
@@ -404,6 +394,25 @@ export function bindUi() {
         pinCursorAnchor(x, y, tapAnchor);
         state.requestedPositionPrompt = '';
         updateAssistantActivityIndicator();
+      }
+      const meetingLiveSession = state.liveSessionActive
+        && state.liveSessionMode === LIVE_SESSION_MODE_MEETING;
+      if (meetingLiveSession) {
+        if (isUiStopGestureActive()) {
+          void handleStopAction();
+          return;
+        }
+        if (prefersTextComposer() && state.hasArtifact && createPdfStickyNoteAt(x, y)) return;
+        if (isVoiceInteractionTarget(target, x, y)) return;
+        const sel = window.getSelection();
+        if (sel && !sel.isCollapsed) return;
+        rememberMousePosition(x, y);
+        if (isRecording()) {
+          void stopVoiceCaptureAndSend();
+          return;
+        }
+        void beginVoiceCaptureFromPoint(x, y, tapAnchor);
+        return;
       }
       if (isLiveSessionListenActive()) {
         if (isVoiceInteractionTarget(target, x, y)) return;

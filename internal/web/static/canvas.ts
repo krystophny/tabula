@@ -812,8 +812,6 @@ export function renderCanvas(event) {
       previousArtifactTitle = nextState.previousArtifactTitle;
     }
     hydrateVisualTextArtifactImages(e.text, String(event?.path || '').trim(), currentCanvasSessionID());
-    renderCanvasArtifactActions(e.text, event);
-    renderCanvasApprovalActions(e.text, event);
     const textKey = canvasEventPageKey(event);
     const keepIndex = canvasPageState.kind === 'text' && canvasPageState.key === textKey
       ? canvasPageState.pageIndex
@@ -823,6 +821,10 @@ export function renderCanvas(event) {
     canvasPageState.textPages = paginated.pages;
     canvasPageState.textMeta = paginated.meta;
     canvasPageState.pageCount = paginated.pages.length;
+    canvasPageState.textPages.forEach((page) => {
+      renderCanvasArtifactActions(page, event);
+      renderCanvasApprovalActions(page, event);
+    });
     renderTextPageAt(e.text, keepIndex);
     dispatchCanvasRendered(event);
   } else if (event.kind === 'email_draft') {

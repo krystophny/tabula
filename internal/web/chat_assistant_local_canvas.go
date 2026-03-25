@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -17,7 +18,7 @@ func localAssistantCanvasContentRequiredPrompt() string {
 }
 
 func localAssistantCanvasDiagramRequiredPrompt() string {
-	return "Reply with only a readable ASCII diagram for the canvas. Do not return a title alone. Use at least 8 non-empty lines or an equally rich boxed flowchart with multiple connected stages. Include connectors such as |, ->, or boxed steps, and label the main components or phases."
+	return "Reply with only a readable ASCII diagram for the canvas. Do not return a title alone. Use at least 8 non-empty lines or an equally rich boxed flowchart with multiple connected stages. Put each stage on its own line. Use connectors such as ->, |, and v on separate lines so the flow stays legible. Label the main components or phases with factual, professional terms only."
 }
 
 func buildLocalAssistantCanvasGenerationPrompt(userText string, promptContext string, reasoningHint string) string {
@@ -36,9 +37,12 @@ func buildLocalAssistantCanvasGenerationPrompt(userText string, promptContext st
 			"This request needs a readable, information-rich ASCII diagram.",
 			"Prefer 8-14 non-empty lines unless a denser boxed flowchart is clearly better.",
 			"Include connectors such as ->, |, or boxed steps.",
+			"Put each stage or component on its own line.",
+			"Use vertical connectors on their own lines, for example a line with | followed by a line with v before the next stage.",
 			"Show the main stages, components, and at least one relationship, dependency, or flow between them.",
 			"Do not collapse the diagram into a tiny glossary or two-column word list.",
 			"Keep labels concrete and informative.",
+			"Use professional, factual labels only. No jokes, slang, filler, placeholders, or cute wording.",
 		)
 	}
 	if localAssistantCanvasHasStructuredDiagramText(promptContext) {
@@ -96,6 +100,21 @@ func localAssistantCanvasHasStructuredDiagramText(text string) bool {
 	return (strings.Count(lower, "->") >= 2 || strings.Count(lower, "|") >= 3) && strings.Count(lower, "[") >= 3
 }
 
+func localAssistantCanvasLooksLowQualityDiagram(text string) bool {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	if lower == "" {
+		return false
+	}
+	return containsAnyLocalAssistantKeyword(lower,
+		" fluff", "fluff ", "[fluff", " omg", "omg!", "thingy", "stuff", "foo", "bar", "lorem ipsum",
+		"witz", "lustig", "quatsch", "blah",
+	)
+}
+
+func localAssistantCanvasQualityRequiredPrompt() string {
+	return "Rewrite the ASCII diagram with professional, factual labels only. No jokes, slang, filler, placeholders, or cute wording. Keep the same subject, but make the terminology technical and precise."
+}
+
 func localAssistantCanvasRenderText(structured bool, text string) string {
 	clean := strings.TrimSpace(text)
 	if clean == "" {
@@ -104,10 +123,43 @@ func localAssistantCanvasRenderText(structured bool, text string) string {
 	if !structured && !localAssistantCanvasHasStructuredDiagramText(clean) {
 		return clean
 	}
-	if strings.HasPrefix(clean, "```") {
-		return clean
+	return clean
+}
+
+var (
+	localAssistantCanvasDiagramTitleSplitRe = regexp.MustCompile(`^([^\[\n]+?)\s*(\[[\s\S]*)$`)
+	localAssistantCanvasDiagramArrowJoinRe  = regexp.MustCompile(`\]\s*\|\s*v\s*\[`)
+	localAssistantCanvasDiagramArrowTailRe  = regexp.MustCompile(`\]\s*\|\s*v\b`)
+	localAssistantCanvasDiagramArrowHeadRe  = regexp.MustCompile(`\b\|\s*v\s*\[`)
+	localAssistantCanvasDiagramBracketRe    = regexp.MustCompile(`\]\s+\[`)
+)
+
+func normalizeLocalAssistantCanvasDiagramText(text string) string {
+	clean := strings.TrimSpace(stripCodeFence(text))
+	if clean == "" {
+		return ""
 	}
-	return "```text\n" + clean + "\n```"
+	clean = strings.ReplaceAll(clean, "\r\n", "\n")
+	clean = strings.ReplaceAll(clean, "\r", "\n")
+	clean = localAssistantCanvasDiagramArrowJoinRe.ReplaceAllString(clean, "]\n |\n v\n[")
+	clean = localAssistantCanvasDiagramArrowTailRe.ReplaceAllString(clean, "]\n |\n v")
+	clean = localAssistantCanvasDiagramArrowHeadRe.ReplaceAllString(clean, "|\n v\n[")
+	clean = localAssistantCanvasDiagramBracketRe.ReplaceAllString(clean, "]\n[")
+	clean = localAssistantCanvasDiagramTitleSplitRe.ReplaceAllString(clean, "$1\n$2")
+	lines := strings.Split(clean, "\n")
+	normalized := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed := strings.TrimRight(line, " \t")
+		if trimmed == "" {
+			if len(normalized) == 0 || normalized[len(normalized)-1] == "" {
+				continue
+			}
+			normalized = append(normalized, "")
+			continue
+		}
+		normalized = append(normalized, trimmed)
+	}
+	return strings.TrimSpace(strings.Join(normalized, "\n"))
 }
 
 func recoverLocalAssistantCanvasTextFromMalformedToolOutput(raw string) (string, bool) {
@@ -255,6 +307,9 @@ func (a *App) renderLocalAssistantCanvasText(ctx context.Context, state *localAs
 }
 
 func (a *App) handleLocalAssistantGeneratedCanvasText(ctx context.Context, state *localAssistantTurnState, structured bool, text string, retries int) (string, string, error) {
+	if structured {
+		text = normalizeLocalAssistantCanvasDiagramText(text)
+	}
 	if localAssistantLooksLikeCanvasPlanningText(text) {
 		if retries >= 1 {
 			return "", "", errors.New("local assistant answered with a canvas plan instead of canvas content")
@@ -266,6 +321,12 @@ func (a *App) handleLocalAssistantGeneratedCanvasText(ctx context.Context, state
 			return "", "", errors.New("local assistant answered without a usable multi-line canvas diagram")
 		}
 		return "", localAssistantCanvasDiagramRequiredPrompt(), nil
+	}
+	if structured && localAssistantCanvasLooksLowQualityDiagram(text) {
+		if retries >= 1 {
+			return "", "", errors.New("local assistant answered with low-quality diagram labels")
+		}
+		return "", localAssistantCanvasQualityRequiredPrompt(), nil
 	}
 	confirmation, err := a.renderLocalAssistantCanvasText(ctx, state, localAssistantCanvasRenderText(structured, text))
 	return confirmation, "", err

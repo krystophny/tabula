@@ -347,8 +347,6 @@ export async function startLiveSession(mode, ws) {
   capture.onStopped = (message) => {
     if (state.meetingCapture !== capture) return;
     resetMeetingState(capture);
-    state.active = false;
-    state.mode = '';
     notifyStateChange();
     if (typeof hooks.onMeetingStopped === 'function') {
       hooks.onMeetingStopped(message);
@@ -357,8 +355,6 @@ export async function startLiveSession(mode, ws) {
   capture.onError = (message) => {
     if (state.meetingCapture !== capture) return;
     resetMeetingState(capture);
-    state.active = false;
-    state.mode = '';
     notifyStateChange();
     if (typeof hooks.onMeetingError === 'function') {
       hooks.onMeetingError(message);
@@ -369,11 +365,9 @@ export async function startLiveSession(mode, ws) {
   if (!started) {
     if (state.meetingCapture === capture) {
       resetMeetingState(capture);
-      state.active = false;
-      state.mode = '';
       notifyStateChange();
     }
-    return false;
+    return true;
   }
   return true;
 }

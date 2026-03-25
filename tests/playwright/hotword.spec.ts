@@ -375,7 +375,7 @@ test('hotword stays active during TTS playback and can barge in', async ({ page 
     });
     return { recorderStarted, hotwordStopped, ttsPlaying, liveSessionMode };
   }, { timeout: 5_000 }).toEqual({
-    recorderStarted: false,
+    recorderStarted: true,
     hotwordStopped: true,
     ttsPlaying: false,
     liveSessionMode: 'meeting',
@@ -457,10 +457,30 @@ test('meeting mode hotword cancels the active turn without switching modes', asy
       ttsPlaying: await page.evaluate(() => Boolean((window as any)._taburaApp?.getState?.().ttsPlaying)),
     };
   }, { timeout: 5_000 }).toEqual({
-    recorderStarted: false,
+    recorderStarted: true,
     hotwordStopped: true,
     liveSessionMode: 'meeting',
     ttsPlaying: false,
+  });
+});
+
+test('meeting mode hotword starts direct capture when idle', async ({ page }) => {
+  await waitReady(page);
+  await setMeetingMode(page);
+  await waitForHotwordStart(page);
+  await clearLog(page);
+
+  await triggerHotword(page);
+
+  await expect.poll(async () => {
+    const log = await getLog(page);
+    return {
+      recorderStarted: log.some((entry) => entry.type === 'recorder' && entry.action === 'start'),
+      liveSessionMode: await page.evaluate(() => String((window as any)._taburaApp?.getState?.().liveSessionMode || '')),
+    };
+  }, { timeout: 5_000 }).toEqual({
+    recorderStarted: true,
+    liveSessionMode: 'meeting',
   });
 });
 

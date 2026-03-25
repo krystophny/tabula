@@ -26,6 +26,13 @@ async function injectChatEvent(page: Page, payload: Record<string, unknown>) {
   }, payload);
 }
 
+async function reloadInboxSidebar(page: Page) {
+  await page.evaluate(async () => {
+    const mod = await import('../../internal/web/static/app-item-sidebar-ui.js');
+    await mod.loadItemSidebarView('inbox');
+  });
+}
+
 test.describe('item inbox sidebar', () => {
   test('renders inbox metadata and exposes inbox count on the trigger', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -197,9 +204,10 @@ test.describe('item inbox sidebar', () => {
         waiting: [],
       });
     });
+    await reloadInboxSidebar(page);
 
     await page.locator('#edge-left-tap').click();
-    await page.locator('.sidebar-tab', { hasText: 'Inbox' }).click();
+    await expect(page.locator('.sidebar-tab.is-active')).toContainText('Inbox');
     await expect(page.locator('#pr-file-list')).toContainText('Review sidebar PR mapping');
     await page.locator('#pr-file-list .pr-file-item').first().click();
 

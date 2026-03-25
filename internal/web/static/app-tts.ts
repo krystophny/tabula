@@ -571,9 +571,12 @@ export function configureHotwordLifecycle() {
     if (isMeetingLiveSession()) {
       const mode = syncVoiceLifecycle('hotword-detected-meeting');
       if (mode !== VOICE_LIFECYCLE.IDLE && mode !== VOICE_LIFECYCLE.LISTENING) {
-        void handleStopAction();
+        void Promise.resolve(handleStopAction()).finally(() => {
+          beginConversationVoiceCapture('hotword');
+          updateAssistantActivityIndicator();
+        });
       } else {
-        requestHotwordSync();
+        beginConversationVoiceCapture('hotword');
         updateAssistantActivityIndicator();
       }
       return;

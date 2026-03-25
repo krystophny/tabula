@@ -14,7 +14,11 @@ async function waitReady(page: Page) {
 async function openInbox(page: Page) {
   await page.locator('#edge-left-tap').click();
   await expect(page.locator('#pr-file-pane')).toHaveClass(/is-open/);
-  await page.locator('.sidebar-tab', { hasText: 'Inbox' }).click();
+  const inboxTab = page.locator('.sidebar-tab', { hasText: 'Inbox' });
+  await expect(inboxTab).toBeVisible();
+  if (!(await inboxTab.getAttribute('class'))?.includes('is-active')) {
+    await inboxTab.click();
+  }
   await expect(page.locator('.sidebar-tab.is-active')).toContainText('Inbox');
 }
 

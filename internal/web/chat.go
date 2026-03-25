@@ -255,6 +255,7 @@ func (a *App) handleChatSessionCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	activeCanceled, queuedCanceled := a.cancelChatWork(sessionID)
+	a.waitForChatWorkDrain(sessionID, 3*time.Second)
 	writeJSON(w, map[string]interface{}{
 		"ok":              true,
 		"canceled":        activeCanceled + queuedCanceled,
@@ -415,6 +416,7 @@ func (a *App) executeChatCommand(sessionID, raw string) (map[string]interface{},
 		}, nil
 	case "stop", "cancel":
 		activeCanceled, queuedCanceled := a.cancelChatWork(sessionID)
+		a.waitForChatWorkDrain(sessionID, 3*time.Second)
 		canceled := activeCanceled + queuedCanceled
 		message := "No assistant turn is currently running."
 		if canceled > 0 {

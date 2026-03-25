@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -409,6 +410,98 @@ func TestHandleChatSessionCancelStopsActiveTurn(t *testing.T) {
 	}
 	if got := intFromAny(payload["queued_canceled"], -1); got != 0 {
 		t.Fatalf("expected queued_canceled=0, got %v", payload["queued_canceled"])
+	}
+}
+
+func TestExecuteChatCommandStopWaitsForTurnShutdown(t *testing.T) {
+	app, err := New(t.TempDir(), "", "", "", "", "", "", false)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = app.Shutdown(context.Background())
+	})
+
+	project, err := app.ensureDefaultWorkspace()
+	if err != nil {
+		t.Fatalf("ensure default project: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
+	if err != nil {
+		t.Fatalf("create chat session: %v", err)
+	}
+
+	done := make(chan struct{}, 1)
+	app.registerActiveChatTurn(session.ID, "run-stop-wait", func() {
+		go func() {
+			time.Sleep(80 * time.Millisecond)
+			app.unregisterActiveChatTurn(session.ID, "run-stop-wait")
+			done <- struct{}{}
+		}()
+	})
+
+	started := time.Now()
+	if _, err := app.executeChatCommand(session.ID, "/stop"); err != nil {
+		t.Fatalf("execute /stop: %v", err)
+	}
+	if elapsed := time.Since(started); elapsed < 60*time.Millisecond {
+		t.Fatalf("/stop returned too early: %v", elapsed)
+	}
+	select {
+	case <-done:
+	default:
+		t.Fatal("expected /stop to wait for turn shutdown")
+	}
+	if got := app.activeChatTurnCount(session.ID); got != 0 {
+		t.Fatalf("expected active chat turns to be drained, got %d", got)
+	}
+}
+
+func TestHandleChatSessionCancelWaitsForTurnShutdown(t *testing.T) {
+	app, err := New(t.TempDir(), "", "", "", "", "", "", false)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	if err := app.store.AddAuthSession("token-test"); err != nil {
+		t.Fatalf("add auth session: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = app.Shutdown(context.Background())
+	})
+
+	project, err := app.ensureDefaultWorkspace()
+	if err != nil {
+		t.Fatalf("ensure default project: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(project.WorkspacePath)
+	if err != nil {
+		t.Fatalf("create chat session: %v", err)
+	}
+
+	done := make(chan struct{}, 1)
+	app.registerActiveChatTurn(session.ID, "run-endpoint-wait", func() {
+		go func() {
+			time.Sleep(80 * time.Millisecond)
+			app.unregisterActiveChatTurn(session.ID, "run-endpoint-wait")
+			done <- struct{}{}
+		}()
+	})
+
+	started := time.Now()
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/chat/sessions/"+session.ID+"/cancel", map[string]any{})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if elapsed := time.Since(started); elapsed < 60*time.Millisecond {
+		t.Fatalf("/cancel returned too early: %v", elapsed)
+	}
+	select {
+	case <-done:
+	default:
+		t.Fatal("expected /cancel to wait for turn shutdown")
+	}
+	if got := app.activeChatTurnCount(session.ID); got != 0 {
+		t.Fatalf("expected active chat turns to be drained, got %d", got)
 	}
 }
 

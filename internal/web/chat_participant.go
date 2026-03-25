@@ -331,6 +331,24 @@ func (a *App) maybeTriggerCompanionResponse(participantSessionID string, seg sto
 		log.Printf("participant trigger chat session error: %v", err)
 		return
 	}
+	activeTurns := a.activeChatTurnCount(chatSession.ID)
+	queuedTurnCount := a.queuedChatTurnCount(chatSession.ID)
+	pendingCompanion, hasPendingCompanion := companionPendingTurn{}, false
+	if a.companionTurns != nil {
+		pendingCompanion, hasPendingCompanion = a.companionTurns.get(chatSession.ID)
+	}
+	if (activeTurns > 0 || queuedTurnCount > 0) && !(policy.Decision == companionInteractionDecisionInterrupt &&
+		hasPendingCompanion &&
+		pendingCompanion.participantSessionID == participantSessionID &&
+		pendingCompanion.segmentID == policy.PendingSegmentID) {
+		_ = a.store.AddParticipantEvent(
+			participantSessionID,
+			seg.ID,
+			"assistant_trigger_suppressed",
+			fmt.Sprintf(`{"chat_session_id":%q,"reason":"chat_turn_in_progress"}`, chatSession.ID),
+		)
+		return
+	}
 	if policy.Decision == companionInteractionDecisionInterrupt {
 		activeCanceled, queuedCanceled := a.cancelChatWork(chatSession.ID)
 		a.interruptCompanionPendingTurn(chatSession.ID, participantSessionID, policy.PendingSegmentID, activeCanceled, queuedCanceled)

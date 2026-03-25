@@ -171,10 +171,25 @@ func TestBuildLocalAssistantCanvasGenerationPromptRequestsRicherDiagram(t *testi
 	for _, snippet := range []string{
 		"This request needs a readable, information-rich ASCII diagram.",
 		"Prefer 8-14 non-empty lines unless a denser boxed flowchart is clearly better.",
+		"Put each stage or component on its own line.",
 		"Do not collapse the diagram into a tiny glossary or two-column word list.",
 	} {
 		if !strings.Contains(prompt, snippet) {
 			t.Fatalf("canvas prompt missing %q:\n%s", snippet, prompt)
+		}
+	}
+}
+
+func TestNormalizeLocalAssistantCanvasDiagramTextSplitsCollapsedStages(t *testing.T) {
+	raw := "Fusionsreaktor[Plasma Einschluss] | v\n[Heizsystem] | v[Turbine]"
+	got := normalizeLocalAssistantCanvasDiagramText(raw)
+	for _, snippet := range []string{
+		"Fusionsreaktor\n[Plasma Einschluss]",
+		"[Plasma Einschluss]\n |\n v\n[Heizsystem]",
+		"[Heizsystem]\n |\n v\n[Turbine]",
+	} {
+		if !strings.Contains(got, snippet) {
+			t.Fatalf("normalized diagram missing %q:\n%s", snippet, got)
 		}
 	}
 }

@@ -25,8 +25,9 @@ type chatTurnTracker struct {
 }
 
 type activeChatTurn struct {
-	runID  string
-	cancel context.CancelFunc
+	runID     string
+	cancel    context.CancelFunc
+	canceling bool
 }
 
 func newChatTurnTracker() *chatTurnTracker {
@@ -75,7 +76,12 @@ func (t *chatTurnTracker) cancelActive(sessionID string) int {
 		t.mu.Unlock()
 		return 0
 	}
-	delete(t.active, sessionID)
+	if current.canceling {
+		t.mu.Unlock()
+		return 0
+	}
+	current.canceling = true
+	t.active[sessionID] = current
 	t.mu.Unlock()
 	if current.cancel != nil {
 		current.cancel()
@@ -336,6 +342,19 @@ func (a *App) cancelChatWork(sessionID string) (int, int) {
 	return activeCanceled, queuedCanceled
 }
 
+func (a *App) waitForChatWorkDrain(sessionID string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for {
+		if a.activeChatTurnCount(sessionID) == 0 && a.queuedChatTurnCount(sessionID) == 0 {
+			return
+		}
+		if timeout > 0 && time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 type clearAllReport struct {
 	ActiveCanceled   int
 	QueuedCanceled   int
@@ -386,6 +405,7 @@ func (a *App) clearAllAgentsAndContexts(currentSessionID string) (clearAllReport
 	}
 	for _, session := range sessions {
 		activeCanceled, queuedCanceled := a.cancelChatWork(session.ID)
+		a.waitForChatWorkDrain(session.ID, 3*time.Second)
 		report.ActiveCanceled += activeCanceled
 		report.QueuedCanceled += queuedCanceled
 		report.TempFilesCleared += a.clearWorkspaceTempCanvasFiles(session.WorkspacePath)

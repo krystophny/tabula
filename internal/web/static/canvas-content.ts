@@ -102,6 +102,25 @@ function languageFromArtifactTitle(titleRaw) {
   return SOURCE_LANGUAGE_BY_EXT[ext] || '';
 }
 
+function unwrapWholeCodeFence(textRaw) {
+  const match = /^```[^\n]*\n([\s\S]*?)\n```$/.exec(String(textRaw || '').trim());
+  if (!match) return '';
+  return String(match[1] || '').trim();
+}
+
+function looksStructuredTextArtifact(textRaw) {
+  const direct = String(textRaw || '').trim();
+  const text = unwrapWholeCodeFence(direct) || direct;
+  if (!text) return false;
+  const nonEmptyLines = text.split('\n').filter((line) => line.trim().length > 0);
+  if (nonEmptyLines.length < 4) return false;
+  const connectorCount = (text.match(/->/g) || []).length
+    + (text.match(/\|/g) || []).length
+    + (text.match(/\bv\b/g) || []).length;
+  const bracketCount = (text.match(/\[/g) || []).length;
+  return connectorCount >= 3 || bracketCount >= 3;
+}
+
 function highlightCode(code, langRaw) {
   const input = String(code || '');
   const lang = normalizeLanguage(langRaw);
@@ -791,6 +810,7 @@ export function renderTextArtifact(root, event, previousState) {
   const isUnifiedDiff = textBody.startsWith('diff --git ') || textBody.includes('\ndiff --git ');
   const diffPreview = isUnifiedDiff ? buildMarkdownDiffPreview(textBody, nextArtifactTitle) : null;
   const sourceLang = languageFromArtifactTitle(nextArtifactTitle);
+  const structuredText = unwrapWholeCodeFence(textBody) || textBody;
 
   if (renderedHTML) {
     root.innerHTML = sanitizeHtml(renderedHTML);
@@ -807,6 +827,8 @@ export function renderTextArtifact(root, event, previousState) {
     root.innerHTML = sanitizeHtml(renderCodeBlock(textBody, 'diff'));
   } else if (sourceLang) {
     root.innerHTML = sanitizeHtml(renderHighlightedCodeBlock(textBody, sourceLang));
+  } else if (looksStructuredTextArtifact(textBody)) {
+    root.innerHTML = sanitizeHtml(renderCodeBlock(structuredText, 'plaintext'));
   } else {
     const { text: markdownText, stash: mathSegments } = extractMathSegments(textBody);
     const renderedMarkdownHtml = marked.parse(markdownText);

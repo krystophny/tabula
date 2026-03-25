@@ -65,4 +65,70 @@ test.describe('full browser voice flow @local-only', () => {
     const chatText = await page.locator('#chat-history').textContent();
     expect(chatText!.trim().length).toBeGreaterThan(3);
   });
+
+  test('meeting click -> real browser capture -> real STT -> transcript in chat while meeting stays active', async ({ page }) => {
+    await openLiveApp(page, sessionToken);
+
+    await waitForLiveAppReady(page);
+    await setLiveSession(page, 'meeting', true);
+    await setInteractionTool(page, 'prompt');
+    await page.waitForTimeout(1000);
+
+    await page.locator('#canvas-viewport').click({
+      position: { x: 420, y: 320 },
+      timeout: 10_000,
+    });
+
+    await expect.poll(async () => {
+      return page.evaluate(() => {
+        const app = (window as any)._taburaApp;
+        const state = app?.getState?.();
+        return {
+          lifecycle: String(state?.voiceLifecycle || ''),
+          mode: String(state?.liveSessionMode || ''),
+          active: Boolean(state?.liveSessionActive),
+        };
+      });
+    }, { timeout: 8_000 }).toEqual({
+      lifecycle: 'recording',
+      mode: 'meeting',
+      active: true,
+    });
+
+    await page.waitForTimeout(3_000);
+    const stillRecording = await page.evaluate(() => {
+      const app = (window as any)._taburaApp;
+      const state = app?.getState?.();
+      return String(state?.voiceLifecycle || '') === 'recording';
+    });
+    if (stillRecording) {
+      await page.locator('#canvas-viewport').click({
+        position: { x: 420, y: 320 },
+        timeout: 10_000,
+      });
+    }
+
+    await expect.poll(async () => {
+      const chatHistory = page.locator('#chat-history');
+      const text = await chatHistory.textContent();
+      return text && text.trim().length > 0;
+    }, {
+      message: 'Chat history should contain transcript from meeting voice input',
+      timeout: 45_000,
+      intervals: [1000],
+    }).toBeTruthy();
+
+    const stateAfter = await page.evaluate(() => {
+      const app = (window as any)._taburaApp;
+      const state = app?.getState?.();
+      return {
+        mode: String(state?.liveSessionMode || ''),
+        active: Boolean(state?.liveSessionActive),
+      };
+    });
+    expect(stateAfter).toEqual({
+      mode: 'meeting',
+      active: true,
+    });
+  });
 });
