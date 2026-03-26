@@ -331,13 +331,13 @@ func (a *App) maybeTriggerCompanionResponse(participantSessionID string, seg sto
 		log.Printf("participant trigger chat session error: %v", err)
 		return
 	}
-	activeTurns := a.activeChatTurnCount(chatSession.ID)
+	runningTurns := a.runningChatTurnCount(chatSession.ID)
 	queuedTurnCount := a.queuedChatTurnCount(chatSession.ID)
 	pendingCompanion, hasPendingCompanion := companionPendingTurn{}, false
 	if a.companionTurns != nil {
 		pendingCompanion, hasPendingCompanion = a.companionTurns.get(chatSession.ID)
 	}
-	if (activeTurns > 0 || queuedTurnCount > 0) && !(policy.Decision == companionInteractionDecisionInterrupt &&
+	if (runningTurns > 0 || queuedTurnCount > 0) && !(policy.Decision == companionInteractionDecisionInterrupt &&
 		hasPendingCompanion &&
 		pendingCompanion.participantSessionID == participantSessionID &&
 		pendingCompanion.segmentID == policy.PendingSegmentID) {

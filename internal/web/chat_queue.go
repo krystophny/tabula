@@ -124,6 +124,16 @@ func (t *chatTurnTracker) activeCount(sessionID string) int {
 	return 0
 }
 
+func (t *chatTurnTracker) runningCount(sessionID string) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	current, ok := t.active[sessionID]
+	if ok && !current.canceling {
+		return 1
+	}
+	return 0
+}
+
 func (t *chatTurnTracker) activeRunID(sessionID string) string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -444,6 +454,10 @@ func (a *App) clearAllAgentsAndContexts(currentSessionID string) (clearAllReport
 
 func (a *App) activeChatTurnCount(sessionID string) int {
 	return a.turns.activeCount(sessionID)
+}
+
+func (a *App) runningChatTurnCount(sessionID string) int {
+	return a.turns.runningCount(sessionID)
 }
 
 func (a *App) activeChatTurnID(sessionID string) string {
