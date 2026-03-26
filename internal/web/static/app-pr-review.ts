@@ -117,12 +117,7 @@ export function parseUnifiedDiffFiles(diffText) {
 }
 
 export function setPrReviewDrawerOpen(open) {
-  const canShowSidebar = state.prReviewMode
-    || Boolean(state.activeWorkspaceId)
-    || state.liveSessionActive
-    || state.liveSessionMode === LIVE_SESSION_MODE_DIALOGUE
-    || state.liveSessionMode === LIVE_SESSION_MODE_MEETING
-    || state.itemSidebarItems.length > 0;
+  const canShowSidebar = true;
   const shouldOpen = Boolean(open) && canShowSidebar;
   state.prReviewDrawerOpen = shouldOpen;
   document.body.classList.toggle('file-sidebar-open', shouldOpen);
