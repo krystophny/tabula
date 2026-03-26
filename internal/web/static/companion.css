@@ -205,16 +205,8 @@ body.black-screen #canvas-viewport {
   cursor: pointer;
 }
 
-body.black-screen #pr-file-pane.is-open {
-  position: fixed;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  margin-left: 0;
+#pr-file-pane.is-open {
   z-index: 500;
-  background: #111;
-  color: #f7f7f7;
-  border-right: 1px solid #333;
 }
 
 body.black-screen #canvas-text,
