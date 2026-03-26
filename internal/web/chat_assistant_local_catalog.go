@@ -470,9 +470,8 @@ func buildLocalAssistantToolPolicy(catalog localAssistantToolCatalog) string {
 	}
 	lines := []string{
 		"Tool protocol:",
-		"- Either answer with plain text or return JSON only in this exact form: {\"tool_calls\":[{\"name\":\"tool_name\",\"arguments\":{...}}]}.",
-		"- Never mix prose with tool JSON.",
-		"- After tool results arrive, either call another tool with the same JSON shape or answer plainly.",
+		"- Use the provided tools when needed, or answer with plain text.",
+		"- After tool results arrive, either call another tool or answer plainly.",
 	}
 	if catalog.Family == localAssistantToolFamilyCanvas {
 		lines = append(lines, localAssistantCanvasPolicyLines(catalog.RenderGeneratedText)...)

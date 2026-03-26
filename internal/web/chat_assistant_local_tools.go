@@ -281,15 +281,30 @@ func parseLocalAssistantToolArguments(raw any) (map[string]any, error) {
 }
 
 func localAssistantAssistantMessage(message localIntentLLMMessage) map[string]any {
-	return map[string]any{
+	msg := map[string]any{
 		"role":    "assistant",
 		"content": strings.TrimSpace(message.Content),
 	}
+	if len(message.ToolCalls) > 0 {
+		calls := make([]map[string]any, 0, len(message.ToolCalls))
+		for _, tc := range message.ToolCalls {
+			calls = append(calls, map[string]any{
+				"id":   tc.ID,
+				"type": "function",
+				"function": map[string]any{
+					"name":      tc.Function.Name,
+					"arguments": tc.Function.Arguments,
+				},
+			})
+		}
+		msg["tool_calls"] = calls
+	}
+	return msg
 }
 
 func localAssistantRepairPrompt(err error) string {
 	return fmt.Sprintf(
-		"Your last response could not be executed: %s. Reply with either plain text or JSON only in the exact form {\"tool_calls\":[{\"name\":\"tool_name\",\"arguments\":{...}}]}.",
+		"Your last response could not be executed: %s. Please try again using the available tools, or answer with plain text.",
 		strings.TrimSpace(err.Error()),
 	)
 }
@@ -366,7 +381,7 @@ func (a *App) runLocalAssistantToolLoop(ctx context.Context, req *assistantTurnR
 		if round > 0 || len(catalog.Definitions) > 0 {
 			emitDelta = nil
 		}
-		message, err := a.requestLocalAssistantCompletionWithConfig(ctx, conversation, nil, "", enableThinking, maxTokens, emitDelta)
+		message, err := a.requestLocalAssistantCompletionWithConfig(ctx, conversation, catalog.Definitions, "", enableThinking, maxTokens, emitDelta)
 		if err != nil {
 			return "", err
 		}

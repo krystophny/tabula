@@ -911,13 +911,21 @@ func TestRunAssistantTurnLocalAssistantCompletesMultiToolLoop(t *testing.T) {
 			if got := intFromAny(payload["max_tokens"], -1); got != assistantLLMToolPlanMaxTokens {
 				t.Fatalf("initial tool-aware max_tokens = %d, want %d", got, assistantLLMToolPlanMaxTokens)
 			}
-			if _, ok := payload["tools"]; ok {
-				t.Fatal("initial local request should not send OpenAI tool definitions")
+			if _, ok := payload["tools"]; !ok {
+				t.Fatal("initial local request should send OpenAI tool definitions")
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"choices": []map[string]any{{
 					"message": map[string]any{
-						"content": `{"tool_calls":[{"name":"mcp__item_list","arguments":{"limit":2}}]}`,
+						"content": "",
+						"tool_calls": []map[string]any{{
+							"id":   "call_1",
+							"type": "function",
+							"function": map[string]any{
+								"name":      "mcp__item_list",
+								"arguments": `{"limit":2}`,
+							},
+						}},
 					},
 				}},
 			})
@@ -976,6 +984,135 @@ func TestRunAssistantTurnLocalAssistantCompletesMultiToolLoop(t *testing.T) {
 	}
 	if intentCalls.Load() != 0 {
 		t.Fatalf("intent llm call count = %d, want 0", intentCalls.Load())
+	}
+}
+
+func TestRunAssistantTurnLocalAssistantCalendarToolCall(t *testing.T) {
+	var llmCalls atomic.Int32
+	mcpCalls := atomic.Int32{}
+
+	mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode mcp payload: %v", err)
+		}
+		switch strings.TrimSpace(strFromAny(payload["method"])) {
+		case "tools/list":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"result": map[string]any{
+					"tools": []map[string]any{{
+						"name":        "calendar_events",
+						"description": "List upcoming calendar events.",
+						"inputSchema": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"days": map[string]any{"type": "integer", "description": "Number of days to look ahead."},
+							},
+						},
+					}},
+				},
+			})
+		case "tools/call":
+			mcpCalls.Add(1)
+			params, _ := payload["params"].(map[string]any)
+			if got := strings.TrimSpace(strFromAny(params["name"])); got != "calendar_events" {
+				t.Fatalf("tool name = %q, want calendar_events", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"result": map[string]any{
+					"structuredContent": map[string]any{
+						"ok":     true,
+						"events": []map[string]any{{"title": "Team standup", "time": "09:00"}},
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected MCP method %q", payload["method"])
+		}
+	}))
+	defer mcp.Close()
+
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		call := llmCalls.Add(1)
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode llm payload: %v", err)
+		}
+		switch call {
+		case 1:
+			tools, ok := payload["tools"]
+			if !ok {
+				t.Fatal("calendar request should send OpenAI tool definitions")
+			}
+			toolList, _ := tools.([]any)
+			if len(toolList) == 0 {
+				t.Fatal("tool definitions should not be empty")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"choices": []map[string]any{{
+					"message": map[string]any{
+						"content": "",
+						"tool_calls": []map[string]any{{
+							"id":   "call_cal_1",
+							"type": "function",
+							"function": map[string]any{
+								"name":      "mcp__calendar_events",
+								"arguments": `{"days":1}`,
+							},
+						}},
+					},
+				}},
+			})
+		default:
+			messages, _ := payload["messages"].([]any)
+			last, _ := messages[len(messages)-1].(map[string]any)
+			if got := strings.TrimSpace(strFromAny(last["content"])); !strings.Contains(got, "Team standup") {
+				t.Fatalf("follow-up llm call missing calendar result: %q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"choices": []map[string]any{{
+					"message": map[string]any{
+						"content": "Morgen hast du um 09:00 Team standup.",
+					},
+				}},
+			})
+		}
+	}))
+	defer llm.Close()
+
+	app, err := New(t.TempDir(), "", mcp.URL, "", "", "", "", false)
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	app.assistantMode = assistantModeLocal
+	app.assistantLLMURL = llm.URL
+	t.Cleanup(func() {
+		_ = app.Shutdown(context.Background())
+	})
+
+	project, err := app.ensureDefaultWorkspace()
+	if err != nil {
+		t.Fatalf("ensureDefaultWorkspace: %v", err)
+	}
+	session, err := app.chatSessionForWorkspace(project)
+	if err != nil {
+		t.Fatalf("chatSessionForWorkspace: %v", err)
+	}
+	if _, err := app.store.AddChatMessage(session.ID, "user", "welche termine hab ich morgen?", "welche termine hab ich morgen?", "text"); err != nil {
+		t.Fatalf("AddChatMessage: %v", err)
+	}
+
+	app.runAssistantTurn(session.ID, dequeuedTurn{outputMode: turnOutputModeSilent})
+
+	got := latestAssistantMessage(t, app, session.ID)
+	if !strings.Contains(got, "Team standup") {
+		t.Fatalf("assistant message = %q, want something about Team standup", got)
+	}
+	if llmCalls.Load() != 2 {
+		t.Fatalf("llm call count = %d, want 2", llmCalls.Load())
+	}
+	if mcpCalls.Load() != 1 {
+		t.Fatalf("mcp call count = %d, want 1", mcpCalls.Load())
 	}
 }
 

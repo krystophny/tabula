@@ -10,7 +10,7 @@ import (
 )
 
 func localAssistantToolRequiredPrompt() string {
-	return "A tool is required for this request. Do not describe a plan, promise an action, or ask for permission. Return only the exact JSON tool call now, then give a short final reply after the tool result."
+	return "A tool is required for this request. Do not describe a plan, promise an action, or ask for permission. Call the appropriate tool now, then give a short final reply after the tool result."
 }
 
 func localAssistantCanvasContentRequiredPrompt() string {

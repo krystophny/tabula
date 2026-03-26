@@ -207,6 +207,7 @@ args=(
   -ngl "$NGL"
   --parallel "$PARALLEL"
   --no-webui
+  --jinja
 )
 
 if [ -n "$ALIAS" ]; then
