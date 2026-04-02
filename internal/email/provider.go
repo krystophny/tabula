@@ -92,6 +92,11 @@ type MessageActionProvider interface {
 	SupportsNativeDefer() bool
 }
 
+type RawMessageProvider interface {
+	ExportRawMessage(ctx context.Context, messageID string) ([]byte, error)
+	ImportRawMessage(ctx context.Context, mimeContent []byte, folder string) (string, error)
+}
+
 type SearchOptions struct {
 	Folder           string
 	Text             string

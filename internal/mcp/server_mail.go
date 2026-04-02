@@ -323,6 +323,78 @@ func mailActionResult(account store.ExternalAccount, action string, messageIDs [
 	return result
 }
 
+func (s *Server) mailMessageCopy(args map[string]interface{}) (map[string]interface{}, error) {
+	st, err := s.requireStore()
+	if err != nil {
+		return nil, err
+	}
+	sourceAccountID, err := int64Arg(args, "source_account_id")
+	if err != nil {
+		return nil, err
+	}
+	targetAccountID, err := int64Arg(args, "target_account_id")
+	if err != nil {
+		return nil, err
+	}
+	targetFolder := strings.TrimSpace(strArg(args, "target_folder"))
+	if targetFolder == "" {
+		return nil, fmt.Errorf("target_folder is required")
+	}
+	messageIDs := mailMessageIDsArg(args)
+	if len(messageIDs) == 0 {
+		return nil, fmt.Errorf("message_id or message_ids is required")
+	}
+	sourceAccount, err := st.GetExternalAccount(sourceAccountID)
+	if err != nil {
+		return nil, fmt.Errorf("source account: %w", err)
+	}
+	targetAccount, err := st.GetExternalAccount(targetAccountID)
+	if err != nil {
+		return nil, fmt.Errorf("target account: %w", err)
+	}
+	sourceProvider, err := s.emailProviderForAccount(context.Background(), sourceAccount)
+	if err != nil {
+		return nil, fmt.Errorf("source provider: %w", err)
+	}
+	defer sourceProvider.Close()
+	targetProvider, err := s.emailProviderForAccount(context.Background(), targetAccount)
+	if err != nil {
+		return nil, fmt.Errorf("target provider: %w", err)
+	}
+	defer targetProvider.Close()
+	sourceRaw, ok := sourceProvider.(email.RawMessageProvider)
+	if !ok {
+		return nil, fmt.Errorf("source account %q does not support raw message export", sourceAccount.AccountName)
+	}
+	targetRaw, ok := targetProvider.(email.RawMessageProvider)
+	if !ok {
+		return nil, fmt.Errorf("target account %q does not support raw message import", targetAccount.AccountName)
+	}
+	return copyRawMessages(context.Background(), sourceRaw, targetRaw, sourceAccount, targetAccount, messageIDs, targetFolder)
+}
+
+func copyRawMessages(ctx context.Context, source, target email.RawMessageProvider, sourceAccount, targetAccount store.ExternalAccount, messageIDs []string, targetFolder string) (map[string]interface{}, error) {
+	newIDs := make([]string, 0, len(messageIDs))
+	for _, messageID := range messageIDs {
+		mime, err := source.ExportRawMessage(ctx, messageID)
+		if err != nil {
+			return nil, fmt.Errorf("export message %s: %w", messageID, err)
+		}
+		newID, err := target.ImportRawMessage(ctx, mime, targetFolder)
+		if err != nil {
+			return nil, fmt.Errorf("import message %s: %w", messageID, err)
+		}
+		newIDs = append(newIDs, newID)
+	}
+	return map[string]interface{}{
+		"source_account": sourceAccount,
+		"target_account": targetAccount,
+		"target_folder":  targetFolder,
+		"copied":         len(newIDs),
+		"new_message_ids": newIDs,
+	}, nil
+}
+
 func (s *Server) mailServerFilterList(args map[string]interface{}) (map[string]interface{}, error) {
 	account, provider, err := s.mailProviderForTool(args)
 	if err != nil {

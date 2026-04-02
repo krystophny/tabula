@@ -36,6 +36,7 @@ var _ MessagePageProvider = (*ExchangeEWSMailProvider)(nil)
 var _ NamedFolderProvider = (*ExchangeEWSMailProvider)(nil)
 var _ ServerFilterProvider = (*ExchangeEWSMailProvider)(nil)
 var _ FolderIncrementalSyncProvider = (*ExchangeEWSMailProvider)(nil)
+var _ RawMessageProvider = (*ExchangeEWSMailProvider)(nil)
 
 func ExchangeEWSConfigFromMap(label string, config map[string]any) (ExchangeEWSConfig, error) {
 	cfg := ExchangeEWSConfig{Label: strings.TrimSpace(label)}
@@ -124,10 +125,55 @@ func (p *ExchangeEWSMailProvider) ListMessages(ctx context.Context, opts SearchO
 	needsFilter := exchangeEWSNeedsMessageFilter(opts)
 	restriction := exchangeEWSBuildRestriction(opts)
 	useServerFilter := restriction != nil
+	clientFilter := exchangeEWSNeedsClientFilter(opts)
 	found := make(map[string]struct{}, maxResults)
 	for _, folder := range candidates {
 		if useServerFilter {
-			page, err := p.client.FindMessagesRestricted(ctx, folder, 0, maxResults, *restriction)
+			offset := 0
+			for len(found) < maxResults {
+				page, err := p.client.FindMessagesRestricted(ctx, folder, offset, maxResults, *restriction)
+				if err != nil {
+					return nil, err
+				}
+				if len(page.ItemIDs) == 0 {
+					break
+				}
+				if clientFilter {
+					messages, err := p.client.GetMessages(ctx, page.ItemIDs)
+					if err != nil {
+						return nil, err
+					}
+					for _, message := range messages {
+						if matchExchangeEWSMessage(message, opts) {
+							found[message.ID] = struct{}{}
+							if len(found) >= maxResults {
+								return sortedMessageIDs(found), nil
+							}
+						}
+					}
+				} else {
+					for _, itemID := range page.ItemIDs {
+						if clean := strings.TrimSpace(itemID); clean != "" {
+							found[clean] = struct{}{}
+						}
+						if len(found) >= maxResults {
+							return sortedMessageIDs(found), nil
+						}
+					}
+				}
+				if page.IncludesLastPage {
+					break
+				}
+				nextOffset := page.NextOffset
+				if nextOffset <= offset {
+					nextOffset = offset + len(page.ItemIDs)
+				}
+				offset = nextOffset
+			}
+			continue
+		}
+		if !needsFilter {
+			page, err := p.client.FindMessages(ctx, folder, 0, maxResults)
 			if err != nil {
 				return nil, err
 			}
@@ -139,83 +185,37 @@ func (p *ExchangeEWSMailProvider) ListMessages(ctx context.Context, opts SearchO
 					return sortedMessageIDs(found), nil
 				}
 			}
-			if !page.IncludesLastPage {
-				offset := page.NextOffset
-				if offset <= 0 {
-					offset = len(page.ItemIDs)
-				}
-				for len(found) < maxResults {
-					nextPage, err := p.client.FindMessagesRestricted(ctx, folder, offset, maxResults, *restriction)
-					if err != nil {
-						return nil, err
-					}
-					if len(nextPage.ItemIDs) == 0 {
-						break
-					}
-					for _, itemID := range nextPage.ItemIDs {
-						if clean := strings.TrimSpace(itemID); clean != "" {
-							found[clean] = struct{}{}
-						}
-						if len(found) >= maxResults {
-							return sortedMessageIDs(found), nil
-						}
-					}
-					if nextPage.IncludesLastPage {
-						break
-					}
-					nextOffset := nextPage.NextOffset
-					if nextOffset <= offset {
-						nextOffset = offset + len(nextPage.ItemIDs)
-					}
-					offset = nextOffset
-				}
-			}
-			// Apply remaining client-side filters not handled by server
-			if exchangeEWSNeedsClientFilter(opts) {
-				ids := sortedMessageIDs(found)
-				messages, err := p.client.GetMessages(ctx, ids)
-				if err != nil {
-					return nil, err
-				}
-				found = make(map[string]struct{}, maxResults)
-				for _, message := range messages {
-					if matchExchangeEWSMessage(message, opts) {
-						found[message.ID] = struct{}{}
-					}
-				}
-			}
 			continue
 		}
-		page, err := p.client.FindMessages(ctx, folder, 0, maxResults)
-		if err != nil {
-			return nil, err
-		}
-		if len(page.ItemIDs) == 0 {
-			continue
-		}
-		if !needsFilter {
-			for _, itemID := range page.ItemIDs {
-				if clean := strings.TrimSpace(itemID); clean != "" {
-					found[clean] = struct{}{}
+		offset := 0
+		for len(found) < maxResults {
+			page, err := p.client.FindMessages(ctx, folder, offset, maxResults)
+			if err != nil {
+				return nil, err
+			}
+			if len(page.ItemIDs) == 0 {
+				break
+			}
+			messages, err := p.client.GetMessages(ctx, page.ItemIDs)
+			if err != nil {
+				return nil, err
+			}
+			for _, message := range messages {
+				if matchExchangeEWSMessage(message, opts) {
+					found[message.ID] = struct{}{}
+					if len(found) >= maxResults {
+						return sortedMessageIDs(found), nil
+					}
 				}
-				if len(found) >= maxResults {
-					return sortedMessageIDs(found), nil
-				}
 			}
-			continue
-		}
-		messages, err := p.client.GetMessages(ctx, page.ItemIDs)
-		if err != nil {
-			return nil, err
-		}
-		for _, message := range messages {
-			if !matchExchangeEWSMessage(message, opts) {
-				continue
+			if page.IncludesLastPage {
+				break
 			}
-			found[message.ID] = struct{}{}
-			if len(found) >= maxResults {
-				return sortedMessageIDs(found), nil
+			nextOffset := page.NextOffset
+			if nextOffset <= offset {
+				nextOffset = offset + len(page.ItemIDs)
 			}
+			offset = nextOffset
 		}
 	}
 	return sortedMessageIDs(found), nil
@@ -1221,6 +1221,22 @@ func snippetFromBody(body string) string {
 		return clean
 	}
 	return clean[:280]
+}
+
+func (p *ExchangeEWSMailProvider) ExportRawMessage(ctx context.Context, messageID string) ([]byte, error) {
+	return p.client.GetMessageMIME(ctx, messageID)
+}
+
+func (p *ExchangeEWSMailProvider) ImportRawMessage(ctx context.Context, mimeContent []byte, folder string) (string, error) {
+	folderRef, err := p.resolveFolderRef(ctx, folder)
+	if err != nil {
+		return "", err
+	}
+	msg, err := p.client.CreateMessageInFolder(ctx, folderRef, mimeContent, true)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(msg.ID), nil
 }
 
 func MarshalExchangeEWSConfig(cfg ExchangeEWSConfig) (map[string]any, error) {

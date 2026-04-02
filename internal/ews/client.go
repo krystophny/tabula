@@ -583,6 +583,61 @@ func (c *Client) GetAttachment(ctx context.Context, attachmentID string) (Attach
 	}, nil
 }
 
+func (c *Client) GetMessageMIME(ctx context.Context, id string) ([]byte, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, fmt.Errorf("message id is required")
+	}
+	var b strings.Builder
+	b.WriteString(`<m:GetItem><m:ItemShape>`)
+	b.WriteString(`<t:BaseShape>IdOnly</t:BaseShape>`)
+	b.WriteString(`<t:IncludeMimeContent>true</t:IncludeMimeContent>`)
+	b.WriteString(`</m:ItemShape><m:ItemIds>`)
+	b.WriteString(`<t:ItemId Id="`)
+	b.WriteString(xmlEscapeAttr(id))
+	b.WriteString(`" />`)
+	b.WriteString(`</m:ItemIds></m:GetItem>`)
+	var resp getItemEnvelope
+	if err := c.call(ctx, "GetItem", b.String(), &resp); err != nil {
+		return nil, err
+	}
+	items := resp.Body.GetItemResponse.ResponseMessages.Message.Items.Values
+	if len(items) == 0 {
+		return nil, fmt.Errorf("message %q not found", id)
+	}
+	encoded := strings.TrimSpace(items[0].MimeContent)
+	if encoded == "" {
+		return nil, fmt.Errorf("message %q has no MIME content", id)
+	}
+	return base64.StdEncoding.DecodeString(encoded)
+}
+
+func (c *Client) CreateMessageInFolder(ctx context.Context, folderID string, mime []byte, markRead bool) (Message, error) {
+	encoded := base64.StdEncoding.EncodeToString(mime)
+	var b strings.Builder
+	b.WriteString(`<m:CreateItem MessageDisposition="SaveOnly">`)
+	b.WriteString(`<m:SavedItemFolderId>`)
+	b.WriteString(folderIDXML(folderID))
+	b.WriteString(`</m:SavedItemFolderId>`)
+	b.WriteString(`<m:Items><t:Message>`)
+	b.WriteString(`<t:MimeContent CharacterSet="UTF-8">`)
+	b.WriteString(encoded)
+	b.WriteString(`</t:MimeContent>`)
+	if markRead {
+		b.WriteString(`<t:IsRead>true</t:IsRead>`)
+	}
+	b.WriteString(`</t:Message></m:Items></m:CreateItem>`)
+	var resp createItemEnvelope
+	if err := c.call(ctx, "CreateItem", b.String(), &resp); err != nil {
+		return Message{}, err
+	}
+	items := resp.Body.CreateItemResponse.ResponseMessages.Message.Items.Values
+	if len(items) == 0 {
+		return Message{}, fmt.Errorf("ews CreateItem returned no items")
+	}
+	return items[0].toMessage(), nil
+}
+
 func (c *Client) getMessages(ctx context.Context, ids []string, includeBody bool) ([]Message, error) {
 	ids = compactStrings(ids)
 	if len(ids) == 0 {
@@ -1570,6 +1625,7 @@ func (c syncChangeXML) ResolveItemID() string {
 type itemXML struct {
 	XMLName        xml.Name        `xml:""`
 	ItemID         folderIDXMLNode `xml:"ItemId"`
+	MimeContent    string          `xml:"MimeContent"`
 	ParentFolderID folderIDXMLNode `xml:"ParentFolderId"`
 	ConversationID struct {
 		ID string `xml:"Id,attr"`

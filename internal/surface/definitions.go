@@ -696,6 +696,33 @@ var MCPTools = []Tool{
 		},
 	},
 	{
+		Name:        "mail_message_copy",
+		Description: "Copy one or more messages from one mail account to another, preserving full message content including attachments.",
+		Required:    []string{"source_account_id", "target_account_id", "target_folder"},
+		Properties: map[string]ToolProperty{
+			"source_account_id": {
+				Type:        "integer",
+				Description: "External account id of the source mail account.",
+			},
+			"target_account_id": {
+				Type:        "integer",
+				Description: "External account id of the target mail account.",
+			},
+			"target_folder": {
+				Type:        "string",
+				Description: "Target folder or label name in the destination account.",
+			},
+			"message_id": {
+				Type:        "string",
+				Description: "Optional single provider message id. Use message_id or message_ids.",
+			},
+			"message_ids": {
+				Type:        "array",
+				Description: "Optional list of provider message ids. Use message_id or message_ids.",
+			},
+		},
+	},
+	{
 		Name:        "mail_server_filter_list",
 		Description: "List provider-native server filters or rules when supported.",
 		Required:    []string{"account_id"},

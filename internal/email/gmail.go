@@ -36,6 +36,7 @@ var _ MessageActionProvider = (*GmailClient)(nil)
 var _ MessagePageProvider = (*GmailClient)(nil)
 var _ NamedLabelProvider = (*GmailClient)(nil)
 var _ ServerFilterProvider = (*GmailClient)(nil)
+var _ RawMessageProvider = (*GmailClient)(nil)
 
 // NewGmail creates a new Gmail client.
 func NewGmail() (*GmailClient, error) {
@@ -833,6 +834,53 @@ func extractGmailBody(payload *gmail.MessagePart, mimeType string) *string {
 	}
 
 	return nil
+}
+
+func (c *GmailClient) ExportRawMessage(ctx context.Context, messageID string) ([]byte, error) {
+	service, err := c.getService(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c.rateLimiter.Acquire("messages.get")
+	msg, err := service.Users.Messages.Get("me", messageID).
+		Context(ctx).
+		Format("raw").
+		Do()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get raw message: %w", err)
+	}
+	return base64.URLEncoding.WithPadding(base64.NoPadding).DecodeString(msg.Raw)
+}
+
+func (c *GmailClient) ImportRawMessage(ctx context.Context, mimeContent []byte, folder string) (string, error) {
+	service, err := c.getService(ctx)
+	if err != nil {
+		return "", err
+	}
+	labelIDs := gmailImportLabelIDs(folder)
+	encoded := base64.URLEncoding.WithPadding(base64.NoPadding).EncodeToString(mimeContent)
+	c.rateLimiter.Acquire("messages.insert")
+	msg, err := service.Users.Messages.Insert("me", &gmail.Message{
+		Raw:      encoded,
+		LabelIds: labelIDs,
+	}).Context(ctx).Do()
+	if err != nil {
+		return "", fmt.Errorf("failed to insert message: %w", err)
+	}
+	return strings.TrimSpace(msg.Id), nil
+}
+
+func gmailImportLabelIDs(folder string) []string {
+	clean := strings.TrimSpace(folder)
+	if clean == "" {
+		return []string{"INBOX"}
+	}
+	upper := strings.ToUpper(clean)
+	switch upper {
+	case "INBOX", "SENT", "TRASH", "SPAM", "DRAFT", "STARRED", "IMPORTANT", "UNREAD":
+		return []string{upper}
+	}
+	return []string{clean}
 }
 
 func minInt64(a, b int64) int64 {
