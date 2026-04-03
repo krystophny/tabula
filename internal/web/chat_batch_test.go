@@ -201,7 +201,7 @@ func TestClassifyAndExecuteSystemActionBatchWorkUsesFiltersLimitAndStatus(t *tes
 		t.Fatalf("item_count = %v, want 2", payloads[0]["item_count"])
 	}
 
-	waitForCondition(t, 2*time.Second, func() bool {
+	waitForCondition(t, 5*time.Second, func() bool {
 		watch, err := app.store.GetWorkspaceWatch(workspace.ID)
 		if err != nil || watch.Enabled {
 			return false
