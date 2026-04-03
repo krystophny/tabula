@@ -16,6 +16,7 @@ tools/
 .env
 internal/web/static/vad/
 internal/web/static/*.js
+!internal/web/static/hotword-worklet.js
 internal/web/static/*.js.map
 platforms/android/.gradle/
 platforms/android/.kotlin/

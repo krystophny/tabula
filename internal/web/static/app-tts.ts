@@ -605,6 +605,7 @@ export async function initHotwordLifecycleWithOptions(options: Record<string, an
     if (state.hotwordEnabled) {
       setHotwordThreshold(0.3);
       configureHotwordLifecycle();
+      void ensureVADLoaded();
     } else {
       console.warn('Hotword unavailable; continuing without wake-word activation.');
     }

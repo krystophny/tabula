@@ -432,13 +432,20 @@ export function stopChatVoiceMedia(capture) {
 function handleVADNoSpeechTimeout(capture) {
   const triggerSource = normalizeVoiceTriggerSource(capture?.triggerSource);
   if (triggerSource === VOICE_TRIGGER_SOURCE_HOTWORD) {
+    // If the MediaRecorder captured audio chunks but the VAD missed the speech
+    // (e.g. speech occurred during VAD init), use the recorder chunks directly.
+    if (capture.chunks?.length > 0 && capture.recorderChunkBytes > 1000) {
+      emitDialogueServerDiagnostic('voice_capture_vad_no_speech_recorder_fallback', {
+        trigger_source: triggerSource, chunks: capture.chunks.length, bytes: capture.recorderChunkBytes });
+      capture._vadAutoStopped = true;
+      stopVADMonitor(capture);
+      void stopVoiceCaptureAndSend();
+      return;
+    }
     const hotwordAudio = buildHotwordVADAudio(new Float32Array(0));
     if (hotwordAudio) {
       emitDialogueServerDiagnostic('voice_capture_vad_no_speech', {
-        trigger_source: triggerSource,
-        pre_roll_samples: hotwordAudio.preRollSamples,
-        samples: hotwordAudio.totalSamples,
-      });
+        trigger_source: triggerSource, pre_roll_samples: hotwordAudio.preRollSamples, samples: hotwordAudio.totalSamples });
       capture._vadAudioBlob = hotwordAudio.blob;
       capture._vadAudioNormalization = hotwordAudio.normalization;
       capture._vadAudioDurationMs = hotwordAudio.durationMs;

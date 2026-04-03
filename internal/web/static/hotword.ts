@@ -315,14 +315,11 @@ async function processFrameQueue() {
   }
 }
 
-function onAudioProcess(event) {
+function onWorkletMessage(event) {
   if (!state.active) return;
-  const inputBuffer = event?.inputBuffer;
-  if (!inputBuffer || typeof inputBuffer.getChannelData !== 'function') return;
-  const channel = inputBuffer.getChannelData(0);
-  if (!(channel instanceof Float32Array) || channel.length === 0) return;
-
-  const resampled = resampleToTargetRate(channel, inputBuffer.sampleRate);
+  const data = event?.data;
+  if (!data || !(data.samples instanceof Float32Array) || data.samples.length === 0) return;
+  const resampled = resampleToTargetRate(data.samples, data.sampleRate);
   if (resampled.length === 0) return;
 
   writeRingBuffer(resampled);
@@ -337,10 +334,19 @@ function onAudioProcess(event) {
   void processFrameQueue();
 }
 
+let workletReady = false;
+let workletCtx = null;
+async function ensureWorklet(ctx) {
+  if (workletReady && workletCtx === ctx) return;
+  await ctx.audioWorklet.addModule(staticURL('hotword-worklet.js'));
+  workletReady = true;
+  workletCtx = ctx;
+}
+
 function stopOnnxNodes(options: Record<string, any> = {}) {
   const closeContext = Boolean(options && options.closeContext);
   if (state.processorNode) {
-    state.processorNode.onaudioprocess = null;
+    if (state.processorNode.port) state.processorNode.port.onmessage = null;
     try { state.processorNode.disconnect(); } catch (_) {}
     state.processorNode = null;
   }
@@ -361,7 +367,8 @@ function stopOnnxNodes(options: Record<string, any> = {}) {
   state.processingFrames = false;
   state.micStream = null;
   resetPipeline();
-  resetRingBuffer();
+  // Ring buffer is NOT reset here — getPreRollAudio() reads it after
+  // stopHotwordMonitor(). It gets reset on the next startOnnxMonitor().
 }
 
 async function startOnnxMonitor(stream) {
@@ -373,42 +380,27 @@ async function startOnnxMonitor(stream) {
   state.micStream = stream;
 
   let audioCtx = state.preferredAudioCtx;
-  if (!audioCtx || audioCtx.state === 'closed') {
-    audioCtx = state.audioCtx;
-  }
-  if (!audioCtx || audioCtx.state === 'closed') {
-    audioCtx = new AudioContextCtor();
-  }
-  const sourceNode = audioCtx.createMediaStreamSource(stream);
-  if (typeof audioCtx.createScriptProcessor !== 'function') {
-    throw new Error('ScriptProcessor is not supported in this browser');
-  }
+  if (!audioCtx || audioCtx.state === 'closed') audioCtx = state.audioCtx;
+  if (!audioCtx || audioCtx.state === 'closed') audioCtx = new AudioContextCtor();
 
-  const processorNode = audioCtx.createScriptProcessor(4096, 1, 1);
-  const sinkNode = typeof audioCtx.createGain === 'function' ? audioCtx.createGain() : null;
-  if (sinkNode) {
-    sinkNode.gain.value = 0;
-  }
+  if (audioCtx.state === 'suspended') await audioCtx.resume().catch(() => {});
 
-  processorNode.onaudioprocess = onAudioProcess;
-  sourceNode.connect(processorNode);
-  if (sinkNode) {
-    processorNode.connect(sinkNode);
-    sinkNode.connect(audioCtx.destination);
-  } else {
+  if (audioCtx.audioWorklet && typeof audioCtx.audioWorklet.addModule === 'function') {
+    await ensureWorklet(audioCtx);
+    const sourceNode = audioCtx.createMediaStreamSource(stream);
+    const processorNode = new AudioWorkletNode(audioCtx, 'hotword-processor');
+    processorNode.port.onmessage = onWorkletMessage;
+    sourceNode.connect(processorNode);
     processorNode.connect(audioCtx.destination);
+    state.audioCtx = audioCtx;
+    state.sourceNode = sourceNode;
+    state.processorNode = processorNode;
+    state.sinkNode = null;
+  } else {
+    // Fallback for browsers without AudioWorklet (should not happen in modern Chrome)
+    throw new Error('AudioWorklet is not supported in this browser');
   }
 
-  state.audioCtx = audioCtx;
-  state.sourceNode = sourceNode;
-  state.processorNode = processorNode;
-  state.sinkNode = sinkNode;
-
-  if (audioCtx.state === 'suspended' && typeof audioCtx.resume === 'function') {
-    await audioCtx.resume().catch(() => {});
-  }
-  // iOS can keep a new AudioContext suspended when resumed outside a direct
-  // gesture. Never report hotword as active unless audio is actually running.
   if (audioCtx.state !== 'running') {
     throw new Error(`hotword audio context is ${audioCtx.state || 'unavailable'}`);
   }
@@ -613,7 +605,7 @@ export function setHotwordAudioContext(audioCtx) {
     return;
   }
   const hasRequiredApis = typeof audioCtx.createMediaStreamSource === 'function'
-    && typeof audioCtx.createScriptProcessor === 'function';
+    && audioCtx.audioWorklet && typeof audioCtx.audioWorklet.addModule === 'function';
   if (!hasRequiredApis) return;
   state.preferredAudioCtx = audioCtx;
   state.audioCtx = audioCtx;
