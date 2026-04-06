@@ -206,7 +206,6 @@ args=(
   --threads "$THREADS"
   -ngl "$NGL"
   --parallel "$PARALLEL"
-  --no-webui
   --jinja
 )
 

@@ -12,6 +12,15 @@ assert_contains() {
     fi
 }
 
+assert_not_contains() {
+    local file="$1"
+    local pattern="$2"
+    if grep -Fq -- "$pattern" "$file"; then
+        echo "assertion failed: did not expect '$pattern' in $file" >&2
+        exit 1
+    fi
+}
+
 make_fake_cmd() {
     local dir="$1"
     local name="$2"
@@ -150,6 +159,11 @@ run_local_llm_profile_static_checks() {
     assert_contains "${ROOT_DIR}/scripts/setup-local-llm.sh" 'pip install --upgrade --force-reinstall --no-cache-dir --no-deps "$pip_target"'
     assert_contains "${ROOT_DIR}/scripts/setup-local-llm.sh" '--served-model-name "$ALIAS"'
     assert_contains "${ROOT_DIR}/scripts/setup-local-llm.sh" 'args+=(--continuous-batching)'
+    assert_contains "${ROOT_DIR}/scripts/setup-local-llm.sh" 'REASONING_BUDGET="$(default_if_empty "$REASONING_BUDGET" "-1")"'
+    assert_not_contains "${ROOT_DIR}/scripts/setup-local-llm.sh" '--no-webui'
+    assert_contains "${ROOT_DIR}/scripts/install.ps1" '--reasoning-budget -1 --jinja'
+    assert_not_contains "${ROOT_DIR}/scripts/install.ps1" '--reasoning-budget 0'
+    assert_not_contains "${ROOT_DIR}/scripts/install.ps1" '--no-webui'
     assert_contains "${ROOT_DIR}/scripts/install-slopshell-user-units.sh" 'sync_macos_vllm_source_checkout'
     assert_contains "${ROOT_DIR}/scripts/install.sh" 'sync_vllm_mlx_source_checkout'
     assert_contains "${ROOT_DIR}/deploy/launchd/io.slopshell.llm.plist" "SLOPSHELL_MLX_MODEL_REPO"

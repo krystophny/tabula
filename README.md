@@ -98,6 +98,7 @@ Slopshell runs as one Go runtime plus five local services:
 4. `slopshell-llm.service` (local OpenAI-compatible LLM endpoint at `127.0.0.1:8081/v1/chat/completions`)
    - macOS default: `vllm-mlx` serving `mlx-community/Qwen3.5-9B-4bit`
    - Linux default: `llama.cpp` serving Qwen3.5 9B GGUF
+   - keep the server reasoning-capable and WebUI-enabled; fast non-thinking paths disable thinking per request
 5. `slopshell-codex-app-server.service`
 
 Voice commit still uses built-in browser VAD auto-stop, then sends audio to the local voxtype STT service.
@@ -121,6 +122,7 @@ Why TTS remains an HTTP sidecar:
 - Intent/delegator request model id: `SLOPSHELL_INTENT_LLM_MODEL` (default `local`)
 - Intent/delegator profile selection: `SLOPSHELL_INTENT_LLM_PROFILE` (default `qwen3.5-9b`)
 - Intent/delegator profile options: `SLOPSHELL_INTENT_LLM_PROFILE_OPTIONS` (macOS unplugged default: `qwen3.5-9b`)
+- local fast requests that should skip chain-of-thought send `chat_template_kwargs.enable_thinking=false` instead of globally disabling reasoning on the server
 - Assistant routing mode: `SLOPSHELL_ASSISTANT_MODE` (macOS unplugged default: `local`)
 - Codex local profiles written by `scripts/setup-codex-mcp.sh`: `local` and `fast`
 - Codex local wrapper for current CLI builds: `scripts/codex-local.sh fast ...` or `scripts/codex-local.sh local ...`

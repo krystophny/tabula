@@ -43,6 +43,7 @@ Non-runtime notes:
 - No Helpy runtime is part of Slopshell.
 - `scripts/install.sh` wires `SLOPSHELL_INTENT_LLM_URL=http://127.0.0.1:8081` for `slopshell-web.service`.
 - Current Qwen profile defaults in code are `qwen3.5-9b` with profile options `qwen3.5-9b,qwen3.5-4b`.
+- Keep the local `:8081` runtime reasoning-capable and WebUI-enabled; `slopshell` disables thinking per request where the fast path needs it.
 - `scripts/install-slopshell-user-units.sh` enables the full local unit set, including `slopshell-llm.service` and `slopshell-stt.service`.
 
 ## Project Bootstrap Contract

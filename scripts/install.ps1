@@ -311,8 +311,8 @@ function Write-TaskFiles {
     $llmCmd = ""
     $codexLlmCmd = ""
     if ($llamaPath) {
-        $llmCmd = '"' + $llamaPath.Source + '" -m "' + (Join-Path $LlmModelDir "Qwen3.5-9B-Q4_K_M.gguf") + '" --host 127.0.0.1 --port 8081 -c 16384 --threads 4 -ngl 99 --parallel 2 --alias qwen3.5-9b --reasoning-budget 0 --no-webui'
-        $codexLlmCmd = '"' + $llamaPath.Source + '" --gpt-oss-120b-default --host 127.0.0.1 --port 8080 -c 32768 --threads 8 -ngl auto --parallel 1 --alias gpt-oss-120b --reasoning-budget -1 --no-webui'
+        $llmCmd = '"' + $llamaPath.Source + '" -m "' + (Join-Path $LlmModelDir "Qwen3.5-9B-Q4_K_M.gguf") + '" --host 127.0.0.1 --port 8081 -c 131072 --threads 4 -ngl 99 --parallel 1 --alias qwen3.5-9b --reasoning-budget -1 --jinja'
+        $codexLlmCmd = '"' + $llamaPath.Source + '" --gpt-oss-120b-default --host 127.0.0.1 --port 8080 -c 32768 --threads 8 -ngl auto --parallel 1 --alias gpt-oss-120b --reasoning-budget -1 --jinja'
     }
 
     if ($DryRun.IsPresent) {
