@@ -936,10 +936,7 @@ UNIT
 
     local effective_llm_url="${REUSE_LLM_URL:-http://127.0.0.1:8081}"
     local web_host="${SLOPSHELL_WEB_HOST:-127.0.0.1}"
-    local web_mcp_args="--mcp-host 127.0.0.1 --mcp-port 9420"
-    if have_cmd sloptools; then
-        web_mcp_args="--local-mcp-url http://127.0.0.1:9420/mcp"
-    fi
+    local web_mcp_args="--local-mcp-url http://127.0.0.1:9420/mcp"
 
     cat >"${systemd_dir}/slopshell-web.service" <<UNIT
 [Unit]

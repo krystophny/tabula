@@ -23,10 +23,10 @@ import (
 	"github.com/sloppy-org/slopshell/internal/extensions"
 	"github.com/sloppy-org/slopshell/internal/hotwordtrain"
 	"github.com/sloppy-org/slopshell/internal/ics"
+	"github.com/sloppy-org/slopshell/internal/llmcache"
 	"github.com/sloppy-org/slopshell/internal/modelprofile"
 	"github.com/sloppy-org/slopshell/internal/plugins"
 	"github.com/sloppy-org/slopshell/internal/serve"
-	"github.com/sloppy-org/slopshell/internal/llmcache"
 	"github.com/sloppy-org/slopshell/internal/store"
 )
 
@@ -390,10 +390,6 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		return nil, err
 	}
 	if err := app.ensurePromptContractFresh(); err != nil {
-		_ = s.Close()
-		return nil, err
-	}
-	if err := app.migrateLegacyExternalAccounts(); err != nil {
 		_ = s.Close()
 		return nil, err
 	}
