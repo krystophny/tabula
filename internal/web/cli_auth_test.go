@@ -45,6 +45,100 @@ func TestInitCLITokenWritesFileWithRestrictivePerms(t *testing.T) {
 	}
 }
 
+func TestInitCLITokenAdoptsExistingValidToken(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	t.Setenv(cliTokenEnv, "")
+
+	// First call mints a fresh token.
+	path1, token1, err := initCLIToken(dir)
+	if err != nil {
+		t.Fatalf("initCLIToken first call: %v", err)
+	}
+	statBefore, err := os.Stat(path1)
+	if err != nil {
+		t.Fatalf("stat after first init: %v", err)
+	}
+
+	// Second call (simulating a server restart or a second slopshell on the
+	// same path) must adopt the same token and not rewrite the file.
+	path2, token2, err := initCLIToken(dir)
+	if err != nil {
+		t.Fatalf("initCLIToken second call: %v", err)
+	}
+	if path2 != path1 {
+		t.Fatalf("path mismatch: %q vs %q", path2, path1)
+	}
+	if token2 != token1 {
+		t.Fatalf("token mismatch: adopt-if-exists should reuse the on-disk token (got %q, want %q)", token2, token1)
+	}
+	statAfter, err := os.Stat(path1)
+	if err != nil {
+		t.Fatalf("stat after second init: %v", err)
+	}
+	if !statAfter.ModTime().Equal(statBefore.ModTime()) {
+		t.Fatalf("token file was rewritten: mtime %v -> %v", statBefore.ModTime(), statAfter.ModTime())
+	}
+}
+
+func TestInitCLITokenReplacesMalformedFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	t.Setenv(cliTokenEnv, "")
+	path := filepath.Join(dir, "cli-token")
+	if err := os.WriteFile(path, []byte("not-hex garbage\n"), 0o600); err != nil {
+		t.Fatalf("seed malformed file: %v", err)
+	}
+	gotPath, token, err := initCLIToken(dir)
+	if err != nil {
+		t.Fatalf("initCLIToken: %v", err)
+	}
+	if gotPath != path {
+		t.Fatalf("path = %q, want %q", gotPath, path)
+	}
+	if len(token) != 64 {
+		t.Fatalf("token length = %d, want 64 hex chars", len(token))
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read token: %v", err)
+	}
+	if got := strings.TrimSpace(string(body)); got != token {
+		t.Fatalf("file not rewritten: contents = %q, want %q", got, token)
+	}
+}
+
+func TestInitCLITokenReplacesFileWithLoosePerms(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("perm semantics differ on windows")
+	}
+	dir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	t.Setenv(cliTokenEnv, "")
+	path := filepath.Join(dir, "cli-token")
+	fakeToken := strings.Repeat("a", 64)
+	if err := os.WriteFile(path, []byte(fakeToken+"\n"), 0o644); err != nil {
+		t.Fatalf("seed loose-perm file: %v", err)
+	}
+	gotPath, token, err := initCLIToken(dir)
+	if err != nil {
+		t.Fatalf("initCLIToken: %v", err)
+	}
+	if gotPath != path {
+		t.Fatalf("path = %q, want %q", gotPath, path)
+	}
+	if token == fakeToken {
+		t.Fatalf("expected fresh token, got the loose-perm file token")
+	}
+	stat, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if perm := stat.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("replaced file perms = %o, want 0600", perm)
+	}
+}
+
 func TestResolveCLITokenPathPrefersEnvThenXDGRuntimeDir(t *testing.T) {
 	t.Setenv(cliTokenEnv, "/custom/path/cli-token")
 	if got := resolveCLITokenPath("/data"); got != "/custom/path/cli-token" {
