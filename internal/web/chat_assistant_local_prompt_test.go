@@ -124,6 +124,26 @@ func TestStripLocalAssistantThinkingPreamble(t *testing.T) {
 	}
 }
 
+// TestStripLocalAssistantThinkingPreamblePreservesWhitespaceDelta guards
+// against a regression where whitespace-only streaming chunks (commonly a
+// lone "\n" emitted between bullets or paragraphs) were silently dropped,
+// collapsing the assistant's formatting downstream.
+func TestStripLocalAssistantThinkingPreamblePreservesWhitespaceDelta(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   string
+	}{
+		{"newline only", "\n"},
+		{"double newline", "\n\n"},
+		{"crlf", "\r\n"},
+		{"spaces", "   "},
+	} {
+		if got := stripLocalAssistantThinkingPreamble(tc.in); got != tc.in {
+			t.Fatalf("%s: stripLocalAssistantThinkingPreamble(%q) = %q, want %q", tc.name, tc.in, got, tc.in)
+		}
+	}
+}
+
 func TestAnnotateLocalAssistantSafetyStop(t *testing.T) {
 	if got := annotateLocalAssistantSafetyStop("Hello world from Slopshell"); got != "Hello world from Slopshell\n\n[stopped at local safety limit]" {
 		t.Fatalf("annotateLocalAssistantSafetyStop() = %q", got)

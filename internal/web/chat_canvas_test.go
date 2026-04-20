@@ -154,6 +154,14 @@ func TestAssistantFinalChatContent_RegularChatResponse(t *testing.T) {
 	}
 }
 
+func TestAssistantFinalChatContent_PreservesBulletNewlines(t *testing.T) {
+	input := "- First bullet.\n- Second bullet.\n- Third bullet."
+	markdown, _, _ := assistantFinalChatContent(input, false, false)
+	if markdown != input {
+		t.Fatalf("markdown = %q, want unchanged %q", markdown, input)
+	}
+}
+
 func TestBuildPromptFromHistory_IncludesSystemPrompt(t *testing.T) {
 	prompt := buildPromptFromHistory("chat", nil, nil)
 	if prompt == "" {

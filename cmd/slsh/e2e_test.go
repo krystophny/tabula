@@ -197,6 +197,9 @@ func setupE2EHarness(t *testing.T, llmURL, mcpURL string) (webBaseURL, tokenFile
 	workspaceDir := t.TempDir()
 	dataDir := t.TempDir()
 	t.Setenv("SLOPSHELL_BACKGROUND_SYNC", "off")
+	// Pin the CLI token path into the per-test tempdir so web.New does not
+	// overwrite a running system server's token at $XDG_RUNTIME_DIR/slopshell.
+	t.Setenv("SLOPSHELL_CLI_TOKEN_FILE", filepath.Join(dataDir, "cli-token"))
 
 	app, err := web.New(dataDir, workspaceDir, mcpURL, "", "", "", "", false)
 	if err != nil {

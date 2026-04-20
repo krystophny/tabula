@@ -18,16 +18,28 @@ const (
 )
 
 type renderer struct {
-	out       io.Writer
-	jsonMode  bool
-	colors    bool
-	lastTurn  string
-	lastDelta string
-	didFinal  bool
+	out         io.Writer
+	jsonMode    bool
+	colors      bool
+	lastTurn    string
+	lastPreview string
+	progressOn  bool
+	didFinal    bool
 }
 
 func newRenderer(out io.Writer, jsonMode, colors bool) *renderer {
 	return &renderer{out: out, jsonMode: jsonMode, colors: colors}
+}
+
+// finishProgressLine terminates any in-place progress preview so subsequent
+// output starts on a clean line.
+func (r *renderer) finishProgressLine() {
+	if !r.progressOn {
+		return
+	}
+	fmt.Fprintln(r.out)
+	r.progressOn = false
+	r.lastPreview = ""
 }
 
 func (r *renderer) colorize(color, text string) string {
@@ -52,12 +64,15 @@ func (r *renderer) writeEvent(event map[string]any) {
 
 func (r *renderer) onTurnStarted(event map[string]any) {
 	r.lastTurn, _ = event["turn_id"].(string)
-	r.lastDelta = ""
+	r.lastPreview = ""
 	if r.jsonMode {
 		r.writeEvent(event)
 		return
 	}
-	fmt.Fprintln(r.out, r.colorize(colorDim, "… thinking"))
+	r.finishProgressLine()
+	// Deliberately no visible marker here: the first assistant delta (or
+	// system_action / final) is the first thing the user should see. A
+	// "thinking" label is misleading when reasoning is disabled.
 }
 
 func (r *renderer) onAssistantDelta(event map[string]any) {
@@ -67,14 +82,24 @@ func (r *renderer) onAssistantDelta(event map[string]any) {
 	}
 	msg, _ := event["message"].(string)
 	trimmed := strings.TrimSpace(msg)
-	if trimmed == "" || trimmed == r.lastDelta {
+	if trimmed == "" {
 		return
 	}
-	r.lastDelta = trimmed
-	// Streaming deltas contain the running full message. Render as single
-	// carriage-return line so we don't spam output; for now keep it simple
-	// and just print a dim progress marker.
-	fmt.Fprintln(r.out, r.colorize(colorGray, "   "+previewLine(trimmed, 120)))
+	preview := previewLine(trimmed, 120)
+	if preview == r.lastPreview {
+		return
+	}
+	r.lastPreview = preview
+	line := "   " + preview
+	if r.colors {
+		// Overwrite the current progress line in place so streaming growth
+		// shows up as a single evolving preview instead of spamming the
+		// terminal with near-duplicate lines.
+		fmt.Fprint(r.out, "\r\x1b[2K"+r.colorize(colorGray, line))
+		r.progressOn = true
+		return
+	}
+	fmt.Fprintln(r.out, r.colorize(colorGray, line))
 }
 
 func (r *renderer) onAssistantFinal(event map[string]any) {
@@ -85,6 +110,7 @@ func (r *renderer) onAssistantFinal(event map[string]any) {
 		r.writeEvent(event)
 		return
 	}
+	r.finishProgressLine()
 	if trimmed == "" {
 		return
 	}
@@ -96,6 +122,7 @@ func (r *renderer) onSystemAction(event map[string]any) {
 		r.writeEvent(event)
 		return
 	}
+	r.finishProgressLine()
 	action, _ := event["action"].(map[string]any)
 	name := "(unknown)"
 	if action != nil {
@@ -122,7 +149,18 @@ func (r *renderer) onRenderChat(event map[string]any) {
 	if trimmed == "" {
 		return
 	}
-	fmt.Fprintln(r.out, r.colorize(colorGray, "   "+previewLine(trimmed, 120)))
+	preview := previewLine(trimmed, 120)
+	if preview == r.lastPreview {
+		return
+	}
+	r.lastPreview = preview
+	line := "   " + preview
+	if r.colors {
+		fmt.Fprint(r.out, "\r\x1b[2K"+r.colorize(colorGray, line))
+		r.progressOn = true
+		return
+	}
+	fmt.Fprintln(r.out, r.colorize(colorGray, line))
 }
 
 func (r *renderer) onChatCleared(event map[string]any) {
@@ -130,6 +168,7 @@ func (r *renderer) onChatCleared(event map[string]any) {
 		r.writeEvent(event)
 		return
 	}
+	r.finishProgressLine()
 	fmt.Fprintln(r.out, r.colorize(colorDim, "chat cleared"))
 }
 
@@ -138,6 +177,7 @@ func (r *renderer) onChatCompacted(event map[string]any) {
 		r.writeEvent(event)
 		return
 	}
+	r.finishProgressLine()
 	fmt.Fprintln(r.out, r.colorize(colorDim, "thread compacted"))
 }
 

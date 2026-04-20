@@ -427,7 +427,7 @@ func (a *App) runLocalAssistantToolLoop(ctx context.Context, req *assistantTurnR
 				}
 				return confirmation, nil
 			}
-			if toolRequired && !toolExecuted && toolPlanRetries == 0 {
+			if toolRequired && !toolExecuted && toolPlanRetries < assistantLLMToolPlanRetries {
 				toolPlanRetries++
 				conversation = append(conversation, localAssistantAssistantMessage(message))
 				conversation = append(conversation, map[string]any{
@@ -436,9 +436,9 @@ func (a *App) runLocalAssistantToolLoop(ctx context.Context, req *assistantTurnR
 				})
 				continue
 			}
-			if toolRequired && !toolExecuted {
-				return "", errors.New("local assistant answered without calling the required tool")
-			}
+			// Local model refused to call a tool after retries. Surface its
+			// text answer rather than failing the turn; the user still gets
+			// something useful and can re-ask with an explicit instruction.
 			return text, nil
 		}
 		if len(decision.ToolCalls) == 0 {

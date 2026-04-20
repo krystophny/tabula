@@ -309,6 +309,7 @@ func (c *chatClient) consumeTurn(ctx context.Context, ws *websocket.Conn, render
 		for {
 			_, data, err := ws.ReadMessage()
 			if err != nil {
+				renderer.finishProgressLine()
 				if turnSeen && finalText != "" {
 					doneCh <- finalText
 					return
@@ -352,9 +353,11 @@ func (c *chatClient) consumeTurn(ctx context.Context, ws *websocket.Conn, render
 				renderer.onRenderChat(event)
 			case "error":
 				msg, _ := event["error"].(string)
+				renderer.finishProgressLine()
 				errCh <- fmt.Errorf("%w: %s", errAssistantError, strings.TrimSpace(msg))
 				return
 			case "turn_cancelled":
+				renderer.finishProgressLine()
 				errCh <- errors.New("turn cancelled")
 				return
 			case "chat_cleared":
