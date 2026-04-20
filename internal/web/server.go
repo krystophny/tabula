@@ -66,6 +66,7 @@ type App struct {
 	dataDir                       string
 	localProjectDir               string
 	localMCPURL                   string
+	webMCPURL                     string
 	appServerURL                  string
 	appServerModel                string
 	appServerSparkReasoningEffort string
@@ -205,6 +206,10 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 	if strings.EqualFold(resolvedAssistantLLMModel, "off") {
 		resolvedAssistantLLMModel = ""
 	}
+	resolvedWebMCPURL := strings.TrimSpace(os.Getenv("SLOPSHELL_WEB_MCP_URL"))
+	if strings.EqualFold(resolvedWebMCPURL, "off") {
+		resolvedWebMCPURL = ""
+	}
 	resolvedIntentLLMURL := strings.TrimSpace(os.Getenv("SLOPSHELL_INTENT_LLM_URL"))
 	if strings.EqualFold(resolvedIntentLLMURL, "off") {
 		resolvedIntentLLMURL = ""
@@ -307,6 +312,7 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 		dataDir:                       dataDir,
 		localProjectDir:               localProjectDir,
 		localMCPURL:                   localMCPURL,
+		webMCPURL:                     resolvedWebMCPURL,
 		appServerURL:                  appServerURL,
 		appServerModel:                resolvedModel,
 		appServerSparkReasoningEffort: resolvedSparkReasoningEffort,

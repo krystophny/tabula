@@ -8,11 +8,12 @@ import (
 )
 
 type turnRoutingDirectives struct {
-	ModelAlias       string
-	ReasoningEffort  string
-	SearchRequested  bool
-	PromptText       string
-	DirectiveApplied bool
+	ModelAlias         string
+	ModelAliasExplicit bool
+	ReasoningEffort    string
+	SearchRequested    bool
+	PromptText         string
+	DirectiveApplied   bool
 }
 
 type directivePattern struct {
@@ -76,18 +77,15 @@ func parseTurnRoutingDirectives(text string) turnRoutingDirectives {
 		}
 		if pattern.alias != "" {
 			directives.ModelAlias = pattern.alias
+			directives.ModelAliasExplicit = true
 		}
 		if pattern.effort != "" {
 			directives.ReasoningEffort = pattern.effort
 		}
 		working = pattern.regex.ReplaceAllString(working, " ")
 	}
-	if directives.ModelAlias == "" && directives.SearchRequested {
-		directives.ModelAlias = modelprofile.AliasSpark
-	}
-	if directives.ModelAlias == "" && currentInfoCuePattern.MatchString(original) {
+	if !directives.ModelAliasExplicit && currentInfoCuePattern.MatchString(original) {
 		directives.SearchRequested = true
-		directives.ModelAlias = modelprofile.AliasSpark
 	}
 	cleaned := strings.Join(strings.Fields(working), " ")
 	cleaned = strings.TrimSpace(strings.Trim(cleaned, ",:;-"))

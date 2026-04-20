@@ -50,7 +50,18 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 	}
 	baseProfile = a.appServerProfileForChatSession(session, baseProfile)
 	turnProfile = a.appServerProfileForChatSession(session, turnProfile)
-	if directives.SearchRequested {
+	// Only force Spark (remote) routing for search turns when the user did
+	// not explicitly route the turn. If a web MCP is configured, the local
+	// assistant owns web search via MCP tools; Codex stays reserved for
+	// explicit "use gpt/spark/mini" directives.
+	if directives.SearchRequested && directives.ModelAliasExplicit {
+		turnProfile = a.appServerProfileForChatSession(session, routeProfileForRouting(
+			directives.ModelAlias,
+			baseProfile,
+			a.appServerSparkReasoningEffort,
+			directives.ReasoningEffort,
+		))
+	} else if directives.SearchRequested && a.webMCPURLForCatalog() == "" {
 		turnProfile = a.appServerProfileForChatSession(session, routeProfileForRouting(
 			modelprofile.AliasSpark,
 			baseProfile,
@@ -75,7 +86,7 @@ func (a *App) runAssistantTurn(sessionID string, turn dequeuedTurn) {
 		messageID:       turn.messageID,
 		turnModel:       directives.ModelAlias,
 		searchTurn:      directives.SearchRequested,
-		transientRemote: directives.SearchRequested || (directives.ModelAlias != "" && directives.ModelAlias != modelprofile.AliasLocal),
+		transientRemote: (directives.SearchRequested && (directives.ModelAliasExplicit || a.webMCPURLForCatalog() == "")) || (directives.ModelAliasExplicit && directives.ModelAlias != "" && directives.ModelAlias != modelprofile.AliasLocal),
 		reasoningEffort: directives.ReasoningEffort,
 		baseProfile:     baseProfile,
 		turnProfile:     turnProfile,

@@ -169,6 +169,11 @@ Environment toggles:
 - `SLOPSHELL_INTENT_LLM_PROFILE` selects the active local routing profile (default `qwen3.5-9b`)
 - `SLOPSHELL_INTENT_LLM_PROFILE_OPTIONS` exposes selectable local routing profiles (default `qwen3.5-9b,qwen3.5-4b`)
 - `SLOPSHELL_STT_URL=off` disables STT sidecar usage
+- `SLOPSHELL_WEB_MCP_URL` points at a supplementary MCP endpoint that
+  exposes `web_search` / `web_fetch` (for example a local helpy server at
+  `http://127.0.0.1:8090/mcp`). When set, search-intent turns stay on the
+  local assistant and call those tools instead of routing to Codex/Spark.
+  Leave unset (or `off`) to keep the prior Codex fallback behavior.
 
 ## Local Dev Start
 

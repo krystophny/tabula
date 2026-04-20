@@ -718,6 +718,9 @@ func (a *App) executeLocalAssistantBoundMCPTool(ctx context.Context, state *loca
 		Arguments:  args,
 	}
 	mcpURL := state.mcpURL
+	if override := strings.TrimSpace(tool.MCPURL); override != "" {
+		mcpURL = override
+	}
 	if strings.HasPrefix(tool.InternalName, "canvas_") && strings.TrimSpace(state.canvasID) != "" {
 		if port, ok := a.tunnels.getPort(state.canvasID); ok && port > 0 {
 			mcpURL = fmt.Sprintf("http://127.0.0.1:%d/mcp", port)

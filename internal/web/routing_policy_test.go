@@ -51,13 +51,36 @@ func TestParseTurnRoutingDirectivesSupportsSparkCodexGPTMiniAndReasoning(t *test
 	}
 }
 
-func TestParseTurnRoutingDirectivesRoutesSearchesToSpark(t *testing.T) {
+func TestParseTurnRoutingDirectivesFlagsSearchWithoutImplicitSparkAlias(t *testing.T) {
 	directives := parseTurnRoutingDirectives("Search the web for today's AMD news.")
 	if !directives.SearchRequested {
 		t.Fatal("SearchRequested = false, want true")
 	}
+	if directives.ModelAlias != "" {
+		t.Fatalf("ModelAlias = %q, want empty so routing stays local by default", directives.ModelAlias)
+	}
+	if directives.ModelAliasExplicit {
+		t.Fatal("ModelAliasExplicit = true, want false")
+	}
+}
+
+func TestParseTurnRoutingDirectivesExplicitSparkMarksExplicit(t *testing.T) {
+	directives := parseTurnRoutingDirectives("Use Spark to look up the rollout plan.")
+	if !directives.ModelAliasExplicit {
+		t.Fatal("ModelAliasExplicit = false, want true for explicit 'use spark'")
+	}
 	if directives.ModelAlias != modelprofile.AliasSpark {
 		t.Fatalf("ModelAlias = %q, want %q", directives.ModelAlias, modelprofile.AliasSpark)
+	}
+}
+
+func TestParseTurnRoutingDirectivesCurrentInfoCueFlagsSearchOnly(t *testing.T) {
+	directives := parseTurnRoutingDirectives("What is the latest ITER timeline?")
+	if !directives.SearchRequested {
+		t.Fatal("SearchRequested = false, want true for 'latest' cue")
+	}
+	if directives.ModelAlias != "" {
+		t.Fatalf("ModelAlias = %q, want empty", directives.ModelAlias)
 	}
 }
 
