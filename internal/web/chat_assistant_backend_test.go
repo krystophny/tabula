@@ -21,6 +21,7 @@ func TestAssistantBackendForTurnRoutesLocalByDefaultAndCodexOnlyForRemoteTurns(t
 	if err != nil {
 		t.Fatalf("new app: %v", err)
 	}
+	app.assistantMode = assistantModeAuto
 	app.assistantLLMURL = "http://127.0.0.1:8081"
 	t.Cleanup(func() {
 		_ = app.Shutdown(context.Background())

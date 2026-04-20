@@ -151,6 +151,9 @@ type App struct {
 	shutdownCancel context.CancelFunc
 	bootID         string
 	startedAt      string
+
+	cliToken     string
+	cliTokenPath string
 }
 
 const DefaultModel = modelprofile.ModelLocal
@@ -392,6 +395,12 @@ func New(dataDir, localProjectDir, localMCPURL, appServerURL, model, ttsURL, spa
 	if err := app.ensurePromptContractFresh(); err != nil {
 		_ = s.Close()
 		return nil, err
+	}
+	if path, token, err := initCLIToken(dataDir); err != nil {
+		log.Printf("cli-token init failed: %v", err)
+	} else {
+		app.cliTokenPath = path
+		app.cliToken = token
 	}
 	app.sourceSync = app.newSourceSyncRunner()
 	app.startItemResurfacer()
