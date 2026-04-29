@@ -129,10 +129,17 @@ func (a *App) startTimeTrackingEntry(activity string) (store.TimeEntry, bool, er
 }
 
 func (a *App) setActiveWorkspaceTracked(id int64, activity string) error {
+	workspace, err := a.store.GetWorkspace(id)
+	if err != nil {
+		return err
+	}
+	if err := enforceWorkPersonalWorkspace(workspace); err != nil {
+		return err
+	}
 	if err := a.store.SetActiveWorkspace(id); err != nil {
 		return err
 	}
-	_, _, err := a.syncTimeTrackingContext(activity)
+	_, _, err = a.syncTimeTrackingContext(activity)
 	if err == nil {
 		a.broadcastWorkspaceBusyChanged()
 	}

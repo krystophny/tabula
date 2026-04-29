@@ -71,6 +71,21 @@ type workspaceFilesListResponse struct {
 	} `json:"entries"`
 }
 
+func configureWorkPersonalGuardrail(t *testing.T) (string, string) {
+	t.Helper()
+	vaultRoot := t.TempDir()
+	brainRoot := filepath.Join(vaultRoot, "brain")
+	personalRoot := filepath.Join(vaultRoot, "personal")
+	if err := os.MkdirAll(brainRoot, 0o755); err != nil {
+		t.Fatalf("mkdir brain root: %v", err)
+	}
+	if err := os.MkdirAll(personalRoot, 0o755); err != nil {
+		t.Fatalf("mkdir personal root: %v", err)
+	}
+	t.Setenv("SLOPSHELL_BRAIN_WORK_ROOT", brainRoot)
+	return vaultRoot, personalRoot
+}
+
 func TestProjectsListIncludesActiveAndSessions(t *testing.T) {
 	app := newAuthedTestApp(t)
 
@@ -220,6 +235,29 @@ func TestProjectsListIncludesWorkspaceSphere(t *testing.T) {
 	}
 	if project.Sphere != store.SphereWork {
 		t.Fatalf("project sphere = %q, want %q", project.Sphere, store.SphereWork)
+	}
+}
+
+func TestRuntimeWorkspaceCreateRejectsWorkPersonalPath(t *testing.T) {
+	_, personalRoot := configureWorkPersonalGuardrail(t)
+	app := newAuthedTestApp(t)
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/runtime/workspaces", map[string]any{
+		"name": "Personal",
+		"kind": "linked",
+		"path": personalRoot,
+	})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("create personal workspace status = %d, want 403: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "work personal subtree is blocked") {
+		t.Fatalf("guardrail response = %q", rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), personalRoot) {
+		t.Fatalf("guardrail response leaked protected path: %q", rr.Body.String())
+	}
+	if _, err := app.store.GetWorkspaceByPath(personalRoot); !isNoRows(err) {
+		t.Fatalf("GetWorkspaceByPath(personal) error = %v, want no rows", err)
 	}
 }
 
@@ -520,6 +558,26 @@ func TestProjectActivateUpdatesActiveSphere(t *testing.T) {
 	}
 	if activeSphere != store.SphereWork {
 		t.Fatalf("stored active sphere = %q, want %q", activeSphere, store.SphereWork)
+	}
+}
+
+func TestWorkspaceSnapshotRejectsWorkPersonalActivation(t *testing.T) {
+	_, personalRoot := configureWorkPersonalGuardrail(t)
+	app := newAuthedTestApp(t)
+	project, err := app.store.CreateEnrichedWorkspace("Personal", "personal", personalRoot, "linked", "", "", false)
+	if err != nil {
+		t.Fatalf("CreateEnrichedWorkspace(personal) error: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspaces/"+workspaceIDStr(project.ID)+"/snapshot", nil)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("snapshot status = %d, want 403: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "work personal subtree is blocked") {
+		t.Fatalf("snapshot response = %q", rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), personalRoot) {
+		t.Fatalf("snapshot response leaked protected path: %q", rr.Body.String())
 	}
 }
 
@@ -953,6 +1011,39 @@ func TestProjectFilesListReturnsOneLevelAndSupportsSubfolders(t *testing.T) {
 	}
 	if len(subPayload.Entries) == 0 || subPayload.Entries[0].Path != dirName+"/child.md" {
 		t.Fatalf("expected child file path %q in subdirectory listing", dirName+"/child.md")
+	}
+}
+
+func TestProjectFilesListBlocksWorkPersonalSubtree(t *testing.T) {
+	vaultRoot, personalRoot := configureWorkPersonalGuardrail(t)
+	app := newAuthedTestApp(t)
+	if err := os.WriteFile(filepath.Join(personalRoot, "diary.md"), []byte("secret"), 0o644); err != nil {
+		t.Fatalf("write protected file: %v", err)
+	}
+	workspace, err := app.store.CreateWorkspace("Work Vault", vaultRoot, store.SphereWork)
+	if err != nil {
+		t.Fatalf("CreateWorkspace(vault) error: %v", err)
+	}
+
+	rrRoot := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/workspaces/"+itoa(workspace.ID)+"/files", nil)
+	if rrRoot.Code != http.StatusOK {
+		t.Fatalf("root list status = %d, want 200: %s", rrRoot.Code, rrRoot.Body.String())
+	}
+	body := rrRoot.Body.String()
+	if strings.Contains(body, "personal") || strings.Contains(body, "diary.md") {
+		t.Fatalf("root listing leaked protected subtree metadata: %s", body)
+	}
+
+	rrPersonal := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/workspaces/"+itoa(workspace.ID)+"/files?path=personal", nil)
+	if rrPersonal.Code != http.StatusForbidden {
+		t.Fatalf("personal list status = %d, want 403: %s", rrPersonal.Code, rrPersonal.Body.String())
+	}
+	body = rrPersonal.Body.String()
+	if !strings.Contains(body, "work personal subtree is blocked") {
+		t.Fatalf("personal list response = %q", body)
+	}
+	if strings.Contains(body, "diary.md") || strings.Contains(body, personalRoot) {
+		t.Fatalf("personal list response leaked protected metadata: %q", body)
 	}
 }
 

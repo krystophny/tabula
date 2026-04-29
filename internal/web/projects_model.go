@@ -245,6 +245,9 @@ func (a *App) activateWorkspace(workspaceID string) (store.Workspace, error) {
 	if err != nil {
 		return store.Workspace{}, err
 	}
+	if err := enforceWorkPersonalWorkspace(project); err != nil {
+		return store.Workspace{}, err
+	}
 	workspaceSphere, err := a.workspaceSphere(project)
 	if err != nil {
 		return store.Workspace{}, err
@@ -285,6 +288,10 @@ func (a *App) handleWorkspaceActivate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if isNoRows(err) {
 			http.Error(w, "project not found", http.StatusNotFound)
+			return
+		}
+		if isWorkPersonalGuardrailError(err) {
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -436,6 +443,10 @@ func (a *App) handleWorkspaceContext(w http.ResponseWriter, r *http.Request) {
 	}
 	project, err = a.activateWorkspace(workspaceIDStr(project.ID))
 	if err != nil {
+		if isWorkPersonalGuardrailError(err) {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -464,6 +475,10 @@ func (a *App) handleWorkspaceFilesList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	if err := enforceWorkPersonalWorkspace(workspace); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 
 	relPath, err := normalizeProjectListPath(r.URL.Query().Get("path"))
 	if err != nil {
@@ -478,6 +493,10 @@ func (a *App) handleWorkspaceFilesList(w http.ResponseWriter, r *http.Request) {
 	targetPath = filepath.Clean(targetPath)
 	if !pathWithinRoot(targetPath, rootPath) {
 		http.Error(w, "invalid path", http.StatusForbidden)
+		return
+	}
+	if err := enforceWorkPersonalPath(targetPath); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 	info, err := os.Stat(targetPath)
@@ -507,6 +526,9 @@ func (a *App) handleWorkspaceFilesList(w http.ResponseWriter, r *http.Request) {
 		entryPath := name
 		if relPath != "" {
 			entryPath = relPath + "/" + name
+		}
+		if pathInWorkPersonalGuardrail(filepath.Join(targetPath, name)) {
+			continue
 		}
 		items = append(items, workspaceFileEntry{
 			Name:  name,

@@ -253,6 +253,9 @@ func (a *App) resolveWorkspaceReference(workspacePath string, raw string) (store
 
 	expanded := expandWorkspacePathReference(ref)
 	if strings.ContainsAny(expanded, `/\~.`) {
+		if err := enforceWorkPersonalPath(expanded); err != nil {
+			return store.Workspace{}, err
+		}
 		if workspace, err := a.store.GetWorkspaceByPath(expanded); err == nil {
 			return workspace, nil
 		}
@@ -266,12 +269,21 @@ func (a *App) resolveWorkspaceReference(workspacePath string, raw string) (store
 		return store.Workspace{}, err
 	}
 	if workspace, ok, err := resolveWorkspaceMatch(workspaces, ref, expanded, workspaceReferenceExactMatch); err != nil || ok {
+		if err == nil && ok {
+			err = enforceWorkPersonalWorkspace(workspace)
+		}
 		return workspace, err
 	}
 	if workspace, ok, err := resolveWorkspaceMatch(workspaces, ref, expanded, workspaceReferencePrefixMatch); err != nil || ok {
+		if err == nil && ok {
+			err = enforceWorkPersonalWorkspace(workspace)
+		}
 		return workspace, err
 	}
 	if workspace, ok, err := resolveWorkspaceMatch(workspaces, ref, expanded, workspaceReferenceContainsMatch); err != nil || ok {
+		if err == nil && ok {
+			err = enforceWorkPersonalWorkspace(workspace)
+		}
 		return workspace, err
 	}
 	return store.Workspace{}, fmt.Errorf("workspace %q not found", ref)
@@ -540,6 +552,9 @@ func (a *App) createWorkspaceFromDialogIntent(workspacePath string, action *Syst
 		if dirPath == "" {
 			return store.Workspace{}, false, errors.New("workspace path is required")
 		}
+		if err := enforceWorkPersonalPath(dirPath); err != nil {
+			return store.Workspace{}, false, err
+		}
 		name = filepath.Base(dirPath)
 	}
 	if err := os.MkdirAll(dirPath, 0o755); err != nil {
@@ -565,6 +580,7 @@ func (a *App) executeListWorkspacesAction(_ store.ChatSession, action *SystemAct
 		return "", nil, err
 	}
 	workspaces = filterExplicitWorkspaces(workspaces)
+	workspaces = filterWorkPersonalGuardrailWorkspaces(workspaces)
 	items, err := a.store.ListItems()
 	if err != nil {
 		return "", nil, err

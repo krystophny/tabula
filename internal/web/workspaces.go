@@ -54,6 +54,7 @@ func (a *App) handleWorkspaceList(w http.ResponseWriter, r *http.Request) {
 		writeDomainStoreError(w, err)
 		return
 	}
+	workspaces = filterWorkPersonalGuardrailWorkspaces(workspaces)
 	if contextQuery != "" {
 		contextWorkspaces, err := a.store.ListWorkspacesByContextPrefix(contextQuery)
 		if err != nil {
@@ -89,6 +90,10 @@ func (a *App) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(req.Sphere) == "" {
 		writeAPIError(w, http.StatusBadRequest, "sphere is required")
+		return
+	}
+	if err := enforceWorkPersonalPath(req.DirPath); err != nil {
+		writeAPIError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	if _, err := a.store.GetWorkspaceByPath(req.DirPath); err == nil {
@@ -142,6 +147,10 @@ func (a *App) handleWorkspaceUpdate(w http.ResponseWriter, r *http.Request) {
 		writeDomainStoreError(w, err)
 		return
 	}
+	if err := enforceWorkPersonalWorkspace(workspace); err != nil {
+		writeAPIError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if req.Name != nil {
 		workspace, err = a.store.UpdateWorkspaceName(workspaceID, *req.Name)
 		if err != nil {
@@ -188,6 +197,10 @@ func (a *App) handleWorkspaceGet(w http.ResponseWriter, r *http.Request) {
 	workspace, err := a.store.GetWorkspace(workspaceID)
 	if err != nil {
 		writeDomainStoreError(w, err)
+		return
+	}
+	if err := enforceWorkPersonalWorkspace(workspace); err != nil {
+		writeAPIError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	writeAPIData(w, http.StatusOK, map[string]any{

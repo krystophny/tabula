@@ -246,9 +246,19 @@ func (a *App) resolveArtifactMaterializeWorkspace(artifact store.Artifact, reque
 		if *requestedWorkspaceID <= 0 {
 			return store.Workspace{}, newArtifactMaterializeError("workspace_id must be a positive integer")
 		}
-		return a.store.GetWorkspace(*requestedWorkspaceID)
+		workspace, err := a.store.GetWorkspace(*requestedWorkspaceID)
+		if err != nil {
+			return store.Workspace{}, err
+		}
+		if err := enforceWorkPersonalWorkspace(workspace); err != nil {
+			return store.Workspace{}, err
+		}
+		return workspace, nil
 	}
 	if artifact.RefPath != nil {
+		if err := enforceWorkPersonalPath(*artifact.RefPath); err != nil {
+			return store.Workspace{}, err
+		}
 		workspaceID, err := a.store.FindWorkspaceContainingPath(*artifact.RefPath)
 		if err != nil {
 			return store.Workspace{}, err
@@ -262,7 +272,14 @@ func (a *App) resolveArtifactMaterializeWorkspace(artifact store.Artifact, reque
 		return store.Workspace{}, err
 	}
 	if workspaceID != nil {
-		return a.store.GetWorkspace(*workspaceID)
+		workspace, err := a.store.GetWorkspace(*workspaceID)
+		if err != nil {
+			return store.Workspace{}, err
+		}
+		if err := enforceWorkPersonalWorkspace(workspace); err != nil {
+			return store.Workspace{}, err
+		}
+		return workspace, nil
 	}
 	items, err := a.store.ListArtifactItems(artifact.ID)
 	if err != nil {
@@ -282,13 +299,23 @@ func (a *App) resolveArtifactMaterializeWorkspace(artifact store.Artifact, reque
 		}
 	}
 	if itemWorkspaceID > 0 {
-		return a.store.GetWorkspace(itemWorkspaceID)
+		workspace, err := a.store.GetWorkspace(itemWorkspaceID)
+		if err != nil {
+			return store.Workspace{}, err
+		}
+		if err := enforceWorkPersonalWorkspace(workspace); err != nil {
+			return store.Workspace{}, err
+		}
+		return workspace, nil
 	}
 	workspaces, err := a.store.ListArtifactLinkWorkspaces(artifact.ID)
 	if err != nil {
 		return store.Workspace{}, err
 	}
 	if len(workspaces) == 1 {
+		if err := enforceWorkPersonalWorkspace(workspaces[0]); err != nil {
+			return store.Workspace{}, err
+		}
 		return workspaces[0], nil
 	}
 	if len(workspaces) > 1 {
@@ -315,6 +342,9 @@ func (a *App) materializeArtifact(artifact store.Artifact, req artifactMateriali
 	}
 	absolutePath, relativePath, err := resolveArtifactMaterializePath(workspace, artifact, req.RelativePath)
 	if err != nil {
+		return store.Workspace{}, store.Artifact{}, "", err
+	}
+	if err := enforceWorkPersonalPath(absolutePath); err != nil {
 		return store.Workspace{}, store.Artifact{}, "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(absolutePath), 0o755); err != nil {
@@ -360,6 +390,8 @@ func (a *App) handleArtifactMaterialize(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		var requestErr artifactMaterializeError
 		switch {
+		case isWorkPersonalGuardrailError(err):
+			writeAPIError(w, http.StatusForbidden, err.Error())
 		case errors.As(err, &requestErr):
 			writeAPIError(w, http.StatusBadRequest, requestErr.Error())
 		case errors.Is(err, sql.ErrNoRows):

@@ -884,6 +884,9 @@ func localAssistantWorkspaceTopLevelEntries(workspaceDir string) ([]string, erro
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		name := entry.Name()
+		if pathInWorkPersonalGuardrail(filepath.Join(workspaceDir, name)) {
+			continue
+		}
 		if entry.IsDir() {
 			name += "/"
 		}
@@ -899,6 +902,9 @@ func localAssistantWorkspaceTopLevelEntries(workspaceDir string) ([]string, erro
 func localAssistantReadWorkspaceFile(workspaceDir string, rawPath string) (string, string, bool, error) {
 	resolved, err := resolveLocalAssistantWorkspacePath(workspaceDir, rawPath)
 	if err != nil {
+		return "", "", false, err
+	}
+	if err := enforceWorkPersonalPath(resolved); err != nil {
 		return "", "", false, err
 	}
 	info, err := os.Stat(resolved)
@@ -933,6 +939,12 @@ func localAssistantFindWorkspaceFiles(workspaceDir string, query string, limit i
 	err := filepath.WalkDir(workspaceDir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		if pathInWorkPersonalGuardrail(path) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if len(matches) >= limit {
 			return filepath.SkipAll
@@ -979,6 +991,9 @@ func resolveLocalAssistantWorkspacePath(workspaceDir string, raw string) (string
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("path %q escapes the workspace", raw)
+	}
+	if err := enforceWorkPersonalPath(target); err != nil {
+		return "", err
 	}
 	return target, nil
 }

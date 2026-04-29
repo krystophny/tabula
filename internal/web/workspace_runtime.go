@@ -25,22 +25,22 @@ type runtimeWorkspaceCreateRequest struct {
 }
 
 type workspaceAPIModel struct {
-	ID                       string          `json:"id"`
-	Name                     string          `json:"name"`
-	Kind                     string          `json:"kind"`
-	RootPath                 string          `json:"root_path"`
-	Sphere                   string          `json:"sphere,omitempty"`
-	WorkspacePath            string          `json:"workspace_path"`
-	MCPURL                   string          `json:"mcp_url,omitempty"`
-	IsDefault                bool            `json:"is_default"`
-	ChatSessionID            string          `json:"chat_session_id"`
-	ChatMode                 string          `json:"chat_mode"`
-	ChatModel                string          `json:"chat_model"`
-	ChatModelReasoningEffort string          `json:"chat_model_reasoning_effort"`
-	CanvasSessionID          string          `json:"canvas_session_id"`
+	ID                       string            `json:"id"`
+	Name                     string            `json:"name"`
+	Kind                     string            `json:"kind"`
+	RootPath                 string            `json:"root_path"`
+	Sphere                   string            `json:"sphere,omitempty"`
+	WorkspacePath            string            `json:"workspace_path"`
+	MCPURL                   string            `json:"mcp_url,omitempty"`
+	IsDefault                bool              `json:"is_default"`
+	ChatSessionID            string            `json:"chat_session_id"`
+	ChatMode                 string            `json:"chat_mode"`
+	ChatModel                string            `json:"chat_model"`
+	ChatModelReasoningEffort string            `json:"chat_model_reasoning_effort"`
+	CanvasSessionID          string            `json:"canvas_session_id"`
 	RunState                 workspaceRunState `json:"run_state"`
-	Unread                   bool            `json:"unread"`
-	ReviewPending            bool            `json:"review_pending"`
+	Unread                   bool              `json:"unread"`
+	ReviewPending            bool              `json:"review_pending"`
 }
 
 type workspaceChatModelRequest struct {
@@ -63,38 +63,38 @@ type workspaceWelcomeAction struct {
 }
 
 type workspaceWelcomeCard struct {
-	ID          string               `json:"id"`
-	Title       string               `json:"title"`
-	Subtitle    string               `json:"subtitle,omitempty"`
-	Description string               `json:"description,omitempty"`
+	ID          string                 `json:"id"`
+	Title       string                 `json:"title"`
+	Subtitle    string                 `json:"subtitle,omitempty"`
+	Description string                 `json:"description,omitempty"`
 	Action      workspaceWelcomeAction `json:"action"`
 }
 
 type workspaceWelcomeSection struct {
-	ID    string               `json:"id"`
-	Title string               `json:"title"`
+	ID    string                 `json:"id"`
+	Title string                 `json:"title"`
 	Cards []workspaceWelcomeCard `json:"cards"`
 }
 
 type workspaceWelcomeResponse struct {
-	OK          bool                    `json:"ok"`
-	WorkspaceID string                  `json:"workspace_id"`
+	OK          bool                      `json:"ok"`
+	WorkspaceID string                    `json:"workspace_id"`
 	Project     workspaceAPIModel         `json:"workspace"`
-	Scope       string                  `json:"scope"`
-	Title       string                  `json:"title"`
+	Scope       string                    `json:"scope"`
+	Title       string                    `json:"title"`
 	Sections    []workspaceWelcomeSection `json:"sections"`
 }
 
 type workspaceActivityItem struct {
-	WorkspaceID   string          `json:"workspace_id"`
-	WorkspacePath string          `json:"workspace_path"`
-	Name          string          `json:"name"`
-	Kind          string          `json:"kind"`
-	ChatSessionID string          `json:"chat_session_id"`
-	ChatMode      string          `json:"chat_mode"`
+	WorkspaceID   string            `json:"workspace_id"`
+	WorkspacePath string            `json:"workspace_path"`
+	Name          string            `json:"name"`
+	Kind          string            `json:"kind"`
+	ChatSessionID string            `json:"chat_session_id"`
+	ChatMode      string            `json:"chat_mode"`
 	RunState      workspaceRunState `json:"run_state"`
-	Unread        bool            `json:"unread"`
-	ReviewPending bool            `json:"review_pending"`
+	Unread        bool              `json:"unread"`
+	ReviewPending bool              `json:"review_pending"`
 }
 
 func workspaceIDStr(id int64) string {
@@ -404,6 +404,7 @@ func (a *App) listProjectsWithDefault() ([]store.Workspace, store.Workspace, err
 	if err != nil {
 		return nil, store.Workspace{}, err
 	}
+	projects = filterWorkPersonalGuardrailWorkspaces(projects)
 	if len(projects) == 0 {
 		return nil, store.Workspace{}, errors.New("no projects available")
 	}

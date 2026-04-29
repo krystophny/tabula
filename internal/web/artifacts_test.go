@@ -248,6 +248,38 @@ func TestArtifactMaterializeAPIRejectsAlreadyFileBackedArtifacts(t *testing.T) {
 	}
 }
 
+func TestArtifactMaterializeAPIRejectsWorkPersonalWorkspace(t *testing.T) {
+	_, personalRoot := configureWorkPersonalGuardrail(t)
+	app := newAuthedTestApp(t)
+	workspace, err := app.store.CreateWorkspace("Personal", personalRoot, store.SphereWork)
+	if err != nil {
+		t.Fatalf("CreateWorkspace(personal) error: %v", err)
+	}
+	title := "Sensitive Email"
+	metaJSON := `{"subject":"Sensitive Email","body":"private"}`
+	artifact, err := app.store.CreateArtifact(store.ArtifactKindEmail, nil, nil, &title, &metaJSON)
+	if err != nil {
+		t.Fatalf("CreateArtifact() error: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/artifacts/"+itoa(artifact.ID)+"/materialize", map[string]any{
+		"workspace_id": workspace.ID,
+	})
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("materialize status = %d, want 403: %s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "work personal subtree is blocked") {
+		t.Fatalf("materialize response = %q", body)
+	}
+	if strings.Contains(body, personalRoot) || strings.Contains(body, "Sensitive Email") {
+		t.Fatalf("materialize response leaked protected metadata: %q", body)
+	}
+	if _, err := os.Stat(filepath.Join(personalRoot, ".slopshell")); !os.IsNotExist(err) {
+		t.Fatalf("protected workspace materialization side effect err = %v, want no .slopshell", err)
+	}
+}
+
 func TestArtifactListAPIIncludesLinkedArtifactsForWorkspace(t *testing.T) {
 	app := newAuthedTestApp(t)
 
