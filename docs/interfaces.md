@@ -44,6 +44,8 @@ Runtime and chat session management:
 - `POST /api/extensions/commands/{command_id}`
 - `GET /api/runtime/workspaces`
 - `GET /api/runtime/workspaces/activity`
+- `GET /api/runtime/workspace-presets`
+- `POST /api/runtime/workspace-presets/{preset_id}/activate`
 - `POST /api/runtime/workspaces`
 - `POST /api/runtime/workspaces/{workspace_id}/activate`
 - `POST /api/runtime/workspaces/{workspace_id}/persist`

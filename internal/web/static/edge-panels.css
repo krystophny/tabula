@@ -341,6 +341,41 @@ body.panel-motion-enabled {
   color: #f9fafb;
 }
 
+#edge-top-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0 0.65rem 0.45rem;
+}
+
+#edge-top-presets[hidden] {
+  display: none;
+}
+
+.edge-preset-btn {
+  padding: 0.3rem 0.75rem;
+  border: 1px dashed #94a3b8;
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.95);
+  color: #1e293b;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.edge-preset-btn.is-active {
+  background: #0f172a;
+  border-color: #0f172a;
+  border-style: solid;
+  color: #f8fafc;
+}
+
+.edge-preset-btn.is-unavailable {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 #edge-top-projects {
   overflow-x: auto;
   overflow-y: hidden;

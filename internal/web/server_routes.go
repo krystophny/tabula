@@ -38,6 +38,8 @@ func (a *App) Router() http.Handler {
 	r.Post("/api/extensions/commands/{command_id}", a.handleExtensionCommandExecute)
 	r.Get("/api/runtime/workspaces", a.handleWorkspacesList)
 	r.Get("/api/runtime/workspaces/activity", a.handleWorkspacesActivity)
+	r.Get("/api/runtime/workspace-presets", a.handleWorkspacePresetsList)
+	r.Post("/api/runtime/workspace-presets/{preset_id}/activate", a.handleWorkspacePresetActivate)
 	r.Post("/api/runtime/workspaces", a.handleRuntimeWorkspaceCreate)
 	r.Post("/api/runtime/workspaces/{workspace_id}/activate", a.handleWorkspaceActivate)
 	r.Post("/api/runtime/workspaces/{workspace_id}/persist", a.handleTemporaryWorkspacePersist)
