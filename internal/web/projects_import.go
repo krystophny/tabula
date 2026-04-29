@@ -67,6 +67,9 @@ func (a *App) workspaceSourceByID(workspaceID string) (store.Workspace, bool, er
 	if err != nil {
 		return store.Workspace{}, false, err
 	}
+	if err := enforceWorkPersonalWorkspace(project); err != nil {
+		return store.Workspace{}, false, err
+	}
 	return project, true, nil
 }
 
@@ -104,6 +107,9 @@ func (a *App) createWorkspace2(req runtimeWorkspaceCreateRequest) (store.Workspa
 		rootPath := strings.TrimSpace(req.Path)
 		if rootPath == "" {
 			return store.Workspace{}, false, errors.New("path is required for linked projects")
+		}
+		if err := enforceWorkPersonalPath(rootPath); err != nil {
+			return store.Workspace{}, false, err
 		}
 		info, err := os.Stat(rootPath)
 		if err != nil {
@@ -211,6 +217,9 @@ func (a *App) persistTemporaryWorkspaceTarget(project store.Workspace, req tempo
 		targetName = project.Name
 	}
 	if absTarget != filepath.Clean(project.RootPath) {
+		if err := enforceWorkPersonalPath(absTarget); err != nil {
+			return "", "", err
+		}
 		if _, err := os.Stat(absTarget); err == nil {
 			return "", "", errors.New("target path already exists")
 		} else if !errors.Is(err, os.ErrNotExist) {
@@ -378,6 +387,10 @@ func (a *App) handleRuntimeWorkspaceCreate(w http.ResponseWriter, r *http.Reques
 	}
 	project, created, err := a.createWorkspace2(req)
 	if err != nil {
+		if isWorkPersonalGuardrailError(err) {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -387,6 +400,10 @@ func (a *App) handleRuntimeWorkspaceCreate(w http.ResponseWriter, r *http.Reques
 	}
 	if activate {
 		if project, err = a.activateWorkspace(workspaceIDStr(project.ID)); err != nil {
+			if isWorkPersonalGuardrailError(err) {
+				http.Error(w, err.Error(), http.StatusForbidden)
+				return
+			}
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
@@ -424,6 +441,10 @@ func (a *App) handleTemporaryWorkspacePersist(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		if isNoRows(err) {
 			http.Error(w, "workspace not found", http.StatusNotFound)
+			return
+		}
+		if isWorkPersonalGuardrailError(err) {
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
 		http.Error(w, err.Error(), http.StatusBadRequest)

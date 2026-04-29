@@ -206,6 +206,27 @@ func TestResolveWorkspaceReferenceMatchesContainedName(t *testing.T) {
 	}
 }
 
+func TestResolveWorkspaceReferenceBlocksWorkPersonalPathAndName(t *testing.T) {
+	_, personalRoot := configureWorkPersonalGuardrail(t)
+	app := newAuthedTestApp(t)
+	if err := os.WriteFile(filepath.Join(personalRoot, "diary.md"), []byte("secret"), 0o644); err != nil {
+		t.Fatalf("write protected file: %v", err)
+	}
+	if _, err := app.store.CreateWorkspace("Personal", personalRoot, store.SphereWork); err != nil {
+		t.Fatalf("CreateWorkspace(personal) error: %v", err)
+	}
+
+	for _, ref := range []string{filepath.Join(personalRoot, "diary.md"), "Personal"} {
+		_, err := app.resolveWorkspaceReference("", ref)
+		if !isWorkPersonalGuardrailError(err) {
+			t.Fatalf("resolveWorkspaceReference(%q) error = %v, want guardrail", ref, err)
+		}
+		if strings.Contains(err.Error(), "diary.md") || strings.Contains(err.Error(), personalRoot) {
+			t.Fatalf("guardrail error leaked protected metadata: %q", err.Error())
+		}
+	}
+}
+
 func TestClassifyAndExecuteSystemActionListWorkspaceItemsUsesActiveWorkspace(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""

@@ -222,6 +222,38 @@ func TestLocalAssistantTurnListsDirectoryWithWorkspaceReadTool(t *testing.T) {
 	}
 }
 
+func TestLocalAssistantWorkspaceReadSkipsWorkPersonalSubtree(t *testing.T) {
+	vaultRoot, personalRoot := configureWorkPersonalGuardrail(t)
+	if err := os.WriteFile(filepath.Join(vaultRoot, "README.md"), []byte("ok"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(personalRoot, "diary.md"), []byte("secret"), 0o644); err != nil {
+		t.Fatalf("write protected file: %v", err)
+	}
+
+	entries, err := localAssistantWorkspaceTopLevelEntries(vaultRoot)
+	if err != nil {
+		t.Fatalf("localAssistantWorkspaceTopLevelEntries() error: %v", err)
+	}
+	if strings.Contains(strings.Join(entries, ","), "personal") {
+		t.Fatalf("top-level entries leaked protected directory: %#v", entries)
+	}
+	matches, err := localAssistantFindWorkspaceFiles(vaultRoot, "diary", 10)
+	if err != nil {
+		t.Fatalf("localAssistantFindWorkspaceFiles() error: %v", err)
+	}
+	if strings.Contains(strings.Join(matches, ","), "diary.md") {
+		t.Fatalf("find_file leaked protected file: %#v", matches)
+	}
+	_, _, _, err = localAssistantReadWorkspaceFile(vaultRoot, "personal/diary.md")
+	if !isWorkPersonalGuardrailError(err) {
+		t.Fatalf("localAssistantReadWorkspaceFile() error = %v, want guardrail", err)
+	}
+	if strings.Contains(err.Error(), "diary.md") || strings.Contains(err.Error(), personalRoot) {
+		t.Fatalf("guardrail error leaked protected metadata: %q", err.Error())
+	}
+}
+
 func TestFinalizeAssistantResponseWithMetadataPublishesProviderMetadata(t *testing.T) {
 	app := newAuthedTestApp(t)
 
