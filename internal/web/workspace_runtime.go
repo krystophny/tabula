@@ -521,7 +521,9 @@ func (a *App) handleWorkspacesList(w http.ResponseWriter, r *http.Request) {
 		"ok":                   true,
 		"default_workspace_id": workspaceIDStr(defaultProject.ID),
 		"active_workspace_id":  workspaceIDStr(activeProject.ID),
+		"active_sphere":        a.runtimeActiveSphere(),
 		"workspaces":           items,
+		"presets":              a.brainPresets(),
 	})
 }
 

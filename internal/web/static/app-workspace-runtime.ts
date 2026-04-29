@@ -71,9 +71,56 @@ export async function fetchProjects() {
   })).filter((project) => project.id);
   state.defaultWorkspaceId = String(payload?.default_workspace_id || '').trim();
   state.serverActiveProjectId = String(payload?.active_workspace_id || '').trim();
+  state.workspacePresets = Array.isArray(payload?.presets)
+    ? payload.presets.map((preset) => ({
+      id: String(preset?.id || '').trim(),
+      label: String(preset?.label || '').trim(),
+      sphere: String(preset?.sphere || '').trim().toLowerCase(),
+      root_path: String(preset?.root_path || '').trim(),
+      available: Boolean(preset?.available),
+    })).filter((preset) => preset.id)
+    : [];
   await refreshWorkspaceRuntimeState().catch(() => {});
   renderEdgeTopProjects();
   renderEdgeTopModelButtons();
+}
+
+export async function activateWorkspacePreset(presetID) {
+  const id = String(presetID || '').trim();
+  if (!id) return false;
+  if (state.projectSwitchInFlight || state.projectModelSwitchInFlight) return false;
+  state.projectSwitchInFlight = true;
+  showStatus(`switching to ${id}...`);
+  try {
+    const resp = await fetch(apiURL(`runtime/workspace-presets/${encodeURIComponent(id)}/activate`), {
+      method: 'POST',
+    });
+    if (!resp.ok) {
+      const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
+      throw new Error(detail);
+    }
+    const payload = await resp.json();
+    const sphere = normalizeActiveSphere(payload?.active_sphere || state.activeSphere);
+    if (sphere) {
+      state.activeSphere = sphere;
+      persistActiveSpherePreference(sphere);
+    }
+    const project = payload?.workspace || {};
+    const workspaceID = String(project?.id || '').trim();
+    state.projectSwitchInFlight = false;
+    await fetchProjects();
+    if (workspaceID) {
+      await switchProject(workspaceID);
+    }
+    showStatus('ready');
+    return true;
+  } catch (err) {
+    state.projectSwitchInFlight = false;
+    const message = String(err?.message || err || 'preset switch failed');
+    appendPlainMessage('system', `Workspace preset failed: ${message}`);
+    showStatus(`preset switch failed: ${message}`);
+    return false;
+  }
 }
 export function projectMatchesSphere(project, sphere = state.activeSphere) {
   if (!project) return false;
@@ -392,13 +439,57 @@ export function renderEdgeTopSphere() {
   const host = document.getElementById('edge-top-sphere');
   if (!(host instanceof HTMLElement)) return;
   host.innerHTML = '';
+  const activeSphere = String(state.activeSphere || '').trim().toLowerCase();
+  host.dataset.activeSphere = activeSphere || '';
   for (const opt of SPHERE_OPTIONS) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'edge-sphere-btn';
-    if (state.activeSphere === opt.id) btn.classList.add('is-active');
+    if (activeSphere === opt.id) {
+      btn.classList.add('is-active');
+      btn.setAttribute('aria-current', 'true');
+    }
+    btn.dataset.sphere = opt.id;
     btn.textContent = opt.label;
+    btn.title = `Switch to ${opt.label.toLowerCase()} sphere`;
     btn.addEventListener('click', () => { void setActiveSphere(opt.id); });
+    host.appendChild(btn);
+  }
+  renderEdgeTopPresets();
+}
+
+export function renderEdgeTopPresets() {
+  const host = document.getElementById('edge-top-presets');
+  if (!(host instanceof HTMLElement)) return;
+  host.innerHTML = '';
+  const presets = Array.isArray(state.workspacePresets) ? state.workspacePresets : [];
+  if (!presets.length) {
+    host.hidden = true;
+    return;
+  }
+  host.hidden = false;
+  for (const preset of presets) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'edge-preset-btn';
+    btn.dataset.presetId = preset.id;
+    btn.dataset.sphere = preset.sphere || '';
+    if (!preset.available) {
+      btn.classList.add('is-unavailable');
+      btn.disabled = true;
+      btn.title = `${preset.label} preset path is not configured. Set the environment variable to enable.`;
+    } else {
+      btn.title = preset.root_path
+        ? `Open ${preset.label} (${preset.root_path})`
+        : `Open ${preset.label}`;
+    }
+    const activeWorkspace = activeProject();
+    if (activeWorkspace && preset.available && String(activeWorkspace.root_path || '') === preset.root_path) {
+      btn.classList.add('is-active');
+      btn.setAttribute('aria-current', 'true');
+    }
+    btn.textContent = preset.label;
+    btn.addEventListener('click', () => { void activateWorkspacePreset(preset.id); });
     host.appendChild(btn);
   }
 }

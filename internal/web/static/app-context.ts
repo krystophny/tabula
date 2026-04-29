@@ -120,6 +120,7 @@ export const state = {
   chatMode: 'chat',
   hasArtifact: false,
   projects: [],
+  workspacePresets: [],
   defaultWorkspaceId: '',
   serverActiveProjectId: '',
   activeWorkspaceId: '',

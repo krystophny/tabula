@@ -177,6 +177,11 @@ Environment toggles:
   `web_fetch`. `SLOPSHELL_HELPY_ARGS` overrides the args (default `mcp-stdio`).
 - `SLOPSHELL_MCP_SOCKET` overrides the embedded sloptools unix socket path
   (default `$XDG_RUNTIME_DIR/sloppy/mcp.sock`).
+- `SLOPSHELL_BRAIN_WORK_ROOT` and `SLOPSHELL_BRAIN_PRIVATE_ROOT` point the
+  workspace switcher at the work and private brain roots. The runtime exposes
+  them as `brain.work` / `brain.private` presets through
+  `GET /api/runtime/workspace-presets`; presets without a configured,
+  existing directory are listed as unavailable. No paths are hardcoded.
 
 ## Local Dev Start
 

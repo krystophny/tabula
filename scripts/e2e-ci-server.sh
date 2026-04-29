@@ -7,8 +7,7 @@ DATA_DIR="${TMP_ROOT}/data"
 PROJECT_DIR="${E2E_PROJECT_DIR:-$ROOT_DIR}"
 WEB_HOST="${E2E_WEB_HOST:-127.0.0.1}"
 WEB_PORT="${E2E_WEB_PORT:-8420}"
-MCP_HOST="${E2E_MCP_HOST:-127.0.0.1}"
-MCP_PORT="${E2E_MCP_PORT:-9420}"
+MCP_SOCKET="${E2E_MCP_SOCKET:-${TMP_ROOT}/mcp.sock}"
 LOG_FILE="${TMP_ROOT}/web.log"
 PASSWORD="${SLOPSHELL_TEST_PASSWORD:-slopshell-test-password}"
 
@@ -28,8 +27,7 @@ go run ./cmd/slopshell server \
   --data-dir "${DATA_DIR}" \
   --web-host "${WEB_HOST}" \
   --web-port "${WEB_PORT}" \
-  --mcp-host "${MCP_HOST}" \
-  --mcp-port "${MCP_PORT}" >"${LOG_FILE}" 2>&1 &
+  --mcp-socket "${MCP_SOCKET}" >"${LOG_FILE}" 2>&1 &
 SERVER_PID=$!
 
 for _ in $(seq 1 160); do
