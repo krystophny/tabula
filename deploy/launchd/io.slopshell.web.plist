@@ -8,7 +8,7 @@
   <array>
     <string>@@BIN_PATH@@</string>
     <string>server</string>
-    <string>--project-dir</string>
+    <string>--workspace-dir</string>
     <string>@@PROJECT_DIR@@</string>
     <string>--data-dir</string>
     <string>@@WEB_DATA_DIR@@</string>

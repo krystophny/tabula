@@ -23,7 +23,7 @@ trap cleanup EXIT INT TERM
 
 cd "${ROOT_DIR}"
 go run ./cmd/slopshell server \
-  --project-dir "${PROJECT_DIR}" \
+  --workspace-dir "${PROJECT_DIR}" \
   --data-dir "${DATA_DIR}" \
   --web-host "${WEB_HOST}" \
   --web-port "${WEB_PORT}" \

@@ -5,7 +5,15 @@ import WebSocket from 'ws';
 
 const DEFAULT_SERVER_URL = 'http://127.0.0.1:8420';
 const DEFAULT_MANAGED_SERVER_PASSWORD = 'slopshell-test-password';
-const configuredServerURL = String(process.env.E2E_BASE_URL || process.env.SLOPSHELL_TEST_SERVER_URL || DEFAULT_SERVER_URL).trim();
+const managedServerURL = String(process.env.E2E_MANAGED_SERVER_URL || DEFAULT_SERVER_URL).trim() || DEFAULT_SERVER_URL;
+const useManagedServer = process.env.E2E_MANAGED_SERVER === '1'
+  || (!process.env.E2E_BASE_URL && !process.env.SLOPSHELL_TEST_SERVER_URL);
+const configuredServerURL = String(
+  process.env.E2E_BASE_URL
+    || process.env.SLOPSHELL_TEST_SERVER_URL
+    || (useManagedServer ? managedServerURL : '')
+    || DEFAULT_SERVER_URL,
+).trim();
 
 export const SERVER_URL = configuredServerURL || DEFAULT_SERVER_URL;
 export const WS_URL = (() => {
@@ -17,8 +25,7 @@ const SESSION_COOKIE_NAME = 'slopshell_session';
 const preseededSessionToken = String(process.env.SLOPSHELL_TEST_SESSION_TOKEN || '').trim();
 
 function usesManagedServer(): boolean {
-  return process.env.E2E_MANAGED_SERVER === '1'
-    || (!process.env.E2E_BASE_URL && !process.env.SLOPSHELL_TEST_SERVER_URL);
+  return useManagedServer;
 }
 
 // ---------------------------------------------------------------------------

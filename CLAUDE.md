@@ -194,7 +194,7 @@ PROJECT_DIR="$TMP_ROOT/project"
 DATA_DIR="$TMP_ROOT/data"
 LOG_FILE="$TMP_ROOT/web.log"
 nohup go run ./cmd/slopshell server \
-  --project-dir "$PROJECT_DIR" \
+  --workspace-dir "$PROJECT_DIR" \
   --data-dir "$DATA_DIR" \
   --web-host 127.0.0.1 \
   --web-port 8420 \

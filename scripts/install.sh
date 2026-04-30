@@ -556,7 +556,7 @@ bootstrap_project() {
     if [ "$DRY_RUN" = "1" ]; then
         return
     fi
-    "$BIN_PATH" bootstrap --project-dir "$PROJECT_DIR" >/dev/null
+    "$BIN_PATH" bootstrap --workspace-dir "$PROJECT_DIR" >/dev/null
 }
 
 configure_codex_cli() {
@@ -971,7 +971,7 @@ Environment=SLOPSHELL_INTENT_LLM_PROFILE_OPTIONS=qwen3.5-9b,qwen3.5-4b
 Environment=SLOPSHELL_HELPY_BIN=${helpy_bin}
 Environment=SLOPSHELL_ASSISTANT_LLM_URL=${effective_llm_url}
 Environment=SLOPSHELL_ASSISTANT_LLM_MODEL=local
-ExecStart=${BIN_PATH} server --project-dir ${PROJECT_DIR} --data-dir ${WEB_DATA_DIR} ${web_mcp_args} --web-host ${web_host} --web-port 8420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424
+ExecStart=${BIN_PATH} server --workspace-dir ${PROJECT_DIR} --data-dir ${WEB_DATA_DIR} ${web_mcp_args} --web-host ${web_host} --web-port 8420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424
 Restart=on-failure
 RestartSec=2
 

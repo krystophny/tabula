@@ -153,7 +153,7 @@ log "Installing and starting services"
 
 PROJECT_DIR="$REPO_ROOT"
 log "Bootstrapping project at $PROJECT_DIR"
-"$BIN_PATH" bootstrap --project-dir "$PROJECT_DIR"
+"$BIN_PATH" bootstrap --workspace-dir "$PROJECT_DIR"
 
 # --- Step 9: Configure Codex MCP + local provider profiles ---
 

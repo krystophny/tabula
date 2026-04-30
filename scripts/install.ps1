@@ -303,7 +303,7 @@ function Setup-LocalLlm {
 function Write-TaskFiles {
     param([string]$CodexPath)
 
-    $webCmd = 'set "SLOPSHELL_INTENT_LLM_URL=http://127.0.0.1:8081" && set "SLOPSHELL_INTENT_LLM_MODEL=local" && set "SLOPSHELL_INTENT_LLM_PROFILE=qwen3.5-9b" && set "SLOPSHELL_INTENT_LLM_PROFILE_OPTIONS=qwen3.5-9b,qwen3.5-4b" && "' + $BinaryPath + '" server --project-dir "' + $ProjectDir + '" --data-dir "' + $WebDataDir + '" --web-host ' + $WebHost + ' --web-port 8420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424'
+    $webCmd = 'set "SLOPSHELL_INTENT_LLM_URL=http://127.0.0.1:8081" && set "SLOPSHELL_INTENT_LLM_MODEL=local" && set "SLOPSHELL_INTENT_LLM_PROFILE=qwen3.5-9b" && set "SLOPSHELL_INTENT_LLM_PROFILE_OPTIONS=qwen3.5-9b,qwen3.5-4b" && "' + $BinaryPath + '" server --workspace-dir "' + $ProjectDir + '" --data-dir "' + $WebDataDir + '" --web-host ' + $WebHost + ' --web-port 8420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424'
     $piperCmd = 'set "PIPER_MODEL_DIR=' + $ModelDir + '" && "' + (Join-Path $PiperVenv 'Scripts\python.exe') + '" -m uvicorn piper_tts_server:app --app-dir "' + $ScriptDir + '" --host 127.0.0.1 --port 8424'
     $codexCmd = '"' + $CodexPath + '" app-server --listen ws://127.0.0.1:8787'
 
