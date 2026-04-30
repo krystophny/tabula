@@ -29,7 +29,7 @@ var itemFilterSourceCommands = map[string]string{
 	"show manual items":       "manual",
 }
 
-var projectItemFilterPattern = regexp.MustCompile(`(?i)^(?:show|open|zeige)\s+(.+?)\s+items$`)
+var workspaceItemFilterPattern = regexp.MustCompile(`(?i)^(?:show|open|zeige)\s+(.+?)\s+items$`)
 
 func parseInlineItemFilterIntent(text string) *SystemAction {
 	normalized := normalizeItemCommandText(text)
@@ -55,6 +55,18 @@ func parseInlineItemFilterIntent(text string) *SystemAction {
 				"all_spheres":   allSpheres,
 			},
 		}
+	case "show next", "open next", "show next actions", "open next actions", "zeige naechste aktionen":
+		return showFilteredItemsAction(store.ItemStateNext, true, allSpheres)
+	case "show waiting", "open waiting", "show waiting for", "open waiting for", "zeige warten":
+		return showFilteredItemsAction(store.ItemStateWaiting, true, allSpheres)
+	case "show deferred", "open deferred", "show tickler", "open tickler", "zeige spaeter":
+		return showFilteredItemsAction(store.ItemStateDeferred, true, allSpheres)
+	case "show someday", "open someday", "show someday maybe", "open someday maybe":
+		return showFilteredItemsAction(store.ItemStateSomeday, true, allSpheres)
+	case "show review", "open review", "show review queue", "open review queue",
+		"daily review", "start daily review", "open daily review",
+		"weekly review", "start weekly review", "open weekly review":
+		return showFilteredItemsAction(store.ItemStateReview, true, allSpheres)
 	case "show unassigned items", "show unassigned inbox items", "show items without workspace", "zeige nicht zugeordnete items", "zeige items ohne workspace":
 		return &SystemAction{
 			Action: "show_filtered_items",
@@ -79,18 +91,18 @@ func parseInlineItemFilterIntent(text string) *SystemAction {
 			},
 		}
 	}
-	if match := projectItemFilterPattern.FindStringSubmatch(strings.TrimSpace(text)); len(match) == 2 {
-		projectRef := cleanWorkspaceReference(match[1])
-		if allSpheres && strings.HasPrefix(strings.ToLower(projectRef), "all ") {
-			projectRef = cleanWorkspaceReference(strings.TrimSpace(projectRef[4:]))
+	if match := workspaceItemFilterPattern.FindStringSubmatch(strings.TrimSpace(text)); len(match) == 2 {
+		workspaceRef := cleanWorkspaceReference(match[1])
+		if allSpheres && strings.HasPrefix(strings.ToLower(workspaceRef), "all ") {
+			workspaceRef = cleanWorkspaceReference(strings.TrimSpace(workspaceRef[4:]))
 		}
-		if projectRef != "" && !strings.EqualFold(projectRef, "unassigned") {
+		if workspaceRef != "" && !strings.EqualFold(workspaceRef, "unassigned") {
 			return &SystemAction{
 				Action: "show_filtered_items",
 				Params: map[string]interface{}{
 					"view": store.ItemStateInbox,
 					"filters": map[string]interface{}{
-						"workspace":   projectRef,
+						"workspace":   workspaceRef,
 						"all_spheres": allSpheres,
 					},
 				},
@@ -98,6 +110,17 @@ func parseInlineItemFilterIntent(text string) *SystemAction {
 		}
 	}
 	return nil
+}
+
+func showFilteredItemsAction(view string, clearFilters, allSpheres bool) *SystemAction {
+	return &SystemAction{
+		Action: "show_filtered_items",
+		Params: map[string]interface{}{
+			"view":          view,
+			"clear_filters": clearFilters,
+			"all_spheres":   allSpheres,
+		},
+	}
 }
 
 func systemActionTruthyParam(params map[string]interface{}, key string) bool {
@@ -173,7 +196,12 @@ func systemActionAllSpheresParam(params map[string]interface{}) bool {
 
 func filteredItemViewMessage(view string, filter store.ItemListFilter, count int, allSpheres bool) string {
 	listName := "inbox"
-	if view == store.ItemStateWaiting || view == store.ItemStateSomeday || view == store.ItemStateDone {
+	if view == store.ItemStateNext ||
+		view == store.ItemStateWaiting ||
+		view == store.ItemStateDeferred ||
+		view == store.ItemStateSomeday ||
+		view == store.ItemStateReview ||
+		view == store.ItemStateDone {
 		listName = view
 	}
 	filterText := ""

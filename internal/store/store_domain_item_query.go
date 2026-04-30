@@ -209,7 +209,17 @@ func (s *Store) ListDeferredItemsFiltered(filter ItemListFilter) ([]ItemSummary,
 }
 
 func (s *Store) ListReviewItemsFiltered(filter ItemListFilter) ([]ItemSummary, error) {
-	return s.listItemSummariesByState(ItemStateReview, filter)
+	normalizedFilter, err := s.prepareItemListFilter(filter)
+	if err != nil {
+		return nil, err
+	}
+	column := func(name string) string { return "i." + name }
+	reviewClause, reviewArgs := reviewQueueClause(time.Now().UTC(), column, column)
+	parts := []string{reviewClause}
+	args := append([]any{}, reviewArgs...)
+	parts, args = appendItemFilterClauses(parts, args, normalizedFilter, "i.")
+	query := itemSummarySelect + ` WHERE ` + stringsJoin(parts, ` AND `) + ` ORDER BY i.updated_at DESC, i.id ASC`
+	return s.listItemSummaries(query, args...)
 }
 
 func (s *Store) ListSomedayItems() ([]ItemSummary, error) {
@@ -286,6 +296,9 @@ func (s *Store) CountItemsByStateFiltered(now time.Time, filter ItemListFilter) 
 	}
 	cutoff := now.UTC().Format(time.RFC3339Nano)
 	var inbox, next, waiting, deferred, someday, review, done int
+	column := func(name string) string { return name }
+	outerColumn := func(name string) string { return "items." + name }
+	reviewClause, reviewArgs := reviewQueueClause(now, column, outerColumn)
 	query := `
 SELECT
   COALESCE(SUM(CASE
@@ -300,20 +313,13 @@ SELECT
   COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS waiting_count,
   COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS deferred_count,
   COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS someday_count,
-  COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS review_count,
+  COALESCE(SUM(CASE WHEN ` + reviewClause + ` THEN 1 ELSE 0 END), 0) AS review_count,
   COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS done_count
 FROM items
 `
-	args := []any{
-		ItemStateInbox,
-		cutoff,
-		ItemStateNext,
-		ItemStateWaiting,
-		ItemStateDeferred,
-		ItemStateSomeday,
-		ItemStateReview,
-		ItemStateDone,
-	}
+	args := []any{ItemStateInbox, cutoff, ItemStateNext, ItemStateWaiting, ItemStateDeferred, ItemStateSomeday}
+	args = append(args, reviewArgs...)
+	args = append(args, ItemStateDone)
 	parts := []string{}
 	parts, args = appendItemFilterClauses(parts, args, normalizedFilter, "")
 	if len(parts) > 0 {
@@ -330,6 +336,24 @@ FROM items
 	counts[ItemStateReview] = review
 	counts[ItemStateDone] = done
 	return counts, nil
+}
+
+func reviewQueueClause(now time.Time, column, outerColumn itemFilterColumnFunc) (string, []any) {
+	cutoff := now.UTC().Format(time.RFC3339Nano)
+	clause := `(` + column("state") + ` = ?
+OR (` + column("state") + ` = ?
+  AND ` + column("follow_up_at") + ` IS NOT NULL AND trim(` + column("follow_up_at") + `) <> ''
+  AND datetime(` + column("follow_up_at") + `) <= datetime(?))
+OR (` + column("kind") + ` = ?
+  AND ` + column("state") + ` <> ?
+  AND NOT EXISTS (
+    SELECT 1 FROM item_children links JOIN items child ON child.id = links.child_item_id
+    WHERE links.parent_item_id = ` + outerColumn("id") + `
+      AND child.state IN (?, ?, ?, ?)
+  )))`
+	args := []any{ItemStateReview, ItemStateWaiting, cutoff, ItemKindProject, ItemStateDone}
+	args = append(args, ItemStateNext, ItemStateWaiting, ItemStateDeferred, ItemStateSomeday)
+	return clause, args
 }
 
 // SidebarSectionCounts captures counts for the compact sidebar's secondary

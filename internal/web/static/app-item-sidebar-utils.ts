@@ -939,8 +939,8 @@ function itemSidebarStateEntries(item, itemState, x, y) {
   }
   return [
     ...review,
-    itemSidebarTriageEntry(item, 'next'),
     itemSidebarTriageEntry(item, 'done'),
+    itemSidebarTriageEntry(item, 'next'),
     ...shared,
     itemSidebarTriageEntry(item, 'later'),
     itemSidebarTriageEntry(item, 'delegate', () => showItemSidebarDelegateMenu(item, x, y)),

@@ -219,6 +219,87 @@ func TestCountSidebarSectionsFilteredCountsDriftReviewItems(t *testing.T) {
 	}
 }
 
+func TestReviewQueueIncludesDueWaitingItemsAndStalledProjectItems(t *testing.T) {
+	s := newTestStore(t)
+
+	now := time.Now().UTC()
+	past := now.Add(-time.Hour).Format(time.RFC3339)
+	future := now.Add(time.Hour).Format(time.RFC3339)
+	alice, err := s.CreateActor("Alice", ActorKindHuman)
+	if err != nil {
+		t.Fatalf("CreateActor() error: %v", err)
+	}
+	if _, err := s.CreateItem("Explicit review", ItemOptions{State: ItemStateReview}); err != nil {
+		t.Fatalf("CreateItem(review) error: %v", err)
+	}
+	if _, err := s.CreateItem("Follow up Alice", ItemOptions{
+		State:      ItemStateWaiting,
+		ActorID:    &alice.ID,
+		FollowUpAt: &past,
+	}); err != nil {
+		t.Fatalf("CreateItem(due waiting) error: %v", err)
+	}
+	if _, err := s.CreateItem("Not ready waiting", ItemOptions{
+		State:      ItemStateWaiting,
+		ActorID:    &alice.ID,
+		FollowUpAt: &future,
+	}); err != nil {
+		t.Fatalf("CreateItem(future waiting) error: %v", err)
+	}
+	if _, err := s.CreateItem("Stalled outcome", ItemOptions{
+		Kind:  ItemKindProject,
+		State: ItemStateNext,
+	}); err != nil {
+		t.Fatalf("CreateItem(stalled project) error: %v", err)
+	}
+	healthy, err := s.CreateItem("Healthy outcome", ItemOptions{
+		Kind:  ItemKindProject,
+		State: ItemStateNext,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(healthy project) error: %v", err)
+	}
+	child, err := s.CreateItem("Healthy next action", ItemOptions{State: ItemStateNext})
+	if err != nil {
+		t.Fatalf("CreateItem(child) error: %v", err)
+	}
+	if err := s.LinkItemChild(healthy.ID, child.ID, ItemLinkRoleNextAction); err != nil {
+		t.Fatalf("LinkItemChild() error: %v", err)
+	}
+	if _, err := s.CreateItem("Done stalled outcome", ItemOptions{
+		Kind:  ItemKindProject,
+		State: ItemStateDone,
+	}); err != nil {
+		t.Fatalf("CreateItem(done project) error: %v", err)
+	}
+
+	items, err := s.ListReviewItemsFiltered(ItemListFilter{})
+	if err != nil {
+		t.Fatalf("ListReviewItemsFiltered() error: %v", err)
+	}
+	titles := map[string]bool{}
+	for _, item := range items {
+		titles[item.Title] = true
+	}
+	for _, title := range []string{"Explicit review", "Follow up Alice", "Stalled outcome"} {
+		if !titles[title] {
+			t.Fatalf("review queue missing %q from titles %#v", title, titles)
+		}
+	}
+	for _, title := range []string{"Not ready waiting", "Healthy outcome", "Done stalled outcome"} {
+		if titles[title] {
+			t.Fatalf("review queue includes %q unexpectedly: %#v", title, titles)
+		}
+	}
+	counts, err := s.CountItemsByStateFiltered(now, ItemListFilter{})
+	if err != nil {
+		t.Fatalf("CountItemsByStateFiltered() error: %v", err)
+	}
+	if counts[ItemStateReview] != 3 {
+		t.Fatalf("review count = %d, want 3", counts[ItemStateReview])
+	}
+}
+
 func TestCountSidebarSectionsFilteredCountsDuplicateSourcePairs(t *testing.T) {
 	s := newTestStore(t)
 
