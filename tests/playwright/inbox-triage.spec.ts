@@ -699,6 +699,16 @@ test.describe('inbox triage interactions', () => {
       return page.evaluate(() => (window as any).__openedSources || []);
     }).toEqual(['https://todoist.com/showTask?id=702']);
 
+    await todoistRow.click({ button: 'right' });
+    const clarifyAction = page.locator('#item-sidebar-menu .item-sidebar-menu-item[data-action="next"]');
+    await expect(clarifyAction).toHaveText('Clarify...');
+    await clarifyAction.click();
+    await expect.poll(async () => {
+      const log = await page.evaluate(() => (window as any).__harnessLog || []);
+      return log.some((entry: any) => entry?.action === 'item_triage'
+        && entry?.payload?.action === 'next');
+    }).toBe(true);
+
     const markdownRow = page.locator('#pr-file-list .pr-file-item[data-item-id="701"]');
     await markdownRow.click({ button: 'right' });
     await page.locator('#item-sidebar-menu .item-sidebar-menu-item[data-action="project_item"]').click();

@@ -204,7 +204,7 @@ export function itemSidebarActionLabel(action, item = null) {
     return isEmailSidebarItem(item) ? 'Archive' : 'Done';
   }
   if (normalized === 'inbox') return 'Back to Inbox';
-  if (normalized === 'next') return 'Next';
+  if (normalized === 'next') return 'Clarify...';
   if (normalized === 'delete') return 'Delete';
   if (normalized === 'delegate') return 'Delegate';
   if (normalized === 'later') return 'Later';
@@ -213,15 +213,16 @@ export function itemSidebarActionLabel(action, item = null) {
 }
 
 export function itemSidebarStatusText(action, item = null, actorName = '') {
+  const normalized = String(action || '').trim().toLowerCase();
   const label = itemSidebarActionLabel(action, item).toLowerCase();
-  if (String(action || '').trim().toLowerCase() === 'delegate' && String(actorName || '').trim()) {
+  if (normalized === 'delegate' && String(actorName || '').trim()) {
     return `delegated to ${String(actorName || '').trim()}`;
   }
   if (!label) return 'updated';
   if (label === 'back to inbox') return 'returned to inbox';
-  if (label === 'next') return 'moved to next';
-  if (label === 'later') return 'moved to later';
-  if (label === 'someday') return 'moved to someday';
+  if (normalized === 'next') return 'moved to next';
+  if (normalized === 'later') return 'moved to later';
+  if (normalized === 'someday') return 'moved to someday';
   return `${label}d`;
 }
 
@@ -909,6 +910,7 @@ function itemSidebarStateEntries(item, itemState, x, y) {
   }
   return [
     ...review,
+    itemSidebarTriageEntry(item, 'next'),
     itemSidebarTriageEntry(item, 'done'),
     ...shared,
     itemSidebarTriageEntry(item, 'later'),
