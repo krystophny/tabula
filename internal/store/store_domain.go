@@ -30,8 +30,7 @@ const itemsTableSchema = `CREATE TABLE IF NOT EXISTS items (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );`
 
-func (s *Store) migrateDomainTables() error {
-	schema := `
+const domainTablesSchema = `
 CREATE TABLE IF NOT EXISTS workspaces (
   id INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
@@ -214,7 +213,9 @@ CREATE TABLE IF NOT EXISTS push_registrations (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_push_registrations_identity
   ON push_registrations(platform, device_token, session_id, workspace_id);
 `
-	if _, err := s.db.Exec(schema); err != nil {
+
+func (s *Store) migrateDomainTables() error {
+	if _, err := s.db.Exec(domainTablesSchema); err != nil {
 		return err
 	}
 	if _, err := s.db.Exec(itemsTableSchema); err != nil {
