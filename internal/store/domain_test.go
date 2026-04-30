@@ -223,6 +223,49 @@ INSERT INTO items (title, state) VALUES ('legacy waiting', 'waiting');
 	}
 }
 
+func TestStoreRepairsInterruptedItemsMigrationForeignKeys(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "slopshell.db")
+	s, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close() error: %v", err)
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error: %v", err)
+	}
+	if _, err := db.Exec(`PRAGMA writable_schema = ON;
+UPDATE sqlite_master
+SET sql = replace(sql, 'REFERENCES items', 'REFERENCES "items_legacy"')
+WHERE type = 'table' AND name IN ('external_bindings', 'batch_run_items', 'item_artifacts');
+PRAGMA writable_schema = OFF;`); err != nil {
+		_ = db.Close()
+		t.Fatalf("corrupt child foreign keys: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close corrupted db: %v", err)
+	}
+
+	reopened, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New() repaired DB error: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = reopened.Close()
+	})
+
+	var broken int
+	if err := reopened.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND sql LIKE '%items_legacy%'`).Scan(&broken); err != nil {
+		t.Fatalf("count broken schemas: %v", err)
+	}
+	if broken != 0 {
+		t.Fatalf("broken child schemas = %d, want 0", broken)
+	}
+}
+
 func TestStoreMigratesProjectRemovalWithoutLegacyForeignKeys(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "slopshell.db")
 	db, err := sql.Open("sqlite", dbPath)
