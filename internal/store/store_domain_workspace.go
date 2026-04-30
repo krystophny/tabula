@@ -621,7 +621,7 @@ func (s *Store) ListArtifactLinkWorkspaces(artifactID int64) ([]Workspace, error
 		return nil, err
 	}
 	rows, err := s.db.Query(
-		`SELECT w.id, w.name, w.dir_path, `+scopedContextSelect("context_workspaces", "workspace_id", "w.id")+` AS sphere, w.is_active, w.is_daily, w.daily_date, w.mcp_url, w.canvas_session_id, w.chat_model, w.chat_model_reasoning_effort, w.companion_config_json, w.created_at, w.updated_at
+		`SELECT w.id, w.name, w.dir_path, `+scopedContextSelect("context_workspaces", "workspace_id", "w.id")+` AS sphere, w.source_workspace_id, w.source_path, w.is_active, w.is_daily, w.daily_date, w.mcp_url, w.canvas_session_id, w.chat_model, w.chat_model_reasoning_effort, w.companion_config_json, w.created_at, w.updated_at
 		 FROM workspace_artifact_links wal
 		 INNER JOIN workspaces w ON w.id = wal.workspace_id
 		 WHERE wal.artifact_id = ?
