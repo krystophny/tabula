@@ -113,6 +113,48 @@ func TestResolveAgentHereSpecSourceLinkPreservesCursor(t *testing.T) {
 	}
 }
 
+func TestResolveAgentHereSpecExplicitSourceIgnoresCwdFallback(t *testing.T) {
+	vaultRoot := t.TempDir()
+	brainRoot := filepath.Join(vaultRoot, "brain")
+	privateRoot := t.TempDir()
+	sourceDir := filepath.Join(brainRoot, "topics")
+	sourceNote := filepath.Join(sourceDir, "source.md")
+	cwd := t.TempDir()
+	cwdTarget := filepath.Join(cwd, "relative.md")
+	privateTarget := filepath.Join(privateRoot, "brain", "relative.md")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatalf("mkdir source dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(privateTarget), 0o755); err != nil {
+		t.Fatalf("mkdir private target dir: %v", err)
+	}
+	if err := os.WriteFile(sourceNote, []byte("source"), 0o644); err != nil {
+		t.Fatalf("write source note: %v", err)
+	}
+	if err := os.WriteFile(cwdTarget, []byte("cwd"), 0o644); err != nil {
+		t.Fatalf("write cwd target: %v", err)
+	}
+	if err := os.WriteFile(privateTarget, []byte("private"), 0o644); err != nil {
+		t.Fatalf("write private target: %v", err)
+	}
+	t.Setenv("SLOPSHELL_BRAIN_WORK_ROOT", vaultRoot)
+	t.Setenv("SLOPSHELL_BRAIN_PRIVATE_ROOT", privateRoot)
+
+	_, err := resolveAgentHereSpec("topics/source.md::relative.md", cwd)
+	if err == nil {
+		t.Fatal("resolveAgentHereSpec() error = nil, want source-sphere guard")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "sphere") {
+		t.Fatalf("resolveAgentHereSpec() error = %v, want sphere guard", err)
+	}
+	if strings.Contains(err.Error(), cwdTarget) {
+		t.Fatalf("resolveAgentHereSpec() leaked cwd fallback: %v", err)
+	}
+	if strings.Contains(err.Error(), privateTarget) {
+		t.Fatalf("resolveAgentHereSpec() leaked private fallback: %v", err)
+	}
+}
+
 func TestResolveAgentHereSpecCurrentNotePreservesCursor(t *testing.T) {
 	vaultRoot := t.TempDir()
 	brainRoot := filepath.Join(vaultRoot, "brain")
