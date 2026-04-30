@@ -2,6 +2,8 @@ package web
 
 import (
 	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -246,15 +248,15 @@ func TestItemNextAPISurfacesOverdueWithoutChangingState(t *testing.T) {
 	past := time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339)
 	future := time.Now().UTC().Add(48 * time.Hour).Format(time.RFC3339)
 	overdue, err := app.store.CreateItem("Overdue deadline", store.ItemOptions{
-		State:      store.ItemStateNext,
-		FollowUpAt: &past,
+		State: store.ItemStateNext,
+		DueAt: &past,
 	})
 	if err != nil {
 		t.Fatalf("CreateItem(overdue) error: %v", err)
 	}
-	if _, err := app.store.CreateItem("Future scheduled", store.ItemOptions{
-		State:      store.ItemStateNext,
-		FollowUpAt: &future,
+	if _, err := app.store.CreateItem("Future hard deadline", store.ItemOptions{
+		State: store.ItemStateNext,
+		DueAt: &future,
 	}); err != nil {
 		t.Fatalf("CreateItem(future) error: %v", err)
 	}
@@ -290,5 +292,184 @@ func TestItemNextAPISurfacesOverdueWithoutChangingState(t *testing.T) {
 	}
 	if stored.State != store.ItemStateNext {
 		t.Fatalf("overdue state = %q, want %q (visibility must not redefine state)", stored.State, store.ItemStateNext)
+	}
+	if stored.DueAt == nil || strings.TrimSpace(*stored.DueAt) == "" {
+		t.Fatalf("overdue due_at = %v, want preserved", stored.DueAt)
+	}
+}
+
+// Hard deadlines (due_at) and follow-up/start dates (follow_up_at) are
+// independent: a follow-up date in the past must not surface the row as a
+// missed hard deadline, and clearing one must not affect the other.
+func TestItemNextAPIDistinguishesDueAtFromFollowUpAt(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	past := time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339)
+	hardDeadlineOnly, err := app.store.CreateItem("Hard deadline only", store.ItemOptions{
+		State: store.ItemStateNext,
+		DueAt: &past,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(hard deadline only) error: %v", err)
+	}
+	followUpOnly, err := app.store.CreateItem("Follow-up only", store.ItemOptions{
+		State:      store.ItemStateNext,
+		FollowUpAt: &past,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(follow-up only) error: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/next", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	payload := decodeJSONResponse(t, rr)
+	overdueRaw, _ := payload["overdue"].([]any)
+	overdueIDs := map[int64]bool{}
+	for _, raw := range overdueRaw {
+		overdueIDs[int64(raw.(float64))] = true
+	}
+	if !overdueIDs[hardDeadlineOnly.ID] {
+		t.Fatalf("overdue list missing hard deadline item %d: %v", hardDeadlineOnly.ID, overdueIDs)
+	}
+	if overdueIDs[followUpOnly.ID] {
+		t.Fatalf("follow_up_at must not be treated as a hard deadline: %v", overdueIDs)
+	}
+}
+
+func TestItemNextAPIFiltersByDueAndFollowUpWindows(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	dueSoon := time.Now().UTC().Add(2 * time.Hour).Format(time.RFC3339)
+	dueLater := time.Now().UTC().Add(72 * time.Hour).Format(time.RFC3339)
+	followSoon := time.Now().UTC().Add(2 * time.Hour).Format(time.RFC3339)
+	followLater := time.Now().UTC().Add(72 * time.Hour).Format(time.RFC3339)
+
+	soon, err := app.store.CreateItem("Due soon", store.ItemOptions{
+		State:      store.ItemStateNext,
+		DueAt:      &dueSoon,
+		FollowUpAt: &followSoon,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(due soon) error: %v", err)
+	}
+	if _, err := app.store.CreateItem("Due later", store.ItemOptions{
+		State:      store.ItemStateNext,
+		DueAt:      &dueLater,
+		FollowUpAt: &followLater,
+	}); err != nil {
+		t.Fatalf("CreateItem(due later) error: %v", err)
+	}
+	if _, err := app.store.CreateItem("No dates", store.ItemOptions{
+		State: store.ItemStateNext,
+	}); err != nil {
+		t.Fatalf("CreateItem(no dates) error: %v", err)
+	}
+
+	cutoff := time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339)
+
+	cases := []struct {
+		name  string
+		query string
+	}{
+		{"due_before", "/api/items/next?due_before=" + url.QueryEscape(cutoff)},
+		{"follow_up_before", "/api/items/next?follow_up_before=" + url.QueryEscape(cutoff)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, tc.query, nil)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
+			}
+			items, _ := decodeJSONResponse(t, rr)["items"].([]any)
+			if len(items) != 1 {
+				t.Fatalf("%s len(items) = %d, want 1", tc.name, len(items))
+			}
+			row := items[0].(map[string]any)
+			if int64(row["id"].(float64)) != soon.ID {
+				t.Fatalf("%s id = %v, want %d", tc.name, row["id"], soon.ID)
+			}
+		})
+	}
+
+	rrAfter := doAuthedJSONRequest(t, app.Router(), http.MethodGet,
+		"/api/items/next?due_after="+url.QueryEscape(cutoff), nil)
+	if rrAfter.Code != http.StatusOK {
+		t.Fatalf("due_after status = %d, want 200: %s", rrAfter.Code, rrAfter.Body.String())
+	}
+	afterItems, _ := decodeJSONResponse(t, rrAfter)["items"].([]any)
+	if len(afterItems) != 1 {
+		t.Fatalf("due_after len(items) = %d, want 1", len(afterItems))
+	}
+
+	rrBad := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/next?due_before=not-a-date", nil)
+	if rrBad.Code != http.StatusBadRequest {
+		t.Fatalf("invalid due_before status = %d, want 400", rrBad.Code)
+	}
+}
+
+func TestItemNextAPIFiltersBySourceContainer(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	gmail := store.ExternalProviderGmail
+	inboxRef := "msg-inbox-1"
+	cabinetRef := "msg-cabinet-1"
+	inboxItem, err := app.store.CreateItem("Inbox-bound message", store.ItemOptions{
+		State:     store.ItemStateNext,
+		Source:    &gmail,
+		SourceRef: &inboxRef,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(inbox) error: %v", err)
+	}
+	if _, err := app.store.CreateItem("Filed message", store.ItemOptions{
+		State:     store.ItemStateNext,
+		Source:    &gmail,
+		SourceRef: &cabinetRef,
+	}); err != nil {
+		t.Fatalf("CreateItem(filed) error: %v", err)
+	}
+
+	account, err := app.store.CreateExternalAccount(store.SpherePrivate, gmail, "primary", map[string]any{})
+	if err != nil {
+		t.Fatalf("CreateExternalAccount() error: %v", err)
+	}
+	inboxContainer := "INBOX"
+	cabinetContainer := "Cabinet"
+	if _, err := app.store.UpsertExternalBinding(store.ExternalBinding{
+		AccountID:    account.ID,
+		Provider:     gmail,
+		ObjectType:   "email",
+		RemoteID:     inboxRef,
+		ItemID:       &inboxItem.ID,
+		ContainerRef: &inboxContainer,
+	}); err != nil {
+		t.Fatalf("UpsertExternalBinding(inbox) error: %v", err)
+	}
+	otherID := inboxItem.ID + 1
+	if _, err := app.store.UpsertExternalBinding(store.ExternalBinding{
+		AccountID:    account.ID,
+		Provider:     gmail,
+		ObjectType:   "email",
+		RemoteID:     cabinetRef,
+		ItemID:       &otherID,
+		ContainerRef: &cabinetContainer,
+	}); err != nil {
+		t.Fatalf("UpsertExternalBinding(cabinet) error: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet,
+		"/api/items/next?source_container="+url.QueryEscape(inboxContainer), nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	items, _ := decodeJSONResponse(t, rr)["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	row := items[0].(map[string]any)
+	if int64(row["id"].(float64)) != inboxItem.ID {
+		t.Fatalf("source_container id = %v, want %d", row["id"], inboxItem.ID)
 	}
 }

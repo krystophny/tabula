@@ -57,7 +57,7 @@ func (s *Store) migrateItemTableStateSupport() error {
 		return err
 	}
 	copyColumns := []string{
-		"id", "title", "kind", "state", "workspace_id", "artifact_id", "actor_id", "visible_after", "follow_up_at",
+		"id", "title", "kind", "state", "workspace_id", "artifact_id", "actor_id", "visible_after", "follow_up_at", "due_at",
 		"source", "source_ref", "review_target", "reviewer", "reviewed_at", "created_at", "updated_at",
 	}
 	var kept []string

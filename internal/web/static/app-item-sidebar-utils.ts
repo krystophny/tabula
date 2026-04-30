@@ -45,8 +45,13 @@ export const SIDEBAR_SECTION_IDS = ['project_items', 'people', 'drift', 'dedup',
 export function normalizeItemSidebarFilters(rawFilters = null) {
   const filters = rawFilters && typeof rawFilters === 'object' ? rawFilters : {};
   const source = String(filters.source || '').trim().toLowerCase();
+  const sourceContainer = String(filters.source_container || '').trim();
   const labelIDRaw = Number(filters.label_id || 0);
   const labelID = Number.isFinite(labelIDRaw) && labelIDRaw > 0 ? Math.trunc(labelIDRaw) : null;
+  const actorIDRaw = Number(filters.actor_id || 0);
+  const actorID = Number.isFinite(actorIDRaw) && actorIDRaw > 0 ? Math.trunc(actorIDRaw) : null;
+  const projectItemIDRaw = Number(filters.project_item_id || 0);
+  const projectItemID = Number.isFinite(projectItemIDRaw) && projectItemIDRaw > 0 ? Math.trunc(projectItemIDRaw) : null;
   const allSpheres = filters.all_spheres === true;
   const workspaceRaw = filters.workspace_id;
   const workspaceUnassigned = String(workspaceRaw || '').trim().toLowerCase() === 'null'
@@ -57,33 +62,57 @@ export function normalizeItemSidebarFilters(rawFilters = null) {
   }
   const sectionRaw = String(filters.section || '').trim().toLowerCase();
   const section = SIDEBAR_SECTION_IDS.includes(sectionRaw) ? sectionRaw : '';
+  const dueBefore = String(filters.due_before || '').trim();
+  const dueAfter = String(filters.due_after || '').trim();
+  const followUpBefore = String(filters.follow_up_before || '').trim();
+  const followUpAfter = String(filters.follow_up_after || '').trim();
   return {
     all_spheres: allSpheres,
     source,
+    source_container: sourceContainer,
     workspace_id: workspaceID,
     label_id: labelID,
+    actor_id: actorID,
+    project_item_id: projectItemID,
     workspace_unassigned: workspaceUnassigned,
     section,
+    due_before: dueBefore,
+    due_after: dueAfter,
+    follow_up_before: followUpBefore,
+    follow_up_after: followUpAfter,
   };
+}
+
+function appendItemSidebarQueryParam(path, key, value) {
+  if (value === null || value === undefined || value === '') return path;
+  const separator = String(path || '').includes('?') ? '&' : '?';
+  return `${path}${separator}${key}=${encodeURIComponent(String(value))}`;
 }
 
 function appendItemSidebarFilterQuery(path, filters = state.itemSidebarFilters) {
   const normalized = normalizeItemSidebarFilters(filters);
   let nextPath = String(path || '');
-  if (normalized.source) {
-    nextPath = `${nextPath}${nextPath.includes('?') ? '&' : '?'}source=${encodeURIComponent(normalized.source)}`;
-  }
+  nextPath = appendItemSidebarQueryParam(nextPath, 'source', normalized.source);
+  nextPath = appendItemSidebarQueryParam(nextPath, 'source_container', normalized.source_container);
   if (normalized.workspace_unassigned) {
-    nextPath = `${nextPath}${nextPath.includes('?') ? '&' : '?'}workspace_id=null`;
+    nextPath = appendItemSidebarQueryParam(nextPath, 'workspace_id', 'null');
   } else if (Number.isFinite(normalized.workspace_id) && normalized.workspace_id > 0) {
-    nextPath = `${nextPath}${nextPath.includes('?') ? '&' : '?'}workspace_id=${encodeURIComponent(String(normalized.workspace_id))}`;
+    nextPath = appendItemSidebarQueryParam(nextPath, 'workspace_id', normalized.workspace_id);
   }
   if (Number.isFinite(normalized.label_id) && normalized.label_id > 0) {
-    nextPath = `${nextPath}${nextPath.includes('?') ? '&' : '?'}label_id=${encodeURIComponent(String(normalized.label_id))}`;
+    nextPath = appendItemSidebarQueryParam(nextPath, 'label_id', normalized.label_id);
   }
-  if (normalized.section) {
-    nextPath = `${nextPath}${nextPath.includes('?') ? '&' : '?'}section=${encodeURIComponent(normalized.section)}`;
+  if (Number.isFinite(normalized.actor_id) && normalized.actor_id > 0) {
+    nextPath = appendItemSidebarQueryParam(nextPath, 'actor_id', normalized.actor_id);
   }
+  if (Number.isFinite(normalized.project_item_id) && normalized.project_item_id > 0) {
+    nextPath = appendItemSidebarQueryParam(nextPath, 'project_item_id', normalized.project_item_id);
+  }
+  nextPath = appendItemSidebarQueryParam(nextPath, 'section', normalized.section);
+  nextPath = appendItemSidebarQueryParam(nextPath, 'due_before', normalized.due_before);
+  nextPath = appendItemSidebarQueryParam(nextPath, 'due_after', normalized.due_after);
+  nextPath = appendItemSidebarQueryParam(nextPath, 'follow_up_before', normalized.follow_up_before);
+  nextPath = appendItemSidebarQueryParam(nextPath, 'follow_up_after', normalized.follow_up_after);
   return nextPath;
 }
 

@@ -25,6 +25,7 @@ func normalizeOptionalSidebarSectionFilter(raw string) (string, error) {
 func normalizeItemListFilter(filter ItemListFilter) (ItemListFilter, error) {
 	normalized := ItemListFilter{
 		Source:              normalizeOptionalSourceFilter(filter.Source),
+		SourceContainer:     strings.TrimSpace(filter.SourceContainer),
 		WorkspaceUnassigned: filter.WorkspaceUnassigned,
 	}
 	sphere, err := normalizeOptionalSphereFilter(filter.Sphere)
@@ -64,6 +65,18 @@ func normalizeItemListFilter(filter ItemListFilter) (ItemListFilter, error) {
 		value := *filter.ActorID
 		normalized.ActorID = &value
 	}
+	if normalized.DueBefore, err = normalizeOptionalRFC3339Filter(filter.DueBefore, "due_before"); err != nil {
+		return ItemListFilter{}, err
+	}
+	if normalized.DueAfter, err = normalizeOptionalRFC3339Filter(filter.DueAfter, "due_after"); err != nil {
+		return ItemListFilter{}, err
+	}
+	if normalized.FollowUpBefore, err = normalizeOptionalRFC3339Filter(filter.FollowUpBefore, "follow_up_before"); err != nil {
+		return ItemListFilter{}, err
+	}
+	if normalized.FollowUpAfter, err = normalizeOptionalRFC3339Filter(filter.FollowUpAfter, "follow_up_after"); err != nil {
+		return ItemListFilter{}, err
+	}
 	normalized.IncludeProjectItems = filter.IncludeProjectItems
 	normalized.Label = normalizeOptionalContextQuery(filter.Label)
 	if filter.LabelID != nil {
@@ -75,6 +88,18 @@ func normalizeItemListFilter(filter ItemListFilter) (ItemListFilter, error) {
 	}
 	if normalized.Label != "" && normalized.LabelID != nil {
 		return ItemListFilter{}, errors.New("label cannot be combined with label_id")
+	}
+	return normalized, nil
+}
+
+func normalizeOptionalRFC3339Filter(raw, field string) (string, error) {
+	clean := strings.TrimSpace(raw)
+	if clean == "" {
+		return "", nil
+	}
+	normalized, err := normalizeRFC3339String(clean)
+	if err != nil {
+		return "", errors.New(field + " must be a valid RFC3339 timestamp")
 	}
 	return normalized, nil
 }
@@ -160,6 +185,47 @@ func appendItemFilterClauses(parts []string, args []any, filter ItemListFilter, 
 	if filter.Source != "" {
 		parts = append(parts, "lower(trim("+column("source")+")) = ?")
 		args = append(args, filter.Source)
+	}
+	if filter.SourceContainer != "" {
+		parts = append(parts, `EXISTS (
+SELECT 1 FROM external_bindings eb
+WHERE eb.item_id = `+outerColumn("id")+`
+  AND eb.container_ref IS NOT NULL
+  AND lower(trim(eb.container_ref)) = lower(trim(?))
+)`)
+		args = append(args, filter.SourceContainer)
+	}
+	if filter.DueBefore != "" {
+		parts = append(parts,
+			column("due_at")+" IS NOT NULL",
+			"trim("+column("due_at")+") <> ''",
+			"datetime("+column("due_at")+") <= datetime(?)",
+		)
+		args = append(args, filter.DueBefore)
+	}
+	if filter.DueAfter != "" {
+		parts = append(parts,
+			column("due_at")+" IS NOT NULL",
+			"trim("+column("due_at")+") <> ''",
+			"datetime("+column("due_at")+") >= datetime(?)",
+		)
+		args = append(args, filter.DueAfter)
+	}
+	if filter.FollowUpBefore != "" {
+		parts = append(parts,
+			column("follow_up_at")+" IS NOT NULL",
+			"trim("+column("follow_up_at")+") <> ''",
+			"datetime("+column("follow_up_at")+") <= datetime(?)",
+		)
+		args = append(args, filter.FollowUpBefore)
+	}
+	if filter.FollowUpAfter != "" {
+		parts = append(parts,
+			column("follow_up_at")+" IS NOT NULL",
+			"trim("+column("follow_up_at")+") <> ''",
+			"datetime("+column("follow_up_at")+") >= datetime(?)",
+		)
+		args = append(args, filter.FollowUpAfter)
 	}
 	if filter.WorkspaceID != nil {
 		parts = append(parts, column("workspace_id")+" = ?")

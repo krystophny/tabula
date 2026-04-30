@@ -39,7 +39,7 @@ func (s *Store) LinkItemChild(parentItemID, childItemID int64, role string) erro
 	defer tx.Rollback()
 
 	parent, err := scanItem(tx.QueryRow(
-		`SELECT id, title, kind, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
+		`SELECT id, title, kind, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, due_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 		 FROM items
 		 WHERE id = ?`,
 		parentItemID,
@@ -51,7 +51,7 @@ func (s *Store) LinkItemChild(parentItemID, childItemID int64, role string) erro
 		return errors.New("parent item must be a project")
 	}
 	if _, err := scanItem(tx.QueryRow(
-		`SELECT id, title, kind, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
+		`SELECT id, title, kind, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, due_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 		 FROM items
 		 WHERE id = ?`,
 		childItemID,
@@ -86,7 +86,7 @@ func (s *Store) UnlinkItemChild(parentItemID, childItemID int64) error {
 	defer tx.Rollback()
 
 	item, err := scanItem(tx.QueryRow(
-		`SELECT id, title, kind, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
+		`SELECT id, title, kind, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, due_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 		 FROM items
 		 WHERE id = ?`,
 		parentItemID,

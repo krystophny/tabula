@@ -20,6 +20,7 @@ type itemCreateRequest struct {
 	ActorID      *int64  `json:"actor_id"`
 	VisibleAfter *string `json:"visible_after"`
 	FollowUpAt   *string `json:"follow_up_at"`
+	DueAt        *string `json:"due_at"`
 	Source       *string `json:"source"`
 	SourceRef    *string `json:"source_ref"`
 }
@@ -33,6 +34,7 @@ type itemUpdateRequest struct {
 	ActorID      *int64  `json:"actor_id"`
 	VisibleAfter *string `json:"visible_after"`
 	FollowUpAt   *string `json:"follow_up_at"`
+	DueAt        *string `json:"due_at"`
 	Source       *string `json:"source"`
 	SourceRef    *string `json:"source_ref"`
 }
@@ -89,9 +91,14 @@ func (a *App) resurfaceDueItemsForRead(w http.ResponseWriter) bool {
 
 func parseItemListFilterQuery(r *http.Request) (store.ItemListFilter, error) {
 	filter := store.ItemListFilter{
-		Sphere:  strings.TrimSpace(r.URL.Query().Get("sphere")),
-		Source:  strings.TrimSpace(r.URL.Query().Get("source")),
-		Section: strings.TrimSpace(r.URL.Query().Get("section")),
+		Sphere:          strings.TrimSpace(r.URL.Query().Get("sphere")),
+		Source:          strings.TrimSpace(r.URL.Query().Get("source")),
+		SourceContainer: strings.TrimSpace(r.URL.Query().Get("source_container")),
+		Section:         strings.TrimSpace(r.URL.Query().Get("section")),
+		DueBefore:       strings.TrimSpace(r.URL.Query().Get("due_before")),
+		DueAfter:        strings.TrimSpace(r.URL.Query().Get("due_after")),
+		FollowUpBefore:  strings.TrimSpace(r.URL.Query().Get("follow_up_before")),
+		FollowUpAfter:   strings.TrimSpace(r.URL.Query().Get("follow_up_after")),
 	}
 	if rawWorkspaceID := strings.TrimSpace(r.URL.Query().Get("workspace_id")); rawWorkspaceID != "" {
 		if strings.EqualFold(rawWorkspaceID, "null") {
@@ -264,15 +271,16 @@ func (a *App) handleItemNext(w http.ResponseWriter, r *http.Request) {
 }
 
 // overdueItemIDs reports which next-action items are past their hard deadline.
-// We treat a non-empty follow_up_at strictly in the past as overdue: surfacing
-// it does not change the GTD state, only flags it for prioritisation.
+// Hard deadlines live in due_at, separate from follow_up_at (which is a
+// start/review/resurface date). Surfacing an overdue item does not change its
+// GTD state — it only flags the row for prioritisation.
 func overdueItemIDs(items []store.ItemSummary, now time.Time) []int64 {
 	out := []int64{}
 	for _, item := range items {
-		if item.FollowUpAt == nil {
+		if item.DueAt == nil {
 			continue
 		}
-		raw := strings.TrimSpace(*item.FollowUpAt)
+		raw := strings.TrimSpace(*item.DueAt)
 		if raw == "" {
 			continue
 		}
@@ -432,6 +440,7 @@ func (a *App) handleItemCreate(w http.ResponseWriter, r *http.Request) {
 			ActorID:      req.ActorID,
 			VisibleAfter: req.VisibleAfter,
 			FollowUpAt:   req.FollowUpAt,
+			DueAt:        req.DueAt,
 			Source:       req.Source,
 			SourceRef:    req.SourceRef,
 		})
@@ -519,6 +528,7 @@ func (a *App) handleItemUpdate(w http.ResponseWriter, r *http.Request) {
 		ActorID:      req.ActorID,
 		VisibleAfter: req.VisibleAfter,
 		FollowUpAt:   req.FollowUpAt,
+		DueAt:        req.DueAt,
 		Source:       req.Source,
 		SourceRef:    req.SourceRef,
 	}); err != nil {

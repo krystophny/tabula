@@ -78,6 +78,7 @@ type ItemUpdate struct {
 	ActorID      *int64  `json:"actor_id,omitempty"`
 	VisibleAfter *string `json:"visible_after,omitempty"`
 	FollowUpAt   *string `json:"follow_up_at,omitempty"`
+	DueAt        *string `json:"due_at,omitempty"`
 	Source       *string `json:"source,omitempty"`
 	SourceRef    *string `json:"source_ref,omitempty"`
 	ReviewTarget *string `json:"review_target,omitempty"`
@@ -93,6 +94,7 @@ type ItemOptions struct {
 	ActorID      *int64  `json:"actor_id,omitempty"`
 	VisibleAfter *string `json:"visible_after,omitempty"`
 	FollowUpAt   *string `json:"follow_up_at,omitempty"`
+	DueAt        *string `json:"due_at,omitempty"`
 	Source       *string `json:"source,omitempty"`
 	SourceRef    *string `json:"source_ref,omitempty"`
 	ReviewTarget *string `json:"review_target,omitempty"`
@@ -102,6 +104,7 @@ type ItemOptions struct {
 type ItemListFilter struct {
 	Sphere               string `json:"sphere,omitempty"`
 	Source               string `json:"source,omitempty"`
+	SourceContainer      string `json:"source_container,omitempty"`
 	WorkspaceID          *int64 `json:"workspace_id,omitempty"`
 	WorkspaceUnassigned  bool   `json:"workspace_unassigned,omitempty"`
 	LabelID              *int64 `json:"label_id,omitempty"`
@@ -110,6 +113,10 @@ type ItemListFilter struct {
 	ProjectItemID        *int64 `json:"project_item_id,omitempty"`
 	IncludeProjectItems  bool   `json:"include_project_items,omitempty"`
 	ActorID              *int64 `json:"actor_id,omitempty"`
+	DueBefore            string `json:"due_before,omitempty"`
+	DueAfter             string `json:"due_after,omitempty"`
+	FollowUpBefore       string `json:"follow_up_before,omitempty"`
+	FollowUpAfter        string `json:"follow_up_after,omitempty"`
 	resolvedLabelGroups  [][]int64
 	labelResolved        bool
 	recentMeetingsCutoff string
@@ -259,6 +266,7 @@ type Item struct {
 	ActorID      *int64  `json:"actor_id,omitempty"`
 	VisibleAfter *string `json:"visible_after,omitempty"`
 	FollowUpAt   *string `json:"follow_up_at,omitempty"`
+	DueAt        *string `json:"due_at,omitempty"`
 	Source       *string `json:"source,omitempty"`
 	SourceRef    *string `json:"source_ref,omitempty"`
 	ReviewTarget *string `json:"review_target,omitempty"`

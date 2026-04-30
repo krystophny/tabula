@@ -52,8 +52,8 @@ func (s *Store) CreateItem(title string, opts ItemOptions) (Item, error) {
 
 	res, err := tx.Exec(
 		`INSERT INTO items (
-			title, kind, state, workspace_id, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			title, kind, state, workspace_id, artifact_id, actor_id, visible_after, follow_up_at, due_at, source, source_ref, review_target, reviewer, reviewed_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		cleanTitle,
 		cleanKind,
 		cleanState,
@@ -62,6 +62,7 @@ func (s *Store) CreateItem(title string, opts ItemOptions) (Item, error) {
 		opts.ActorID,
 		normalizeOptionalString(opts.VisibleAfter),
 		normalizeOptionalString(opts.FollowUpAt),
+		normalizeOptionalString(opts.DueAt),
 		normalizeOptionalString(opts.Source),
 		normalizeOptionalString(opts.SourceRef),
 		normalizeOptionalString(normalizedReviewTargetPointer(opts.ReviewTarget)),
@@ -94,7 +95,7 @@ func (s *Store) CreateItem(title string, opts ItemOptions) (Item, error) {
 
 func (s *Store) GetItem(id int64) (Item, error) {
 	return scanItem(s.db.QueryRow(
-		`SELECT id, title, kind, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
+		`SELECT id, title, kind, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, due_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 		 FROM items
 		 WHERE id = ?`,
 		id,
@@ -108,7 +109,7 @@ func (s *Store) GetItemBySource(source, sourceRef string) (Item, error) {
 		return Item{}, errors.New("item source and source_ref are required")
 	}
 	return scanItem(s.db.QueryRow(
-		`SELECT id, title, kind, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
+		`SELECT id, title, kind, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, due_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 		 FROM items
 		 WHERE source = ? AND source_ref = ?`,
 		cleanSource,
@@ -369,6 +370,14 @@ func (s *Store) UpdateItem(id int64, updates ItemUpdate) error {
 			return err
 		}
 		parts = append(parts, "follow_up_at = ?")
+		args = append(args, value)
+	}
+	if updates.DueAt != nil {
+		value, err := normalizeOptionalRFC3339String(updates.DueAt)
+		if err != nil {
+			return err
+		}
+		parts = append(parts, "due_at = ?")
 		args = append(args, value)
 	}
 	if updates.Source != nil {

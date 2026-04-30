@@ -63,7 +63,7 @@ func (s *Store) syncPrimaryItemArtifact(id int64, artifactID *int64) error {
 
 func (s *Store) syncPrimaryItemArtifactTx(tx *sql.Tx, id int64, artifactID *int64) error {
 	if _, err := scanItem(tx.QueryRow(
-		`SELECT id, title, kind, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
+		`SELECT id, title, kind, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, due_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 		 FROM items
 		 WHERE id = ?`,
 		id,
@@ -162,7 +162,7 @@ func (s *Store) LinkItemArtifact(itemID, artifactID int64, role string) error {
 	defer tx.Rollback()
 
 	item, err := scanItem(tx.QueryRow(
-		`SELECT id, title, kind, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
+		`SELECT id, title, kind, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, due_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 		 FROM items
 		 WHERE id = ?`,
 		itemID,
@@ -214,7 +214,7 @@ func (s *Store) UnlinkItemArtifact(itemID, artifactID int64) error {
 	defer tx.Rollback()
 
 	item, err := scanItem(tx.QueryRow(
-		`SELECT id, title, kind, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
+		`SELECT id, title, kind, state, workspace_id, `+scopedContextSelect("context_items", "item_id", "items.id")+` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, due_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 		 FROM items
 		 WHERE id = ?`,
 		itemID,
@@ -365,6 +365,7 @@ func (s *Store) ListArtifactItems(artifactID int64) ([]Item, error) {
 		   i.actor_id,
 		   i.visible_after,
 		   i.follow_up_at,
+		   i.due_at,
 		   i.source,
 		   i.source_ref,
 		   i.review_target,
