@@ -152,14 +152,48 @@ export function renderSidebarPrimary(list) {
   list.appendChild(primary);
 }
 
-export function renderSidebarSecondary(list) {
-  const secondary = document.createElement('div');
-  secondary.className = 'sidebar-secondary';
-  secondary.id = 'sidebar-secondary';
-  if (state.itemSidebarSecondaryOpen) {
-    secondary.classList.add('is-open');
-  }
+function sidebarSecondarySections() {
+  const sectionCounts: Record<string, number> = state.itemSidebarSectionCounts || {};
+  return [
+    {
+      id: 'project-items',
+      label: 'Project items',
+      count: Number(sectionCounts.project_items_open || 0),
+      sectionFilter: 'project_items',
+      title: 'Filter to open project items (Item kind=project). Project items stay surfaced as filters, not Workspaces.',
+    },
+    {
+      id: 'people',
+      label: 'People',
+      count: Number(sectionCounts.people_open || 0),
+      sectionFilter: 'people',
+      title: 'Filter to delegated/awaited items: distinct people the active queue owes work to or waits on.',
+    },
+    {
+      id: 'drift',
+      label: 'Drift',
+      count: Number(sectionCounts.drift_review || 0),
+      sectionFilter: 'drift',
+      title: 'Filter to review-state items with a review_target set: source drift review backlog.',
+    },
+    {
+      id: 'dedup',
+      label: 'Dedup',
+      count: Number(sectionCounts.dedup_review || 0),
+      sectionFilter: 'dedup',
+      title: 'Filter to open items whose (source, source_ref) collides with another row: duplicate review backlog.',
+    },
+    {
+      id: 'recent-meetings',
+      label: 'Recent meetings (7d)',
+      count: Number(sectionCounts.recent_meetings || 0),
+      sectionFilter: 'recent_meetings',
+      title: 'Filter the queue down to items linked to meeting transcripts or summaries created in the last seven days.',
+    },
+  ];
+}
 
+function renderSidebarSecondaryToggle(secondary) {
   const toggle = document.createElement('button');
   toggle.type = 'button';
   toggle.className = 'sidebar-secondary-toggle';
@@ -177,72 +211,20 @@ export function renderSidebarSecondary(list) {
   toggle.appendChild(toggleLabel);
   toggle.addEventListener('click', () => { toggleSidebarSecondary(); });
   secondary.appendChild(toggle);
+}
 
-  const body = document.createElement('div');
-  body.className = 'sidebar-secondary-body';
-  body.id = 'sidebar-secondary-body';
-  body.hidden = !state.itemSidebarSecondaryOpen;
-
-  const sectionCounts: Record<string, number> = state.itemSidebarSectionCounts || {};
-  const projectItemsCount = Number(sectionCounts.project_items_open || 0);
-  const peopleCount = Number(sectionCounts.people_open || 0);
-  const driftCount = Number(sectionCounts.drift_review || 0);
-  const dedupCount = Number(sectionCounts.dedup_review || 0);
-  const recentMeetingsCount = Number(sectionCounts.recent_meetings || 0);
+function renderSidebarSectionRows(body) {
   const activeSection = String(state.itemSidebarFilters?.section || '').trim().toLowerCase();
-
-  const sections = [
-    {
-      id: 'project-items',
-      label: 'Project items',
-      count: projectItemsCount,
-      sectionFilter: 'project_items',
-      title: 'Filter to open project items (Item kind=project). Project items stay surfaced as filters, not Workspaces.',
-    },
-    {
-      id: 'people',
-      label: 'People',
-      count: peopleCount,
-      sectionFilter: 'people',
-      title: 'Filter to delegated/awaited items: distinct people the active queue owes work to or waits on.',
-    },
-    {
-      id: 'drift',
-      label: 'Drift',
-      count: driftCount,
-      sectionFilter: 'drift',
-      title: 'Filter to review-state items with a review_target set: source drift review backlog.',
-    },
-    {
-      id: 'dedup',
-      label: 'Dedup',
-      count: dedupCount,
-      sectionFilter: 'dedup',
-      title: 'Filter to open items whose (source, source_ref) collides with another row: duplicate review backlog.',
-    },
-    {
-      id: 'recent-meetings',
-      label: 'Recent meetings (7d)',
-      count: recentMeetingsCount,
-      sectionFilter: 'recent_meetings',
-      title: 'Filter the queue down to items linked to meeting transcripts or summaries created in the last seven days.',
-    },
-  ];
-  for (const section of sections) {
+  for (const section of sidebarSecondarySections()) {
     const row = document.createElement('button');
     row.type = 'button';
     row.className = 'sidebar-secondary-row';
     row.dataset.sectionId = section.id;
     row.title = section.title;
-    if (section.count <= 0) {
-      row.classList.add('is-empty');
-    }
-    if (section.sectionFilter && section.sectionFilter === activeSection) {
-      row.classList.add('is-active');
-      row.setAttribute('aria-pressed', 'true');
-    } else {
-      row.setAttribute('aria-pressed', 'false');
-    }
+    row.classList.toggle('is-empty', section.count <= 0);
+    const active = section.sectionFilter === activeSection;
+    row.classList.toggle('is-active', active);
+    row.setAttribute('aria-pressed', active ? 'true' : 'false');
     const labelEl = document.createElement('span');
     labelEl.className = 'sidebar-secondary-row-label';
     labelEl.textContent = section.label;
@@ -256,7 +238,9 @@ export function renderSidebarSecondary(list) {
     });
     body.appendChild(row);
   }
+}
 
+function renderSidebarSourceFilters(body) {
   const sourcesGroup = document.createElement('div');
   sourcesGroup.className = 'sidebar-secondary-sources';
   sourcesGroup.id = 'sidebar-secondary-sources';
@@ -272,12 +256,9 @@ export function renderSidebarSecondary(list) {
     pill.type = 'button';
     pill.className = 'sidebar-source-pill';
     pill.dataset.sourceId = source.id;
-    if (activeSource === source.id) {
-      pill.classList.add('is-active');
-      pill.setAttribute('aria-pressed', 'true');
-    } else {
-      pill.setAttribute('aria-pressed', 'false');
-    }
+    const active = activeSource === source.id;
+    pill.classList.toggle('is-active', active);
+    pill.setAttribute('aria-pressed', active ? 'true' : 'false');
     pill.textContent = source.label;
     pill.title = `Filter by ${source.label} source container`;
     pill.addEventListener('click', () => { applySidebarSourceFilter(source.id); });
@@ -285,6 +266,23 @@ export function renderSidebarSecondary(list) {
   }
   sourcesGroup.appendChild(sourcesPills);
   body.appendChild(sourcesGroup);
+}
+
+export function renderSidebarSecondary(list) {
+  const secondary = document.createElement('div');
+  secondary.className = 'sidebar-secondary';
+  secondary.id = 'sidebar-secondary';
+  if (state.itemSidebarSecondaryOpen) {
+    secondary.classList.add('is-open');
+  }
+
+  renderSidebarSecondaryToggle(secondary);
+  const body = document.createElement('div');
+  body.className = 'sidebar-secondary-body';
+  body.id = 'sidebar-secondary-body';
+  body.hidden = !state.itemSidebarSecondaryOpen;
+  renderSidebarSectionRows(body);
+  renderSidebarSourceFilters(body);
 
   secondary.appendChild(body);
   list.appendChild(secondary);
