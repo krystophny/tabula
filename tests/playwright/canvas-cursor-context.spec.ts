@@ -496,7 +496,7 @@ test('folder markdown links open a linked workspace rooted at the vault target',
   await expect.poll(async () => page.evaluate(() => String((window as any)._slopshellApp?.getState?.().activeWorkspaceId || '')), { timeout: 5_000 }).not.toBe('brain');
 });
 
-test('start agent here welcome action opens the linked source folder', async ({ page }) => {
+test('start agent here welcome action opens the linked source folder and sends a starter turn', async ({ page }) => {
   await seedBrainWorkspace(page);
   await page.evaluate(async () => {
     const mod = await import(`../../internal/web/static/app-chat-ui.js?ts=${Date.now()}`);
@@ -529,6 +529,14 @@ test('start agent here welcome action opens the linked source folder', async ({ 
         && entry.action === 'project_create'
         && String(entry.payload?.kind || '') === 'linked'
         && String(entry.payload?.path || '') === '/tmp/vault/project/path',
+    );
+  }, { timeout: 5_000 }).toBe(true);
+
+  await expect.poll(async () => {
+    const log = await getLog(page);
+    return log.some(
+      (entry) => entry.type === 'message_sent'
+        && String(entry.text || '') === 'Start agent here.',
     );
   }, { timeout: 5_000 }).toBe(true);
 

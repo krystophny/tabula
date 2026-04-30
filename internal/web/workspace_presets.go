@@ -43,7 +43,7 @@ func (a *App) brainPresets() []brainPreset {
 		{brainPresetIDWork, "Work brain", store.SphereWork},
 		{brainPresetIDPrivate, "Private brain", store.SpherePrivate},
 	}
-	configRoots := loadSloptoolsBrainRoots()
+	configRoots := a.brainPresetRoots()
 	out := make([]brainPreset, 0, len(defs))
 	for _, def := range defs {
 		preset := brainPreset{

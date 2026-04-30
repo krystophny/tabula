@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -143,6 +144,86 @@ brain = "brain"
 	}
 	if priv.RootPath != filepath.Join(privateVault, "brain") {
 		t.Fatalf("private root = %q, want %q", priv.RootPath, filepath.Join(privateVault, "brain"))
+	}
+}
+
+func TestBrainPresetsPreferBrainConfigGetOverEnv(t *testing.T) {
+	workRoot := filepath.Join(t.TempDir(), "mcp-work", "brain")
+	privateRoot := filepath.Join(t.TempDir(), "mcp-private", "brain")
+	if err := os.MkdirAll(workRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workRoot): %v", err)
+	}
+	if err := os.MkdirAll(privateRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(privateRoot): %v", err)
+	}
+
+	mcpCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/mcp" || r.Method != http.MethodPost {
+			http.NotFound(w, r)
+			return
+		}
+		var req map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		mcpCalls++
+		if req["method"] != "tools/call" {
+			http.Error(w, "unexpected method", http.StatusBadRequest)
+			return
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["name"]; got != "brain.config.get" {
+			http.Error(w, "unexpected tool", http.StatusBadRequest)
+			return
+		}
+		resp := map[string]any{
+			"jsonrpc": "2.0",
+			"id":      req["id"],
+			"result": map[string]any{
+				"structuredContent": map[string]any{
+					"vaults": []any{
+						map[string]any{"sphere": "work", "root": filepath.Dir(workRoot), "brain": "brain"},
+						map[string]any{"sphere": "private", "root": filepath.Dir(privateRoot), "brain": "brain"},
+					},
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	t.Setenv("SLOPSHELL_BRAIN_WORK_ROOT", filepath.Join(t.TempDir(), "env-work"))
+	t.Setenv("SLOPSHELL_BRAIN_PRIVATE_ROOT", filepath.Join(t.TempDir(), "env-private"))
+
+	app := newAuthedTestApp(t)
+	app.tunnels.setEndpoint(LocalSessionID, mcpEndpoint{httpURL: server.URL})
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/runtime/workspace-presets", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	if mcpCalls == 0 {
+		t.Fatal("brain.config.get was not called")
+	}
+	var payload workspacePresetsListResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	work := findPreset(payload.Presets, brainPresetIDWork)
+	if work == nil || !work.Available {
+		t.Fatalf("work preset missing or unavailable: %#v", work)
+	}
+	if work.RootPath != workRoot {
+		t.Fatalf("work root = %q, want %q", work.RootPath, workRoot)
+	}
+	priv := findPreset(payload.Presets, brainPresetIDPrivate)
+	if priv == nil || !priv.Available {
+		t.Fatalf("private preset missing or unavailable: %#v", priv)
+	}
+	if priv.RootPath != privateRoot {
+		t.Fatalf("private root = %q, want %q", priv.RootPath, privateRoot)
 	}
 }
 

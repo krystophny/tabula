@@ -14,6 +14,7 @@ const { refs, state, getState, isVoiceTurn, COMPANION_VIEW_PATH_PREFIX, COMPANIO
 const showStatus = (...args) => refs.showStatus(...args);
 const updateAssistantActivityIndicator = (...args) => refs.updateAssistantActivityIndicator(...args);
 const switchProject = (...args) => refs.switchProject(...args);
+const submitMessage = (...args) => refs.submitMessage(...args);
 const openChatWs = (...args) => refs.openChatWs(...args);
 const closeChatWs = (...args) => refs.closeChatWs(...args);
 const appendPlainMessage = (...args) => refs.appendPlainMessage(...args);
@@ -727,8 +728,8 @@ export async function createTemporaryProject(kind, sourceWorkspaceID = '') {
 
 async function openLinkedWorkspaceAtPath(workspacePath, statusText, failurePrefix, readyText) {
   const path = String(workspacePath || '').trim();
-  if (!path) return;
-  if (state.projectSwitchInFlight || state.projectModelSwitchInFlight) return;
+  if (!path) return '';
+  if (state.projectSwitchInFlight || state.projectModelSwitchInFlight) return '';
   showStatus(statusText);
   try {
     const resp = await fetch(apiURL('runtime/workspaces'), {
@@ -750,13 +751,15 @@ async function openLinkedWorkspaceAtPath(workspacePath, statusText, failurePrefi
     await fetchProjects();
     if (workspaceID) {
       await switchProject(workspaceID);
-      return;
+      return workspaceID;
     }
     showStatus(readyText);
+    return '';
   } catch (err) {
     const message = String(err?.message || err || 'workspace open failed');
     appendPlainMessage('system', `${failurePrefix}: ${message}`);
     showStatus(`${failurePrefix}: ${message}`);
+    return '';
   }
 }
 
@@ -765,7 +768,9 @@ export async function createLinkedWorkspaceAtPath(workspacePath) {
 }
 
 export async function startAgentHereAtPath(workspacePath) {
-  await openLinkedWorkspaceAtPath(workspacePath, 'starting agent here...', 'Start agent here failed', 'agent ready');
+  const workspaceID = await openLinkedWorkspaceAtPath(workspacePath, 'starting agent here...', 'Start agent here failed', 'agent ready');
+  if (!workspaceID) return;
+  await submitMessage('Start agent here.', { kind: 'start_agent_here' });
 }
 
 export async function persistTemporaryProject(workspaceID) {

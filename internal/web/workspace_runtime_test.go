@@ -1241,6 +1241,48 @@ func TestWorkspaceMarkdownLinkResolveOpensLinkedFolderWithinVault(t *testing.T) 
 	}
 }
 
+func TestWorkspaceMarkdownLinkResolveUsesRelativeFileURLForVaultNotes(t *testing.T) {
+	vaultRoot, _ := configureWorkPersonalGuardrail(t)
+	brainRoot := filepath.Join(vaultRoot, "brain")
+	sourceDir := filepath.Join(brainRoot, "topics")
+	targetDir := filepath.Join(vaultRoot, "project", "path")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatalf("mkdir source dir: %v", err)
+	}
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatalf("mkdir target dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "active.md"), []byte("active"), 0o644); err != nil {
+		t.Fatalf("write source note: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, "file.md"), []byte("target"), 0o644); err != nil {
+		t.Fatalf("write target note: %v", err)
+	}
+	app := newAuthedTestApp(t)
+	workspace, err := app.store.CreateWorkspace("Work brain", brainRoot, store.SphereWork)
+	if err != nil {
+		t.Fatalf("CreateWorkspace(brain) error: %v", err)
+	}
+
+	resolution := resolveMarkdownLinkForTest(t, app, workspace.ID, "topics/active.md", "../../project/path/file.md", "")
+	wantRel := filepath.ToSlash(filepath.Join("project", "path", "file.md"))
+	if !resolution.OK {
+		t.Fatalf("resolution blocked: %+v", resolution)
+	}
+	if resolution.Kind != "text" {
+		t.Fatalf("resolution kind = %q, want text", resolution.Kind)
+	}
+	if resolution.ResolvedPath != wantRel || resolution.VaultRelativePath != wantRel {
+		t.Fatalf("resolution path = %+v, want relative %q", resolution, wantRel)
+	}
+	if resolution.FileURL == "" || !strings.Contains(resolution.FileURL, "/api/workspaces/") {
+		t.Fatalf("resolution file_url = %q, want api path", resolution.FileURL)
+	}
+	if strings.Contains(resolution.FileURL, "file://") || strings.Contains(resolution.FileURL, vaultRoot) || strings.Contains(resolution.FileURL, string(filepath.Separator)+"home"+string(filepath.Separator)) {
+		t.Fatalf("resolution leaked machine path in file_url: %+v", resolution)
+	}
+}
+
 func resolveMarkdownLinkForTest(t *testing.T, app *App, workspaceID int64, sourcePath, target, linkType string) workspaceMarkdownLinkResolution {
 	t.Helper()
 	values := url.Values{}
