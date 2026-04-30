@@ -326,7 +326,7 @@ func (a *App) ensureDefaultWorkspace() (store.Workspace, error) {
 
 	kind := "managed"
 	rootPath := filepath.Join(a.dataDir, "projects", "default")
-	name := "Default Project"
+	name := "Default Workspace"
 	if localWorkspacePath != "" {
 		kind = "linked"
 		rootPath = localWorkspacePath
