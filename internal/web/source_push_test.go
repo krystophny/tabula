@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -155,7 +156,19 @@ func TestSourcePushManagerWaitForAccountRetryHonorsBackoff(t *testing.T) {
 	app := newAuthedTestApp(t)
 	manager := &sourcePushManager{app: app}
 	account := store.ExternalAccount{ID: 2, Provider: store.ExternalProviderExchangeEWS}
-	if delay := manager.retryDelayForAccount(account, &ews.BackoffError{Backoff: 150 * time.Millisecond}); delay < time.Second {
-		t.Fatalf("delay = %v, want at least 1s minimum backoff", delay)
+	if delay := manager.retryDelayForAccount(account, &ews.BackoffError{Backoff: 150 * time.Millisecond}); delay < sourcePushErrorRetryDelay {
+		t.Fatalf("delay = %v, want at least %v minimum backoff", delay, sourcePushErrorRetryDelay)
+	}
+}
+
+func TestSourcePushManagerWaitForAccountRetryCoolsDownGenericErrors(t *testing.T) {
+	app := newAuthedTestApp(t)
+	manager := &sourcePushManager{app: app}
+	account := store.ExternalAccount{ID: 2, Provider: store.ExternalProviderExchangeEWS}
+	if delay := manager.retryDelayForAccount(account, errors.New("auth failed")); delay != sourcePushErrorRetryDelay {
+		t.Fatalf("delay = %v, want %v", delay, sourcePushErrorRetryDelay)
+	}
+	if delay := manager.retryDelayForAccount(account, nil); delay != 0 {
+		t.Fatalf("delay without error = %v, want 0", delay)
 	}
 }

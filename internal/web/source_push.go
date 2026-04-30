@@ -10,7 +10,8 @@ import (
 
 const (
 	sourcePushReconcileInterval = 15 * time.Second
-	sourcePushRetryDelay        = 5 * time.Second
+	sourcePushReconnectDelay    = 5 * time.Second
+	sourcePushErrorRetryDelay   = 5 * time.Minute
 )
 
 type sourcePushManager struct {
@@ -141,10 +142,14 @@ func (m *sourcePushManager) runWatcher(ctx context.Context, account store.Extern
 		}
 		if err != nil {
 			log.Printf("source push: account %d watch failed: %v", account.ID, err)
+			if !m.waitForAccountRetry(ctx, account, err) {
+				return
+			}
+			continue
 		} else {
 			log.Printf("source push: account %d watch exited; reconnecting", account.ID)
 		}
-		if !m.waitForAccountRetry(ctx, account, err) {
+		if !sleepSourcePush(ctx, sourcePushReconnectDelay) {
 			return
 		}
 	}
@@ -214,8 +219,8 @@ func (m *sourcePushManager) retryDelayForAccount(account store.ExternalAccount, 
 			delay = backoffDelay
 		}
 	}
-	if err != nil && delay < sourcePushRetryDelay {
-		delay = sourcePushRetryDelay
+	if err != nil && delay < sourcePushErrorRetryDelay {
+		delay = sourcePushErrorRetryDelay
 	}
 	return delay
 }
