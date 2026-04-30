@@ -16,6 +16,8 @@ Slopshell has exactly five primary product nouns:
 
 Workspace and project must not be conflated. A **Workspace** is a filesystem-backed execution context. A GTD **project** is represented as `Item(kind=project)`: a composite outcome that needs child actions. It is still an Item, not a sixth primary noun. Session and message are transport or storage details, not user-facing ontology.
 
+Project is not a product concept. It is the GTD outcome item, not a workspace and not a separate top-level noun.
+
 ### Item kinds
 
 Items have two canonical kinds:
