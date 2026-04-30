@@ -172,7 +172,8 @@ Environment toggles:
 - `SLOPSHELL_INTENT_LLM_PROFILE` selects the active local routing profile (default `qwen3.5-9b`)
 - `SLOPSHELL_INTENT_LLM_PROFILE_OPTIONS` exposes selectable local routing profiles (default `qwen3.5-9b,qwen3.5-4b`)
 - `SLOPSHELL_STT_URL=off` disables STT sidecar usage
-- `SLOPSHELL_HELPY_BIN` selects the helpy binary path (default `helpy`); set
+- `SLOPSHELL_HELPY_BIN` selects the helpy binary path. User service installers
+  prefer `$HOME/.local/bin/helpy` when present, then `helpy` from `PATH`; set it
   to `off` to disable spawning the helpy stdio MCP for `web_search` /
   `web_fetch`. `SLOPSHELL_HELPY_ARGS` overrides the args (default `mcp-stdio`).
 - `SLOPSHELL_MCP_SOCKET` overrides the embedded sloptools unix socket path

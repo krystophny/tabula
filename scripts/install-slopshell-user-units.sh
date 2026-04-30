@@ -45,6 +45,22 @@ SLOPTOOLS_REPO_ROOT="${SLOPTOOLS_REPO_ROOT:-}"
 SLOPTOOLS_DATA_DIR=""
 WEB_DATA_DIR=""
 
+resolve_helpy_bin() {
+  if [ -n "${SLOPSHELL_HELPY_BIN:-}" ]; then
+    printf '%s' "$SLOPSHELL_HELPY_BIN"
+    return 0
+  fi
+  if [ -x "$HOME/.local/bin/helpy" ]; then
+    printf '%s' "$HOME/.local/bin/helpy"
+    return 0
+  fi
+  if command -v helpy >/dev/null 2>&1; then
+    command -v helpy
+    return 0
+  fi
+  printf 'helpy'
+}
+
 resolve_sloptools_repo() {
   if [ -n "$SLOPTOOLS_REPO_ROOT" ] && [ -d "$SLOPTOOLS_REPO_ROOT" ]; then
     SLOPTOOLS_REPO_ROOT="$(cd "$SLOPTOOLS_REPO_ROOT" && pwd)"
@@ -216,6 +232,7 @@ install_linux() {
   local sloptools_unit_src
   local unit_dst="$HOME/.config/systemd/user"
   local effective_llm_url="${REUSE_LLM_URL:-http://127.0.0.1:8081}"
+  local helpy_bin
   local web_host="${SLOPSHELL_WEB_HOST:-127.0.0.1}"
   local -a core_units=(
     sloptools.service
@@ -228,6 +245,7 @@ install_linux() {
 
   install_slsh_binary
   build_sloptools_binary
+  helpy_bin="$(resolve_helpy_bin)"
   sloptools_unit_src="$SLOPTOOLS_REPO_ROOT/deploy/systemd/user/sloptools.service"
   mkdir -p "$unit_dst"
   sed -e "s|@@SLOPTOOLS_BIN@@|${SLOPTOOLS_BIN_PATH}|g" \
@@ -244,6 +262,7 @@ install_linux() {
         -e "s|@@LLAMA_SERVER_BIN@@|${LLAMA_SERVER_BIN_RESOLVED}|g" \
         -e "s|@@SLOPSHELL_WEB_HOST@@|${web_host}|g" \
         -e "s|@@SLOPSHELL_INTENT_LLM_URL@@|${effective_llm_url}|g" \
+        -e "s|@@SLOPSHELL_HELPY_BIN@@|${helpy_bin}|g" \
         "$f" > "$unit_dst/$base"
   done
   if [ -n "$REUSE_LLM_URL" ]; then

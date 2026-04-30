@@ -14,6 +14,7 @@ Environment=SLOPSHELL_INTENT_LLM_URL=@@SLOPSHELL_INTENT_LLM_URL@@
 Environment=SLOPSHELL_INTENT_LLM_MODEL=local
 Environment=SLOPSHELL_INTENT_LLM_PROFILE=qwen3.5-9b
 Environment=SLOPSHELL_INTENT_LLM_PROFILE_OPTIONS=qwen3.5-9b,qwen3.5-4b
+Environment=SLOPSHELL_HELPY_BIN=@@SLOPSHELL_HELPY_BIN@@
 ExecStart=/usr/bin/bash -lc 'source ~/.bashrc >/dev/null 2>&1 || true; cd @@REPO_ROOT@@; exec /usr/bin/env go run ./cmd/slopshell server --project-dir @@REPO_ROOT@@ --data-dir %h/.local/share/slopshell-web --local-mcp-url http://127.0.0.1:9420/mcp --web-host @@SLOPSHELL_WEB_HOST@@ --web-port 8420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424 --dev-runtime'
 Restart=on-failure
 RestartSec=2

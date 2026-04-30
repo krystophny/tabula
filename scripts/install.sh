@@ -161,6 +161,22 @@ have_cmd() {
     command -v "$1" >/dev/null 2>&1
 }
 
+resolve_helpy_bin() {
+    if [ -n "${SLOPSHELL_HELPY_BIN:-}" ]; then
+        printf '%s' "$SLOPSHELL_HELPY_BIN"
+        return 0
+    fi
+    if [ -x "$HOME/.local/bin/helpy" ]; then
+        printf '%s' "$HOME/.local/bin/helpy"
+        return 0
+    fi
+    if have_cmd helpy; then
+        command -v helpy
+        return 0
+    fi
+    printf 'helpy'
+}
+
 voxtype_supports_stt_service() {
     local help_text
     if ! have_cmd "$1"; then
@@ -935,8 +951,10 @@ UNIT
     fi
 
     local effective_llm_url="${REUSE_LLM_URL:-http://127.0.0.1:8081}"
+    local helpy_bin
     local web_host="${SLOPSHELL_WEB_HOST:-127.0.0.1}"
     local web_mcp_args="--local-mcp-url http://127.0.0.1:9420/mcp"
+    helpy_bin="$(resolve_helpy_bin)"
 
     cat >"${systemd_dir}/slopshell-web.service" <<UNIT
 [Unit]
@@ -950,6 +968,7 @@ Environment=SLOPSHELL_INTENT_LLM_URL=${effective_llm_url}
 Environment=SLOPSHELL_INTENT_LLM_MODEL=local
 Environment=SLOPSHELL_INTENT_LLM_PROFILE=qwen3.5-9b
 Environment=SLOPSHELL_INTENT_LLM_PROFILE_OPTIONS=qwen3.5-9b,qwen3.5-4b
+Environment=SLOPSHELL_HELPY_BIN=${helpy_bin}
 Environment=SLOPSHELL_ASSISTANT_LLM_URL=${effective_llm_url}
 Environment=SLOPSHELL_ASSISTANT_LLM_MODEL=local
 ExecStart=${BIN_PATH} server --project-dir ${PROJECT_DIR} --data-dir ${WEB_DATA_DIR} ${web_mcp_args} --web-host ${web_host} --web-port 8420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424
