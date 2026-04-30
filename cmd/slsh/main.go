@@ -43,6 +43,17 @@ func main() {
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	// Check for brain subcommands before parsing chat flags.
+	if isBrainSubcommand(args) {
+		brainArgs, _ := splitBrainArgs(args)
+		opts, _, err := parseFlags(args)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 2
+		}
+		return handleBrainCommand(brainArgs, opts)
+	}
+
 	opts, tail, err := parseFlags(args)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -174,6 +185,7 @@ slsh — SlopShell terminal chat client
 usage:
   slsh [flags] [prompt words...]
   echo "..." | slsh [flags]
+  slsh brain <subcommand> [args...]
 
 flags:
   --base-url URL        slopshell server (default http://127.0.0.1:8420 or $SLOPSHELL_BASE_URL)
@@ -189,6 +201,13 @@ flags:
   --no-color            disable ANSI colors
   --verbose             log websocket events to stderr
   -h, --help            show this message
+
+Brain commands (standalone, before chat flags):
+  slsh brain open work|private        activate a brain workspace preset
+  slsh brain search <query>           search brain vaults with rg
+  slsh brain links <note> <sphere>    show links in a brain note
+  slsh brain backlinks <note> <sphere> find backlinks to a brain note
+  slsh brain link follow <note> <target> <sphere> resolve a wiki link
 
 REPL commands (type inside slsh):
   /help                 show this help

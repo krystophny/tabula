@@ -93,6 +93,52 @@ func (c *chatClient) cliLogin(ctx context.Context, tokenFile string) error {
 	return nil
 }
 
+// newClientForBrain creates a minimal HTTP client for brain commands that
+// reuses the CLI token auth flow. It does not start a chat session.
+func newClientForBrain(baseURL, tokenFile string) (*http.Client, error) {
+	base, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		return nil, fmt.Errorf("invalid base url: %w", err)
+	}
+	if base.Scheme == "" || base.Host == "" {
+		return nil, fmt.Errorf("base url must include scheme and host: %q", baseURL)
+	}
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, fmt.Errorf("cookie jar: %w", err)
+	}
+	client := &http.Client{
+		Jar:     jar,
+		Timeout: 0,
+	}
+	// Authenticate via CLI token.
+	token, err := readCLIToken(tokenFile)
+	if err != nil {
+		return nil, fmt.Errorf("read cli token: %w", err)
+	}
+	loginURL := base.String()
+	if !strings.HasSuffix(loginURL, "/") {
+		loginURL += "/"
+	}
+	loginURL += "api/cli/login"
+	payload, _ := json.Marshal(map[string]string{"token": token})
+	req, err := http.NewRequest(http.MethodPost, loginURL, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("cli login: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("cli login failed: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return client, nil
+}
+
 func readCLIToken(path string) (string, error) {
 	clean := strings.TrimSpace(path)
 	if clean == "" {
