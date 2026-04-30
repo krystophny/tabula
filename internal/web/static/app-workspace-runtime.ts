@@ -9,6 +9,7 @@ import {
   workspaceBusyBadgeTitle,
   workspaceDisplayName,
 } from './app-workspace-status.js';
+export { createTemporaryProject, createLinkedWorkspaceAtPath, startAgentHereAtPath } from './app-workspace-actions.js';
 const { marked, apiURL, wsURL, renderCanvas, clearCanvas, getLocationFromSelection, clearLineHighlight, escapeHtml, sanitizeHtml, getActiveArtifactTitle, getActiveTextEventId, getPreviousArtifactText, getUiState, setUiMode, showIndicatorMode, hideIndicator, showTextInput, hideTextInput, showOverlay, hideOverlay, updateOverlay, isOverlayVisible, isTextInputVisible, isRecording, setRecording, getInputAnchor, setInputAnchor, getAnchorFromPoint, buildContextPrefix, getLastInputPosition, setLastInputPosition, configureLiveSession, getLiveSessionSnapshot, handleLiveSessionMessage, isLiveSessionListenActive, LIVE_SESSION_HOTWORD_DEFAULT, LIVE_SESSION_MODE_DIALOGUE, LIVE_SESSION_MODE_MEETING, onLiveSessionTTSPlaybackComplete, cancelLiveSessionListen, startLiveSession, stopLiveSession, initHotword, startHotwordMonitor, stopHotwordMonitor, isHotwordActive, onHotwordDetected, setHotwordThreshold, setHotwordAudioContext, getPreRollAudio, getHotwordMicStream, initVAD, ensureVADLoaded, float32ToWav } = env;
 const { refs, state, getState, isVoiceTurn, COMPANION_VIEW_PATH_PREFIX, COMPANION_TRANSCRIPT_VIEW_PATH, COMPANION_SUMMARY_VIEW_PATH, COMPANION_REFERENCES_VIEW_PATH, MEETING_TRANSCRIPT_LABEL, MEETING_SUMMARY_LABEL, MEETING_REFERENCES_LABEL, MEETING_SUMMARY_ITEMS_PANEL_ID, CHAT_CTRL_LONG_PRESS_MS, ARTIFACT_EDIT_LONG_TAP_MS, ITEM_SIDEBAR_VIEWS, ITEM_SIDEBAR_GESTURE_CANCEL_PX, ITEM_SIDEBAR_GESTURE_COMMIT_PX, ITEM_SIDEBAR_GESTURE_LONG_PX, ITEM_SIDEBAR_DEFAULT_LATER_HOUR_UTC, ITEM_SIDEBAR_MENU_ID, DEV_UI_RELOAD_POLL_MS, ASSISTANT_ACTIVITY_POLL_MS, CHAT_WS_STALE_THRESHOLD_MS, ACTIVE_TURN_NO_ID_CLEAR_GRACE_MS, ACTIVE_TURN_ACTIVITY_CLEAR_GRACE_MS, PROJECT_CHAT_MODEL_ALIASES, PROJECT_CHAT_MODEL_REASONING_EFFORTS, TTS_SILENT_STORAGE_KEY, YOLO_MODE_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_ENABLED_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_LAST_SHOWN_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_INTERVAL_MS, ACTIVE_PROJECT_STORAGE_KEY, LAST_VIEW_STORAGE_KEY, RUNTIME_RELOAD_CONTEXT_STORAGE_KEY, SIDEBAR_IMAGE_EXTENSIONS, PANEL_MOTION_WATCH_QUERIES, VOICE_LIFECYCLE, COMPANION_IDLE_SURFACES, COMPANION_RUNTIME_STATES, TOOL_PALETTE_MODES, SPHERE_OPTIONS } = context;
 const showStatus = (...args) => refs.showStatus(...args);
@@ -685,92 +686,6 @@ export async function switchProjectChatModel(modelAlias, reasoningEffort = '') {
     renderEdgeTopModelButtons();
     renderToolPalette();
   }
-}
-
-export async function createTemporaryProject(kind, sourceWorkspaceID = '') {
-  const projectKind = String(kind || '').trim().toLowerCase();
-  if (!isTemporaryProjectKind(projectKind)) return;
-  if (state.projectSwitchInFlight || state.projectModelSwitchInFlight) return;
-  showStatus(`starting ${projectKind}...`);
-  const payload: Record<string, any> = {
-    kind: projectKind,
-    activate: true,
-  };
-  const sourceID = String(sourceWorkspaceID || '').trim();
-  if (sourceID) {
-    payload.source_workspace_id = sourceID;
-  }
-  try {
-    const resp = await fetch(apiURL('runtime/workspaces'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!resp.ok) {
-      const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
-      throw new Error(detail);
-    }
-    const responsePayload = await resp.json();
-    const project = responsePayload?.workspace || {};
-    const workspaceID = String(project?.id || '').trim();
-    await fetchProjects();
-    if (workspaceID) {
-      await switchProject(workspaceID);
-      return;
-    }
-    showStatus(`${projectKind} ready`);
-  } catch (err) {
-    const message = String(err?.message || err || `${projectKind} start failed`);
-    appendPlainMessage('system', `${projectKind} start failed: ${message}`);
-    showStatus(`${projectKind} start failed: ${message}`);
-  }
-}
-
-async function openLinkedWorkspaceAtPath(workspacePath, statusText, failurePrefix, readyText) {
-  const path = String(workspacePath || '').trim();
-  if (!path) return '';
-  if (state.projectSwitchInFlight || state.projectModelSwitchInFlight) return '';
-  showStatus(statusText);
-  try {
-    const resp = await fetch(apiURL('runtime/workspaces'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        kind: 'linked',
-        path,
-        activate: true,
-      }),
-    });
-    if (!resp.ok) {
-      const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
-      throw new Error(detail);
-    }
-    const responsePayload = await resp.json();
-    const project = responsePayload?.workspace || {};
-    const workspaceID = String(project?.id || '').trim();
-    await fetchProjects();
-    if (workspaceID) {
-      await switchProject(workspaceID);
-      return workspaceID;
-    }
-    showStatus(readyText);
-    return '';
-  } catch (err) {
-    const message = String(err?.message || err || 'workspace open failed');
-    appendPlainMessage('system', `${failurePrefix}: ${message}`);
-    showStatus(`${failurePrefix}: ${message}`);
-    return '';
-  }
-}
-
-export async function createLinkedWorkspaceAtPath(workspacePath) {
-  await openLinkedWorkspaceAtPath(workspacePath, 'opening linked workspace...', 'Linked workspace open failed', 'linked workspace ready');
-}
-
-export async function startAgentHereAtPath(workspacePath) {
-  const workspaceID = await openLinkedWorkspaceAtPath(workspacePath, 'starting agent here...', 'Start agent here failed', 'agent ready');
-  if (!workspaceID) return;
-  await submitMessage('Start agent here.', { kind: 'start_agent_here' });
 }
 
 export async function persistTemporaryProject(workspaceID) {
