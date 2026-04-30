@@ -13,6 +13,8 @@ const closeEdgePanels = (...args) => refs.closeEdgePanels(...args);
 const renderSidebarTabs = (...args) => refs.renderSidebarTabs(...args);
 const renderSidebarRow = (...args) => refs.renderSidebarRow(...args);
 const renderWorkspaceFileList = (...args) => refs.renderWorkspaceFileList(...args);
+const renderSidebarPrimary = (...args) => refs.renderSidebarPrimary(...args);
+const renderSidebarSecondary = (...args) => refs.renderSidebarSecondary(...args);
 const clearWelcomeSurface = (...args) => refs.clearWelcomeSurface(...args);
 const stepItemSidebarItem = (...args) => refs.stepItemSidebarItem(...args);
 
@@ -227,12 +229,14 @@ export function renderPrReviewFileList() {
     });
     return;
   }
+  renderSidebarPrimary(list);
   renderSidebarTabs(list);
   if (mode === 'workspace') {
     renderWorkspaceFileList(list);
-    return;
+  } else {
+    renderItemSidebarList(list);
   }
-  renderItemSidebarList(list);
+  renderSidebarSecondary(list);
 }
 
 export async function loadWorkspaceBrowserPath(path = '') {

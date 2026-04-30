@@ -40,6 +40,8 @@ export function normalizeItemSidebarView(rawView) {
   return 'inbox';
 }
 
+export const SIDEBAR_SECTION_IDS = ['project_items', 'people', 'drift', 'dedup', 'recent_meetings'];
+
 export function normalizeItemSidebarFilters(rawFilters = null) {
   const filters = rawFilters && typeof rawFilters === 'object' ? rawFilters : {};
   const source = String(filters.source || '').trim().toLowerCase();
@@ -53,12 +55,15 @@ export function normalizeItemSidebarFilters(rawFilters = null) {
   if (!workspaceUnassigned && Number.isFinite(Number(workspaceRaw)) && Number(workspaceRaw) > 0) {
     workspaceID = Math.trunc(Number(workspaceRaw));
   }
+  const sectionRaw = String(filters.section || '').trim().toLowerCase();
+  const section = SIDEBAR_SECTION_IDS.includes(sectionRaw) ? sectionRaw : '';
   return {
     all_spheres: allSpheres,
     source,
     workspace_id: workspaceID,
     label_id: labelID,
     workspace_unassigned: workspaceUnassigned,
+    section,
   };
 }
 
@@ -75,6 +80,9 @@ function appendItemSidebarFilterQuery(path, filters = state.itemSidebarFilters) 
   }
   if (Number.isFinite(normalized.label_id) && normalized.label_id > 0) {
     nextPath = `${nextPath}${nextPath.includes('?') ? '&' : '?'}label_id=${encodeURIComponent(String(normalized.label_id))}`;
+  }
+  if (normalized.section) {
+    nextPath = `${nextPath}${nextPath.includes('?') ? '&' : '?'}section=${encodeURIComponent(normalized.section)}`;
   }
   return nextPath;
 }
@@ -116,8 +124,32 @@ export function setInboxTriggerCount(count) {
   edgeLeftTap.classList.remove('has-inbox-count');
 }
 
-export function applyItemSidebarCounts(rawCounts) {
+export function defaultItemSidebarSectionCounts() {
+  return {
+    project_items_open: 0,
+    people_open: 0,
+    drift_review: 0,
+    dedup_review: 0,
+    recent_meetings: 0,
+  };
+}
+
+export function normalizeItemSidebarSectionCounts(rawSections) {
+  const out = defaultItemSidebarSectionCounts();
+  if (!rawSections || typeof rawSections !== 'object') return out;
+  const fields = ['project_items_open', 'people_open', 'drift_review', 'dedup_review', 'recent_meetings'];
+  for (const field of fields) {
+    const raw = Number(rawSections[field] ?? 0);
+    if (Number.isFinite(raw) && raw > 0) {
+      out[field] = Math.trunc(raw);
+    }
+  }
+  return out;
+}
+
+export function applyItemSidebarCounts(rawCounts, rawSections = null) {
   state.itemSidebarCounts = normalizeItemSidebarCounts(rawCounts);
+  state.itemSidebarSectionCounts = normalizeItemSidebarSectionCounts(rawSections);
   setInboxTriggerCount(state.itemSidebarCounts.inbox);
   maybeShowSomedayReviewNudge();
 }
@@ -144,7 +176,7 @@ export function maybeShowSomedayReviewNudge() {
 export async function refreshItemSidebarCounts() {
   const workspaceID = String(state.activeWorkspaceId || '').trim();
   if (!workspaceID) {
-    applyItemSidebarCounts(defaultItemSidebarCounts());
+    applyItemSidebarCounts(defaultItemSidebarCounts(), null);
     return false;
   }
   const resp = await fetch(apiURL(itemSidebarCountsEndpoint(state.itemSidebarFilters)), { cache: 'no-store' });
@@ -154,7 +186,7 @@ export async function refreshItemSidebarCounts() {
   }
   const payload = await resp.json();
   if (workspaceID !== String(state.activeWorkspaceId || '').trim()) return false;
-  applyItemSidebarCounts(payload?.counts);
+  applyItemSidebarCounts(payload?.counts, payload?.sections);
   return true;
 }
 

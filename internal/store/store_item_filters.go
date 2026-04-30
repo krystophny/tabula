@@ -1,6 +1,26 @@
 package store
 
-import "errors"
+import (
+	"errors"
+	"strings"
+	"time"
+)
+
+func normalizeOptionalSidebarSectionFilter(raw string) (string, error) {
+	clean := strings.ToLower(strings.TrimSpace(raw))
+	if clean == "" {
+		return "", nil
+	}
+	switch clean {
+	case ItemSidebarSectionProject,
+		ItemSidebarSectionPeople,
+		ItemSidebarSectionDrift,
+		ItemSidebarSectionDedup,
+		ItemSidebarSectionRecentMeetings:
+		return clean, nil
+	}
+	return "", errors.New("section must be one of project_items, people, drift, dedup, recent_meetings")
+}
 
 func normalizeItemListFilter(filter ItemListFilter) (ItemListFilter, error) {
 	normalized := ItemListFilter{
@@ -12,6 +32,14 @@ func normalizeItemListFilter(filter ItemListFilter) (ItemListFilter, error) {
 		return ItemListFilter{}, err
 	}
 	normalized.Sphere = sphere
+	section, err := normalizeOptionalSidebarSectionFilter(filter.Section)
+	if err != nil {
+		return ItemListFilter{}, err
+	}
+	normalized.Section = section
+	if section == ItemSidebarSectionRecentMeetings {
+		normalized.recentMeetingsCutoff = time.Now().UTC().Add(-RecentMeetingsLookbackHours * time.Hour).Format(time.RFC3339Nano)
+	}
 	if filter.WorkspaceID != nil {
 		if *filter.WorkspaceID <= 0 {
 			return ItemListFilter{}, errors.New("workspace_id must be a positive integer")
@@ -55,6 +83,51 @@ func (s *Store) prepareItemListFilter(filter ItemListFilter) (ItemListFilter, er
 	return normalized, nil
 }
 
+func appendItemSectionFilterClauses(parts []string, args []any, filter ItemListFilter, column, outerColumn func(string) string) ([]string, []any) {
+	switch filter.Section {
+	case ItemSidebarSectionProject:
+		parts = append(parts, column("kind")+" = ?")
+		args = append(args, ItemKindProject)
+	case ItemSidebarSectionPeople:
+		parts = append(parts, column("actor_id")+" IS NOT NULL")
+	case ItemSidebarSectionDrift:
+		parts = append(parts,
+			column("review_target")+" IS NOT NULL",
+			"trim("+column("review_target")+") <> ''",
+		)
+	case ItemSidebarSectionDedup:
+		parts = append(parts,
+			column("source")+" IS NOT NULL",
+			"trim("+column("source")+") <> ''",
+			column("source_ref")+" IS NOT NULL",
+			"trim("+column("source_ref")+") <> ''",
+			`EXISTS (
+SELECT 1 FROM items dup
+WHERE dup.id <> `+outerColumn("id")+`
+  AND lower(trim(dup.source)) = lower(trim(`+column("source")+`))
+  AND lower(trim(dup.source_ref)) = lower(trim(`+column("source_ref")+`))
+)`,
+		)
+	case ItemSidebarSectionRecentMeetings:
+		cutoff := filter.recentMeetingsCutoff
+		if cutoff == "" {
+			cutoff = time.Now().UTC().Add(-RecentMeetingsLookbackHours * time.Hour).Format(time.RFC3339Nano)
+		}
+		parts = append(parts, column("artifact_id")+" IS NOT NULL", `EXISTS (
+SELECT 1 FROM artifacts mart
+WHERE mart.id = `+column("artifact_id")+`
+  AND datetime(mart.created_at) >= datetime(?)
+  AND (
+    lower(trim(mart.kind)) = 'transcript'
+    OR (mart.meta_json IS NOT NULL AND mart.meta_json LIKE '%"source":"meeting_summary"%')
+    OR (mart.meta_json IS NOT NULL AND mart.meta_json LIKE '%"source":"meeting_notes"%')
+  )
+)`)
+		args = append(args, cutoff)
+	}
+	return parts, args
+}
+
 func appendItemFilterClauses(parts []string, args []any, filter ItemListFilter, alias string) ([]string, []any) {
 	column := func(name string) string {
 		return alias + name
@@ -80,6 +153,7 @@ func appendItemFilterClauses(parts []string, args []any, filter ItemListFilter, 
 	if filter.WorkspaceUnassigned {
 		parts = append(parts, column("workspace_id")+" IS NULL")
 	}
+	parts, args = appendItemSectionFilterClauses(parts, args, filter, column, outerColumn)
 	if filter.labelResolved {
 		if len(filter.resolvedLabelGroups) == 0 {
 			parts = append(parts, "0=1")

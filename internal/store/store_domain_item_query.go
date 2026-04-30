@@ -313,6 +313,97 @@ FROM items
 	return counts, nil
 }
 
+// SidebarSectionCounts captures counts for the compact sidebar's secondary
+// expandable sections. Project items are open Items with kind=project; they
+// stay surfaced as filters and never as Workspaces.
+type SidebarSectionCounts struct {
+	ProjectItemsOpen int `json:"project_items_open"`
+	PeopleOpen       int `json:"people_open"`
+	DriftReview      int `json:"drift_review"`
+	DedupReview      int `json:"dedup_review"`
+	RecentMeetings   int `json:"recent_meetings"`
+}
+
+// CountSidebarSectionsFiltered counts open project items (Item.kind=project,
+// state != done), distinct actors with at least one open delegated/awaiting
+// item (people we owe or await), items currently in the GTD review queue with
+// a review_target set (drift dispatch backlog), open items whose
+// (source, source_ref) pair has duplicates (dedup review backlog), and
+// meeting-note artifacts created within the last seven days. The filter
+// respects sphere/workspace/label scoping so the sidebar matches the active
+// queue context.
+func (s *Store) CountSidebarSectionsFiltered(now time.Time, filter ItemListFilter) (SidebarSectionCounts, error) {
+	out := SidebarSectionCounts{}
+	scoped := filter
+	scoped.Section = ""
+	normalizedFilter, err := s.prepareItemListFilter(scoped)
+	if err != nil {
+		return out, err
+	}
+
+	projectParts := []string{"items.kind = ?", "items.state <> ?"}
+	projectArgs := []any{ItemKindProject, ItemStateDone}
+	projectParts, projectArgs = appendItemFilterClauses(projectParts, projectArgs, normalizedFilter, "")
+	projectQuery := `SELECT COUNT(*) FROM items WHERE ` + stringsJoin(projectParts, ` AND `)
+	if err := s.db.QueryRow(projectQuery, projectArgs...).Scan(&out.ProjectItemsOpen); err != nil {
+		return out, err
+	}
+
+	peopleParts := []string{"items.actor_id IS NOT NULL", "items.state <> ?"}
+	peopleArgs := []any{ItemStateDone}
+	peopleParts, peopleArgs = appendItemFilterClauses(peopleParts, peopleArgs, normalizedFilter, "")
+	peopleQuery := `SELECT COUNT(DISTINCT items.actor_id) FROM items WHERE ` + stringsJoin(peopleParts, ` AND `)
+	if err := s.db.QueryRow(peopleQuery, peopleArgs...).Scan(&out.PeopleOpen); err != nil {
+		return out, err
+	}
+
+	driftParts := []string{
+		"items.state = ?",
+		"items.review_target IS NOT NULL",
+		"trim(items.review_target) <> ''",
+	}
+	driftArgs := []any{ItemStateReview}
+	driftParts, driftArgs = appendItemFilterClauses(driftParts, driftArgs, normalizedFilter, "")
+	driftQuery := `SELECT COUNT(*) FROM items WHERE ` + stringsJoin(driftParts, ` AND `)
+	if err := s.db.QueryRow(driftQuery, driftArgs...).Scan(&out.DriftReview); err != nil {
+		return out, err
+	}
+
+	dedupParts := []string{
+		"items.state <> ?",
+		"items.source IS NOT NULL",
+		"trim(items.source) <> ''",
+		"items.source_ref IS NOT NULL",
+		"trim(items.source_ref) <> ''",
+		`EXISTS (
+SELECT 1 FROM items dup
+WHERE dup.id <> items.id
+  AND lower(trim(dup.source)) = lower(trim(items.source))
+  AND lower(trim(dup.source_ref)) = lower(trim(items.source_ref))
+)`,
+	}
+	dedupArgs := []any{ItemStateDone}
+	dedupParts, dedupArgs = appendItemFilterClauses(dedupParts, dedupArgs, normalizedFilter, "")
+	dedupQuery := `SELECT COUNT(*) FROM items WHERE ` + stringsJoin(dedupParts, ` AND `)
+	if err := s.db.QueryRow(dedupQuery, dedupArgs...).Scan(&out.DedupReview); err != nil {
+		return out, err
+	}
+
+	cutoff := now.UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339Nano)
+	meetingQuery := `SELECT COUNT(DISTINCT a.id)
+FROM artifacts a
+WHERE datetime(a.created_at) >= datetime(?)
+  AND (
+    lower(trim(a.kind)) = 'transcript'
+    OR (a.meta_json IS NOT NULL AND a.meta_json LIKE '%"source":"meeting_summary"%')
+    OR (a.meta_json IS NOT NULL AND a.meta_json LIKE '%"source":"meeting_notes"%')
+  )`
+	if err := s.db.QueryRow(meetingQuery, cutoff).Scan(&out.RecentMeetings); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
 func (s *Store) ListItems() ([]Item, error) {
 	return s.ListItemsFiltered(ItemListFilter{})
 }

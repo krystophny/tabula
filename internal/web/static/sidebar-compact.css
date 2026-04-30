@@ -1,0 +1,225 @@
+.sidebar-primary {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem 0.6rem;
+  border-bottom: 1px solid #d1d5db;
+  background: #f3f4f6;
+}
+
+.sidebar-sphere-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
+.sidebar-sphere-btn {
+  border: 1px solid #111827;
+  background: #ffffff;
+  color: #111827;
+  padding: 0.36rem 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 0;
+  touch-action: manipulation;
+}
+
+.sidebar-sphere-btn.is-active {
+  background: #111827;
+  color: #f9fafb;
+}
+
+.sidebar-workspace-pin {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid #111827;
+  background: #ffffff;
+  color: #111827;
+  min-width: 0;
+}
+
+.sidebar-workspace-pin-icon {
+  flex: 0 0 auto;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.sidebar-workspace-pin-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.sidebar-workspace-pin-kicker {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #4b5563;
+}
+
+.sidebar-workspace-pin-name {
+  font-size: 0.92rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-primary-actions {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.sidebar-capture-btn {
+  flex: 1 1 auto;
+  width: 100%;
+  justify-content: center;
+}
+
+.sidebar-secondary {
+  border-top: 1px solid #d1d5db;
+  background: #f9fafb;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-secondary-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.5rem 0.6rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #111827;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+  width: 100%;
+  touch-action: manipulation;
+}
+
+.sidebar-secondary-caret {
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.sidebar-secondary-toggle-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sidebar-secondary-body {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid #d1d5db;
+  background: #ffffff;
+}
+
+.sidebar-secondary-body[hidden] {
+  display: none;
+}
+
+.sidebar-secondary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.42rem 0.7rem;
+  border: 0;
+  border-bottom: 1px solid #e5e7eb;
+  border-radius: 0;
+  background: #ffffff;
+  color: #111827;
+  font-size: 0.86rem;
+  text-align: left;
+  touch-action: manipulation;
+}
+
+.sidebar-secondary-row:hover {
+  background: #f3f4f6;
+}
+
+.sidebar-secondary-row-label {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-secondary-row-count {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #4b5563;
+  border: 1px solid #d1d5db;
+  padding: 0.04rem 0.32rem;
+}
+
+.sidebar-secondary-row.is-empty .sidebar-secondary-row-count {
+  color: #9ca3af;
+}
+
+.sidebar-secondary-sources {
+  padding: 0.45rem 0.7rem 0.7rem;
+  border-bottom: 1px solid #e5e7eb;
+  background: #ffffff;
+}
+
+.sidebar-secondary-sources-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #4b5563;
+  margin-bottom: 0.32rem;
+}
+
+.sidebar-secondary-sources-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.sidebar-source-pill {
+  border: 1px solid #111827;
+  background: #ffffff;
+  color: #111827;
+  padding: 0.18rem 0.42rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: 0;
+  touch-action: manipulation;
+}
+
+.sidebar-source-pill.is-active {
+  background: #111827;
+  color: #f9fafb;
+}
+
+@media (max-width: 480px) {
+  .sidebar-primary {
+    padding: 0.45rem 0.55rem;
+  }
+  .sidebar-workspace-pin-name {
+    font-size: 0.86rem;
+  }
+  .sidebar-source-pill {
+    font-size: 0.7rem;
+    padding: 0.14rem 0.36rem;
+  }
+}

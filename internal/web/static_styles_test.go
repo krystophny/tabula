@@ -25,6 +25,7 @@ func TestStyleCSSImportsSplitStylesheets(t *testing.T) {
 		`@import url("./command-center.css");`,
 		`@import url("./companion.css");`,
 		`@import url("./items.css");`,
+		`@import url("./sidebar-compact.css");`,
 		`@import url("./mobile.css");`,
 	}
 
@@ -68,6 +69,7 @@ func TestSplitStylesheetsExistAndStayBounded(t *testing.T) {
 		"command-center.css",
 		"companion.css",
 		"items.css",
+		"sidebar-compact.css",
 		"mobile.css",
 	}
 
@@ -102,8 +104,8 @@ func TestStyleEntryPointStaysSmall(t *testing.T) {
 		t.Fatalf("read style.css: %v", err)
 	}
 	lines := strings.Count(string(data), "\n") + 1
-	if lines > 17 {
-		t.Fatalf("style.css has %d lines, want <= 17", lines)
+	if lines > 18 {
+		t.Fatalf("style.css has %d lines, want <= 18", lines)
 	}
 	if !strings.HasSuffix(strings.TrimSpace(string(data)), `@import url("./mobile.css");`) {
 		t.Fatalf("style.css should end with the mobile stylesheet import")

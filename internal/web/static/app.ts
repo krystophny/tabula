@@ -8,6 +8,7 @@ import * as dialogueDiagnosticsModule from './app-dialogue-diagnostics.js';
 import * as voiceModule from './app-voice.js';
 import * as itemSidebarUtilsModule from './app-item-sidebar-utils.js';
 import * as itemSidebarArtifactsModule from './app-item-sidebar-artifacts.js';
+import * as itemSidebarSecondaryModule from './app-item-sidebar-secondary.js';
 import * as itemSidebarUiModule from './app-item-sidebar-ui.js';
 import * as prReviewModule from './app-pr-review.js';
 import * as chatUiModule from './app-chat-ui.js';
@@ -39,6 +40,7 @@ setAppRefs({
   ...voiceModule,
   ...itemSidebarUtilsModule,
   ...itemSidebarArtifactsModule,
+  ...itemSidebarSecondaryModule,
   ...itemSidebarUiModule,
   ...prReviewModule,
   ...chatUiModule,

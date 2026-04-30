@@ -89,8 +89,9 @@ func (a *App) resurfaceDueItemsForRead(w http.ResponseWriter) bool {
 
 func parseItemListFilterQuery(r *http.Request) (store.ItemListFilter, error) {
 	filter := store.ItemListFilter{
-		Sphere: strings.TrimSpace(r.URL.Query().Get("sphere")),
-		Source: strings.TrimSpace(r.URL.Query().Get("source")),
+		Sphere:  strings.TrimSpace(r.URL.Query().Get("sphere")),
+		Source:  strings.TrimSpace(r.URL.Query().Get("source")),
+		Section: strings.TrimSpace(r.URL.Query().Get("section")),
 	}
 	if rawWorkspaceID := strings.TrimSpace(r.URL.Query().Get("workspace_id")); rawWorkspaceID != "" {
 		if strings.EqualFold(rawWorkspaceID, "null") {
@@ -335,13 +336,20 @@ func (a *App) handleItemCounts(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	counts, err := a.store.CountItemsByStateFiltered(time.Now(), filter)
+	now := time.Now()
+	counts, err := a.store.CountItemsByStateFiltered(now, filter)
+	if err != nil {
+		writeItemStoreError(w, err)
+		return
+	}
+	sections, err := a.store.CountSidebarSectionsFiltered(now, filter)
 	if err != nil {
 		writeItemStoreError(w, err)
 		return
 	}
 	writeAPIData(w, http.StatusOK, map[string]any{
-		"counts": counts,
+		"counts":   counts,
+		"sections": sections,
 	})
 }
 

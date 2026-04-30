@@ -100,15 +100,27 @@ type ItemOptions struct {
 }
 
 type ItemListFilter struct {
-	Sphere              string `json:"sphere,omitempty"`
-	Source              string `json:"source,omitempty"`
-	WorkspaceID         *int64 `json:"workspace_id,omitempty"`
-	WorkspaceUnassigned bool   `json:"workspace_unassigned,omitempty"`
-	LabelID             *int64 `json:"label_id,omitempty"`
-	Label               string `json:"label,omitempty"`
-	resolvedLabelGroups [][]int64
-	labelResolved       bool
+	Sphere               string `json:"sphere,omitempty"`
+	Source               string `json:"source,omitempty"`
+	WorkspaceID          *int64 `json:"workspace_id,omitempty"`
+	WorkspaceUnassigned  bool   `json:"workspace_unassigned,omitempty"`
+	LabelID              *int64 `json:"label_id,omitempty"`
+	Label                string `json:"label,omitempty"`
+	Section              string `json:"section,omitempty"`
+	resolvedLabelGroups  [][]int64
+	labelResolved        bool
+	recentMeetingsCutoff string
 }
+
+const (
+	ItemSidebarSectionProject        = "project_items"
+	ItemSidebarSectionPeople         = "people"
+	ItemSidebarSectionDrift          = "drift"
+	ItemSidebarSectionDedup          = "dedup"
+	ItemSidebarSectionRecentMeetings = "recent_meetings"
+
+	RecentMeetingsLookbackHours = 7 * 24
+)
 
 type Label struct {
 	ID        int64  `json:"id"`

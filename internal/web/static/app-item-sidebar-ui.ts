@@ -7,10 +7,9 @@ import {
 } from './app-swipe.js';
 
 const { marked, apiURL, wsURL, renderCanvas, clearCanvas, getLocationFromSelection, clearLineHighlight, escapeHtml, sanitizeHtml, getActiveArtifactTitle, getActiveTextEventId, getPreviousArtifactText, getUiState, setUiMode, showIndicatorMode, hideIndicator, showTextInput, hideTextInput, showOverlay, hideOverlay, updateOverlay, isOverlayVisible, isTextInputVisible, isRecording, setRecording, getInputAnchor, setInputAnchor, getAnchorFromPoint, buildContextPrefix, getLastInputPosition, setLastInputPosition, configureLiveSession, getLiveSessionSnapshot, handleLiveSessionMessage, isLiveSessionListenActive, LIVE_SESSION_HOTWORD_DEFAULT, LIVE_SESSION_MODE_DIALOGUE, LIVE_SESSION_MODE_MEETING, onLiveSessionTTSPlaybackComplete, cancelLiveSessionListen, startLiveSession, stopLiveSession, initHotword, startHotwordMonitor, stopHotwordMonitor, isHotwordActive, onHotwordDetected, setHotwordThreshold, setHotwordAudioContext, getPreRollAudio, getHotwordMicStream, initVAD, ensureVADLoaded, float32ToWav } = env;
-const { refs, state, getState, isVoiceTurn, COMPANION_VIEW_PATH_PREFIX, COMPANION_TRANSCRIPT_VIEW_PATH, COMPANION_SUMMARY_VIEW_PATH, COMPANION_REFERENCES_VIEW_PATH, MEETING_TRANSCRIPT_LABEL, MEETING_SUMMARY_LABEL, MEETING_REFERENCES_LABEL, MEETING_SUMMARY_ITEMS_PANEL_ID, CHAT_CTRL_LONG_PRESS_MS, ARTIFACT_EDIT_LONG_TAP_MS, ITEM_SIDEBAR_VIEWS, ITEM_SIDEBAR_GESTURE_CANCEL_PX, ITEM_SIDEBAR_GESTURE_COMMIT_PX, ITEM_SIDEBAR_GESTURE_LONG_PX, ITEM_SIDEBAR_DEFAULT_LATER_HOUR_UTC, ITEM_SIDEBAR_MENU_ID, DEV_UI_RELOAD_POLL_MS, ASSISTANT_ACTIVITY_POLL_MS, CHAT_WS_STALE_THRESHOLD_MS, ACTIVE_TURN_NO_ID_CLEAR_GRACE_MS, ACTIVE_TURN_ACTIVITY_CLEAR_GRACE_MS, PROJECT_CHAT_MODEL_ALIASES, PROJECT_CHAT_MODEL_REASONING_EFFORTS, TTS_SILENT_STORAGE_KEY, YOLO_MODE_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_ENABLED_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_LAST_SHOWN_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_INTERVAL_MS, ACTIVE_PROJECT_STORAGE_KEY, LAST_VIEW_STORAGE_KEY, RUNTIME_RELOAD_CONTEXT_STORAGE_KEY, SIDEBAR_IMAGE_EXTENSIONS, PANEL_MOTION_WATCH_QUERIES, VOICE_LIFECYCLE, COMPANION_IDLE_SURFACES, COMPANION_RUNTIME_STATES, TOOL_PALETTE_MODES, SPHERE_OPTIONS } = context;
+const { refs, state, getState, isVoiceTurn, COMPANION_VIEW_PATH_PREFIX, COMPANION_TRANSCRIPT_VIEW_PATH, COMPANION_SUMMARY_VIEW_PATH, COMPANION_REFERENCES_VIEW_PATH, MEETING_TRANSCRIPT_LABEL, MEETING_SUMMARY_LABEL, MEETING_REFERENCES_LABEL, MEETING_SUMMARY_ITEMS_PANEL_ID, CHAT_CTRL_LONG_PRESS_MS, ARTIFACT_EDIT_LONG_TAP_MS, ITEM_SIDEBAR_VIEWS, ITEM_SIDEBAR_GESTURE_CANCEL_PX, ITEM_SIDEBAR_GESTURE_COMMIT_PX, ITEM_SIDEBAR_GESTURE_LONG_PX, ITEM_SIDEBAR_DEFAULT_LATER_HOUR_UTC, ITEM_SIDEBAR_MENU_ID, DEV_UI_RELOAD_POLL_MS, ASSISTANT_ACTIVITY_POLL_MS, CHAT_WS_STALE_THRESHOLD_MS, ACTIVE_TURN_NO_ID_CLEAR_GRACE_MS, ACTIVE_TURN_ACTIVITY_CLEAR_GRACE_MS, PROJECT_CHAT_MODEL_ALIASES, PROJECT_CHAT_MODEL_REASONING_EFFORTS, TTS_SILENT_STORAGE_KEY, YOLO_MODE_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_ENABLED_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_LAST_SHOWN_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_INTERVAL_MS, ACTIVE_PROJECT_STORAGE_KEY, LAST_VIEW_STORAGE_KEY, RUNTIME_RELOAD_CONTEXT_STORAGE_KEY, SIDEBAR_IMAGE_EXTENSIONS, PANEL_MOTION_WATCH_QUERIES, VOICE_LIFECYCLE, COMPANION_IDLE_SURFACES, COMPANION_RUNTIME_STATES, TOOL_PALETTE_MODES } = context;
 
 const showStatus = (...args) => refs.showStatus(...args);
-const setActiveSphere = (...args) => refs.setActiveSphere(...args);
 const refreshWorkspaceBrowser = (...args) => refs.refreshWorkspaceBrowser(...args);
 const setPrReviewDrawerOpen = (...args) => refs.setPrReviewDrawerOpen(...args);
 const renderPrReviewFileList = (...args) => refs.renderPrReviewFileList(...args);
@@ -134,7 +133,7 @@ export async function loadItemSidebarView(view = state.itemSidebarView, filters 
     } catch (_) {}
     state.itemSidebarItems = [];
     state.itemSidebarLoading = false;
-    applyItemSidebarCounts(defaultItemSidebarCounts());
+    applyItemSidebarCounts(defaultItemSidebarCounts(), null);
     renderPrReviewFileList();
     return false;
   }
@@ -157,7 +156,7 @@ export async function loadItemSidebarView(view = state.itemSidebarView, filters 
     state.itemSidebarItems = Array.isArray(itemsPayload?.items) ? itemsPayload.items : [];
     state.itemSidebarLoading = false;
     state.itemSidebarError = '';
-    applyItemSidebarCounts(countsPayload?.counts);
+    applyItemSidebarCounts(countsPayload?.counts, countsPayload?.sections);
     renderPrReviewFileList();
     return true;
   } catch (err) {
@@ -318,81 +317,6 @@ export function buildItemSidebarBadges(item) {
   const artifactKind = normalizeDisplayText(item?.artifact_kind).toLowerCase();
   if (artifactKind && artifactKind !== kind) badges.push(artifactKind);
   return badges.filter((badge, index, all) => badge && all.indexOf(badge) === index);
-}
-
-function bindSidebarTabActivation(button, onActivate) {
-  let lastTouchAt = 0;
-  let touchStart = null;
-  button.addEventListener('touchstart', (ev) => {
-    const touch = ev.touches && ev.touches[0];
-    if (!touch) return;
-    touchStart = { x: touch.clientX, y: touch.clientY };
-  }, { passive: true });
-  button.addEventListener('touchcancel', () => {
-    touchStart = null;
-  });
-  button.addEventListener('touchend', (ev) => {
-    const touch = ev.changedTouches && ev.changedTouches[0];
-    const start = touchStart;
-    touchStart = null;
-    if (!touch || !start) return;
-    if (Math.abs(touch.clientX - start.x) > 10 || Math.abs(touch.clientY - start.y) > 10) {
-      return;
-    }
-    ev.preventDefault();
-    ev.stopPropagation();
-    lastTouchAt = Date.now();
-    suppressSyntheticClick();
-    onActivate();
-  }, { passive: false });
-  button.addEventListener('click', (ev) => {
-    if (Date.now() - lastTouchAt < 700) {
-      ev.preventDefault();
-      return;
-    }
-    onActivate();
-  });
-}
-
-export function renderSidebarTabs(list) {
-  const tabs = document.createElement('div');
-  tabs.className = 'sidebar-tabs';
-  ITEM_SIDEBAR_VIEWS.forEach((view) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'sidebar-tab';
-    if (state.fileSidebarMode !== 'workspace' && state.itemSidebarView === view) {
-      button.classList.add('is-active');
-    }
-    button.textContent = sidebarTabLabel(view);
-    const count = Number(state.itemSidebarCounts?.[view] || 0);
-    if (count > 0) {
-      const badge = document.createElement('span');
-      badge.className = 'sidebar-tab-count';
-      badge.textContent = String(count);
-      button.appendChild(badge);
-    }
-    bindSidebarTabActivation(button, () => {
-      void openItemSidebarView(view);
-    });
-    tabs.appendChild(button);
-  });
-  const filesButton = document.createElement('button');
-  filesButton.type = 'button';
-  filesButton.className = 'sidebar-tab';
-  if (state.fileSidebarMode === 'workspace') {
-    filesButton.classList.add('is-active');
-  }
-  filesButton.textContent = 'Files';
-  bindSidebarTabActivation(filesButton, () => {
-    state.fileSidebarMode = 'workspace';
-    renderPrReviewFileList();
-    if (!state.workspaceBrowserLoading && state.workspaceBrowserEntries.length === 0 && !state.workspaceBrowserError) {
-      void refreshWorkspaceBrowser(false);
-    }
-  });
-  tabs.appendChild(filesButton);
-  list.appendChild(tabs);
 }
 
 export function renderSidebarRow({
