@@ -1,6 +1,6 @@
 import { apiURL } from './paths.js';
 import { normalizeCanvasPath } from './canvas-visual.js';
-import { startAgentHereAtPath } from './app-workspace-runtime.js';
+import { createLinkedWorkspaceAtPath } from './app-workspace-runtime.js';
 
 function currentWorkspaceID() {
   const state = (window._slopshellApp || {}).getState ? window._slopshellApp.getState() : {};
@@ -88,7 +88,7 @@ async function openResolvedMarkdownLink(resolution, renderCanvas) {
   const title = path || 'Linked note';
   if (kind === 'folder') {
     const linkedWorkspacePath = resolveLinkedWorkspacePath(path);
-    await startAgentHereAtPath(linkedWorkspacePath);
+    await createLinkedWorkspaceAtPath(linkedWorkspacePath);
     return;
   }
   const fileURL = String(link.file_url || '').trim();

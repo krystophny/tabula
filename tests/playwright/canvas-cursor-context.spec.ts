@@ -476,11 +476,12 @@ test('markdown image paths are rewritten through the canvas file proxy', async (
   await expect(page.locator('#canvas-text img')).toHaveAttribute('src', /docs%2Fimages%2Fdiagram\.png/);
 });
 
-test('folder markdown links start an agent in the linked workspace rooted at the vault target', async ({ page }) => {
+test('folder markdown links open the linked workspace rooted at the vault target without starting an agent', async ({ page }) => {
   await seedBrainWorkspace(page);
+  await clearLog(page);
   await page.evaluate(async () => {
     const mod = await import(`../../internal/web/static/app-workspace-runtime.js?ts=${Date.now()}`);
-    await mod.startAgentHereAtPath('/tmp/vault/project/path');
+    await mod.createLinkedWorkspaceAtPath('/tmp/vault/project/path');
   });
 
   await expect.poll(async () => {
@@ -495,17 +496,15 @@ test('folder markdown links start an agent in the linked workspace rooted at the
 
   await expect.poll(async () => {
     const log = await getLog(page);
-    return log.some(
-      (entry) => entry.type === 'message_sent'
-        && String(entry.text || '') === 'Start agent here.',
-    );
-  }, { timeout: 5_000 }).toBe(true);
+    return log.some((entry) => entry.type === 'message_sent');
+  }, { timeout: 5_000 }).toBe(false);
 
   await expect.poll(async () => page.evaluate(() => String((window as any)._slopshellApp?.getState?.().activeWorkspaceId || '')), { timeout: 5_000 }).not.toBe('brain');
 });
 
 test('start agent here welcome action opens the linked source folder and sends a starter turn', async ({ page }) => {
   await seedBrainWorkspace(page);
+  await clearLog(page);
   await page.evaluate(async () => {
     const mod = await import(`../../internal/web/static/app-chat-ui.js?ts=${Date.now()}`);
     mod.renderWelcomeSurface({
