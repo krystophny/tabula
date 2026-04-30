@@ -83,31 +83,7 @@ func (s *Store) prepareItemListFilter(filter ItemListFilter) (ItemListFilter, er
 	return normalized, nil
 }
 
-func appendItemFilterClauses(parts []string, args []any, filter ItemListFilter, alias string) ([]string, []any) {
-	column := func(name string) string {
-		return alias + name
-	}
-	outerColumn := func(name string) string {
-		if alias == "" {
-			return "items." + name
-		}
-		return alias + name
-	}
-	if filter.Sphere != "" {
-		parts = append(parts, scopedContextFilter("context_items", "item_id", outerColumn("id")))
-		args = append(args, filter.Sphere)
-	}
-	if filter.Source != "" {
-		parts = append(parts, "lower(trim("+column("source")+")) = ?")
-		args = append(args, filter.Source)
-	}
-	if filter.WorkspaceID != nil {
-		parts = append(parts, column("workspace_id")+" = ?")
-		args = append(args, *filter.WorkspaceID)
-	}
-	if filter.WorkspaceUnassigned {
-		parts = append(parts, column("workspace_id")+" IS NULL")
-	}
+func appendItemSectionFilterClauses(parts []string, args []any, filter ItemListFilter, column, outerColumn func(string) string) ([]string, []any) {
 	switch filter.Section {
 	case ItemSidebarSectionProject:
 		parts = append(parts, column("kind")+" = ?")
@@ -149,6 +125,35 @@ WHERE mart.id = `+column("artifact_id")+`
 )`)
 		args = append(args, cutoff)
 	}
+	return parts, args
+}
+
+func appendItemFilterClauses(parts []string, args []any, filter ItemListFilter, alias string) ([]string, []any) {
+	column := func(name string) string {
+		return alias + name
+	}
+	outerColumn := func(name string) string {
+		if alias == "" {
+			return "items." + name
+		}
+		return alias + name
+	}
+	if filter.Sphere != "" {
+		parts = append(parts, scopedContextFilter("context_items", "item_id", outerColumn("id")))
+		args = append(args, filter.Sphere)
+	}
+	if filter.Source != "" {
+		parts = append(parts, "lower(trim("+column("source")+")) = ?")
+		args = append(args, filter.Source)
+	}
+	if filter.WorkspaceID != nil {
+		parts = append(parts, column("workspace_id")+" = ?")
+		args = append(args, *filter.WorkspaceID)
+	}
+	if filter.WorkspaceUnassigned {
+		parts = append(parts, column("workspace_id")+" IS NULL")
+	}
+	parts, args = appendItemSectionFilterClauses(parts, args, filter, column, outerColumn)
 	if filter.labelResolved {
 		if len(filter.resolvedLabelGroups) == 0 {
 			parts = append(parts, "0=1")
