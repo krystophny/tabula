@@ -153,6 +153,92 @@ const reopenedEmailItem = {
   state: 'done',
 };
 
+const mixedSourceArtifacts = {
+  701: { id: 701, kind: 'markdown', title: 'Loose markdown capture', meta_json: JSON.stringify({ text: 'Needs routing.' }) },
+  702: { id: 702, kind: 'external_task', title: 'Todoist inbox task', meta_json: JSON.stringify({ text: 'Clarify todoist.' }) },
+  703: { id: 703, kind: 'email', title: 'Read inbox mail', meta_json: JSON.stringify({ is_read: true, body: 'Read but still open.' }) },
+  704: { id: 704, kind: 'idea_note', title: 'Local voice capture', meta_json: JSON.stringify({ transcript: 'Local capture.' }) },
+  705: { id: 705, kind: 'external_note', title: 'Imported candidate', meta_json: JSON.stringify({ text: 'Imported candidate.' }) },
+};
+
+const mixedSourceInboxItems = [
+  {
+    id: 701,
+    title: 'Loose markdown capture',
+    state: 'inbox',
+    sphere: 'private',
+    workspace_id: 1,
+    artifact_id: 701,
+    source: 'markdown',
+    source_ref: 'brain/inbox/loose.md',
+    artifact_title: 'Loose markdown capture',
+    artifact_kind: 'markdown',
+    updated_at: '2026-03-08 10:10:00',
+  },
+  {
+    id: 702,
+    title: 'Todoist inbox task',
+    state: 'inbox',
+    sphere: 'private',
+    artifact_id: 702,
+    source: 'todoist',
+    source_ref: 'https://todoist.com/showTask?id=702',
+    artifact_title: 'Todoist inbox task',
+    artifact_kind: 'external_task',
+    updated_at: '2026-03-08 10:09:00',
+  },
+  {
+    id: 703,
+    title: 'Read inbox mail',
+    state: 'inbox',
+    sphere: 'private',
+    artifact_id: 703,
+    source: 'exchange',
+    source_ref: 'message:read-inbox',
+    artifact_title: 'Read inbox mail',
+    artifact_kind: 'email',
+    updated_at: '2026-03-08 10:08:00',
+  },
+  {
+    id: 704,
+    title: 'Local voice capture',
+    state: 'inbox',
+    sphere: 'private',
+    artifact_id: 704,
+    source: 'local',
+    source_ref: 'capture:voice-1',
+    artifact_title: 'Local voice capture',
+    artifact_kind: 'idea_note',
+    updated_at: '2026-03-08 10:07:00',
+  },
+  {
+    id: 705,
+    title: 'Imported candidate',
+    state: 'inbox',
+    sphere: 'private',
+    artifact_id: 705,
+    source: 'evernote',
+    source_ref: 'note:imported-1',
+    artifact_title: 'Imported candidate',
+    artifact_kind: 'external_note',
+    updated_at: '2026-03-08 10:06:00',
+  },
+];
+
+const mixedSourceProjectItems = [{
+  id: 900,
+  title: 'Unified Inbox Outcome',
+  kind: 'project',
+  state: 'next',
+  sphere: 'private',
+  artifact_id: 0,
+  source: '',
+  source_ref: '',
+  updated_at: '2026-03-08 10:00:00',
+}];
+
+const mixedSourceTitles = mixedSourceInboxItems.map((item) => item.title);
+
 async function setInboxItems(page: Page, items: Array<Record<string, unknown>>) {
   await page.evaluate((nextItems) => {
     (window as any).__setItemSidebarData({ inbox: nextItems });
@@ -299,6 +385,100 @@ async function touchPhase(page: Page, selector: string, phase: 'start' | 'move' 
     }));
     delete touchState[key];
   }, { selector, phase, dx, dy });
+}
+
+async function seedMixedSourceInbox(page: Page) {
+  await page.evaluate(({ artifacts, inboxItems, projectItems }) => {
+    (window as any).__openedSources = [];
+    (window as any).open = (url: string) => {
+      (window as any).__openedSources.push(String(url || ''));
+      return null;
+    };
+    (window as any).__setItemSidebarArtifacts(artifacts);
+    (window as any).__setItemSidebarData({
+      inbox: inboxItems,
+      next: projectItems,
+      waiting: [],
+      someday: [],
+      done: [],
+    });
+  }, {
+    artifacts: mixedSourceArtifacts,
+    inboxItems: mixedSourceInboxItems,
+    projectItems: mixedSourceProjectItems,
+  });
+}
+
+async function reloadInboxSidebar(page: Page) {
+  await openInbox(page);
+  await page.evaluate(async () => {
+    const mod = await import('../../internal/web/static/app-item-sidebar-ui.js');
+    await mod.loadItemSidebarView('inbox');
+  });
+}
+
+async function expectMixedSourceRows(page: Page) {
+  for (const title of mixedSourceTitles) {
+    await expect(page.locator('#pr-file-list')).toContainText(title);
+  }
+}
+
+async function openItemActionMenu(page: Page, itemID: number) {
+  const row = page.locator(`#pr-file-list .pr-file-item[data-item-id="${itemID}"]`);
+  await row.click({ button: 'right' });
+  return row;
+}
+
+async function expectHarnessLogEntry(page: Page, predicate: (entry: any) => boolean) {
+  await expect.poll(async () => {
+    const log = await page.evaluate(() => (window as any).__harnessLog || []);
+    return log.some(predicate);
+  }).toBe(true);
+}
+
+async function verifyTodoistSourceAction(page: Page) {
+  await openItemActionMenu(page, 702);
+  const sourceAuthority = page.locator('#item-sidebar-menu .item-sidebar-menu-item[data-action="source_authority"]');
+  await expect(sourceAuthority).toHaveText('Source: todoist');
+  await expect(sourceAuthority).toBeDisabled();
+  await page.locator('#item-sidebar-menu .item-sidebar-menu-item[data-action="open_source"]').click();
+  await expect.poll(async () => {
+    return page.evaluate(() => (window as any).__openedSources || []);
+  }).toEqual(['https://todoist.com/showTask?id=702']);
+}
+
+async function clarifyTodoistCapture(page: Page) {
+  await openItemActionMenu(page, 702);
+  const clarifyAction = page.locator('#item-sidebar-menu .item-sidebar-menu-item[data-action="next"]');
+  await expect(clarifyAction).toHaveText('Clarify...');
+  await clarifyAction.click();
+  await expectHarnessLogEntry(page, (entry) => {
+    return entry?.action === 'item_triage' && entry?.payload?.action === 'next';
+  });
+}
+
+async function linkMarkdownCaptureToProject(page: Page) {
+  await openItemActionMenu(page, 701);
+  await page.locator('#item-sidebar-menu .item-sidebar-menu-item[data-action="project_item"]').click();
+  await expect(page.locator('#item-sidebar-menu')).toContainText('Unified Inbox Outcome');
+  await page.locator('#item-sidebar-menu .item-sidebar-menu-item', { hasText: 'Unified Inbox Outcome' }).click();
+  await expectHarnessLogEntry(page, (entry) => {
+    return entry?.action === 'item_project_item_link' && entry?.payload?.project_item_id === 900;
+  });
+}
+
+async function materializeMarkdownOnlyOnDemand(page: Page) {
+  const materializeCalls = await page.evaluate(() => {
+    const log = (window as any).__harnessLog || [];
+    return log.filter((entry: any) => entry?.action === 'artifact_materialize').length;
+  });
+  expect(materializeCalls).toBe(0);
+  await openItemActionMenu(page, 701);
+  await page.locator('#item-sidebar-menu .item-sidebar-menu-item[data-action="materialize_artifact"]').click();
+  await expect.poll(async () => {
+    const log = await page.evaluate(() => (window as any).__harnessLog || []);
+    return log.find((entry: any) => entry?.action === 'artifact_materialize')?.payload?.relative_path || '';
+  }).toBe('.slopshell/artifacts/materialized/701.md');
 }
 
 test.describe('inbox triage interactions', () => {
@@ -586,151 +766,14 @@ test.describe('inbox triage interactions', () => {
   test('mixed-source inbox exposes guarded source actions, project links, and explicit materialization', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await waitReady(page);
-    await page.evaluate(() => {
-      (window as any).__openedSources = [];
-      (window as any).open = (url: string) => {
-        (window as any).__openedSources.push(String(url || ''));
-        return null;
-      };
-      (window as any).__setItemSidebarArtifacts({
-        701: { id: 701, kind: 'markdown', title: 'Loose markdown capture', meta_json: JSON.stringify({ text: 'Needs routing.' }) },
-        702: { id: 702, kind: 'external_task', title: 'Todoist inbox task', meta_json: JSON.stringify({ text: 'Clarify todoist.' }) },
-        703: { id: 703, kind: 'email', title: 'Read inbox mail', meta_json: JSON.stringify({ is_read: true, body: 'Read but still open.' }) },
-        704: { id: 704, kind: 'idea_note', title: 'Local voice capture', meta_json: JSON.stringify({ transcript: 'Local capture.' }) },
-        705: { id: 705, kind: 'external_note', title: 'Imported candidate', meta_json: JSON.stringify({ text: 'Imported candidate.' }) },
-      });
-      (window as any).__setItemSidebarData({
-        inbox: [
-          {
-            id: 701,
-            title: 'Loose markdown capture',
-            state: 'inbox',
-            sphere: 'private',
-            workspace_id: 1,
-            artifact_id: 701,
-            source: 'markdown',
-            source_ref: 'brain/inbox/loose.md',
-            artifact_title: 'Loose markdown capture',
-            artifact_kind: 'markdown',
-            updated_at: '2026-03-08 10:10:00',
-          },
-          {
-            id: 702,
-            title: 'Todoist inbox task',
-            state: 'inbox',
-            sphere: 'private',
-            artifact_id: 702,
-            source: 'todoist',
-            source_ref: 'https://todoist.com/showTask?id=702',
-            artifact_title: 'Todoist inbox task',
-            artifact_kind: 'external_task',
-            updated_at: '2026-03-08 10:09:00',
-          },
-          {
-            id: 703,
-            title: 'Read inbox mail',
-            state: 'inbox',
-            sphere: 'private',
-            artifact_id: 703,
-            source: 'exchange',
-            source_ref: 'message:read-inbox',
-            artifact_title: 'Read inbox mail',
-            artifact_kind: 'email',
-            updated_at: '2026-03-08 10:08:00',
-          },
-          {
-            id: 704,
-            title: 'Local voice capture',
-            state: 'inbox',
-            sphere: 'private',
-            artifact_id: 704,
-            source: 'local',
-            source_ref: 'capture:voice-1',
-            artifact_title: 'Local voice capture',
-            artifact_kind: 'idea_note',
-            updated_at: '2026-03-08 10:07:00',
-          },
-          {
-            id: 705,
-            title: 'Imported candidate',
-            state: 'inbox',
-            sphere: 'private',
-            artifact_id: 705,
-            source: 'evernote',
-            source_ref: 'note:imported-1',
-            artifact_title: 'Imported candidate',
-            artifact_kind: 'external_note',
-            updated_at: '2026-03-08 10:06:00',
-          },
-        ],
-        next: [{
-          id: 900,
-          title: 'Unified Inbox Outcome',
-          kind: 'project',
-          state: 'next',
-          sphere: 'private',
-          artifact_id: 0,
-          source: '',
-          source_ref: '',
-          updated_at: '2026-03-08 10:00:00',
-        }],
-        waiting: [],
-        someday: [],
-        done: [],
-      });
-    });
+    await seedMixedSourceInbox(page);
+    await reloadInboxSidebar(page);
 
-    await openInbox(page);
-    await page.evaluate(async () => {
-      const mod = await import('../../internal/web/static/app-item-sidebar-ui.js');
-      await mod.loadItemSidebarView('inbox');
-    });
-    for (const title of ['Loose markdown capture', 'Todoist inbox task', 'Read inbox mail', 'Local voice capture', 'Imported candidate']) {
-      await expect(page.locator('#pr-file-list')).toContainText(title);
-    }
-
-    const todoistRow = page.locator('#pr-file-list .pr-file-item[data-item-id="702"]');
-    await todoistRow.click({ button: 'right' });
-    const sourceAuthority = page.locator('#item-sidebar-menu .item-sidebar-menu-item[data-action="source_authority"]');
-    await expect(sourceAuthority).toHaveText('Source: todoist');
-    await expect(sourceAuthority).toBeDisabled();
-    await page.locator('#item-sidebar-menu .item-sidebar-menu-item[data-action="open_source"]').click();
-    await expect.poll(async () => {
-      return page.evaluate(() => (window as any).__openedSources || []);
-    }).toEqual(['https://todoist.com/showTask?id=702']);
-
-    await todoistRow.click({ button: 'right' });
-    const clarifyAction = page.locator('#item-sidebar-menu .item-sidebar-menu-item[data-action="next"]');
-    await expect(clarifyAction).toHaveText('Clarify...');
-    await clarifyAction.click();
-    await expect.poll(async () => {
-      const log = await page.evaluate(() => (window as any).__harnessLog || []);
-      return log.some((entry: any) => entry?.action === 'item_triage'
-        && entry?.payload?.action === 'next');
-    }).toBe(true);
-
-    const markdownRow = page.locator('#pr-file-list .pr-file-item[data-item-id="701"]');
-    await markdownRow.click({ button: 'right' });
-    await page.locator('#item-sidebar-menu .item-sidebar-menu-item[data-action="project_item"]').click();
-    await expect(page.locator('#item-sidebar-menu')).toContainText('Unified Inbox Outcome');
-    await page.locator('#item-sidebar-menu .item-sidebar-menu-item', { hasText: 'Unified Inbox Outcome' }).click();
-    await expect.poll(async () => {
-      const log = await page.evaluate(() => (window as any).__harnessLog || []);
-      return log.some((entry: any) => entry?.action === 'item_project_item_link'
-        && entry?.payload?.project_item_id === 900);
-    }).toBe(true);
-
-    let materializeCalls = await page.evaluate(() => {
-      const log = (window as any).__harnessLog || [];
-      return log.filter((entry: any) => entry?.action === 'artifact_materialize').length;
-    });
-    expect(materializeCalls).toBe(0);
-    await markdownRow.click({ button: 'right' });
-    await page.locator('#item-sidebar-menu .item-sidebar-menu-item[data-action="materialize_artifact"]').click();
-    await expect.poll(async () => {
-      const log = await page.evaluate(() => (window as any).__harnessLog || []);
-      return log.find((entry: any) => entry?.action === 'artifact_materialize')?.payload?.relative_path || '';
-    }).toBe('.slopshell/artifacts/materialized/701.md');
+    await expectMixedSourceRows(page);
+    await verifyTodoistSourceAction(page);
+    await clarifyTodoistCapture(page);
+    await linkMarkdownCaptureToProject(page);
+    await materializeMarkdownOnlyOnDemand(page);
   });
 
   test('stale inbox reload does not resurrect a triaged item', async ({ page }) => {
