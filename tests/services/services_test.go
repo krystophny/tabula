@@ -278,11 +278,32 @@ func requireServiceHealth(t *testing.T, name, url string) map[string]interface{}
 	if err == nil {
 		return resp
 	}
+	if name == "STT" && isWhisperCppSTTHealthy(t, sttURL) {
+		return map[string]interface{}{"status": "ok", "backend": "whisper.cpp"}
+	}
 	if strings.Contains(strings.ToLower(err.Error()), "connection refused") {
 		t.Skipf("%s unavailable at %s: %v", name, url, err)
 	}
 	t.Fatalf("%s health failed: %v", name, err)
 	return nil
+}
+
+func isWhisperCppSTTHealthy(t *testing.T, baseURL string) bool {
+	t.Helper()
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(baseURL + "/")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	server := strings.ToLower(resp.Header.Get("Server"))
+	page := strings.ToLower(string(body))
+	return strings.Contains(server, "whisper.cpp") ||
+		strings.Contains(page, "whisper.cpp server")
 }
 
 func httpGetJSON(url string) (map[string]interface{}, error) {
