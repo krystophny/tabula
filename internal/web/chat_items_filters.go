@@ -224,9 +224,9 @@ func (a *App) executeFilteredItemViewAction(action *SystemAction) (string, map[s
 	switch view {
 	case "", store.ItemStateInbox:
 		view = store.ItemStateInbox
-	case store.ItemStateWaiting, store.ItemStateSomeday, store.ItemStateDone:
+	case store.ItemStateNext, store.ItemStateWaiting, store.ItemStateDeferred, store.ItemStateSomeday, store.ItemStateReview, store.ItemStateDone:
 	default:
-		return "", nil, errors.New("view must be inbox, waiting, someday, or done")
+		return "", nil, errors.New("view must be inbox, next, waiting, deferred, someday, review, or done")
 	}
 
 	filter, err := itemFilterFromActionParams(action.Params)
@@ -256,8 +256,26 @@ func (a *App) executeFilteredItemViewAction(action *SystemAction) (string, map[s
 			return "", nil, err
 		}
 		count = len(items)
+	case store.ItemStateNext:
+		items, err := a.store.ListNextItemsFiltered(filter)
+		if err != nil {
+			return "", nil, err
+		}
+		count = len(items)
+	case store.ItemStateDeferred:
+		items, err := a.store.ListDeferredItemsFiltered(filter)
+		if err != nil {
+			return "", nil, err
+		}
+		count = len(items)
 	case store.ItemStateSomeday:
 		items, err := a.store.ListSomedayItemsFiltered(filter)
+		if err != nil {
+			return "", nil, err
+		}
+		count = len(items)
+	case store.ItemStateReview:
+		items, err := a.store.ListReviewItemsFiltered(filter)
 		if err != nil {
 			return "", nil, err
 		}

@@ -214,6 +214,66 @@ func (a *App) handleItemWaiting(w http.ResponseWriter, r *http.Request) {
 	a.writeItemSummaryList(w, items)
 }
 
+func (a *App) handleItemNext(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAuth(w, r) {
+		return
+	}
+	if !a.resurfaceDueItemsForRead(w) {
+		return
+	}
+	filter, err := parseItemListFilterQuery(r)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	items, err := a.store.ListNextItemsFiltered(filter)
+	if err != nil {
+		writeItemStoreError(w, err)
+		return
+	}
+	a.writeItemSummaryList(w, items)
+}
+
+func (a *App) handleItemDeferred(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAuth(w, r) {
+		return
+	}
+	if !a.resurfaceDueItemsForRead(w) {
+		return
+	}
+	filter, err := parseItemListFilterQuery(r)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	items, err := a.store.ListDeferredItemsFiltered(filter)
+	if err != nil {
+		writeItemStoreError(w, err)
+		return
+	}
+	a.writeItemSummaryList(w, items)
+}
+
+func (a *App) handleItemReview(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAuth(w, r) {
+		return
+	}
+	if !a.resurfaceDueItemsForRead(w) {
+		return
+	}
+	filter, err := parseItemListFilterQuery(r)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	items, err := a.store.ListReviewItemsFiltered(filter)
+	if err != nil {
+		writeItemStoreError(w, err)
+		return
+	}
+	a.writeItemSummaryList(w, items)
+}
+
 func (a *App) handleItemSomeday(w http.ResponseWriter, r *http.Request) {
 	if !a.requireAuth(w, r) {
 		return
@@ -595,6 +655,8 @@ func (a *App) handleItemTriage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch strings.ToLower(strings.TrimSpace(req.Action)) {
+	case "next":
+		err = a.store.UpdateItemState(itemID, store.ItemStateNext)
 	case "done":
 		item, err := a.store.GetItem(itemID)
 		if err != nil {

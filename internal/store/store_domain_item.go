@@ -291,7 +291,7 @@ func (s *Store) UpdateItem(id int64, updates ItemUpdate) error {
 	scopeUpdated := false
 	var artifactID *int64
 	targetWorkspaceID := item.WorkspaceID
-	reopenToInbox := false
+	clearDeferredTimes := false
 
 	if updates.Title != nil {
 		title := strings.TrimSpace(*updates.Title)
@@ -306,7 +306,7 @@ func (s *Store) UpdateItem(id int64, updates ItemUpdate) error {
 		if err := validateItemTransition(item.State, next); err != nil {
 			return err
 		}
-		reopenToInbox = next == ItemStateInbox && item.State != ItemStateInbox
+		clearDeferredTimes = (next == ItemStateInbox && item.State != ItemStateInbox) || next == ItemStateNext
 		parts = append(parts, "state = ?")
 		args = append(args, next)
 	}
@@ -399,7 +399,7 @@ func (s *Store) UpdateItem(id int64, updates ItemUpdate) error {
 		item.Sphere = workspaceSphere
 		scopeUpdated = true
 	}
-	if reopenToInbox {
+	if clearDeferredTimes {
 		if updates.VisibleAfter == nil {
 			parts = append(parts, "visible_after = NULL")
 		}
@@ -525,7 +525,7 @@ func (s *Store) UpdateItemState(id int64, state string) error {
 	}
 	query := `UPDATE items SET state = ?, updated_at = datetime('now')`
 	args := []any{next}
-	if next == ItemStateInbox {
+	if next == ItemStateInbox || next == ItemStateNext {
 		query += `, visible_after = NULL, follow_up_at = NULL`
 	}
 	query += ` WHERE id = ?`
@@ -599,7 +599,7 @@ func (s *Store) TriageItemLater(id int64, visibleAfter string) error {
 		`UPDATE items
 		 SET state = ?, visible_after = ?, updated_at = datetime('now')
 		 WHERE id = ?`,
-		ItemStateWaiting,
+		ItemStateDeferred,
 		normalized,
 		id,
 	)
@@ -872,8 +872,8 @@ func (s *Store) ResurfaceDueItems(now time.Time) (int, error) {
 		     OR
 		     (follow_up_at IS NOT NULL AND trim(follow_up_at) <> '' AND datetime(follow_up_at) <= datetime(?))
 		   )`,
-		ItemStateInbox,
-		ItemStateWaiting,
+		ItemStateNext,
+		ItemStateDeferred,
 		cutoff,
 		cutoff,
 	)

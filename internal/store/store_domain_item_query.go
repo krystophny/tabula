@@ -164,17 +164,32 @@ func (s *Store) ListWaitingItemsForSphere(sphere string) ([]ItemSummary, error) 
 	return s.ListWaitingItemsFiltered(ItemListFilter{Sphere: sphere})
 }
 
+func (s *Store) ListNextItems() ([]ItemSummary, error) {
+	return s.ListNextItemsFiltered(ItemListFilter{})
+}
+
+func (s *Store) ListDeferredItems() ([]ItemSummary, error) {
+	return s.ListDeferredItemsFiltered(ItemListFilter{})
+}
+
+func (s *Store) ListReviewItems() ([]ItemSummary, error) {
+	return s.ListReviewItemsFiltered(ItemListFilter{})
+}
+
 func (s *Store) ListWaitingItemsFiltered(filter ItemListFilter) ([]ItemSummary, error) {
-	normalizedFilter, err := s.prepareItemListFilter(filter)
-	if err != nil {
-		return nil, err
-	}
-	parts := []string{"i.state = ?"}
-	args := []any{ItemStateWaiting}
-	parts, args = appendItemFilterClauses(parts, args, normalizedFilter, "i.")
-	query := itemSummarySelect + ` WHERE ` + stringsJoin(parts, ` AND `)
-	query += ` ORDER BY i.updated_at DESC, i.id ASC`
-	return s.listItemSummaries(query, args...)
+	return s.listItemSummariesByState(ItemStateWaiting, filter)
+}
+
+func (s *Store) ListNextItemsFiltered(filter ItemListFilter) ([]ItemSummary, error) {
+	return s.listItemSummariesByState(ItemStateNext, filter)
+}
+
+func (s *Store) ListDeferredItemsFiltered(filter ItemListFilter) ([]ItemSummary, error) {
+	return s.listItemSummariesByState(ItemStateDeferred, filter)
+}
+
+func (s *Store) ListReviewItemsFiltered(filter ItemListFilter) ([]ItemSummary, error) {
+	return s.listItemSummariesByState(ItemStateReview, filter)
 }
 
 func (s *Store) ListSomedayItems() ([]ItemSummary, error) {
@@ -186,12 +201,16 @@ func (s *Store) ListSomedayItemsForSphere(sphere string) ([]ItemSummary, error) 
 }
 
 func (s *Store) ListSomedayItemsFiltered(filter ItemListFilter) ([]ItemSummary, error) {
+	return s.listItemSummariesByState(ItemStateSomeday, filter)
+}
+
+func (s *Store) listItemSummariesByState(state string, filter ItemListFilter) ([]ItemSummary, error) {
 	normalizedFilter, err := s.prepareItemListFilter(filter)
 	if err != nil {
 		return nil, err
 	}
 	parts := []string{"i.state = ?"}
-	args := []any{ItemStateSomeday}
+	args := []any{state}
 	parts, args = appendItemFilterClauses(parts, args, normalizedFilter, "i.")
 	query := itemSummarySelect + ` WHERE ` + stringsJoin(parts, ` AND `)
 	query += ` ORDER BY i.updated_at DESC, i.id ASC`
@@ -233,17 +252,20 @@ func (s *Store) CountItemsByStateForSphere(now time.Time, sphere string) (map[st
 
 func (s *Store) CountItemsByStateFiltered(now time.Time, filter ItemListFilter) (map[string]int, error) {
 	counts := map[string]int{
-		ItemStateInbox:   0,
-		ItemStateWaiting: 0,
-		ItemStateSomeday: 0,
-		ItemStateDone:    0,
+		ItemStateInbox:    0,
+		ItemStateNext:     0,
+		ItemStateWaiting:  0,
+		ItemStateDeferred: 0,
+		ItemStateSomeday:  0,
+		ItemStateReview:   0,
+		ItemStateDone:     0,
 	}
 	normalizedFilter, err := s.prepareItemListFilter(filter)
 	if err != nil {
 		return nil, err
 	}
 	cutoff := now.UTC().Format(time.RFC3339Nano)
-	var inbox, waiting, someday, done int
+	var inbox, next, waiting, deferred, someday, review, done int
 	query := `
 SELECT
   COALESCE(SUM(CASE
@@ -254,16 +276,22 @@ SELECT
         OR datetime(visible_after) <= datetime(?)
       )
     THEN 1 ELSE 0 END), 0) AS inbox_count,
+  COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS next_count,
   COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS waiting_count,
+  COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS deferred_count,
   COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS someday_count,
+  COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS review_count,
   COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS done_count
 FROM items
 `
 	args := []any{
 		ItemStateInbox,
 		cutoff,
+		ItemStateNext,
 		ItemStateWaiting,
+		ItemStateDeferred,
 		ItemStateSomeday,
+		ItemStateReview,
 		ItemStateDone,
 	}
 	parts := []string{}
@@ -271,12 +299,15 @@ FROM items
 	if len(parts) > 0 {
 		query += ` WHERE ` + stringsJoin(parts, ` AND `)
 	}
-	if err := s.db.QueryRow(query, args...).Scan(&inbox, &waiting, &someday, &done); err != nil {
+	if err := s.db.QueryRow(query, args...).Scan(&inbox, &next, &waiting, &deferred, &someday, &review, &done); err != nil {
 		return nil, err
 	}
 	counts[ItemStateInbox] = inbox
+	counts[ItemStateNext] = next
 	counts[ItemStateWaiting] = waiting
+	counts[ItemStateDeferred] = deferred
 	counts[ItemStateSomeday] = someday
+	counts[ItemStateReview] = review
 	counts[ItemStateDone] = done
 	return counts, nil
 }

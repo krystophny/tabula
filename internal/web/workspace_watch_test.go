@@ -130,6 +130,6 @@ func TestWorkspaceWatchFailureMovesItemToWaiting(t *testing.T) {
 
 	waitForCondition(t, 2*time.Second, func() bool {
 		got, err := app.store.GetItem(item.ID)
-		return err == nil && got.State == store.ItemStateWaiting && got.VisibleAfter != nil
+		return err == nil && got.State == store.ItemStateDeferred && got.VisibleAfter != nil
 	})
 }

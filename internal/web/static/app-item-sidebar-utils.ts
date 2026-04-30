@@ -25,8 +25,11 @@ function appendSphereQuery(path, sphere = state.activeSphere, allSpheres = false
 export function defaultItemSidebarCounts() {
   return {
     inbox: 0,
+    next: 0,
     waiting: 0,
+    deferred: 0,
     someday: 0,
+    review: 0,
     done: 0,
   };
 }
@@ -169,6 +172,7 @@ export function itemSidebarActionLabel(action, item = null) {
     return isEmailSidebarItem(item) ? 'Archive' : 'Done';
   }
   if (normalized === 'inbox') return 'Back to Inbox';
+  if (normalized === 'next') return 'Next';
   if (normalized === 'delete') return 'Delete';
   if (normalized === 'delegate') return 'Delegate';
   if (normalized === 'later') return 'Later';
@@ -183,6 +187,7 @@ export function itemSidebarStatusText(action, item = null, actorName = '') {
   }
   if (!label) return 'updated';
   if (label === 'back to inbox') return 'returned to inbox';
+  if (label === 'next') return 'moved to next';
   if (label === 'later') return 'moved to later';
   if (label === 'someday') return 'moved to someday';
   return `${label}d`;
@@ -702,10 +707,15 @@ export function showItemSidebarActionMenu(item, x, y) {
         onClick: () => performItemSidebarTriage(item, 'delete'),
       },
     ]
-    : itemState === 'waiting'
+    : itemState === 'waiting' || itemState === 'deferred' || itemState === 'review'
     ? [
       reopenEntry,
       ...reviewEntry,
+      {
+        label: itemSidebarActionLabel('next', item),
+        action: 'next',
+        onClick: () => performItemSidebarTriage(item, 'next'),
+      },
       {
         label: itemSidebarActionLabel('done', item),
         action: 'done',

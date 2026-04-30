@@ -216,8 +216,10 @@ INSERT INTO items (title, state) VALUES ('legacy waiting', 'waiting');
 		t.Fatalf("legacy item state = %q, want %q", item.State, ItemStateWaiting)
 	}
 
-	if _, err := s.CreateItem("someday migration", ItemOptions{State: ItemStateSomeday}); err != nil {
-		t.Fatalf("CreateItem(someday) after migration error: %v", err)
+	for _, state := range []string{ItemStateNext, ItemStateDeferred, ItemStateSomeday, ItemStateReview} {
+		if _, err := s.CreateItem(state+" migration", ItemOptions{State: state}); err != nil {
+			t.Fatalf("CreateItem(%s) after migration error: %v", state, err)
+		}
 	}
 }
 
@@ -1143,8 +1145,8 @@ func TestItemTriageOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetItem(later) error: %v", err)
 	}
-	if gotLater.State != ItemStateWaiting {
-		t.Fatalf("later state = %q, want %q", gotLater.State, ItemStateWaiting)
+	if gotLater.State != ItemStateDeferred {
+		t.Fatalf("later state = %q, want %q", gotLater.State, ItemStateDeferred)
 	}
 	if gotLater.VisibleAfter == nil || *gotLater.VisibleAfter != visibleAfter {
 		t.Fatalf("later visible_after = %v, want %q", gotLater.VisibleAfter, visibleAfter)
@@ -1307,14 +1309,14 @@ func TestResurfaceDueItems(t *testing.T) {
 	future := now.Add(30 * time.Minute).Format(time.RFC3339)
 
 	pastVisible, err := s.CreateItem("past visible_after", ItemOptions{
-		State:        ItemStateWaiting,
+		State:        ItemStateDeferred,
 		VisibleAfter: &past,
 	})
 	if err != nil {
 		t.Fatalf("CreateItem(past visible_after) error: %v", err)
 	}
 	pastFollowUp, err := s.CreateItem("past follow_up_at", ItemOptions{
-		State:      ItemStateWaiting,
+		State:      ItemStateDeferred,
 		FollowUpAt: &past,
 	})
 	if err != nil {
@@ -1329,7 +1331,7 @@ func TestResurfaceDueItems(t *testing.T) {
 		t.Fatalf("CreateItem(future waiting) error: %v", err)
 	}
 	bothTimes, err := s.CreateItem("both timestamps", ItemOptions{
-		State:        ItemStateWaiting,
+		State:        ItemStateDeferred,
 		VisibleAfter: &future,
 		FollowUpAt:   &past,
 	})
@@ -1364,9 +1366,9 @@ func TestResurfaceDueItems(t *testing.T) {
 		id   int64
 		want string
 	}{
-		{name: "past visible_after", id: pastVisible.ID, want: ItemStateInbox},
-		{name: "past follow_up_at", id: pastFollowUp.ID, want: ItemStateInbox},
-		{name: "both timestamps", id: bothTimes.ID, want: ItemStateInbox},
+		{name: "past visible_after", id: pastVisible.ID, want: ItemStateNext},
+		{name: "past follow_up_at", id: pastFollowUp.ID, want: ItemStateNext},
+		{name: "both timestamps", id: bothTimes.ID, want: ItemStateNext},
 		{name: "future waiting", id: futureWaiting.ID, want: ItemStateWaiting},
 		{name: "already inbox", id: inboxItem.ID, want: ItemStateInbox},
 		{name: "already done", id: doneItem.ID, want: ItemStateDone},
@@ -1420,9 +1422,21 @@ func TestItemStateSummariesAndCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateItem(waiting) error: %v", err)
 	}
+	nextItem, err := s.CreateItem("Next item", ItemOptions{State: ItemStateNext})
+	if err != nil {
+		t.Fatalf("CreateItem(next) error: %v", err)
+	}
+	deferredItem, err := s.CreateItem("Deferred item", ItemOptions{State: ItemStateDeferred})
+	if err != nil {
+		t.Fatalf("CreateItem(deferred) error: %v", err)
+	}
 	somedayItem, err := s.CreateItem("Someday item", ItemOptions{State: ItemStateSomeday})
 	if err != nil {
 		t.Fatalf("CreateItem(someday) error: %v", err)
+	}
+	reviewItem, err := s.CreateItem("Review item", ItemOptions{State: ItemStateReview})
+	if err != nil {
+		t.Fatalf("CreateItem(review) error: %v", err)
 	}
 	doneItem, err := s.CreateItem("Done item", ItemOptions{State: ItemStateDone})
 	if err != nil {
@@ -1456,6 +1470,20 @@ func TestItemStateSummariesAndCounts(t *testing.T) {
 	if len(waitingItems) != 1 || waitingItems[0].ID != waitingItem.ID {
 		t.Fatalf("ListWaitingItems() = %+v, want waiting item %d", waitingItems, waitingItem.ID)
 	}
+	nextItems, err := s.ListNextItems()
+	if err != nil {
+		t.Fatalf("ListNextItems() error: %v", err)
+	}
+	if len(nextItems) != 1 || nextItems[0].ID != nextItem.ID {
+		t.Fatalf("ListNextItems() = %+v, want next item %d", nextItems, nextItem.ID)
+	}
+	deferredItems, err := s.ListDeferredItems()
+	if err != nil {
+		t.Fatalf("ListDeferredItems() error: %v", err)
+	}
+	if len(deferredItems) != 1 || deferredItems[0].ID != deferredItem.ID {
+		t.Fatalf("ListDeferredItems() = %+v, want deferred item %d", deferredItems, deferredItem.ID)
+	}
 
 	somedayItems, err := s.ListSomedayItems()
 	if err != nil {
@@ -1463,6 +1491,13 @@ func TestItemStateSummariesAndCounts(t *testing.T) {
 	}
 	if len(somedayItems) != 1 || somedayItems[0].ID != somedayItem.ID {
 		t.Fatalf("ListSomedayItems() = %+v, want someday item %d", somedayItems, somedayItem.ID)
+	}
+	reviewItems, err := s.ListReviewItems()
+	if err != nil {
+		t.Fatalf("ListReviewItems() error: %v", err)
+	}
+	if len(reviewItems) != 1 || reviewItems[0].ID != reviewItem.ID {
+		t.Fatalf("ListReviewItems() = %+v, want review item %d", reviewItems, reviewItem.ID)
 	}
 
 	doneItems, err := s.ListDoneItems(1)
@@ -1483,8 +1518,17 @@ func TestItemStateSummariesAndCounts(t *testing.T) {
 	if got := counts[ItemStateWaiting]; got != 1 {
 		t.Fatalf("CountItemsByState()[waiting] = %d, want 1", got)
 	}
+	if got := counts[ItemStateNext]; got != 1 {
+		t.Fatalf("CountItemsByState()[next] = %d, want 1", got)
+	}
+	if got := counts[ItemStateDeferred]; got != 1 {
+		t.Fatalf("CountItemsByState()[deferred] = %d, want 1", got)
+	}
 	if got := counts[ItemStateSomeday]; got != 1 {
 		t.Fatalf("CountItemsByState()[someday] = %d, want 1", got)
+	}
+	if got := counts[ItemStateReview]; got != 1 {
+		t.Fatalf("CountItemsByState()[review] = %d, want 1", got)
 	}
 	if got := counts[ItemStateDone]; got != 1 {
 		t.Fatalf("CountItemsByState()[done] = %d, want 1", got)

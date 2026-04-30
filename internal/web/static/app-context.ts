@@ -17,7 +17,7 @@ export const MEETING_REFERENCES_LABEL = 'Meeting References';
 export const MEETING_SUMMARY_ITEMS_PANEL_ID = 'meeting-summary-items';
 export const CHAT_CTRL_LONG_PRESS_MS = 180;
 export const ARTIFACT_EDIT_LONG_TAP_MS = 420;
-export const ITEM_SIDEBAR_VIEWS = ['inbox', 'waiting', 'someday', 'done'];
+export const ITEM_SIDEBAR_VIEWS = ['inbox', 'next', 'waiting', 'deferred', 'someday', 'review', 'done'];
 export const ITEM_SIDEBAR_GESTURE_CANCEL_PX = 12;
 export const ITEM_SIDEBAR_GESTURE_COMMIT_PX = 50;
 export const ITEM_SIDEBAR_GESTURE_LONG_PX = 150;
@@ -273,7 +273,7 @@ export const state = {
   itemSidebarFilters: { source: '', workspace_id: null, label_id: null, workspace_unassigned: false },
   itemSidebarLabelName: '',
   itemSidebarItems: [],
-  itemSidebarCounts: { inbox: 0, waiting: 0, someday: 0, done: 0 },
+  itemSidebarCounts: { inbox: 0, next: 0, waiting: 0, deferred: 0, someday: 0, review: 0, done: 0 },
   itemSidebarLoading: false,
   itemSidebarLoadSeq: 0,
   itemSidebarError: '',

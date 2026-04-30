@@ -38,10 +38,13 @@ const (
 	ExternalProviderExchange       = "exchange"
 	ExternalProviderExchangeEWS    = "exchange_ews"
 
-	ItemStateInbox   = "inbox"
-	ItemStateWaiting = "waiting"
-	ItemStateSomeday = "someday"
-	ItemStateDone    = "done"
+	ItemStateInbox    = "inbox"
+	ItemStateNext     = "next"
+	ItemStateWaiting  = "waiting"
+	ItemStateDeferred = "deferred"
+	ItemStateSomeday  = "someday"
+	ItemStateReview   = "review"
+	ItemStateDone     = "done"
 
 	ItemReviewTargetAgent  = "agent"
 	ItemReviewTargetGitHub = "github"
@@ -117,10 +120,10 @@ type Workspace struct {
 	ChatModel                string  `json:"chat_model,omitempty"`
 	ChatModelReasoningEffort string  `json:"chat_model_reasoning_effort,omitempty"`
 	CompanionConfigJSON      string  `json:"companion_config_json,omitempty"`
-	Kind          string `json:"kind,omitempty"`
-	WorkspacePath string `json:"workspace_path,omitempty"`
-	RootPath      string `json:"root_path,omitempty"`
-	IsDefault     bool   `json:"is_default"`
+	Kind                     string  `json:"kind,omitempty"`
+	WorkspacePath            string  `json:"workspace_path,omitempty"`
+	RootPath                 string  `json:"root_path,omitempty"`
+	IsDefault                bool    `json:"is_default"`
 	CreatedAt                string  `json:"created_at"`
 	UpdatedAt                string  `json:"updated_at"`
 }

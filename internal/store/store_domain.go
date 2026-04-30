@@ -13,7 +13,7 @@ import (
 const itemsTableSchema = `CREATE TABLE IF NOT EXISTS items (
   id INTEGER PRIMARY KEY,
   title TEXT NOT NULL,
-  state TEXT NOT NULL DEFAULT 'inbox' CHECK (state IN ('inbox', 'waiting', 'someday', 'done')),
+  state TEXT NOT NULL DEFAULT 'inbox' CHECK (state IN ('inbox', 'next', 'waiting', 'deferred', 'someday', 'review', 'done')),
   workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
   artifact_id INTEGER REFERENCES artifacts(id) ON DELETE SET NULL,
   actor_id INTEGER REFERENCES actors(id) ON DELETE SET NULL,
@@ -488,10 +488,16 @@ func normalizeItemState(state string) string {
 	switch strings.ToLower(strings.TrimSpace(state)) {
 	case "", ItemStateInbox:
 		return ItemStateInbox
+	case ItemStateNext:
+		return ItemStateNext
 	case ItemStateWaiting:
 		return ItemStateWaiting
+	case ItemStateDeferred:
+		return ItemStateDeferred
 	case ItemStateSomeday:
 		return ItemStateSomeday
+	case ItemStateReview:
+		return ItemStateReview
 	case ItemStateDone:
 		return ItemStateDone
 	default:
@@ -533,53 +539,6 @@ func validateItemTransition(current, next string) error {
 		return fmt.Errorf("cannot transition item from %s to %s", current, next)
 	}
 	return nil
-}
-
-func (s *Store) migrateItemTableStateSupport() error {
-	var schema sql.NullString
-	if err := s.db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'items'`).Scan(&schema); err != nil {
-		return err
-	}
-	if strings.Contains(strings.ToLower(schema.String), "'someday'") {
-		return nil
-	}
-
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(`ALTER TABLE items RENAME TO items_legacy`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(strings.Replace(itemsTableSchema, "IF NOT EXISTS ", "", 1)); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`
-INSERT INTO items (
-	id, title, state, workspace_id, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, created_at, updated_at
-)
-SELECT
-	id, title, state, workspace_id, artifact_id, actor_id, visible_after, follow_up_at, source, source_ref, created_at, updated_at
-FROM items_legacy
-`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DROP TABLE items_legacy`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DROP TABLE IF EXISTS context_items`); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`CREATE TABLE context_items (
-  context_id INTEGER NOT NULL REFERENCES contexts(id) ON DELETE CASCADE,
-  item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-  PRIMARY KEY (context_id, item_id)
-)`); err != nil {
-		return err
-	}
-	return tx.Commit()
 }
 
 func (s *Store) migrateItemSphereSupport() error {

@@ -8,20 +8,20 @@ import (
 	"github.com/sloppy-org/slopshell/internal/store"
 )
 
-func TestItemResurfacerTickerMovesDueItemsBackToInbox(t *testing.T) {
+func TestItemResurfacerTickerMovesDueDeferredItemsToNext(t *testing.T) {
 	app := newAuthedTestApp(t)
 
 	past := time.Now().UTC().Add(-time.Minute).Format(time.RFC3339)
 	future := time.Now().UTC().Add(time.Minute).Format(time.RFC3339)
 	dueItem, err := app.store.CreateItem("due", store.ItemOptions{
-		State:        store.ItemStateWaiting,
+		State:        store.ItemStateDeferred,
 		VisibleAfter: &past,
 	})
 	if err != nil {
 		t.Fatalf("CreateItem(due) error: %v", err)
 	}
 	futureItem, err := app.store.CreateItem("future", store.ItemOptions{
-		State:        store.ItemStateWaiting,
+		State:        store.ItemStateDeferred,
 		VisibleAfter: &future,
 	})
 	if err != nil {
@@ -45,7 +45,7 @@ func TestItemResurfacerTickerMovesDueItemsBackToInbox(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetItem(due) error: %v", err)
 		}
-		if item.State == store.ItemStateInbox {
+		if item.State == store.ItemStateNext {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -55,15 +55,15 @@ func TestItemResurfacerTickerMovesDueItemsBackToInbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetItem(due, final) error: %v", err)
 	}
-	if dueItem.State != store.ItemStateInbox {
-		t.Fatalf("due item state = %q, want %q", dueItem.State, store.ItemStateInbox)
+	if dueItem.State != store.ItemStateNext {
+		t.Fatalf("due item state = %q, want %q", dueItem.State, store.ItemStateNext)
 	}
 	futureItem, err = app.store.GetItem(futureItem.ID)
 	if err != nil {
 		t.Fatalf("GetItem(future, final) error: %v", err)
 	}
-	if futureItem.State != store.ItemStateWaiting {
-		t.Fatalf("future item state = %q, want %q", futureItem.State, store.ItemStateWaiting)
+	if futureItem.State != store.ItemStateDeferred {
+		t.Fatalf("future item state = %q, want %q", futureItem.State, store.ItemStateDeferred)
 	}
 }
 
@@ -86,7 +86,7 @@ func TestItemResurfaceBroadcastsWebsocketNotification(t *testing.T) {
 	past := time.Date(2026, time.March, 8, 10, 0, 0, 0, time.UTC)
 	pastValue := past.Add(-time.Minute).Format(time.RFC3339)
 	_, err = app.store.CreateItem("due", store.ItemOptions{
-		State:        store.ItemStateWaiting,
+		State:        store.ItemStateDeferred,
 		VisibleAfter: &pastValue,
 	})
 	if err != nil {

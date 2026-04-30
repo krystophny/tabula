@@ -172,8 +172,11 @@ export async function loadItemSidebarView(view = state.itemSidebarView, filters 
 }
 
 export function sidebarTabLabel(view) {
+  if (view === 'next') return 'Next';
   if (view === 'waiting') return 'Waiting';
+  if (view === 'deferred') return 'Deferred';
   if (view === 'someday') return 'Someday';
+  if (view === 'review') return 'Review';
   if (view === 'done') return 'Done';
   return 'Inbox';
 }
@@ -690,7 +693,7 @@ export function renderItemSidebarList(list) {
   }
   items.forEach((item) => {
     const icon = itemIconForRow(item);
-    const triageEnabled = state.itemSidebarView === 'inbox';
+    const triageEnabled = state.itemSidebarView === 'inbox' || state.itemSidebarView === 'next';
     list.appendChild(renderSidebarRow({
       icon: icon.icon,
       iconText: icon.text,
@@ -717,11 +720,11 @@ export function handleItemSidebarKeyboardShortcut(ev) {
     action = 'delete';
   } else if (key === 'd' || key === 'D') {
     action = 'done';
-  } else if (view === 'inbox' && (key === 'l' || key === 'L')) {
+  } else if ((view === 'inbox' || view === 'next') && (key === 'l' || key === 'L')) {
     action = 'later';
-  } else if (view === 'inbox' && (key === 'g' || key === 'G')) {
+  } else if ((view === 'inbox' || view === 'next') && (key === 'g' || key === 'G')) {
     action = 'delegate';
-  } else if (view === 'inbox' && (key === 's' || key === 'S')) {
+  } else if ((view === 'inbox' || view === 'next') && (key === 's' || key === 'S')) {
     action = 'someday';
   } else if (view !== 'inbox' && (key === 'a' || key === 'A')) {
     action = 'inbox';

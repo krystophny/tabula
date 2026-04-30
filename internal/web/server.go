@@ -174,12 +174,17 @@ func New(dataDir, localProjectDir, localMCPSocket, appServerURL, model, ttsURL, 
 		return nil, err
 	}
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	cleanup := func() {
+		shutdownCancel()
+		lc.Close()
+		_ = s.Close()
+	}
 	appServerURL = strings.TrimSpace(appServerURL)
 	var appServerClient *appserver.Client
 	if appServerURL != "" {
 		appServerClient, err = appserver.NewClient(appServerURL)
 		if err != nil {
-			_ = s.Close()
+			cleanup()
 			return nil, err
 		}
 	}
@@ -229,7 +234,7 @@ func New(dataDir, localProjectDir, localMCPSocket, appServerURL, model, ttsURL, 
 	}
 	resolvedLocalMCPEndpoint, mcpErr := parseEndpoint(resolvedLocalMCPSocket)
 	if mcpErr != nil {
-		_ = s.Close()
+		cleanup()
 		return nil, mcpErr
 	}
 	resolvedIntentLLMURL := strings.TrimSpace(os.Getenv("SLOPSHELL_INTENT_LLM_URL"))
@@ -286,7 +291,7 @@ func New(dataDir, localProjectDir, localMCPSocket, appServerURL, model, ttsURL, 
 	resolvedSTTPreVADThresholdDB := parseEnvFloatDefault("SLOPSHELL_STT_PREVAD_THRESHOLD_DB", DefaultSTTPreVADThresholdDB)
 	resolvedSTTPreVADMinSpeechMS := parseEnvIntDefault("SLOPSHELL_STT_PREVAD_MIN_SPEECH_MS", DefaultSTTPreVADMinSpeechMS)
 	if err := enforceLocalWorkspaceModelDefaults(s); err != nil {
-		_ = s.Close()
+		cleanup()
 		return nil, err
 	}
 	defaultAlias := persistedDefaultChatModelAlias(s)
@@ -294,7 +299,7 @@ func New(dataDir, localProjectDir, localMCPSocket, appServerURL, model, ttsURL, 
 		defaultAlias = modelprofile.AliasLocal
 	}
 	if err := s.SetAppState(appStateDefaultChatModelKey, defaultAlias); err != nil {
-		_ = s.Close()
+		cleanup()
 		return nil, err
 	}
 	resolvedPluginsDir := strings.TrimSpace(os.Getenv("SLOPSHELL_PLUGINS_DIR"))
@@ -316,7 +321,7 @@ func New(dataDir, localProjectDir, localMCPSocket, appServerURL, model, ttsURL, 
 		},
 	})
 	if err != nil {
-		_ = s.Close()
+		cleanup()
 		return nil, err
 	}
 	extensionHost, err := extensions.New(extensions.Options{
@@ -327,7 +332,7 @@ func New(dataDir, localProjectDir, localMCPSocket, appServerURL, model, ttsURL, 
 		},
 	})
 	if err != nil {
-		_ = s.Close()
+		cleanup()
 		return nil, err
 	}
 	app := &App{
@@ -410,20 +415,20 @@ func New(dataDir, localProjectDir, localMCPSocket, appServerURL, model, ttsURL, 
 	}
 	if strings.TrimSpace(localProjectDir) != "" {
 		if _, err := app.ensureDefaultWorkspace(); err != nil {
-			_ = s.Close()
+			cleanup()
 			return nil, err
 		}
 	}
 	if _, err := app.ensureStartupWorkspace(); err != nil {
-		_ = s.Close()
+		cleanup()
 		return nil, err
 	}
 	if err := app.initializeLivePolicy(); err != nil {
-		_ = s.Close()
+		cleanup()
 		return nil, err
 	}
 	if err := app.ensurePromptContractFresh(); err != nil {
-		_ = s.Close()
+		cleanup()
 		return nil, err
 	}
 	if path, token, err := initCLIToken(dataDir); err != nil {
