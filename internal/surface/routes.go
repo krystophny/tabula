@@ -57,6 +57,7 @@ var WebRouteSections = []RouteSection{
 			"GET /api/workspaces/{workspace_id}/markdown-link/resolve",
 			"GET /api/workspaces/{workspace_id}/markdown-link/file",
 			"GET /api/workspaces/{workspace_id}/markdown-link/panel",
+			"GET /api/workspaces/{workspace_id}/graph",
 			"GET /api/workspaces/{workspace_id}/companion/config",
 			"PUT /api/workspaces/{workspace_id}/companion/config",
 			"GET /api/workspaces/{workspace_id}/companion/state",
