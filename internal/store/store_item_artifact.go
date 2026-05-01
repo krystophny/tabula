@@ -394,3 +394,40 @@ func (s *Store) ListArtifactItems(artifactID int64) ([]Item, error) {
 	}
 	return out, rows.Err()
 }
+
+func (s *Store) FindItemByArtifactRefPath(refPath string) (Item, error) {
+	cleanPath := strings.TrimSpace(refPath)
+	if cleanPath == "" {
+		return Item{}, errors.New("artifact ref_path is required")
+	}
+	return scanItem(s.db.QueryRow(
+		`SELECT
+		   i.id,
+		   i.title,
+		   i.kind,
+		   i.state,
+		   i.workspace_id,
+		   `+scopedContextSelect("context_items", "item_id", "i.id")+`,
+		   i.artifact_id,
+		   i.actor_id,
+		   i.visible_after,
+		   i.follow_up_at,
+		   i.due_at,
+		   i.source,
+		   i.source_ref,
+		   i.review_target,
+		   i.reviewer,
+		   i.reviewed_at,
+		   i.created_at,
+		   i.updated_at
+		 FROM item_artifacts ia
+		 INNER JOIN artifacts a ON a.id = ia.artifact_id
+		 INNER JOIN items i ON i.id = ia.item_id
+		 WHERE a.ref_path = ?
+		 ORDER BY CASE ia.role WHEN 'source' THEN 0 ELSE 1 END,
+		          datetime(i.updated_at) DESC,
+		          i.id ASC
+		 LIMIT 1`,
+		cleanPath,
+	))
+}

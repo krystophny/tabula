@@ -64,6 +64,94 @@ func (s *Store) CreateItemDedupCandidate(opts ItemDedupCandidateOptions) (ItemDe
 	return s.GetItemDedupCandidate(id)
 }
 
+func (s *Store) FindItemDedupCandidateByItems(kind string, itemIDs []int64) (ItemDedupCandidateGroup, error) {
+	cleanKind := normalizeItemKind(kind)
+	if cleanKind == "" {
+		return ItemDedupCandidateGroup{}, errors.New("dedup candidate kind must be action or project")
+	}
+	ids := uniqueSortedPositiveIDs(itemIDs)
+	if len(ids) < 2 {
+		return ItemDedupCandidateGroup{}, errors.New("dedup candidate needs at least two distinct items")
+	}
+	candidateID, err := s.findItemDedupCandidateIDByItems(cleanKind, ids)
+	if err != nil {
+		return ItemDedupCandidateGroup{}, err
+	}
+	return s.GetItemDedupCandidate(candidateID)
+}
+
+func uniqueSortedPositiveIDs(ids []int64) []int64 {
+	seen := map[int64]bool{}
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+func (s *Store) findItemDedupCandidateIDByItems(kind string, itemIDs []int64) (int64, error) {
+	rows, err := s.db.Query(`SELECT c.id, ci.item_id
+FROM item_dedup_candidates c
+JOIN item_dedup_candidate_items ci ON ci.candidate_id = c.id
+WHERE c.kind = ?
+ORDER BY c.id, ci.item_id`, kind)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	if id, ok, err := scanMatchingItemDedupCandidateID(rows, itemIDs); err != nil || ok {
+		return id, err
+	}
+	return 0, sql.ErrNoRows
+}
+
+func scanMatchingItemDedupCandidateID(rows *sql.Rows, itemIDs []int64) (int64, bool, error) {
+	var currentID int64
+	var currentItems []int64
+	flush := func() (int64, bool) {
+		if currentID > 0 && equalInt64Slices(currentItems, itemIDs) {
+			return currentID, true
+		}
+		return 0, false
+	}
+	for rows.Next() {
+		var candidateID, itemID int64
+		if err := rows.Scan(&candidateID, &itemID); err != nil {
+			return 0, false, err
+		}
+		if currentID != 0 && candidateID != currentID {
+			if id, ok := flush(); ok {
+				return id, true, nil
+			}
+			currentItems = currentItems[:0]
+		}
+		currentID = candidateID
+		currentItems = append(currentItems, itemID)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, false, err
+	}
+	id, ok := flush()
+	return id, ok, nil
+}
+
+func equalInt64Slices(a, b []int64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Store) validateItemDedupCandidate(opts ItemDedupCandidateOptions) (string, []ItemDedupCandidateItemInput, error) {
 	if len(opts.Items) < 2 {
 		return "", nil, errors.New("dedup candidate needs at least two items")
