@@ -153,23 +153,17 @@ class SlopshellInkSurfaceView @JvmOverloads constructor(
     }
 
     private fun emitStroke(pointerId: Int, toolType: Int) {
-        val points = pointerToPoints.remove(pointerId)?.distinctBy { listOf(it.x, it.y, it.timestampMs) }.orEmpty()
-        if (points.isEmpty()) {
-            return
+        val points = pointerToPoints.remove(pointerId).orEmpty()
+        val stroke = slopshellInkStrokeFromPoints(pointerType = pointerType(toolType), points = points) ?: return
+        onCommit(listOf(stroke))
+    }
+
+    private fun pointerType(toolType: Int): String {
+        return when (toolType) {
+            MotionEvent.TOOL_TYPE_STYLUS -> "stylus"
+            MotionEvent.TOOL_TYPE_FINGER -> "touch"
+            MotionEvent.TOOL_TYPE_MOUSE -> "mouse"
+            else -> "unknown"
         }
-        onCommit(
-            listOf(
-                SlopshellInkStroke(
-                    pointerType = when (toolType) {
-                        MotionEvent.TOOL_TYPE_STYLUS -> "stylus"
-                        MotionEvent.TOOL_TYPE_FINGER -> "touch"
-                        MotionEvent.TOOL_TYPE_MOUSE -> "mouse"
-                        else -> "unknown"
-                    },
-                    width = points.maxOf { it.pressure.coerceAtLeast(1f) } * 2.4f,
-                    points = points,
-                )
-            )
-        )
     }
 }

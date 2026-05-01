@@ -6,8 +6,7 @@ The repo does not claim a broader finished mobile product than what is verified 
 
 - iOS thin-client transport, ink capture, audio capture, and black dialogue surface wiring
 - Android thin-client transport, ink capture, foreground audio capture, and black dialogue surface wiring
-
-Boox-specific code paths exist in the Android client, but Boox hardware validation is tracked separately and is not part of the completion claim in this document.
+- Boox detection, raw drawing, and e-ink refresh hooks inside the Android client, with hardware validation required before a release note can claim Boox readiness
 
 Use [`native-clients-plan.md`](native-clients-plan.md) for the architecture decision and source-code anchors. Use this document for setup, run, verification, and documentation honesty.
 
@@ -24,8 +23,7 @@ Use [`native-clients-plan.md`](native-clients-plan.md) for the architecture deci
      --data-dir "$DATA_DIR" \
      --web-host 0.0.0.0 \
      --web-port 8420 \
-     --mcp-host 127.0.0.1 \
-     --mcp-port 9420
+     --mcp-socket "$TMP_ROOT/mcp.sock"
    ```
 
 2. Fast native contract checks:
@@ -77,7 +75,7 @@ Use these checks before claiming the native slice is working:
    npm run test:flows:native:contract
    ```
 
-   This covers dialogue presentation logic, transport URL helpers, payload encoding, Boox detection heuristics, and the shared flow contract.
+   This covers dialogue presentation logic, transport URL helpers, payload encoding, Boox detection heuristics, Boox/Android stroke normalization, and the shared flow contract.
 
    The underlying commands are:
 
@@ -146,10 +144,30 @@ Attach current hardware results to the PR or issue when platform hardware is inv
 
 4. Boox raw drawing and e-ink refresh
 
-   This is tracked separately. Do not use iOS/Android completion evidence as a proxy for Boox hardware readiness.
+   Pass: the Android client detects an Onyx/Boox device, uses `SlopshellBooxInkSurfaceView`, raw stylus input emits `ink_stroke` websocket messages with the same normalized stroke payload as the Android Ink path, canvas updates render with the e-ink CSS override, and refresh calls drive the Boox e-ink controller after content load.
+
+   Fail: Boox uses the generic Android ink surface, raw strokes stay local, canvas updates ghost until a manual full refresh, or the e-ink controller hooks are not called.
+
+## Issue 689 Evidence Matrix
+
+Use this matrix when reviewing native-client completion claims:
+
+| Requirement | Automated evidence | Required hardware evidence |
+| --- | --- | --- |
+| iOS server discovery | `swift test --package-path platforms/ios` model contract plus iOS UI harness from `npm run test:flows:ios` | Manual discovery from a physical iOS device or simulator on the target LAN |
+| iOS chat/canvas transport | `npm run test:flows:ios:contract` and `npm run test:flows:ios` | Chat history, canvas snapshot, and websocket updates observed against a live server |
+| iOS ink capture | `SlopshellModelContractTests.testRequestEncodingMatchesThinClientWireFormat` | Pencil/touch stroke commits to the active chat session |
+| iOS audio/background behavior | `SlopshellDialogueModeTests` and iOS UI harness | Record, stop, background, foreground, then record again without losing the next turn |
+| Android discovery and chat/canvas transport | `npm run test:flows:android:contract` and `npm run test:flows:android` | Discovered or manual server connects, with live chat and canvas updates |
+| Android ink capture | `SlopshellInkStrokeBuilderTest` and `SlopshellModelContractTest.requestBuildersEmitExpectedCapturePayloads` | Stylus/touch stroke emits an `ink_stroke` websocket payload |
+| Android foreground audio | `SlopshellDialogueModeTest` plus Android UI harness | Foreground microphone service starts and stops in sync with the dialogue surface |
+| Boox detection | `SlopshellModelContractTest.booxDetectionAcceptsManufacturerOrSdkSignals` | Current Boox hardware displays `Boox E-Ink mode active` |
+| Boox raw drawing | `SlopshellInkStrokeBuilderTest` and `TestSlopshellAndroidSourcesCoverThinClientResponsibilities` | Raw stylus drawing emits normalized `ink_stroke` payloads on hardware |
+| Boox e-ink refresh | `TestSlopshellAndroidSourcesCoverThinClientResponsibilities` | Canvas updates use e-ink contrast styling and refresh without persistent ghosting |
+| Product-doc honesty | `npm run test:native-docs` | PR body includes the commands, excerpts, and any hardware artifact paths used for the claim |
 
 ## Documentation Honesty
 
 Do not describe the native clients as a broader completed product unless the automated checks above pass and the manual checklist above has current hardware results attached.
 
-The current repo claim is limited to the iOS/Android thin-client slice documented here and in `native-clients-plan.md`. Boox-specific validation remains a separate track.
+The current repo claim is limited to the automated and manual evidence above. Boox code paths are present, but Boox readiness requires the hardware evidence in the matrix.

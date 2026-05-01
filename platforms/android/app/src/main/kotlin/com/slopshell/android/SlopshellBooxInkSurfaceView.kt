@@ -116,22 +116,10 @@ class SlopshellBooxInkSurfaceView @JvmOverloads constructor(
     }
 
     private fun emitStroke() {
-        val points = rawPoints
-            .distinctBy { listOf(it.x, it.y, it.timestampMs) }
-            .toList()
+        val points = rawPoints.toList()
         rawPoints.clear()
-        if (points.isEmpty()) {
-            return
-        }
-        onCommit(
-            listOf(
-                SlopshellInkStroke(
-                    pointerType = "stylus",
-                    width = points.maxOf { it.pressure.coerceAtLeast(1f) } * 2.4f,
-                    points = points,
-                )
-            )
-        )
+        val stroke = slopshellInkStrokeFromPoints(pointerType = "stylus", points = points) ?: return
+        onCommit(listOf(stroke))
     }
 
     private fun TouchPointList.toInkPoints(): List<SlopshellInkPoint> {

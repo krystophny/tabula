@@ -31,6 +31,10 @@ const nativeDocNeedles = [
   'npm run test:flows:ios:contract',
   'npm run test:flows:android:contract',
   'npm run test:flows:android:contract:jvm',
+  'Issue 689 Evidence Matrix',
+  'Boox raw drawing',
+  'Boox e-ink refresh',
+  'Product-doc honesty',
   'faepmac1',
 ];
 
@@ -61,6 +65,12 @@ for (const needle of flowDocNeedles) {
 
 if (!workflow.includes('npm run test:native-docs')) {
   errors.push('workflow must run npm run test:native-docs');
+}
+
+for (const staleFlag of ['--mcp-host', '--mcp-port']) {
+  if (nativeDocs.includes(staleFlag)) {
+    errors.push(`docs/native-clients.md must not mention removed flag ${staleFlag}`);
+  }
 }
 
 const workflowNeedles = [

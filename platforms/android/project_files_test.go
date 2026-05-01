@@ -27,6 +27,7 @@ func TestSlopshellAndroidProjectIncludesExpectedFiles(t *testing.T) {
 		filepath.Join("app", "src", "main", "kotlin", "com", "slopshell", "android", "SlopshellCanvasWebView.kt"),
 		filepath.Join("app", "src", "main", "kotlin", "com", "slopshell", "android", "SlopshellChatTransport.kt"),
 		filepath.Join("app", "src", "main", "kotlin", "com", "slopshell", "android", "SlopshellInkSurfaceView.kt"),
+		filepath.Join("app", "src", "main", "kotlin", "com", "slopshell", "android", "SlopshellInkStrokeBuilder.kt"),
 		filepath.Join("app", "src", "main", "kotlin", "com", "slopshell", "android", "SlopshellModels.kt"),
 		filepath.Join("app", "src", "main", "kotlin", "com", "slopshell", "android", "SlopshellServerDiscovery.kt"),
 		filepath.Join("flow-contracts", "build.gradle.kts"),

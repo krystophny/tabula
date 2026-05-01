@@ -94,10 +94,10 @@ techniques are anchored in the platform files above.
 
 ## Delivery Status
 
-This is not a claim that the full native-client program is done. The current
-repo claim is limited to the shipped iOS/Android thin-client slice and the
-black-screen dialogue path documented here and in
-[`native-clients.md`](native-clients.md).
+This is not a claim that every possible native-client deployment has been
+validated. The current repo claim is limited to the shipped iOS/Android
+thin-client slice, the Android Boox code path, and the black-screen dialogue
+path documented here and in [`native-clients.md`](native-clients.md).
 
 Dialogue black-screen mode is intentionally implemented across the shipped
 clients:
@@ -109,11 +109,10 @@ clients:
 - `#637` black-screen dialogue mode on web, iOS, and Android
 - `#638` mDNS advertisement and push relay
 
-Boox-specific code paths remain in the Android client, but current Boox
-hardware validation is tracked separately from the iOS/Android completion
-claim. Issue `#639` remains the broader umbrella for the rest of the
-native-client push. This document only claims the iOS/Android thin-client
-slice that is implemented and verified in the current repo state.
+Boox-specific code paths are implemented in the Android client. Boox release
+readiness still requires the hardware evidence listed in
+[`native-clients.md`](native-clients.md); do not claim Boox readiness from
+generic Android validation alone.
 
 ## Verification and Runbook
 
@@ -123,7 +122,7 @@ Release/run/use instructions and the platform verification checklist live in
 Treat `platforms/ios/project_files_test.go` and
 `platforms/android/project_files_test.go` as packaging regression guards only.
 Completion evidence comes from `npm run test:flows:native`, the fast native
-contract suites, and the manual hardware checklist.
+contract suites, `npm run test:native-docs`, and the manual hardware checklist.
 
 ## Native Dialogue Mode Operation
 
@@ -158,8 +157,11 @@ Use these pass/fail checks when real devices are available:
    Fail: the app stays in the standard shell, the display sleeps, or recording
    state diverges from the foreground-service state.
 3. Boox raw drawing and refresh
-   This remains a separate hardware-validation track. Do not claim Boox
-   completion from the iOS/Android validation path alone.
+   Pass: Boox detection chooses the raw drawing surface, stylus input emits the
+   normalized `ink_stroke` payload, canvas content uses e-ink styling, and the
+   e-ink controller refresh runs after content load.
+   Fail: Boox uses the generic Android surface, raw input stays local, or
+   canvas updates require manual full refresh to become readable.
 4. Server/client wiring
    Pass: switching the surface updates `/api/workspaces/{id}/companion/config`,
    entering dialogue posts `/api/live-policy`, and a server
