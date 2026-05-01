@@ -513,12 +513,17 @@ export function canStartHotwordMonitor() {
 }
 
 export async function syncHotwordMonitor() {
-  if (!state.hotwordEnabled || !canStartHotwordMonitor()) {
+  if (!state.hotwordEnabled || !state.liveSessionActive || !state.ttsEnabled) {
     clearHotwordRetry();
     if (isHotwordActive()) {
       stopHotwordMonitor();
     }
     state.hotwordActive = false;
+    return;
+  }
+  if (!canStartHotwordMonitor()) {
+    clearHotwordRetry();
+    state.hotwordActive = isHotwordActive();
     return;
   }
   if (isHotwordActive()) {
@@ -568,8 +573,7 @@ export function configureHotwordLifecycle() {
   if (typeof hotwordUnsubscribe === 'function') return;
   hotwordUnsubscribe = onHotwordDetected(() => {
     if (!canStartHotwordMonitor()) return;
-    stopHotwordMonitor();
-    state.hotwordActive = false;
+    state.hotwordActive = isHotwordActive();
     if (isMeetingLiveSession()) {
       const mode = syncVoiceLifecycle('hotword-detected-meeting');
       if (mode !== VOICE_LIFECYCLE.IDLE && mode !== VOICE_LIFECYCLE.LISTENING) {

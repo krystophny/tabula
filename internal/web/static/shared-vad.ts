@@ -102,3 +102,7 @@ export function clearSharedVADMode(mode = '') {
 export function sharedVADMode() {
   return state.mode;
 }
+
+export function isSharedVADRunning() {
+  return Boolean(state.instance?.isActive?.());
+}

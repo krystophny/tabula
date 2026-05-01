@@ -1,4 +1,13 @@
+import {
+  audioHubPreRollCapacitySamplesForTest,
+  currentAudioHubStream,
+  ensureAudioHub,
+  getAudioHubPreRoll,
+  setAudioHubPreRollForTest,
+  subscribeAudioHubFrames,
+} from './audio-hub.js';
 import { staticURL } from './paths.js';
+import { ensureSharedVAD } from './shared-vad.js';
 
 const ORT_LOCAL_URL = staticURL('vad/ort.min.mjs');
 const ORT_WASM_MODULE_URL = staticURL('vad/ort-wasm-simd-threaded.mjs');
@@ -44,7 +53,6 @@ const HOTWORD_KEYWORD_FRAMES = 16;
 const HOTWORD_RAW_BUFFER_MAX = HOTWORD_TARGET_SAMPLE_RATE * 10;
 const HOTWORD_MEL_BUFFER_MAX = 10 * 97;
 const HOTWORD_FEATURE_BUFFER_MAX = 120;
-const HOTWORD_RING_BUFFER_SIZE = HOTWORD_TARGET_SAMPLE_RATE * 4;
 
 const listeners = new Set<() => void>();
 
@@ -57,38 +65,13 @@ const state = {
   mock: null,
   model: null,
   preferredAudioCtx: null,
-  audioCtx: null,
-  sourceNode: null,
-  processorNode: null,
-  sinkNode: null,
   micStream: null,
+  frameUnsubscribe: null,
   targetSampleBuffer: new Float32Array(0),
   pendingFrames: [],
   processingFrames: false,
   lastDetectionAt: 0,
 };
-
-const ringBuffer = {
-  buffer: new Float32Array(HOTWORD_RING_BUFFER_SIZE),
-  writePos: 0,
-  filled: 0,
-};
-
-function resetRingBuffer() {
-  ringBuffer.buffer = new Float32Array(HOTWORD_RING_BUFFER_SIZE);
-  ringBuffer.writePos = 0;
-  ringBuffer.filled = 0;
-}
-
-function writeRingBuffer(samples) {
-  const buf = ringBuffer.buffer;
-  const size = buf.length;
-  for (let i = 0; i < samples.length; i += 1) {
-    buf[ringBuffer.writePos] = samples[i];
-    ringBuffer.writePos = (ringBuffer.writePos + 1) % size;
-  }
-  ringBuffer.filled = Math.min(ringBuffer.filled + samples.length, size);
-}
 
 const pipeline = {
   rawBuffer: null,
@@ -315,14 +298,12 @@ async function processFrameQueue() {
   }
 }
 
-function onWorkletMessage(event) {
+function onAudioHubFrame(samples, sampleRate) {
   if (!state.active) return;
-  const data = event?.data;
-  if (!data || !(data.samples instanceof Float32Array) || data.samples.length === 0) return;
-  const resampled = resampleToTargetRate(data.samples, data.sampleRate);
+  if (!(samples instanceof Float32Array) || samples.length === 0) return;
+  const resampled = resampleToTargetRate(samples, sampleRate);
   if (resampled.length === 0) return;
 
-  writeRingBuffer(resampled);
   state.targetSampleBuffer = concatFloat32(state.targetSampleBuffer, resampled);
 
   while (state.targetSampleBuffer.length >= HOTWORD_TARGET_FRAME_SAMPLES) {
@@ -334,76 +315,36 @@ function onWorkletMessage(event) {
   void processFrameQueue();
 }
 
-let workletReady = false;
-let workletCtx = null;
-async function ensureWorklet(ctx) {
-  if (workletReady && workletCtx === ctx) return;
-  await ctx.audioWorklet.addModule(staticURL('hotword-worklet.js'));
-  workletReady = true;
-  workletCtx = ctx;
-}
-
 function stopOnnxNodes(options: Record<string, any> = {}) {
-  const closeContext = Boolean(options && options.closeContext);
-  if (state.processorNode) {
-    if (state.processorNode.port) state.processorNode.port.onmessage = null;
-    try { state.processorNode.disconnect(); } catch (_) {}
-    state.processorNode = null;
-  }
-  if (state.sourceNode) {
-    try { state.sourceNode.disconnect(); } catch (_) {}
-    state.sourceNode = null;
-  }
-  if (state.sinkNode) {
-    try { state.sinkNode.disconnect(); } catch (_) {}
-    state.sinkNode = null;
-  }
-  if (closeContext && state.audioCtx && state.audioCtx !== state.preferredAudioCtx) {
-    try { state.audioCtx.close(); } catch (_) {}
-    state.audioCtx = null;
+  void options;
+  if (typeof state.frameUnsubscribe === 'function') {
+    state.frameUnsubscribe();
+    state.frameUnsubscribe = null;
   }
   state.targetSampleBuffer = new Float32Array(0);
   state.pendingFrames = [];
   state.processingFrames = false;
   state.micStream = null;
   resetPipeline();
-  // Ring buffer is NOT reset here — getPreRollAudio() reads it after
-  // stopHotwordMonitor(). It gets reset on the next startOnnxMonitor().
 }
 
 async function startOnnxMonitor(stream) {
-  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-  if (!AudioContextCtor) return false;
-
   resetPipeline();
-  resetRingBuffer();
-  state.micStream = stream;
-
-  let audioCtx = state.preferredAudioCtx;
-  if (!audioCtx || audioCtx.state === 'closed') audioCtx = state.audioCtx;
-  if (!audioCtx || audioCtx.state === 'closed') audioCtx = new AudioContextCtor();
-
-  if (audioCtx.state === 'suspended') await audioCtx.resume().catch(() => {});
-
-  if (audioCtx.audioWorklet && typeof audioCtx.audioWorklet.addModule === 'function') {
-    await ensureWorklet(audioCtx);
-    const sourceNode = audioCtx.createMediaStreamSource(stream);
-    const processorNode = new AudioWorkletNode(audioCtx, 'hotword-processor');
-    processorNode.port.onmessage = onWorkletMessage;
-    sourceNode.connect(processorNode);
-    processorNode.connect(audioCtx.destination);
-    state.audioCtx = audioCtx;
-    state.sourceNode = sourceNode;
-    state.processorNode = processorNode;
-    state.sinkNode = null;
-  } else {
-    // Fallback for browsers without AudioWorklet (should not happen in modern Chrome)
-    throw new Error('AudioWorklet is not supported in this browser');
+  const hub = await ensureAudioHub({
+    stream,
+    audioContext: state.preferredAudioCtx,
+    frames: true,
+  });
+  state.micStream = hub.stream;
+  const sharedVAD = await ensureSharedVAD({
+    stream: hub.stream,
+    audioContext: hub.audioContext || undefined,
+  });
+  if (!sharedVAD) {
+    throw new Error('shared VAD unavailable');
   }
-
-  if (audioCtx.state !== 'running') {
-    throw new Error(`hotword audio context is ${audioCtx.state || 'unavailable'}`);
-  }
+  if (typeof state.frameUnsubscribe === 'function') state.frameUnsubscribe();
+  state.frameUnsubscribe = subscribeAudioHubFrames(onAudioHubFrame);
   return true;
 }
 
@@ -505,7 +446,16 @@ export async function startHotwordMonitor(micStream) {
 
   if (state.mode === 'mock' && state.mock) {
     try {
-      state.mock.start(micStream, () => emitHotwordDetected());
+      const hub = await ensureAudioHub({
+        stream: micStream,
+        audioContext: state.preferredAudioCtx,
+      });
+      state.micStream = hub.stream;
+      await ensureSharedVAD({
+        stream: hub.stream,
+        audioContext: hub.audioContext || undefined,
+      });
+      state.mock.start(hub.stream, () => emitHotwordDetected());
       state.active = true;
       return true;
     } catch (_) {
@@ -568,35 +518,19 @@ export function setHotwordThreshold(value) {
 }
 
 export function getPreRollAudio() {
-  if (ringBuffer.filled === 0) return new Float32Array(0);
-  const size = ringBuffer.buffer.length;
-  const len = Math.min(ringBuffer.filled, size);
-  const out = new Float32Array(len);
-  const startPos = (ringBuffer.writePos - len + size) % size;
-  if (startPos + len <= size) {
-    out.set(ringBuffer.buffer.subarray(startPos, startPos + len));
-  } else {
-    const firstPart = size - startPos;
-    out.set(ringBuffer.buffer.subarray(startPos, size), 0);
-    out.set(ringBuffer.buffer.subarray(0, len - firstPart), firstPart);
-  }
-  return out;
+  return getAudioHubPreRoll();
 }
 
 export function hotwordRingBufferCapacitySamplesForTest() {
-  return HOTWORD_RING_BUFFER_SIZE;
+  return audioHubPreRollCapacitySamplesForTest();
 }
 
 export function setPreRollAudioForTest(samples) {
-  resetRingBuffer();
-  if (!(samples instanceof Float32Array) || samples.length === 0) {
-    return;
-  }
-  writeRingBuffer(samples);
+  setAudioHubPreRollForTest(samples);
 }
 
 export function getHotwordMicStream() {
-  return state.micStream || null;
+  return state.micStream || currentAudioHubStream();
 }
 
 export function setHotwordAudioContext(audioCtx) {
@@ -604,9 +538,5 @@ export function setHotwordAudioContext(audioCtx) {
     state.preferredAudioCtx = null;
     return;
   }
-  const hasRequiredApis = typeof audioCtx.createMediaStreamSource === 'function'
-    && audioCtx.audioWorklet && typeof audioCtx.audioWorklet.addModule === 'function';
-  if (!hasRequiredApis) return;
   state.preferredAudioCtx = audioCtx;
-  state.audioCtx = audioCtx;
 }

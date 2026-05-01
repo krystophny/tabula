@@ -100,6 +100,28 @@ test('hotword detection starts recording directly', async ({ page }) => {
   }, { timeout: 5_000 }).toBe(true);
 });
 
+test('hotword uses the already-running shared VAD for capture mode', async ({ page }) => {
+  await waitReady(page);
+  await setDialogueMode(page, true);
+  await waitForHotwordStart(page);
+
+  await expect.poll(async () => page.evaluate(async () => {
+    const mod = await import('/internal/web/static/shared-vad.js');
+    return Boolean(mod.isSharedVADRunning());
+  })).toBe(true);
+
+  await clearLog(page);
+  await triggerHotword(page);
+
+  await expect.poll(async () => page.evaluate(async () => {
+    const mod = await import('/internal/web/static/shared-vad.js');
+    return mod.sharedVADMode();
+  }), { timeout: 5_000 }).toBe('capture');
+
+  const log = await getLog(page);
+  expect(log.some((entry) => entry.type === 'hotword' && entry.action === 'stop')).toBe(false);
+});
+
 test('hotword runtime pins explicit ONNX wasm asset URLs', async ({ page }) => {
   await waitReady(page);
 
@@ -270,7 +292,7 @@ test('hotword capture tolerates initial pause before user speech', async ({ page
   expect(log.some((entry) => entry.type === 'recorder' && entry.action === 'stop')).toBe(false);
 });
 
-test('standalone hotword falls back to pre-roll audio after silence', async ({ page }) => {
+test('standalone hotword keeps listening instead of using a silence fallback', async ({ page }) => {
   await waitReady(page);
   await setDialogueMode(page, true);
   await waitForHotwordStart(page);
@@ -284,11 +306,10 @@ test('standalone hotword falls back to pre-roll audio after silence', async ({ p
 
   await triggerHotword(page);
 
-  await expect.poll(async () => {
-    const log = await getLog(page);
-    const upload = log.find((entry) => entry.type === 'api_fetch' && entry.action === 'stt_transcribe');
-    return Number(upload?.bytes || 0);
-  }, { timeout: 10_000 }).toBeGreaterThan(32_000);
+  await page.waitForTimeout(1_800);
+  const log = await getLog(page);
+  expect(log.some((entry) => entry.type === 'api_fetch' && entry.action === 'stt_transcribe')).toBe(false);
+  expect(log.some((entry) => entry.type === 'recorder' && entry.action === 'stop')).toBe(false);
 });
 
 test('dialogue turn controller finalizes a buffered fragment on timeout', async ({ page }) => {
@@ -316,7 +337,7 @@ test('dialogue turn controller finalizes a buffered fragment on timeout', async 
   ]);
 });
 
-test('hotword is paused during recording', async ({ page }) => {
+test('hotword monitor stays active during recording mode switch', async ({ page }) => {
   await waitReady(page);
   await setDialogueMode(page, true);
   await waitForHotwordStart(page);
@@ -336,9 +357,9 @@ test('hotword is paused during recording', async ({ page }) => {
     return log.some((entry) => entry.type === 'recorder' && entry.action === 'start');
   }, { timeout: 5_000 }).toBe(true);
 
-  await expect.poll(async () => page.evaluate(() => (window as any).__isHotwordActive())).toBe(false);
+  await expect.poll(async () => page.evaluate(() => (window as any).__isHotwordActive())).toBe(true);
   const log = await getLog(page);
-  expect(log.some((entry) => entry.type === 'hotword' && entry.action === 'stop')).toBe(true);
+  expect(log.some((entry) => entry.type === 'hotword' && entry.action === 'stop')).toBe(false);
 });
 
 test('hotword stays active during TTS playback and can barge in', async ({ page }) => {
@@ -376,7 +397,7 @@ test('hotword stays active during TTS playback and can barge in', async ({ page 
     return { recorderStarted, hotwordStopped, ttsPlaying, liveSessionMode };
   }, { timeout: 5_000 }).toEqual({
     recorderStarted: true,
-    hotwordStopped: true,
+    hotwordStopped: false,
     ttsPlaying: false,
     liveSessionMode: 'meeting',
   });
@@ -458,7 +479,7 @@ test('meeting mode hotword cancels the active turn without switching modes', asy
     };
   }, { timeout: 5_000 }).toEqual({
     recorderStarted: true,
-    hotwordStopped: true,
+    hotwordStopped: false,
     liveSessionMode: 'meeting',
     ttsPlaying: false,
   });
