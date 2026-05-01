@@ -388,7 +388,7 @@ function normalizeProjectChildCount(value) {
   return Number.isFinite(count) && count > 0 ? Math.trunc(count) : 0;
 }
 
-export async function fetchItemSidebarProjectItemReview(filters = state.itemSidebarFilters) {
+export async function fetchItemSidebarProjectItemReview(filters: Record<string, unknown> | null = state.itemSidebarFilters) {
   const normalizedFilters = normalizeItemSidebarFilters(filters);
   const endpoint = appendItemSidebarFilterQuery(appendSphereQuery('items/projects', state.activeSphere, normalizedFilters.all_spheres), normalizedFilters);
   const resp = await fetch(apiURL(endpoint), { cache: 'no-store' });
