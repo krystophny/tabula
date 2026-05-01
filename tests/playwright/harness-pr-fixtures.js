@@ -116,6 +116,9 @@
         ? next.map((entry, index) => ({ index, ...entry }))
         : defaultMeetingSummaryProposals();
     };
+    window.__queueItemSidebarGestureSyncError = (message) => {
+      window.__nextItemGestureSyncError = String(message || '').trim();
+    };
     window.__queueItemSidebarResponseDelay = (view, delayMs) => {
       const key = String(view || '').trim().toLowerCase();
       if (![...itemSidebarStateKeys(), 'counts'].includes(key)) return;

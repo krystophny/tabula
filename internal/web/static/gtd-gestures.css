@@ -27,6 +27,25 @@
   white-space: nowrap;
 }
 
+.item-sidebar-undo-banner.has-sync-error {
+  background: rgba(127, 29, 29, 0.94);
+  color: #fee2e2;
+}
+
+.item-sidebar-undo-banner.has-sync-error .item-sidebar-undo-banner-text {
+  white-space: normal;
+  max-width: 60ch;
+}
+
+.item-sidebar-undo-banner.has-sync-error .item-sidebar-undo-banner-action {
+  color: #fecaca;
+}
+
+.item-sidebar-undo-banner.has-sync-error .item-sidebar-undo-banner-action:hover,
+.item-sidebar-undo-banner.has-sync-error .item-sidebar-undo-banner-action:focus-visible {
+  background: rgba(254, 202, 202, 0.18);
+}
+
 .item-sidebar-undo-banner-action {
   border: 0;
   background: transparent;

@@ -163,7 +163,11 @@ __harnessRouteHandlers.push(async function harnessRouteDomain(u, opts) {
         if (!item) {
           return new Response('item not found', { status: 404 });
         }
-        return new Response(JSON.stringify({
+        const queuedSyncError = typeof window.__nextItemGestureSyncError === 'string'
+          ? window.__nextItemGestureSyncError
+          : '';
+        window.__nextItemGestureSyncError = '';
+        const responseBody = {
           ok: true,
           data: {
             item,
@@ -172,7 +176,11 @@ __harnessRouteHandlers.push(async function harnessRouteDomain(u, opts) {
             email_sync_back: false,
             undo: undoSnapshot,
           },
-        }), { status: 200 });
+        };
+        if (queuedSyncError) {
+          responseBody.data.sync_error = queuedSyncError;
+        }
+        return new Response(JSON.stringify(responseBody), { status: 200 });
       }
       if (/\/api\/items\/\d+\/gesture\/undo(?:\?|$)/.test(u) && opts?.method === 'POST') {
         let body = {};
