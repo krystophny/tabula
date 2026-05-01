@@ -57,6 +57,41 @@ func stripWakeWordIntentPrefix(raw string, phrases []string) (string, string, bo
 	return text, "", false
 }
 
+func containsWakeWordPhrase(raw string, phrases []string) (string, bool) {
+	fields := strings.Fields(normalizeWakeWordText(raw))
+	if len(fields) == 0 {
+		return "", false
+	}
+	for _, phrase := range phrases {
+		alias := normalizeWakeWordAlias(phrase)
+		phraseFields := strings.Fields(alias)
+		if len(phraseFields) == 0 || len(phraseFields) > len(fields) {
+			continue
+		}
+		if containsFieldSequence(fields, phraseFields) {
+			return alias, true
+		}
+	}
+	return "", false
+}
+
+func containsFieldSequence(fields, sequence []string) bool {
+	lastStart := len(fields) - len(sequence)
+	for start := 0; start <= lastStart; start++ {
+		matched := true
+		for i, value := range sequence {
+			if fields[start+i] != value {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *App) configuredWakeWordPhrases() []string {
 	phrases := []string{companionWakeWordDefault, "Sloppy", "Slopshell"}
 	if a == nil {
@@ -75,7 +110,11 @@ func (a *App) configuredWakeWordPhrases() []string {
 func (a *App) detectMeetingWakeWord(raw string) string {
 	_, matched, ok := stripWakeWordIntentPrefix(raw, a.configuredWakeWordPhrases())
 	if !ok {
-		return ""
+		var found bool
+		matched, found = containsWakeWordPhrase(raw, a.configuredWakeWordPhrases())
+		if !found {
+			return ""
+		}
 	}
 	return matched
 }
