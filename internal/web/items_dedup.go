@@ -104,7 +104,9 @@ func sloptoolsDedupUnavailable(err error) bool {
 		return true
 	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "connection refused") || strings.Contains(msg, "no such file")
+	return strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "no such file") ||
+		strings.Contains(msg, "unknown tool")
 }
 
 func (a *App) sloptoolsDedupEndpointReady() bool {

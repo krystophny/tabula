@@ -387,6 +387,44 @@ func TestHandleBugReportCreateSkipsIssueAutofilingForLowSignalBundle(t *testing.
 	}
 }
 
+func TestHandleBugReportCreateSkipsIssueAutofilingForReportButtonOnlyEvents(t *testing.T) {
+	app := newAuthedTestApp(t)
+	workspaceDir := t.TempDir()
+	workspace, err := app.store.CreateWorkspace("default", workspaceDir, store.SpherePrivate)
+	if err != nil {
+		t.Fatalf("CreateWorkspace() error: %v", err)
+	}
+	if err := app.store.SetActiveWorkspace(workspace.ID); err != nil {
+		t.Fatalf("SetActiveWorkspace() error: %v", err)
+	}
+	app.ghCommandRunner = func(_ context.Context, _ string, args ...string) (string, error) {
+		t.Fatalf("unexpected gh invocation: %v", args)
+		return "", nil
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), "POST", "/api/bugs/report", map[string]any{
+		"canvas_state": map[string]any{
+			"interaction_surface": "annotate",
+			"interaction_tool":    "pointer",
+		},
+		"recent_events": []string{
+			"2026-03-21T16:47:35Z pointer mouse at (1420,18)",
+			"2026-03-21T16:47:35Z bug report button",
+		},
+		"screenshot_data_url": testPNGDataURL,
+	})
+	if rr.Code != 200 {
+		t.Fatalf("POST /api/bugs/report status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	payload := decodeJSONResponse(t, rr)
+	if got := intFromAny(payload["issue_number"], 0); got != 0 {
+		t.Fatalf("issue_number = %d, want 0", got)
+	}
+	if got := strFromAny(payload["issue_error"]); got != "auto-filing skipped: add a short note or capture clearer interaction context" {
+		t.Fatalf("issue_error = %q", got)
+	}
+}
+
 func TestHandleBugReportCreateUsesLocalProjectFallback(t *testing.T) {
 	dataDir := t.TempDir()
 	localProjectDir := t.TempDir()
@@ -662,6 +700,9 @@ func TestBugReportIssueBodyOmitsLocalPathsAndIncludesDiagnostics(t *testing.T) {
 	for _, needle := range []string{
 		"## Note",
 		"The indicator froze after the second tap.",
+		"## Evidence handling",
+		"Local screenshot and bundle files are not linked",
+		"Extracted context, logs, and diagnostics are summarized inline",
 		"## Dialogue diagnostics",
 		"\"live_policy\": \"dialogue\"",
 		"## Meeting diagnostics",
