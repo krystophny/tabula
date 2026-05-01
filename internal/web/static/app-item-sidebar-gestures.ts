@@ -9,7 +9,7 @@ const loadItemSidebarView = (...args) => refs.loadItemSidebarView(...args);
 const isEmailSidebarItem = (...args) => refs.isEmailSidebarItem(...args);
 const defaultItemSidebarLaterVisibleAfter = (...args) => refs.defaultItemSidebarLaterVisibleAfter(...args);
 
-const ITEM_SIDEBAR_GESTURE_UNDO_TIMEOUT_MS = 6000;
+const ITEM_SIDEBAR_GESTURE_UNDO_TIMEOUT_MS = 5000;
 
 // performItemSidebarGesture executes a swipe gesture against the
 // /api/items/{id}/gesture endpoint and stages an undo affordance for the user.
@@ -50,7 +50,8 @@ export async function performItemSidebarGesture(item, gesture, options: Record<s
     state.itemSidebarActiveItemID = itemID;
     await loadItemSidebarView(state.itemSidebarView);
     const undoSnapshot = (data && typeof data === 'object' && data.undo && typeof data.undo === 'object') ? data.undo : null;
-    showItemSidebarGestureUndo(item, normalizedGesture, undoSnapshot, actorName);
+    const syncError = (data && typeof data === 'object' && typeof data.sync_error === 'string') ? data.sync_error.trim() : '';
+    showItemSidebarGestureUndo(item, normalizedGesture, undoSnapshot, actorName, syncError);
     return true;
   } catch (err) {
     showStatus(`gesture failed: ${String(err?.message || err || 'unknown error')}`);
@@ -90,17 +91,24 @@ function gestureUndoLabel(gesture, item, actorName) {
   return 'updated';
 }
 
-export function showItemSidebarGestureUndo(item, gesture, undoSnapshot, actorName = '') {
+export function showItemSidebarGestureUndo(item, gesture, undoSnapshot, actorName = '', syncError = '') {
   const label = gestureUndoLabel(gesture, item, actorName);
+  const errorMessage = String(syncError || '').trim();
   if (!undoSnapshot) {
-    showStatus(label);
+    showStatus(errorMessage ? `${label}: sync failed — ${errorMessage}` : label);
     return;
   }
   const banner = ensureItemSidebarUndoBanner();
   banner.dataset.gesture = String(gesture || '');
+  banner.classList.toggle('has-sync-error', Boolean(errorMessage));
+  if (errorMessage) {
+    banner.dataset.syncError = errorMessage;
+  } else {
+    delete banner.dataset.syncError;
+  }
   const text = banner.querySelector('.item-sidebar-undo-banner-text');
   if (text instanceof HTMLElement) {
-    text.textContent = label;
+    text.textContent = errorMessage ? `${label} — sync failed: ${errorMessage}` : label;
   }
   const undoButton = banner.querySelector('.item-sidebar-undo-banner-action');
   if (undoButton instanceof HTMLButtonElement) {
@@ -115,7 +123,7 @@ export function showItemSidebarGestureUndo(item, gesture, undoSnapshot, actorNam
     window.clearTimeout(state.itemSidebarUndoTimer);
   }
   state.itemSidebarUndoTimer = window.setTimeout(hideItemSidebarUndoBanner, ITEM_SIDEBAR_GESTURE_UNDO_TIMEOUT_MS);
-  showStatus(`${label} (undo available)`);
+  showStatus(errorMessage ? `${label} (undo available) — sync failed: ${errorMessage}` : `${label} (undo available)`);
 }
 
 export function hideItemSidebarUndoBanner() {

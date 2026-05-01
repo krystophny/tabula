@@ -57,12 +57,24 @@ type gestureSyncBack struct {
 }
 
 type itemGestureResult struct {
-	Item                store.Item      `json:"item"`
-	Action              string          `json:"action"`
-	DropMode            string          `json:"drop_mode,omitempty"`
-	EmailSyncBackRan    bool            `json:"email_sync_back,omitempty"`
-	MarkdownSyncBackRan bool            `json:"markdown_sync_back,omitempty"`
-	Undo                itemGestureUndo `json:"undo"`
+	Item                store.Item                  `json:"item"`
+	Action              string                      `json:"action"`
+	DropMode            string                      `json:"drop_mode,omitempty"`
+	EmailSyncBackRan    bool                        `json:"email_sync_back,omitempty"`
+	MarkdownSyncBackRan bool                        `json:"markdown_sync_back,omitempty"`
+	SyncError           string                      `json:"sync_error,omitempty"`
+	ParentProjectHealth []gestureParentProjectState `json:"parent_project_health,omitempty"`
+	Undo                itemGestureUndo             `json:"undo"`
+}
+
+// gestureParentProjectState pairs a parent project-item's id with its newly
+// recomputed health so the UI can refresh the outcome row in place after a
+// child action completes. Health stays a derived view; we never mutate the
+// parent state from the gesture endpoint.
+type gestureParentProjectState struct {
+	ProjectItemID int64                    `json:"project_item_id"`
+	Health        store.ProjectItemHealth  `json:"health"`
+	Counts        store.ProjectChildCounts `json:"counts"`
 }
 
 func (a *App) handleItemGesture(w http.ResponseWriter, r *http.Request) {
@@ -90,14 +102,21 @@ func (a *App) handleItemGesture(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, status, err.Error())
 		return
 	}
-	writeAPIData(w, http.StatusOK, map[string]any{
+	payload := map[string]any{
 		"item":               result.Item,
 		"action":             result.Action,
 		"drop_mode":          result.DropMode,
 		"email_sync_back":    result.EmailSyncBackRan,
 		"markdown_sync_back": result.MarkdownSyncBackRan,
 		"undo":               result.Undo,
-	})
+	}
+	if result.SyncError != "" {
+		payload["sync_error"] = result.SyncError
+	}
+	if len(result.ParentProjectHealth) > 0 {
+		payload["parent_project_health"] = result.ParentProjectHealth
+	}
+	writeAPIData(w, http.StatusOK, payload)
 }
 
 // applyItemGesture mutates the item per the requested gesture and returns the
@@ -143,7 +162,7 @@ func (a *App) gestureComplete(ctx context.Context, item store.Item, snapshot ite
 	if item.State == store.ItemStateDone {
 		return a.gestureSnapshotResult(item, gestureActionComplete, "", gestureSyncBack{}, snapshot), http.StatusOK, nil
 	}
-	sync, status, err := a.gestureWriteThroughClose(ctx, item)
+	mdRan, status, err := a.gestureWriteThroughMarkdown(item, store.ItemStateDone)
 	if err != nil {
 		return itemGestureResult{}, status, err
 	}
@@ -154,9 +173,25 @@ func (a *App) gestureComplete(ctx context.Context, item store.Item, snapshot ite
 	if err != nil {
 		return itemGestureResult{}, itemResponseErrorStatus(err), err
 	}
+	sync := gestureSyncBack{Markdown: mdRan}
+	syncErr := ""
+	if !mdRan {
+		emailRan, err := a.runItemGestureUpstreamComplete(ctx, item)
+		sync.Email = emailRan
+		if err != nil {
+			syncErr = err.Error()
+		}
+	}
 	snapshot.EmailSyncBackRan = sync.Email
 	snapshot.MarkdownSyncBackRan = sync.Markdown
-	return a.gestureSnapshotResult(updated, gestureActionComplete, "", sync, snapshot), http.StatusOK, nil
+	result := a.gestureSnapshotResult(updated, gestureActionComplete, "", sync, snapshot)
+	result.SyncError = syncErr
+	parents, err := a.parentProjectHealthForChild(item)
+	if err != nil {
+		return itemGestureResult{}, http.StatusInternalServerError, err
+	}
+	result.ParentProjectHealth = parents
+	return result, http.StatusOK, nil
 }
 
 func (a *App) gestureDrop(ctx context.Context, item store.Item, snapshot itemGestureUndo, dropUpstream bool) (itemGestureResult, int, error) {
@@ -318,6 +353,38 @@ func (a *App) gestureSnapshotResult(item store.Item, action, dropMode string, sy
 		MarkdownSyncBackRan: sync.Markdown,
 		Undo:                snapshot,
 	}
+}
+
+// parentProjectHealthForChild returns refreshed health for every project item
+// that lists `child` as a child. Action items can have project parents; project
+// items never do. The endpoint surfaces the recomputed health so a UI showing
+// the project row can refresh in place after a child action completes, without
+// auto-closing the parent project (the local store rules already preserve the
+// child links and parent state).
+func (a *App) parentProjectHealthForChild(child store.Item) ([]gestureParentProjectState, error) {
+	if child.Kind != store.ItemKindAction {
+		return nil, nil
+	}
+	links, err := a.store.ListItemParentLinks(child.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(links) == 0 {
+		return nil, nil
+	}
+	out := make([]gestureParentProjectState, 0, len(links))
+	for _, link := range links {
+		review, err := a.store.GetProjectItemReview(link.ParentItemID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, gestureParentProjectState{
+			ProjectItemID: link.ParentItemID,
+			Health:        review.Health,
+			Counts:        review.Children,
+		})
+	}
+	return out, nil
 }
 
 // runItemGestureUpstreamComplete fires backend-specific sync-back when the

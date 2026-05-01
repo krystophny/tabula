@@ -729,6 +729,29 @@ test.describe('inbox triage interactions', () => {
     expect(gestureCalls.map((entry: any) => entry?.payload?.action)).toEqual(['complete', 'drop', 'defer', 'delegate']);
   });
 
+  test('writeable sync error from gesture surfaces actionable banner copy', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await waitReady(page);
+    await openInbox(page);
+    await setInboxItems(page, [parserInboxItem]);
+
+    await page.evaluate(() => {
+      (window as any).__queueItemSidebarGestureSyncError('todoist account not configured');
+    });
+
+    const row = '#pr-file-list .pr-file-item[data-item-id="101"]';
+    await touchPhase(page, row, 'start');
+    await touchPhase(page, row, 'move', 90, 0);
+    await touchPhase(page, row, 'end', 90, 0);
+
+    const banner = page.locator('#item-sidebar-undo-banner');
+    await expect(banner).toHaveClass(/is-open/);
+    await expect(banner).toHaveClass(/has-sync-error/);
+    await expect(banner).toContainText('sync failed');
+    await expect(banner).toContainText('todoist account not configured');
+    await expect(banner.locator('.item-sidebar-undo-banner-action')).toBeVisible();
+  });
+
   test('desktop context menu workspace picker reassigns the active item', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await waitReady(page);
@@ -811,6 +834,15 @@ test.describe('inbox triage interactions', () => {
     await expect(page.locator('#item-sidebar-menu .item-sidebar-menu-item').first()).toContainText('Archive');
     await expect(page.locator('#item-sidebar-menu')).toContainText('Delete');
     await page.mouse.click(10, 10);
+
+    await page.locator('#pr-file-list .pr-file-item[data-item-id="101"]').click();
+    await page.keyboard.press('KeyX');
+    await expect(page.locator('#pr-file-list')).not.toContainText('Review parser cleanup');
+    await expect(page.locator('#item-sidebar-undo-banner')).toHaveClass(/is-open/);
+    await expect.poll(async () => page.evaluate(() => {
+      const log = (window as any).__harnessLog || [];
+      return log.some((entry: any) => entry?.action === 'item_gesture' && entry?.payload?.action === 'complete');
+    })).toBe(true);
 
     await page.keyboard.press('KeyD');
     await expect(page.locator('#pr-file-list')).not.toContainText('Answer triage email');

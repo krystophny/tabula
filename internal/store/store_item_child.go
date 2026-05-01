@@ -529,19 +529,68 @@ func itemSummaryIDs(items []ItemSummary) []int64 {
 	return out
 }
 
+// ListItemParentLinks returns every project-item link that names this item as
+// child. Used by the gesture endpoint so completing a child action surfaces
+// refreshed project-item health for every owning outcome without forcing the
+// frontend to query each parent separately.
+func (s *Store) ListItemParentLinks(childItemID int64) ([]ItemChildLink, error) {
+	if childItemID <= 0 {
+		return nil, errors.New("child_item_id must be a positive integer")
+	}
+	rows, err := s.db.Query(
+		`SELECT parent_item_id, child_item_id, role, created_at
+		 FROM item_children
+		 WHERE child_item_id = ?
+		 ORDER BY parent_item_id ASC`,
+		childItemID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ItemChildLink{}
+	for rows.Next() {
+		var link ItemChildLink
+		if err := rows.Scan(&link.ParentItemID, &link.ChildItemID, &link.Role, &link.CreatedAt); err != nil {
+			return nil, err
+		}
+		link.Role = normalizeItemLinkRole(link.Role)
+		out = append(out, link)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) GetProjectItemHealth(itemID int64) (ProjectItemHealth, error) {
+	review, err := s.GetProjectItemReview(itemID)
+	if err != nil {
+		return ProjectItemHealth{}, err
+	}
+	return review.Health, nil
+}
+
+// GetProjectItemReview returns the per-state child tallies and derived health
+// for a single project item in one query. Callers that render counts and
+// health together (gesture responses, UI rows) avoid the second round-trip
+// they would otherwise pay if they called health and counts separately.
+func (s *Store) GetProjectItemReview(itemID int64) (ProjectItemReview, error) {
 	item, err := s.GetItem(itemID)
 	if err != nil {
-		return ProjectItemHealth{}, err
+		return ProjectItemReview{}, err
 	}
 	if item.Kind != ItemKindProject {
-		return ProjectItemHealth{}, errors.New("item is not a project")
+		return ProjectItemReview{}, errors.New("item is not a project")
 	}
-	counts, err := s.collectProjectChildCounts([]ItemSummary{{Item: item}})
+	summary := ItemSummary{Item: item}
+	counts, err := s.collectProjectChildCounts([]ItemSummary{summary})
 	if err != nil {
-		return ProjectItemHealth{}, err
+		return ProjectItemReview{}, err
 	}
-	return projectHealthFromCounts(counts[itemID]), nil
+	childCounts := counts[itemID]
+	return ProjectItemReview{
+		Item:     summary,
+		Children: childCounts,
+		Health:   projectHealthFromCounts(childCounts),
+	}, nil
 }
 
 func (s *Store) touchItem(id int64) error {

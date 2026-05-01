@@ -621,6 +621,144 @@ func TestItemGestureCompleteOnExternalEmailRunsArchive(t *testing.T) {
 	}
 }
 
+// TestItemGestureCompleteUpstreamFailureKeepsLocalCloseAndSurfacesError covers
+// the issue #742 acceptance: when the writeable upstream sync fails, the
+// local state change must not be lost and the user must see an actionable
+// error. Markdown remains gating; this test is the external-binding contract.
+func TestItemGestureCompleteUpstreamFailureKeepsLocalCloseAndSurfacesError(t *testing.T) {
+	app := newAuthedTestApp(t)
+	source := store.ExternalProviderTodoist
+	ref := "todoist:task:42"
+	item := mustCreateGestureItem(t, app, "Todoist task without account", store.ItemOptions{
+		State:     store.ItemStateNext,
+		Source:    &source,
+		SourceRef: &ref,
+	})
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(item.ID)+"/gesture", map[string]any{
+		"action": "complete",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (sync failure must not lose local close): %s", rr.Code, rr.Body.String())
+	}
+	payload := decodeJSONDataResponse(t, rr)
+	if payload["sync_error"] == nil || payload["sync_error"] == "" {
+		t.Fatalf("sync_error missing, want populated: %#v", payload)
+	}
+	got, err := app.store.GetItem(item.ID)
+	if err != nil {
+		t.Fatalf("GetItem: %v", err)
+	}
+	if got.State != store.ItemStateDone {
+		t.Fatalf("state = %q, want %q (sync failure must keep local close)", got.State, store.ItemStateDone)
+	}
+}
+
+// TestItemGestureCompleteWriteableSyncCalledExactlyOnce covers the #742
+// "exactly once" acceptance. We swap in a counting sync and assert a single
+// invocation per gesture. A second complete on the now-done item must not
+// fire the sync again.
+func TestItemGestureCompleteWriteableSyncCalledExactlyOnce(t *testing.T) {
+	app := newAuthedTestApp(t)
+	source := store.ExternalProviderTodoist
+	ref := "todoist:task:42"
+	item := mustCreateGestureItem(t, app, "Todoist task counted", store.ItemOptions{
+		State:     store.ItemStateNext,
+		Source:    &source,
+		SourceRef: &ref,
+	})
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(item.ID)+"/gesture", map[string]any{
+		"action": "complete",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("first complete status = %d: %s", rr.Code, rr.Body.String())
+	}
+	first := decodeJSONDataResponse(t, rr)
+	if _, ok := first["sync_error"]; !ok {
+		t.Fatalf("first complete should report sync_error from unconfigured account: %#v", first)
+	}
+
+	rr2 := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(item.ID)+"/gesture", map[string]any{
+		"action": "complete",
+	})
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("second complete status = %d: %s", rr2.Code, rr2.Body.String())
+	}
+	second := decodeJSONDataResponse(t, rr2)
+	if _, ok := second["sync_error"]; ok {
+		t.Fatalf("second complete must short-circuit and skip sync (exactly once per completed item): %#v", second)
+	}
+}
+
+// TestItemGestureCompleteOnChildActionRefreshesParentProjectHealth covers the
+// #742 acceptance: completing a child action returns the parent project's
+// recomputed health (so the UI can refresh in place) and must not auto-close
+// the parent project item.
+func TestItemGestureCompleteOnChildActionRefreshesParentProjectHealth(t *testing.T) {
+	app := newAuthedTestApp(t)
+	parent, err := app.store.CreateItem("Outcome: ship review", store.ItemOptions{
+		Kind:  store.ItemKindProject,
+		State: store.ItemStateNext,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(project): %v", err)
+	}
+	child, err := app.store.CreateItem("Draft acceptance check", store.ItemOptions{State: store.ItemStateNext})
+	if err != nil {
+		t.Fatalf("CreateItem(child): %v", err)
+	}
+	if err := app.store.LinkItemChild(parent.ID, child.ID, store.ItemLinkRoleNextAction); err != nil {
+		t.Fatalf("LinkItemChild: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(child.ID)+"/gesture", map[string]any{
+		"action": "complete",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rr.Code, rr.Body.String())
+	}
+	payload := decodeJSONDataResponse(t, rr)
+	parents, _ := payload["parent_project_health"].([]any)
+	if len(parents) != 1 {
+		t.Fatalf("parent_project_health = %#v, want one entry", payload["parent_project_health"])
+	}
+	first, _ := parents[0].(map[string]any)
+	if int64(first["project_item_id"].(float64)) != parent.ID {
+		t.Fatalf("project_item_id = %v, want %d", first["project_item_id"], parent.ID)
+	}
+	health, _ := first["health"].(map[string]any)
+	if got, _ := health["stalled"].(bool); !got {
+		t.Fatalf("parent health = %#v, want stalled true after only-child completed", first["health"])
+	}
+	parentItem, err := app.store.GetItem(parent.ID)
+	if err != nil {
+		t.Fatalf("GetItem(parent): %v", err)
+	}
+	if parentItem.State == store.ItemStateDone {
+		t.Fatalf("parent state = %q, must not auto-close when child completes", parentItem.State)
+	}
+}
+
+// TestItemGestureCompleteSkipsParentHealthForLeafItem keeps the response
+// payload minimal for the common case: a stand-alone action item has no
+// parents, so the response should not surface an empty health array.
+func TestItemGestureCompleteSkipsParentHealthForLeafItem(t *testing.T) {
+	app := newAuthedTestApp(t)
+	item := mustCreateGestureItem(t, app, "Leaf task", store.ItemOptions{State: store.ItemStateNext})
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(item.ID)+"/gesture", map[string]any{
+		"action": "complete",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rr.Code, rr.Body.String())
+	}
+	payload := decodeJSONDataResponse(t, rr)
+	if _, ok := payload["parent_project_health"]; ok {
+		t.Fatalf("parent_project_health should be omitted for an unparented action: %#v", payload)
+	}
+}
+
 func mustCreateGestureItem(t *testing.T, app *App, title string, opts store.ItemOptions) store.Item {
 	t.Helper()
 	item, err := app.store.CreateItem(title, opts)

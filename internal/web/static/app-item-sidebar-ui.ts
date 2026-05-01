@@ -808,6 +808,8 @@ export function handleItemSidebarKeyboardShortcut(ev) {
   const view = normalizeItemSidebarView(state.itemSidebarView);
   if (key === 'Backspace') {
     action = 'delete';
+  } else if (key === 'x' || key === 'X') {
+    action = 'complete';
   } else if (key === 'd' || key === 'D') {
     action = 'done';
   } else if ((view === 'inbox' || view === 'next') && (key === 'l' || key === 'L')) {
@@ -822,6 +824,10 @@ export function handleItemSidebarKeyboardShortcut(ev) {
     return false;
   }
   ev.preventDefault();
+  if (action === 'complete') {
+    void performItemSidebarGesture(sidebarTarget, 'complete');
+    return true;
+  }
   if (action === 'delegate') {
     const row = document.querySelector(`#pr-file-list .pr-file-item[data-item-id="${Number(sidebarTarget.id)}"]`);
     const rect = row instanceof HTMLElement ? row.getBoundingClientRect() : null;
