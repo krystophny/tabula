@@ -134,7 +134,7 @@ func TestBrainCanvasLayoutPersistsAcrossReloads(t *testing.T) {
 	if len(doc.Nodes) != 1 || doc.Nodes[0].X != moveX || doc.Nodes[0].Y != moveY {
 		t.Fatalf("durable canvas layout not persisted: %+v", doc.Nodes)
 	}
-	if doc.Nodes[0].Type != "file" || doc.Nodes[0].File != "topics/active.md" {
+	if doc.Nodes[0].Type != "file" || doc.Nodes[0].File != "brain/topics/active.md" {
 		t.Fatalf("canvas node should be JSON Canvas file-typed: %+v", doc.Nodes[0])
 	}
 
@@ -258,6 +258,35 @@ func TestBrainCanvasNoteBindingWritesThroughBody(t *testing.T) {
 	}
 }
 
+func TestBrainCanvasRejectsUnsupportedSemanticPatch(t *testing.T) {
+	app, workspace, _ := newBrainCanvasTestApp(t)
+	item, err := app.store.CreateItem("Original item", store.ItemOptions{Sphere: brainCanvasTestSpherePointer()})
+	if err != nil {
+		t.Fatalf("CreateItem: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, brainCanvasURL(workspace.ID, "/cards"),
+		brainCanvasCardCreateRequest{Binding: brainCanvasBinding{Kind: "item", ID: item.ID}})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create item card = %d: %s", rr.Code, rr.Body.String())
+	}
+	card := decodeBrainCanvasCard(t, rr.Body.Bytes())
+
+	body := "body edits are not item semantics"
+	rr = doAuthedJSONRequest(t, app.Router(), http.MethodPatch, brainCanvasURL(workspace.ID, "/cards/"+card.ID),
+		brainCanvasCardPatchRequest{Body: &body})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("unsupported item body patch = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+	updated, err := app.store.GetItem(item.ID)
+	if err != nil {
+		t.Fatalf("GetItem: %v", err)
+	}
+	if updated.Title != "Original item" {
+		t.Fatalf("unsupported patch changed item title = %q", updated.Title)
+	}
+}
+
 func TestBrainCanvasOpenReturnsBackingFileURL(t *testing.T) {
 	app, workspace, brainRoot := newBrainCanvasTestApp(t)
 	notePath := filepath.Join(brainRoot, "topics", "active.md")
@@ -320,6 +349,46 @@ func TestBrainCanvasRejectsMissingBindingTarget(t *testing.T) {
 	}
 }
 
+func TestBrainCanvasRejectsMissingNoteBindingTarget(t *testing.T) {
+	app, workspace, _ := newBrainCanvasTestApp(t)
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, brainCanvasURL(workspace.ID, "/cards"),
+		brainCanvasCardCreateRequest{Binding: brainCanvasBinding{Kind: "note", Path: "topics/missing.md"}})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("missing note create = %d", rr.Code)
+	}
+}
+
+func TestBrainCanvasNoteEditRequiresExistingBackingFile(t *testing.T) {
+	app, workspace, brainRoot := newBrainCanvasTestApp(t)
+	notePath := filepath.Join(brainRoot, "topics", "active.md")
+	if err := os.MkdirAll(filepath.Dir(notePath), 0o755); err != nil {
+		t.Fatalf("mkdir topics: %v", err)
+	}
+	if err := os.WriteFile(notePath, []byte("# Active\n"), 0o644); err != nil {
+		t.Fatalf("write note: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, brainCanvasURL(workspace.ID, "/cards"),
+		brainCanvasCardCreateRequest{Binding: brainCanvasBinding{Kind: "note", Path: "topics/active.md"}})
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create note card = %d: %s", rr.Code, rr.Body.String())
+	}
+	card := decodeBrainCanvasCard(t, rr.Body.Bytes())
+	if err := os.Remove(notePath); err != nil {
+		t.Fatalf("remove backing note: %v", err)
+	}
+
+	newBody := "# Recreated\n"
+	rr = doAuthedJSONRequest(t, app.Router(), http.MethodPatch, brainCanvasURL(workspace.ID, "/cards/"+card.ID),
+		brainCanvasCardPatchRequest{Body: &newBody})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("patch deleted note = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+	if _, err := os.Stat(notePath); !os.IsNotExist(err) {
+		t.Fatalf("semantic patch must not recreate deleted note; stat err=%v", err)
+	}
+}
+
 func TestBrainCanvasDeleteCard(t *testing.T) {
 	app, workspace, _ := newBrainCanvasTestApp(t)
 	item, err := app.store.CreateItem("Drop me", store.ItemOptions{Sphere: brainCanvasTestSpherePointer()})
@@ -346,11 +415,25 @@ func TestBrainCanvasDeleteCard(t *testing.T) {
 }
 
 func TestBrainCanvasRejectsPersonalSubtreeNote(t *testing.T) {
-	app, workspace, _ := newBrainCanvasTestApp(t)
+	app, workspace, brainRoot := newBrainCanvasTestApp(t)
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, brainCanvasURL(workspace.ID, "/cards"),
 		brainCanvasCardCreateRequest{Binding: brainCanvasBinding{Kind: "note", Path: "../personal/diary.md"}})
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("personal note create = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+
+	personalNote := filepath.Join(filepath.Dir(brainRoot), "personal", "diary.md")
+	if err := os.WriteFile(personalNote, []byte("private"), 0o600); err != nil {
+		t.Fatalf("write personal note: %v", err)
+	}
+	linkPath := filepath.Join(brainRoot, "linked-diary.md")
+	if err := os.Symlink(personalNote, linkPath); err != nil {
+		t.Fatalf("symlink personal note: %v", err)
+	}
+	rr = doAuthedJSONRequest(t, app.Router(), http.MethodPost, brainCanvasURL(workspace.ID, "/cards"),
+		brainCanvasCardCreateRequest{Binding: brainCanvasBinding{Kind: "note", Path: "linked-diary.md"}})
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("personal symlink note create = %d, want 400; body=%s", rr.Code, rr.Body.String())
 	}
 }
 

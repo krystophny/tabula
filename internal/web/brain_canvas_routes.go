@@ -42,9 +42,7 @@ type brainCanvasCardOpen struct {
 	Error   string             `json:"error,omitempty"`
 }
 
-func brainCanvasCardLimit() int {
-	return 1000
-}
+const brainCanvasCardLimit = 1000
 
 func (a *App) loadBrainCanvas(workspace store.Workspace, name string) (brainCanvasView, error) {
 	resolver, err := newBrainCanvasResolver(a.store, workspace)
@@ -101,8 +99,8 @@ func (a *App) addBrainCanvasCard(workspace store.Workspace, name string, req bra
 	if err != nil {
 		return brainCanvasCardView{}, err
 	}
-	if len(doc.Nodes) >= brainCanvasCardLimit() {
-		return brainCanvasCardView{}, fmt.Errorf("canvas card limit reached (%d)", brainCanvasCardLimit())
+	if len(doc.Nodes) >= brainCanvasCardLimit {
+		return brainCanvasCardView{}, fmt.Errorf("canvas card limit reached (%d)", brainCanvasCardLimit)
 	}
 	for _, existing := range doc.Nodes {
 		if bindingsEqual(existing.Binding, binding) {
@@ -120,7 +118,7 @@ func (a *App) addBrainCanvasCard(workspace store.Workspace, name string, req bra
 		Binding: binding,
 	}
 	if binding.Kind == "note" {
-		node.File = binding.Path
+		node.File = brainCanvasNodeFile(resolver, binding.Path)
 	}
 	if binding.Kind == "link" {
 		node.URL = binding.URL
@@ -130,6 +128,17 @@ func (a *App) addBrainCanvasCard(workspace store.Workspace, name string, req bra
 		return brainCanvasCardView{}, err
 	}
 	return resolver.resolveCardView(node), nil
+}
+
+func brainCanvasNodeFile(resolver brainCanvasResolver, rel string) string {
+	abs := resolver.resolveBrainPath(rel)
+	if abs == "" {
+		return rel
+	}
+	if vaultRel := resolver.vaultRelative(abs); vaultRel != "" {
+		return vaultRel
+	}
+	return rel
 }
 
 func assertBrainCanvasBindingExists(resolver brainCanvasResolver, binding brainCanvasBinding) error {
@@ -162,6 +171,33 @@ func assertBrainCanvasBindingExists(resolver brainCanvasResolver, binding brainC
 		if err := enforceWorkPersonalPath(abs); err != nil {
 			return errors.New(workPersonalGuardrailMessage)
 		}
+		if err := requireBrainCanvasBackingFile(resolver, abs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func requireBrainCanvasBackingFile(resolver brainCanvasResolver, path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return errors.New("note not found")
+		}
+		return err
+	}
+	if info.IsDir() {
+		return errors.New("note path is a directory")
+	}
+	realPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return err
+	}
+	if !pathInsideOrEqual(realPath, resolver.brainRoot) {
+		return errors.New("note path is outside the vault")
+	}
+	if err := enforceWorkPersonalPath(realPath); err != nil {
+		return errors.New(workPersonalGuardrailMessage)
 	}
 	return nil
 }
@@ -228,12 +264,24 @@ func applyBrainCanvasSemanticPatch(resolver brainCanvasResolver, node *brainCanv
 	}
 	switch node.Binding.Kind {
 	case "artifact":
+		if req.Body != nil {
+			return errors.New("body edits are not supported for artifact cards")
+		}
 		return updateArtifactTitleFromCanvas(resolver, node.Binding.ID, req.Title)
 	case "item":
+		if req.Body != nil {
+			return errors.New("body edits are not supported for item cards")
+		}
 		return updateItemTitleFromCanvas(resolver, node.Binding.ID, req.Title)
 	case "note":
+		if req.Title != nil {
+			return errors.New("title edits are not supported for note cards")
+		}
 		return updateNoteFromCanvas(resolver, node.Binding.Path, req.Body)
 	case "link":
+		if req.Body != nil {
+			return errors.New("body edits are not supported for link cards")
+		}
 		if req.Title != nil {
 			node.Label = strings.TrimSpace(*req.Title)
 		}
@@ -278,7 +326,7 @@ func updateNoteFromCanvas(resolver brainCanvasResolver, rel string, body *string
 	if err := enforceWorkPersonalPath(abs); err != nil {
 		return errors.New(workPersonalGuardrailMessage)
 	}
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+	if err := requireBrainCanvasBackingFile(resolver, abs); err != nil {
 		return err
 	}
 	return os.WriteFile(abs, []byte(*body), 0o644)
