@@ -24,6 +24,48 @@ export async function waitForCircleControls(page: Page) {
   await expect(circleSegment(page, 'fast')).toBeAttached();
 }
 
+export async function assertCircleReadable(page: Page, tolerancePx = 1) {
+  await openCircle(page);
+  const metrics = await page.evaluate((tolerance) => {
+    const ids = ['dialogue', 'meeting', 'silent', 'fast', 'prompt', 'text_note', 'pointer', 'highlight', 'ink'];
+    const rects = ids.map((id) => {
+      const node = document.querySelector(`#slopshell-circle-menu .slopshell-circle-segment[data-segment="${id}"]`);
+      if (!(node instanceof HTMLElement)) {
+        throw new Error(`missing circle segment: ${id}`);
+      }
+      const rect = node.getBoundingClientRect();
+      return {
+        id,
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+      };
+    });
+    const overlapPairs: Array<{ a: string; b: string; overlapX: number; overlapY: number }> = [];
+    for (let i = 0; i < rects.length; i += 1) {
+      for (let j = i + 1; j < rects.length; j += 1) {
+        const a = rects[i]!;
+        const b = rects[j]!;
+        const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+        const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        if (overlapX > tolerance && overlapY > tolerance) {
+          overlapPairs.push({ a: a.id, b: b.id, overlapX, overlapY });
+        }
+      }
+    }
+    const clipped = rects.filter((rect) => (
+      rect.left < -tolerance
+      || rect.top < -tolerance
+      || rect.right > window.innerWidth + tolerance
+      || rect.bottom > window.innerHeight + tolerance
+    ));
+    return { rects, overlapPairs, clipped };
+  }, tolerancePx);
+  expect(metrics.overlapPairs, JSON.stringify(metrics, null, 2)).toEqual([]);
+  expect(metrics.clipped, JSON.stringify(metrics, null, 2)).toEqual([]);
+}
+
 export async function switchToWorkspace(page: Page, workspaceId: string) {
   await page.evaluate((targetWorkspaceId) => {
     const buttons = Array.from(document.querySelectorAll('#edge-top-projects .edge-project-btn'));

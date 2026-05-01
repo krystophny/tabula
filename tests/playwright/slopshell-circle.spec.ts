@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { assertCircleReadable } from './slopshell-circle-helpers';
 
 async function clearLog(page: Page) {
   await page.evaluate(() => {
@@ -187,6 +188,29 @@ test('corner placement persists across reloads', async ({ page }) => {
   await switchToTestProject(page);
 
   await expect(page.locator('#slopshell-circle')).toHaveAttribute('data-corner', 'top_left');
+});
+
+test('circle stays readable in every corner on desktop and mobile viewports', async ({ page }) => {
+  const viewports = [
+    { width: 1280, height: 720 },
+    { width: 390, height: 844 },
+  ];
+  const corners = ['top_left', 'top_right', 'bottom_left', 'bottom_right'];
+
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport);
+    await waitReady(page);
+    await switchToTestProject(page);
+
+    for (const corner of corners) {
+      await page.evaluate(async (nextCorner) => {
+        const mod = await import('/internal/web/static/app-slopshell-circle.js');
+        mod.setSlopshellCircleCorner(nextCorner);
+      }, corner);
+      await expect(page.locator('#slopshell-circle')).toHaveAttribute('data-corner', corner);
+      await assertCircleReadable(page);
+    }
+  }
 });
 
 test.describe('mobile hit targets', () => {
