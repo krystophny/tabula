@@ -30,6 +30,7 @@ const isMobileViewport = (...args) => refs.isMobileViewport(...args);
 const suppressSyntheticClick = (...args) => refs.suppressSyntheticClick(...args);
 const showItemSidebarDelegateMenu = (...args) => refs.showItemSidebarDelegateMenu(...args);
 const performItemSidebarTriage = (...args) => refs.performItemSidebarTriage(...args);
+const performItemSidebarGesture = (...args) => refs.performItemSidebarGesture(...args);
 const performItemSidebarStateUpdate = (...args) => refs.performItemSidebarStateUpdate(...args);
 const showItemSidebarLabelFilterMenu = (...args) => refs.showItemSidebarLabelFilterMenu(...args);
 const applyItemSidebarLabelFilter = (...args) => refs.applyItemSidebarLabelFilter(...args);
@@ -515,10 +516,11 @@ export function renderSidebarRow({
       lastTouchAt = Date.now();
       suppressSyntheticClick();
       resetSwipeUi();
-      if (gestureAction.action === 'delegate') {
+      const swipeAction = String(gestureAction.gesture || gestureAction.action || '').toLowerCase();
+      if (swipeAction === 'delegate') {
         void showItemSidebarDelegateMenu(item, t.clientX, t.clientY);
       } else {
-        void performItemSidebarTriage(item, gestureAction.action);
+        void performItemSidebarGesture(item, swipeAction);
       }
       return;
     }

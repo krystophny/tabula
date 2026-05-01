@@ -164,6 +164,8 @@ func (a *App) Router() http.Handler {
 	r.Put("/api/items/{item_id}/gtd-status", a.handleItemGTDStatusUpdate)
 	r.Put("/api/items/{item_id}/state", a.handleItemStateUpdate)
 	r.Post("/api/items/{item_id}/triage", a.handleItemTriage)
+	r.Post("/api/items/{item_id}/gesture", a.handleItemGesture)
+	r.Post("/api/items/{item_id}/gesture/undo", a.handleItemGestureUndo)
 	r.Post("/api/items/{item_id}/dispatch-review", a.handleItemReviewDispatch)
 	r.Get("/api/items/{item_id}/print", a.handleItemPrint)
 	r.Get("/api/items/{item_id}", a.handleItemGet)

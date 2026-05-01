@@ -12,6 +12,7 @@ const normalizeDisplayText = (...args) => refs.normalizeDisplayText(...args);
 const normalizeActiveSphere = (...args) => refs.normalizeActiveSphere(...args);
 const readSomedayReviewNudgeLastShownAt = (...args) => refs.readSomedayReviewNudgeLastShownAt(...args);
 const persistSomedayReviewNudgeLastShownAt = (...args) => refs.persistSomedayReviewNudgeLastShownAt(...args);
+const performItemSidebarGesture = (...args) => refs.performItemSidebarGesture(...args);
 
 function appendSphereQuery(path, sphere = state.activeSphere, allSpheres = false) {
   if (allSpheres) {
@@ -229,13 +230,15 @@ export function isGitHubPRSidebarItem(item) {
 
 export function itemSidebarActionLabel(action, item = null) {
   const normalized = String(action || '').trim().toLowerCase();
-  if (normalized === 'done') {
+  if (normalized === 'done' || normalized === 'complete') {
     return isEmailSidebarItem(item) ? 'Archive' : 'Done';
   }
   if (normalized === 'inbox') return 'Back to Inbox';
   if (normalized === 'next') return 'Clarify...';
   if (normalized === 'delete') return 'Delete';
+  if (normalized === 'drop') return 'Drop';
   if (normalized === 'delegate') return 'Delegate';
+  if (normalized === 'defer') return 'Defer';
   if (normalized === 'later') return 'Later';
   if (normalized === 'someday') return 'Someday';
   return '';
@@ -262,19 +265,29 @@ export function defaultItemSidebarLaterVisibleAfter(now = new Date()) {
   return base.toISOString();
 }
 
+// itemSidebarGestureAction maps a horizontal swipe distance to a GTD action.
+//
+// The four gestures from issue #730:
+//   - swipe right (commit threshold)      → complete (close the item)
+//   - long swipe right (long threshold)   → drop (backend-aware delete/hide)
+//   - swipe left (commit threshold)       → defer (set follow_up)
+//   - long swipe left (long threshold)    → delegate (assign actor)
+//
+// `gesture` is the action-name the gesture endpoint accepts; `label` is the
+// short on-row affordance shown while the swipe is in progress.
 export function itemSidebarGestureAction(dx) {
   const offset = Number(dx) || 0;
   if (offset >= ITEM_SIDEBAR_GESTURE_LONG_PX) {
-    return { action: 'delete', label: 'Delete' };
+    return { gesture: 'drop', action: 'drop', label: 'Drop' };
   }
   if (offset >= ITEM_SIDEBAR_GESTURE_COMMIT_PX) {
-    return { action: 'done', label: 'Done' };
+    return { gesture: 'complete', action: 'complete', label: 'Done' };
   }
   if (offset <= -ITEM_SIDEBAR_GESTURE_LONG_PX) {
-    return { action: 'later', label: 'Later' };
+    return { gesture: 'delegate', action: 'delegate', label: 'Delegate' };
   }
   if (offset <= -ITEM_SIDEBAR_GESTURE_COMMIT_PX) {
-    return { action: 'delegate', label: 'Delegate' };
+    return { gesture: 'defer', action: 'defer', label: 'Defer' };
   }
   return null;
 }
@@ -798,7 +811,7 @@ export async function showItemSidebarDelegateMenu(item, x, y) {
       actors.map((actor) => ({
         label: actor.name,
         action: 'delegate',
-        onClick: () => performItemSidebarTriage(item, 'delegate', {
+        onClick: () => performItemSidebarGesture(item, 'delegate', {
           actorID: actor.id,
           actorName: actor.name,
         }),

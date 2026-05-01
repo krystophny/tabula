@@ -304,6 +304,7 @@ export const state = {
   itemSidebarError: '',
   itemSidebarActiveItemID: 0,
   itemSidebarMenuOpen: false,
+  itemSidebarUndoTimer: 0,
   somedayReviewNudgeEnabled: true,
   prReviewAwaitingArtifact: false,
   inkDraft: {

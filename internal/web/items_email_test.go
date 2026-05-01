@@ -82,10 +82,6 @@ func (f *fakeEmailSyncProvider) ListContacts(_ context.Context) ([]providerdata.
 	return append([]providerdata.Contact(nil), f.contacts...), nil
 }
 
-func stringPointer(value string) *string {
-	return &value
-}
-
 type exchangeEmailSyncFixture struct {
 	app         *App
 	workspaceID int64

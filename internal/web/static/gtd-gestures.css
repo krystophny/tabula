@@ -1,0 +1,45 @@
+.item-sidebar-undo-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%) translateY(40px);
+  z-index: 580;
+  display: none;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(17, 24, 39, 0.92);
+  color: #f9fafb;
+  border-radius: 999px;
+  box-shadow: 0 12px 32px rgba(17, 24, 39, 0.32);
+  font-size: 13px;
+  transition: transform 160ms ease, opacity 160ms ease;
+  opacity: 0;
+}
+
+.item-sidebar-undo-banner.is-open {
+  display: inline-flex;
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+.item-sidebar-undo-banner-text {
+  white-space: nowrap;
+}
+
+.item-sidebar-undo-banner-action {
+  border: 0;
+  background: transparent;
+  color: #93c5fd;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.item-sidebar-undo-banner-action:hover,
+.item-sidebar-undo-banner-action:focus-visible {
+  background: rgba(147, 197, 253, 0.16);
+  outline: none;
+}

@@ -189,6 +189,8 @@ Domain model API:
 - `DELETE /api/items/{item_id}/project-item-link`
 - `POST /api/items/{item_id}/dispatch-review`
 - `POST /api/items/{item_id}/triage`
+- `POST /api/items/{item_id}/gesture`
+- `POST /api/items/{item_id}/gesture/undo`
 - `GET /api/items/{item_id}/print`
 
 Canvas/files:
