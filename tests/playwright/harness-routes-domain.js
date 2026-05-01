@@ -95,6 +95,81 @@ __harnessRouteHandlers.push(async function harnessRouteDomain(u, opts) {
         });
         return new Response(JSON.stringify({ ok: true, item }), { status: 201 });
       }
+      if (/\/api\/items\/\d+\/gesture(?:\?|$)/.test(u) && opts?.method === 'POST') {
+        let body = {};
+        try { body = JSON.parse(String(opts?.body || '{}')); } catch (_) { body = {}; }
+        const match = u.match(/\/api\/items\/(\d+)\/gesture(?:\?|$)/);
+        const itemID = Number(match?.[1] || 0);
+        const action = String(body.action || '').trim().toLowerCase();
+        const actors = Array.isArray(window.__itemSidebarActors) ? window.__itemSidebarActors : [];
+        const existingRows = itemSidebarStateKeys()
+          .flatMap((stateKey) => Array.isArray((window.__itemSidebarData || {})[stateKey]) ? (window.__itemSidebarData || {})[stateKey] : []);
+        const existing = existingRows.find((entry) => Number(entry?.id || 0) === itemID) || null;
+        const undoSnapshot = existing ? {
+          state: String(existing.state || 'inbox'),
+          actor_id: existing.actor_id == null ? null : Number(existing.actor_id || 0),
+          visible_after: existing.visible_after == null ? null : String(existing.visible_after || ''),
+          follow_up_at: existing.follow_up_at == null ? null : String(existing.follow_up_at || ''),
+        } : { state: 'inbox' };
+        let item = null;
+        let dropMode = '';
+        if (action === 'complete') {
+          item = moveItemSidebarEntry(itemID, 'done');
+        } else if (action === 'drop') {
+          dropMode = 'local_overlay';
+          item = moveItemSidebarEntry(itemID, 'done');
+        } else if (action === 'defer') {
+          const followUpAt = String(body.follow_up_at || '');
+          item = moveItemSidebarEntry(itemID, 'deferred', { visible_after: followUpAt, follow_up_at: followUpAt });
+        } else if (action === 'delegate') {
+          const actor = actors.find((entry) => Number(entry?.id || 0) === Number(body.actor_id || 0));
+          item = moveItemSidebarEntry(itemID, 'waiting', { actor_name: String(actor?.name || '') });
+        }
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'item_gesture',
+          method: opts?.method || 'POST',
+          url: u,
+          payload: body,
+        });
+        if (!item) {
+          return new Response('item not found', { status: 404 });
+        }
+        return new Response(JSON.stringify({
+          ok: true,
+          data: {
+            item,
+            action,
+            drop_mode: dropMode,
+            email_sync_back: false,
+            undo: undoSnapshot,
+          },
+        }), { status: 200 });
+      }
+      if (/\/api\/items\/\d+\/gesture\/undo(?:\?|$)/.test(u) && opts?.method === 'POST') {
+        let body = {};
+        try { body = JSON.parse(String(opts?.body || '{}')); } catch (_) { body = {}; }
+        const match = u.match(/\/api\/items\/(\d+)\/gesture\/undo(?:\?|$)/);
+        const itemID = Number(match?.[1] || 0);
+        const undo = body.undo && typeof body.undo === 'object' ? body.undo : {};
+        const restoredState = String(undo.state || 'inbox');
+        const item = moveItemSidebarEntry(itemID, restoredState, {
+          actor_id: undo.actor_id == null ? null : Number(undo.actor_id || 0),
+          visible_after: undo.visible_after == null ? null : String(undo.visible_after || ''),
+          follow_up_at: undo.follow_up_at == null ? null : String(undo.follow_up_at || ''),
+        });
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'item_gesture_undo',
+          method: opts?.method || 'POST',
+          url: u,
+          payload: body,
+        });
+        if (!item) {
+          return new Response('item not found', { status: 404 });
+        }
+        return new Response(JSON.stringify({ ok: true, data: { item } }), { status: 200 });
+      }
       if (/\/api\/items\/\d+\/triage(?:\?|$)/.test(u) && opts?.method === 'POST') {
         let body = {};
         try { body = JSON.parse(String(opts?.body || '{}')); } catch (_) { body = {}; }

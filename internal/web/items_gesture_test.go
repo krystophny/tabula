@@ -335,18 +335,120 @@ func TestItemGestureCompleteOnMarkdownBackedItemValidatesAfterWriteThrough(t *te
 	mcp := newGTDStatusMCPServer(t, &calls, false)
 	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
 
-	// /gtd-status is the validated write-through path used by gesture-driven
-	// closes for markdown-backed items: gestures call complete, the frontend
-	// routes through gtd-status when the item is markdown-backed, and the
-	// brain.note.parse + brain.gtd.set_status sequence enforces validation.
-	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPut, "/api/items/"+itoa(item.ID)+"/gtd-status", map[string]any{
-		"state": "done",
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(item.ID)+"/gesture", map[string]any{
+		"action": "complete",
 	})
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rr.Code, rr.Body.String())
 	}
 	if got := callNames(calls); !reflect.DeepEqual(got, []string{gtdParseTool, gtdSetStatusTool}) {
 		t.Fatalf("MCP calls = %#v", got)
+	}
+	if calls[1].Args["status"] != "closed" || calls[1].Args["path"] != ref {
+		t.Fatalf("set_status args = %#v", calls[1].Args)
+	}
+	updated, err := app.store.GetItem(item.ID)
+	if err != nil {
+		t.Fatalf("GetItem: %v", err)
+	}
+	if updated.State != store.ItemStateDone {
+		t.Fatalf("state = %q, want %q", updated.State, store.ItemStateDone)
+	}
+}
+
+func TestItemGestureDeferOnMarkdownBackedItemValidatesAfterWriteThrough(t *testing.T) {
+	app := newAuthedTestApp(t)
+	source := "markdown"
+	ref := "brain/commitments/example.md"
+	item, err := app.store.CreateItem("Markdown defer", store.ItemOptions{
+		State:     store.ItemStateNext,
+		Source:    &source,
+		SourceRef: &ref,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem: %v", err)
+	}
+	calls := []capturedMCPCall{}
+	mcp := newGTDStatusMCPServer(t, &calls, false)
+	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(item.ID)+"/gesture", map[string]any{
+		"action":       "defer",
+		"follow_up_at": "2026-05-10T09:00:00Z",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rr.Code, rr.Body.String())
+	}
+	if got := callNames(calls); !reflect.DeepEqual(got, []string{gtdParseTool, gtdSetStatusTool}) {
+		t.Fatalf("MCP calls = %#v", got)
+	}
+	if calls[1].Args["status"] != store.ItemStateDeferred {
+		t.Fatalf("set_status status = %#v, want %q", calls[1].Args["status"], store.ItemStateDeferred)
+	}
+}
+
+func TestItemGestureDelegateOnMarkdownBackedItemValidatesAfterWriteThrough(t *testing.T) {
+	app := newAuthedTestApp(t)
+	source := "markdown"
+	ref := "brain/commitments/example.md"
+	actor, err := app.store.CreateActor("Wren", store.ActorKindHuman)
+	if err != nil {
+		t.Fatalf("CreateActor: %v", err)
+	}
+	item, err := app.store.CreateItem("Markdown delegate", store.ItemOptions{
+		State:     store.ItemStateNext,
+		Source:    &source,
+		SourceRef: &ref,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem: %v", err)
+	}
+	calls := []capturedMCPCall{}
+	mcp := newGTDStatusMCPServer(t, &calls, false)
+	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(item.ID)+"/gesture", map[string]any{
+		"action":   "delegate",
+		"actor_id": actor.ID,
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rr.Code, rr.Body.String())
+	}
+	if got := callNames(calls); !reflect.DeepEqual(got, []string{gtdParseTool, gtdSetStatusTool}) {
+		t.Fatalf("MCP calls = %#v", got)
+	}
+	if calls[1].Args["status"] != store.ItemStateWaiting {
+		t.Fatalf("set_status status = %#v, want %q", calls[1].Args["status"], store.ItemStateWaiting)
+	}
+}
+
+func TestItemGestureDropOnMarkdownBackedItemValidatesAfterWriteThrough(t *testing.T) {
+	app := newAuthedTestApp(t)
+	source := "markdown"
+	ref := "brain/commitments/example.md"
+	item, err := app.store.CreateItem("Markdown drop", store.ItemOptions{
+		State:     store.ItemStateNext,
+		Source:    &source,
+		SourceRef: &ref,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem: %v", err)
+	}
+	calls := []capturedMCPCall{}
+	mcp := newGTDStatusMCPServer(t, &calls, false)
+	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(item.ID)+"/gesture", map[string]any{
+		"action": "drop",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rr.Code, rr.Body.String())
+	}
+	if got := callNames(calls); !reflect.DeepEqual(got, []string{gtdParseTool, gtdSetStatusTool}) {
+		t.Fatalf("MCP calls = %#v", got)
+	}
+	if calls[1].Args["status"] != "closed" {
+		t.Fatalf("set_status status = %#v, want closed", calls[1].Args["status"])
 	}
 }
 

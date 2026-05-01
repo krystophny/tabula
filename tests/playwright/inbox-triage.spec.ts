@@ -681,7 +681,7 @@ test.describe('inbox triage interactions', () => {
     await expect(page.locator('#pr-file-list .pr-file-item.is-active[data-item-id="101"]')).toHaveCount(1);
   });
 
-  test('touch gestures expose feedback and commit done, delete, delegate, and later', async ({ page }) => {
+  test('touch gestures expose feedback and commit complete, drop, defer, and delegate', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await waitReady(page);
     await openInbox(page);
@@ -691,7 +691,7 @@ test.describe('inbox triage interactions', () => {
 
     await touchPhase(page, row, 'start');
     await touchPhase(page, row, 'move', 90, 0);
-    await expect(page.locator(row)).toHaveAttribute('data-triage-action', 'done');
+    await expect(page.locator(row)).toHaveAttribute('data-triage-action', 'complete');
     await expect(page.locator(row)).toHaveAttribute('data-triage-label', 'Done');
     await touchPhase(page, row, 'end', 90, 0);
     await expect(page.locator('#pr-file-list')).not.toContainText('Review parser cleanup');
@@ -699,32 +699,34 @@ test.describe('inbox triage interactions', () => {
     await setInboxItems(page, [parserInboxItem]);
     await touchPhase(page, row, 'start');
     await touchPhase(page, row, 'move', 180, 0);
-    await expect(page.locator(row)).toHaveAttribute('data-triage-action', 'delete');
+    await expect(page.locator(row)).toHaveAttribute('data-triage-action', 'drop');
+    await expect(page.locator(row)).toHaveAttribute('data-triage-label', 'Drop');
     await touchPhase(page, row, 'end', 180, 0);
     await expect(page.locator('#pr-file-list')).not.toContainText('Review parser cleanup');
 
     await setInboxItems(page, [parserInboxItem]);
     await touchPhase(page, row, 'start');
     await touchPhase(page, row, 'move', -100, 0);
-    await expect(page.locator(row)).toHaveAttribute('data-triage-action', 'delegate');
+    await expect(page.locator(row)).toHaveAttribute('data-triage-action', 'defer');
+    await expect(page.locator(row)).toHaveAttribute('data-triage-label', 'Defer');
     await touchPhase(page, row, 'end', -100, 0);
+    await expect(page.locator('#pr-file-list')).not.toContainText('Review parser cleanup');
+
+    await setInboxItems(page, [parserInboxItem]);
+    await touchPhase(page, row, 'start');
+    await touchPhase(page, row, 'move', -185, 0);
+    await expect(page.locator(row)).toHaveAttribute('data-triage-action', 'delegate');
+    await expect(page.locator(row)).toHaveAttribute('data-triage-label', 'Delegate');
+    await touchPhase(page, row, 'end', -185, 0);
     await expect(page.locator('#pr-file-pane')).toHaveClass(/is-open/);
     await expect(page.locator('#item-sidebar-menu')).toBeVisible();
     await expect(page.locator('#item-sidebar-menu')).toContainText('Alice');
     await page.locator('#item-sidebar-menu .item-sidebar-menu-item', { hasText: 'Codex' }).click();
     await expect(page.locator('#pr-file-list')).not.toContainText('Review parser cleanup');
 
-    await setInboxItems(page, [parserInboxItem]);
-    await touchPhase(page, row, 'start');
-    await touchPhase(page, row, 'move', -185, 0);
-    await expect(page.locator(row)).toHaveAttribute('data-triage-action', 'later');
-    await touchPhase(page, row, 'end', -185, 0);
-    await expect(page.locator('#pr-file-pane')).toHaveClass(/is-open/);
-    await expect(page.locator('#pr-file-list')).not.toContainText('Review parser cleanup');
-
     const log = await page.evaluate(() => (window as any).__harnessLog || []);
-    const triageCalls = log.filter((entry: any) => entry?.action === 'item_triage');
-    expect(triageCalls.map((entry: any) => entry?.payload?.action)).toEqual(['done', 'delete', 'delegate', 'later']);
+    const gestureCalls = log.filter((entry: any) => entry?.action === 'item_gesture');
+    expect(gestureCalls.map((entry: any) => entry?.payload?.action)).toEqual(['complete', 'drop', 'defer', 'delegate']);
   });
 
   test('desktop context menu workspace picker reassigns the active item', async ({ page }) => {
@@ -787,9 +789,9 @@ test.describe('inbox triage interactions', () => {
     await page.waitForTimeout(50);
 
     await touchPhase(page, row, 'start');
-    await touchPhase(page, row, 'move', -185, 0);
-    await expect(page.locator(row)).toHaveAttribute('data-triage-action', 'later');
-    await touchPhase(page, row, 'end', -185, 0);
+    await touchPhase(page, row, 'move', -100, 0);
+    await expect(page.locator(row)).toHaveAttribute('data-triage-action', 'defer');
+    await touchPhase(page, row, 'end', -100, 0);
     await expect(page.locator('#pr-file-list')).not.toContainText('Review parser cleanup');
 
     await page.waitForTimeout(300);

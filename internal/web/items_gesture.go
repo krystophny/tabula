@@ -101,6 +101,12 @@ func (a *App) handleItemGesture(w http.ResponseWriter, r *http.Request) {
 //   - `defer` writes both visible_after and follow_up_at to the same RFC3339
 //     timestamp so the existing resurfacer treats the item consistently.
 //   - `delegate` requires actor_id and stores follow_up_at when supplied.
+//
+// Markdown-backed items route every state change through brain.gtd.set_status
+// (validated by brain.note.parse) before mirroring locally. That is the
+// "validate after write-through" guarantee the gesture acceptance criteria
+// requires; the local store row is only updated when the source markdown
+// accepts the new status.
 func (a *App) applyItemGesture(ctx context.Context, item store.Item, action string, req itemGestureRequest) (itemGestureResult, int, error) {
 	snapshot := itemGestureUndo{
 		State:        item.State,
@@ -126,9 +132,9 @@ func (a *App) gestureComplete(ctx context.Context, item store.Item, snapshot ite
 	if item.State == store.ItemStateDone {
 		return a.gestureSnapshotResult(item, gestureActionComplete, "", false, snapshot), http.StatusOK, nil
 	}
-	syncRan, err := a.runItemGestureUpstreamComplete(ctx, item)
+	syncRan, status, err := a.gestureWriteThroughClose(ctx, item)
 	if err != nil {
-		return itemGestureResult{}, http.StatusBadGateway, err
+		return itemGestureResult{}, status, err
 	}
 	if err := a.store.UpdateItemState(item.ID, store.ItemStateDone); err != nil {
 		return itemGestureResult{}, itemResponseErrorStatus(err), err
@@ -144,14 +150,18 @@ func (a *App) gestureComplete(ctx context.Context, item store.Item, snapshot ite
 func (a *App) gestureDrop(ctx context.Context, item store.Item, snapshot itemGestureUndo, dropUpstream bool) (itemGestureResult, int, error) {
 	mode := dropModeForItem(item, dropUpstream)
 	syncRan := false
-	if mode == gestureDropModeUpstream {
-		ran, err := a.runItemGestureUpstreamComplete(ctx, item)
-		if err != nil {
-			return itemGestureResult{}, http.StatusBadGateway, err
-		}
-		syncRan = ran
-	}
 	if item.State != store.ItemStateDone {
+		if mode == gestureDropModeUpstream {
+			ran, status, err := a.gestureWriteThroughClose(ctx, item)
+			if err != nil {
+				return itemGestureResult{}, status, err
+			}
+			syncRan = ran
+		} else {
+			if _, status, err := a.gestureWriteThroughMarkdown(item, store.ItemStateDone); err != nil {
+				return itemGestureResult{}, status, err
+			}
+		}
 		if err := a.store.UpdateItemState(item.ID, store.ItemStateDone); err != nil {
 			return itemGestureResult{}, itemResponseErrorStatus(err), err
 		}
@@ -168,6 +178,9 @@ func (a *App) gestureDefer(item store.Item, snapshot itemGestureUndo, rawFollowU
 	follow, err := normalizeRequiredRFC3339(rawFollowUp)
 	if err != nil {
 		return itemGestureResult{}, http.StatusBadRequest, err
+	}
+	if _, status, err := a.gestureWriteThroughMarkdown(item, store.ItemStateDeferred); err != nil {
+		return itemGestureResult{}, status, err
 	}
 	if err := a.store.UpdateItem(item.ID, store.ItemUpdate{
 		State:        stringPointer(store.ItemStateDeferred),
@@ -205,6 +218,9 @@ func (a *App) gestureDelegate(item store.Item, snapshot itemGestureUndo, req ite
 		}
 		update.FollowUpAt = stringPointer(follow)
 	}
+	if _, status, err := a.gestureWriteThroughMarkdown(item, store.ItemStateWaiting); err != nil {
+		return itemGestureResult{}, status, err
+	}
 	if err := a.store.UpdateItem(item.ID, update); err != nil {
 		return itemGestureResult{}, itemResponseErrorStatus(err), err
 	}
@@ -213,6 +229,62 @@ func (a *App) gestureDelegate(item store.Item, snapshot itemGestureUndo, req ite
 		return itemGestureResult{}, itemResponseErrorStatus(err), err
 	}
 	return a.gestureSnapshotResult(updated, gestureActionDelegate, "", false, snapshot), http.StatusOK, nil
+}
+
+// gestureWriteThroughClose handles the close path for both markdown-backed
+// items (validated brain.gtd.set_status) and external-backed items (todoist
+// complete + email archive). It returns whether email archive ran so undo
+// can move the message back, the HTTP status to return on error, and any
+// error that should abort the gesture.
+func (a *App) gestureWriteThroughClose(ctx context.Context, item store.Item) (bool, int, error) {
+	if ran, status, err := a.gestureWriteThroughMarkdown(item, store.ItemStateDone); err != nil || ran {
+		return false, status, err
+	}
+	syncRan, err := a.runItemGestureUpstreamComplete(ctx, item)
+	if err != nil {
+		return false, http.StatusBadGateway, err
+	}
+	return syncRan, http.StatusOK, nil
+}
+
+// gestureWriteThroughMarkdown writes a state change through to the source
+// markdown via brain.gtd.set_status (validated by brain.note.parse) when the
+// item resolves to a markdown-backed GTD target. Returns (true, ...) when the
+// markdown write-through actually ran. Non-markdown items short-circuit so the
+// caller can fall back to its existing path.
+func (a *App) gestureWriteThroughMarkdown(item store.Item, targetState string) (bool, int, error) {
+	target, ok, err := a.gtdStatusTarget(item)
+	if err != nil {
+		return false, http.StatusInternalServerError, err
+	}
+	if !ok {
+		return false, http.StatusOK, nil
+	}
+	status, err := gtdStatusForGestureState(targetState)
+	if err != nil {
+		return false, http.StatusBadRequest, err
+	}
+	if _, _, err := a.setBrainGTDStatus(target, itemGTDStatusRequest{}, status); err != nil {
+		return false, http.StatusBadGateway, err
+	}
+	return true, http.StatusOK, nil
+}
+
+// gtdStatusForGestureState maps the local item state a gesture is about to
+// commit into the brain.gtd.set_status status vocabulary. The set is
+// deliberately small: gestures only ever transition into closed, deferred, or
+// waiting on the brain side; the local store retains the richer state ladder.
+func gtdStatusForGestureState(targetState string) (string, error) {
+	switch targetState {
+	case store.ItemStateDone:
+		return "closed", nil
+	case store.ItemStateDeferred:
+		return store.ItemStateDeferred, nil
+	case store.ItemStateWaiting:
+		return store.ItemStateWaiting, nil
+	default:
+		return "", fmt.Errorf("gesture cannot route state %q through brain.gtd.set_status", targetState)
+	}
 }
 
 func (a *App) gestureSnapshotResult(item store.Item, action, dropMode string, syncRan bool, snapshot itemGestureUndo) itemGestureResult {
