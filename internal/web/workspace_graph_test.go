@@ -138,10 +138,87 @@ func TestWorkspaceLocalGraphFiltersMetadata(t *testing.T) {
 	}
 }
 
+func TestWorkspaceLocalGraphArtifactRootAddsConnectedMetadata(t *testing.T) {
+	vaultRoot, _ := configureWorkPersonalGuardrail(t)
+	brainRoot := filepath.Join(vaultRoot, "brain")
+	sourcePath := filepath.Join(brainRoot, "topics", "active.pdf")
+	mustWriteGraphFile(t, sourcePath, "%PDF-1.7")
+
+	app := newAuthedTestApp(t)
+	workspace, err := app.store.CreateWorkspace("Work brain", brainRoot, store.SphereWork)
+	if err != nil {
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+	artifact, err := app.store.CreateArtifact(store.ArtifactKindPDF, &sourcePath, nil, graphStringPtr("Active PDF"), nil)
+	if err != nil {
+		t.Fatalf("CreateArtifact: %v", err)
+	}
+	item, err := app.store.CreateItem("Read active PDF", store.ItemOptions{
+		WorkspaceID: &workspace.ID,
+		Sphere:      graphStringPtr(store.SphereWork),
+		ArtifactID:  &artifact.ID,
+		Source:      graphStringPtr(store.ExternalProviderTodoist),
+		SourceRef:   graphStringPtr("task-pdf"),
+	})
+	if err != nil {
+		t.Fatalf("CreateItem: %v", err)
+	}
+
+	graph := requestWorkspaceLocalGraph(t, app, workspace.ID, "", map[string]string{
+		"artifact_id": itoa(artifact.ID),
+	})
+	assertGraphNode(t, graph, "artifact:"+itoa(artifact.ID), "artifact")
+	assertGraphNode(t, graph, "item:"+itoa(item.ID), "item")
+	assertGraphNode(t, graph, "source:todoist:task-pdf", "source")
+	assertGraphEdge(t, graph, "item:"+itoa(item.ID), "artifact:"+itoa(artifact.ID), "artifact")
+	assertGraphEdge(t, graph, "item:"+itoa(item.ID), "source:todoist:task-pdf", "source_binding")
+	if graph.RootID != "artifact:"+itoa(artifact.ID) {
+		t.Fatalf("root_id = %q, want artifact root", graph.RootID)
+	}
+}
+
+func TestWorkspaceLocalGraphEntityRootAddsConnectedMetadata(t *testing.T) {
+	vaultRoot, _ := configureWorkPersonalGuardrail(t)
+	brainRoot := filepath.Join(vaultRoot, "brain")
+	sourcePath := filepath.Join(brainRoot, "topics", "active.md")
+	mustWriteGraphFile(t, sourcePath, "# Active")
+
+	app := newAuthedTestApp(t)
+	workspace, err := app.store.CreateWorkspace("Work brain", brainRoot, store.SphereWork)
+	if err != nil {
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+	artifact, err := app.store.CreateArtifact(store.ArtifactKindMarkdown, &sourcePath, nil, graphStringPtr("Active note"), nil)
+	if err != nil {
+		t.Fatalf("CreateArtifact: %v", err)
+	}
+	item, err := app.store.CreateItem("Follow active note", store.ItemOptions{
+		WorkspaceID: &workspace.ID,
+		Sphere:      graphStringPtr(store.SphereWork),
+		ArtifactID:  &artifact.ID,
+		Source:      graphStringPtr(store.ExternalProviderTodoist),
+		SourceRef:   graphStringPtr("task-note"),
+	})
+	if err != nil {
+		t.Fatalf("CreateItem: %v", err)
+	}
+
+	graph := requestWorkspaceLocalGraph(t, app, workspace.ID, "", map[string]string{
+		"root": "item:" + itoa(item.ID),
+	})
+	assertGraphNode(t, graph, "item:"+itoa(item.ID), "item")
+	assertGraphNode(t, graph, "artifact:"+itoa(artifact.ID), "artifact")
+	assertGraphNode(t, graph, "source:todoist:task-note", "source")
+	assertGraphEdge(t, graph, "item:"+itoa(item.ID), "artifact:"+itoa(artifact.ID), "artifact")
+	assertGraphEdge(t, graph, "item:"+itoa(item.ID), "source:todoist:task-note", "source_binding")
+}
+
 func requestWorkspaceLocalGraph(t *testing.T, app *App, workspaceID int64, sourcePath string, query map[string]string) workspaceLocalGraph {
 	t.Helper()
 	values := url.Values{}
-	values.Set("source", sourcePath)
+	if sourcePath != "" {
+		values.Set("source", sourcePath)
+	}
 	for key, value := range query {
 		values.Set(key, value)
 	}

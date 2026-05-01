@@ -36,6 +36,7 @@ type workspaceLocalGraphEdge struct {
 type workspaceLocalGraph struct {
 	OK        bool                      `json:"ok"`
 	Source    string                    `json:"source_path"`
+	RootID    string                    `json:"root_id,omitempty"`
 	Nodes     []workspaceLocalGraphNode `json:"nodes"`
 	Edges     []workspaceLocalGraphEdge `json:"edges"`
 	Truncated bool                      `json:"truncated,omitempty"`
@@ -61,13 +62,14 @@ func graphRelationEnabled(filter workspaceGraphFilter, relation string) bool {
 	return len(filter.Relations) == 0 || filter.Relations[relation]
 }
 
-func newWorkspaceGraphBuilder(workspace store.Workspace, filter workspaceGraphFilter, sourceRel string) *workspaceGraphBuilder {
+func newWorkspaceGraphBuilder(workspace store.Workspace, filter workspaceGraphFilter, sourceRel, rootID string) *workspaceGraphBuilder {
 	return &workspaceGraphBuilder{
 		workspace: workspace,
 		filter:    filter,
 		graph: workspaceLocalGraph{
 			OK:     true,
 			Source: sourceRel,
+			RootID: rootID,
 			Nodes:  []workspaceLocalGraphNode{},
 			Edges:  []workspaceLocalGraphEdge{},
 		},
@@ -129,7 +131,10 @@ func workspaceGraphNodeType(path, kind string) string {
 }
 
 func sortWorkspaceLocalGraph(graph *workspaceLocalGraph) {
-	rootID := workspaceGraphNoteNodeID(graph.Source)
+	rootID := graph.RootID
+	if rootID == "" {
+		rootID = workspaceGraphNoteNodeID(graph.Source)
+	}
 	sort.SliceStable(graph.Nodes, func(i, j int) bool {
 		if graph.Nodes[i].ID == rootID {
 			return true

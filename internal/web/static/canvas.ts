@@ -884,6 +884,7 @@ export function renderCanvas(event) {
     activeArtifactTitle = event.title || '';
     activePdfEvent = null;
     resetCanvasPageState('', '');
+    void renderMarkdownLinkPanelForCanvasEvent(event, renderCanvas);
     dispatchCanvasRendered(event);
   } else if (event.kind === 'pdf_artifact') {
     clearTextInteractionHandlers();
@@ -901,6 +902,7 @@ export function renderCanvas(event) {
     activeTextEventId = null;
     activeArtifactTitle = event.title || '';
     activePdfEvent = event;
+    void renderMarkdownLinkPanelForCanvasEvent(event, renderCanvas);
   } else if (event.kind === 'clear_canvas') {
     clearTextInteractionHandlers();
     clearCanvas();

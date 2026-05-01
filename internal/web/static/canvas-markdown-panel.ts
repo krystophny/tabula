@@ -1,10 +1,18 @@
 import { apiURL } from './paths.js';
 import { openResolvedMarkdownLink } from './canvas-markdown-links.js';
-import { renderLocalGraphSection } from './canvas-local-graph.js';
+import { renderLocalGraphSection, type GraphTarget } from './canvas-local-graph.js';
 
 const PANEL_ID = 'canvas-markdown-link-panel';
 
 type RenderCanvas = (event: Record<string, unknown>) => void;
+
+type CanvasGraphEvent = {
+  kind?: string;
+  path?: string;
+  title?: string;
+  artifact_id?: number;
+  meta?: Record<string, unknown>;
+};
 
 function appState(): Record<string, unknown> {
   const app = (window as unknown as { _slopshellApp?: { getState?: () => Record<string, unknown> } })._slopshellApp;
@@ -31,6 +39,27 @@ function activeBrainProjectRoot(): string {
 
 function isMarkdownArtifactPath(path: string): boolean {
   return /\.md$/i.test(String(path || '').trim());
+}
+
+function graphEntityRoot(path: string): string {
+  const clean = String(path || '').trim();
+  return /^(?:artifact|item|actor|label|source):[^:]+/i.test(clean) ? clean : '';
+}
+
+function eventArtifactID(event: CanvasGraphEvent): number {
+  const raw = Number(event.meta?.artifact_id || event.artifact_id || 0);
+  return Number.isFinite(raw) && raw > 0 ? raw : 0;
+}
+
+function graphTargetForCanvasEvent(event: CanvasGraphEvent): GraphTarget | null {
+  const path = String(event.path || '').trim();
+  if (isMarkdownArtifactPath(path)) return { sourcePath: path, label: path };
+  const rootID = graphEntityRoot(path);
+  if (rootID) return { rootID, label: rootID };
+  const artifactID = eventArtifactID(event);
+  if (artifactID > 0) return { artifactID, label: String(event.title || path || `artifact:${artifactID}`) };
+  if (path) return { artifactPath: path, label: path };
+  return null;
 }
 
 interface OutgoingRef {
@@ -298,15 +327,15 @@ export function clearMarkdownLinkPanel() {
 }
 
 export async function renderMarkdownLinkPanelForCanvasEvent(
-  event: { kind?: string; path?: string } | null | undefined,
+  event: CanvasGraphEvent | null | undefined,
   renderCanvas: RenderCanvas,
 ) {
-  if (!event || event.kind !== 'text_artifact') {
+  if (!event) {
     hidePanel();
     return;
   }
-  const path = String(event.path || '').trim();
-  if (!isMarkdownArtifactPath(path)) {
+  const target = graphTargetForCanvasEvent(event);
+  if (!target) {
     hidePanel();
     return;
   }
@@ -314,7 +343,24 @@ export async function renderMarkdownLinkPanelForCanvasEvent(
     hidePanel();
     return;
   }
-  await renderMarkdownLinkPanel(activeWorkspaceID(), path, renderCanvas);
+  if (target.sourcePath) {
+    await renderMarkdownLinkPanel(activeWorkspaceID(), target.sourcePath, renderCanvas);
+    return;
+  }
+  await renderGraphOnlyPanel(activeWorkspaceID(), target, renderCanvas);
+}
+
+async function renderGraphOnlyPanel(workspaceID: string, target: GraphTarget, renderCanvas: RenderCanvas) {
+  const panel = panelHost();
+  if (!panel) return;
+  const label = String(target.label || target.rootID || target.artifactPath || target.artifactID || 'active artifact');
+  panel.replaceChildren();
+  panel.hidden = false;
+  const header = document.createElement('header');
+  header.className = 'canvas-link-panel-header';
+  header.textContent = `Links for ${label}`;
+  panel.appendChild(header);
+  await renderLocalGraphSection(panel, workspaceID, target, renderCanvas);
 }
 
 export async function renderMarkdownLinkPanel(workspaceID: string, sourcePath: string, renderCanvas: RenderCanvas) {

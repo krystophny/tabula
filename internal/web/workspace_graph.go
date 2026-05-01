@@ -29,37 +29,20 @@ func parseWorkspaceGraphFilter(r *http.Request, workspace store.Workspace) works
 }
 
 func buildWorkspaceLocalGraph(a *App, workspace store.Workspace, sourceRaw string, filter workspaceGraphFilter) workspaceLocalGraph {
-	sourceRel, err := normalizeMarkdownSourcePath(sourceRaw)
+	return buildWorkspaceLocalGraphForRequest(a, workspace, workspaceGraphRequest{SourcePath: sourceRaw}, filter)
+}
+
+func buildWorkspaceLocalGraphForRequest(a *App, workspace store.Workspace, req workspaceGraphRequest, filter workspaceGraphFilter) workspaceLocalGraph {
+	root, err := resolveWorkspaceGraphRoot(a, workspace, req)
 	if err != nil {
 		return workspaceLocalGraph{Error: err.Error()}
 	}
-	sourceRel = stripBrainPrefixForWorkspace(workspace, sourceRel)
-	brainRoot, _, err := brainWorkspaceRoots(workspace)
-	if err != nil {
-		return workspaceLocalGraph{Error: err.Error()}
-	}
-	sourceAbs := filepath.Clean(filepath.Join(brainRoot, filepath.FromSlash(sourceRel)))
-	if !pathInsideOrEqual(sourceAbs, brainRoot) {
-		return workspaceLocalGraph{Error: "source note is outside the brain workspace"}
-	}
-	if err := enforceWorkPersonalPath(sourceAbs); err != nil {
-		return workspaceLocalGraph{Error: workPersonalGuardrailMessage}
-	}
-	builder := newWorkspaceGraphBuilder(workspace, filter, sourceRel)
-	rootID := workspaceGraphNoteNodeID(sourceRel)
-	builder.addNode(workspaceLocalGraphNode{
-		ID:      rootID,
-		Type:    "note",
-		Label:   workspaceGraphNodeLabel(sourceRel),
-		Path:    sourceRel,
-		FileURL: workspaceMarkdownLinkFileURL(workspace, filepath.ToSlash(filepath.Join("brain", sourceRel))),
-		Sphere:  workspace.Sphere,
-	})
+	builder := newWorkspaceGraphBuilder(workspace, filter, root.Source, root.Node.ID)
+	builder.addNode(root.Node)
 	if filter.Sphere != "" && filter.Sphere != workspace.Sphere {
 		return builder.graph
 	}
-	appendWorkspaceGraphMarkdown(builder, sourceRel, rootID)
-	appendWorkspaceGraphStoreMetadata(a, builder, sourceRel, rootID)
+	appendWorkspaceGraphRoot(a, builder, root)
 	sortWorkspaceLocalGraph(&builder.graph)
 	return builder.graph
 }
@@ -124,6 +107,7 @@ func appendWorkspaceGraphMarkdown(builder *workspaceGraphBuilder, sourceRel, roo
 func appendWorkspaceGraphStoreMetadata(a *App, builder *workspaceGraphBuilder, sourceRel, rootID string) {
 	artifacts := workspaceGraphMatchingArtifacts(a, builder.workspace, sourceRel)
 	itemIDs := map[int64]store.Item{}
+	items := workspaceGraphItems(a, builder.workspace.Sphere)
 	for _, artifact := range artifacts {
 		artifactID := "artifact:" + workspaceIDStr(artifact.ID)
 		builder.addNode(workspaceGraphArtifactNode(artifact))
@@ -138,7 +122,6 @@ func appendWorkspaceGraphStoreMetadata(a *App, builder *workspaceGraphBuilder, s
 			})
 		}
 		workspaceGraphAddArtifactBindings(a, builder, artifact, artifactID)
-		items, _ := a.store.ListItemsFiltered(store.ItemListFilter{Sphere: builder.workspace.Sphere})
 		for _, item := range items {
 			if item.ArtifactID != nil && *item.ArtifactID == artifact.ID {
 				itemIDs[item.ID] = item
@@ -203,6 +186,16 @@ func workspaceGraphArtifactNode(artifact store.Artifact) workspaceLocalGraphNode
 	}
 }
 
+func workspaceGraphItemNode(item store.Item) workspaceLocalGraphNode {
+	return workspaceLocalGraphNode{
+		ID:     "item:" + workspaceIDStr(item.ID),
+		Type:   "item",
+		Label:  item.Title,
+		Source: stringPointerValue(item.Source),
+		Sphere: item.Sphere,
+	}
+}
+
 func workspaceGraphAddItem(a *App, builder *workspaceGraphBuilder, item store.Item) {
 	if builder.filter.Source != "" && !workspaceGraphItemMatchesSource(item, builder.filter.Source) {
 		return
@@ -211,15 +204,10 @@ func workspaceGraphAddItem(a *App, builder *workspaceGraphBuilder, item store.It
 		return
 	}
 	itemID := "item:" + workspaceIDStr(item.ID)
-	builder.addNode(workspaceLocalGraphNode{
-		ID:     itemID,
-		Type:   "item",
-		Label:  item.Title,
-		Source: stringPointerValue(item.Source),
-		Sphere: item.Sphere,
-	})
+	builder.addNode(workspaceGraphItemNode(item))
 	if item.ArtifactID != nil && graphRelationEnabled(builder.filter, "artifact") {
 		artifactID := "artifact:" + workspaceIDStr(*item.ArtifactID)
+		workspaceGraphAddItemArtifact(a, builder, *item.ArtifactID)
 		builder.addEdge(workspaceLocalGraphEdge{
 			ID:       itemID + "->" + artifactID + ":artifact",
 			Source:   itemID,
@@ -232,6 +220,14 @@ func workspaceGraphAddItem(a *App, builder *workspaceGraphBuilder, item store.It
 	workspaceGraphAddItemActor(a, builder, item, itemID)
 	workspaceGraphAddItemLabels(a, builder, item, itemID)
 	workspaceGraphAddItemSourceBindings(a, builder, item, itemID)
+}
+
+func workspaceGraphAddItemArtifact(a *App, builder *workspaceGraphBuilder, artifactID int64) {
+	artifact, err := a.store.GetArtifact(artifactID)
+	if err != nil {
+		return
+	}
+	builder.addNode(workspaceGraphArtifactNode(artifact))
 }
 
 func workspaceGraphAddItemActor(a *App, builder *workspaceGraphBuilder, item store.Item, itemID string) {
@@ -309,6 +305,14 @@ func workspaceGraphAddItemSourceBindings(a *App, builder *workspaceGraphBuilder,
 	workspaceGraphAddExternalBindings(builder, bindings, itemID, item.Sphere)
 }
 
+func workspaceGraphItems(a *App, sphere string) []store.Item {
+	items, err := a.store.ListItemsFiltered(store.ItemListFilter{Sphere: sphere})
+	if err != nil {
+		return nil
+	}
+	return items
+}
+
 func workspaceGraphAddArtifactBindings(a *App, builder *workspaceGraphBuilder, artifact store.Artifact, artifactID string) {
 	bindings, err := a.store.GetBindingsByArtifact(artifact.ID)
 	if err != nil {
@@ -347,6 +351,14 @@ func workspaceGraphAddExternalBindings(builder *workspaceGraphBuilder, bindings 
 
 func workspaceGraphItemMatchesSource(item store.Item, source string) bool {
 	return item.Source != nil && strings.EqualFold(*item.Source, source)
+}
+
+func workspaceGraphItemMatchesSourceNode(item store.Item, source workspaceLocalGraphNode) bool {
+	if item.Source == nil || item.SourceRef == nil {
+		return false
+	}
+	sourceID := "source:" + *item.Source + ":" + *item.SourceRef
+	return source.ID == sourceID
 }
 
 func workspaceGraphItemHasLabel(a *App, itemID int64, labelName, sphere string) bool {
@@ -397,6 +409,6 @@ func (a *App) handleWorkspaceLocalGraph(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	graph := buildWorkspaceLocalGraph(a, workspace, r.URL.Query().Get("source"), parseWorkspaceGraphFilter(r, workspace))
+	graph := buildWorkspaceLocalGraphForRequest(a, workspace, parseWorkspaceGraphRequest(r), parseWorkspaceGraphFilter(r, workspace))
 	writeJSON(w, graph)
 }

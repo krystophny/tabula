@@ -113,3 +113,54 @@ test('local graph renders, filters, and opens nodes', async ({ page }) => {
   await expect(page.locator('#canvas-text')).toContainText('Type: source');
   await expect(page.locator('#canvas-text')).toContainText('Source: todoist');
 });
+
+test('local graph loads for active entity and non-markdown artifact roots', async ({ page }) => {
+  await page.evaluate(async () => {
+    const mod = await import('../../internal/web/static/canvas.js');
+    (window as any).__mockWorkspaceLocalGraph = {
+      ok: true,
+      root_id: 'item:7',
+      source_path: 'item:7',
+      nodes: [{ id: 'item:7', type: 'item', label: 'Follow up', source: 'todoist', sphere: 'work' }],
+      edges: [],
+    };
+    mod.renderCanvas({
+      event_id: 'entity-root',
+      kind: 'text_artifact',
+      title: 'Follow up',
+      path: 'item:7',
+      text: 'Type: item',
+    });
+  });
+  await expect(page.locator('#canvas-markdown-link-panel .canvas-local-graph')).toBeVisible();
+  await expect.poll(async () => {
+    const log = await page.evaluate(() => (window as any).__harnessLog.slice());
+    return log.some((entry: any) => entry.action === 'local_graph'
+      && String(entry.url || '').includes('root=item%3A7'));
+  }, { timeout: 5_000 }).toBe(true);
+
+  await page.evaluate(async () => {
+    const mod = await import('../../internal/web/static/canvas.js');
+    (window as any).__mockWorkspaceLocalGraph = {
+      ok: true,
+      root_id: 'artifact:44',
+      source_path: 'artifact:44',
+      nodes: [{ id: 'artifact:44', type: 'artifact', label: 'Figure', path: 'figures/plot.png', sphere: 'work' }],
+      edges: [],
+    };
+    mod.renderCanvas({
+      event_id: 'artifact-root',
+      kind: 'image_artifact',
+      title: 'Figure',
+      path: 'figures/plot.png',
+      url: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=',
+      meta: { artifact_id: 44, artifact_kind: 'image' },
+    });
+  });
+  await expect(page.locator('#canvas-markdown-link-panel .canvas-local-graph')).toBeVisible();
+  await expect.poll(async () => {
+    const log = await page.evaluate(() => (window as any).__harnessLog.slice());
+    return log.some((entry: any) => entry.action === 'local_graph'
+      && String(entry.url || '').includes('artifact_id=44'));
+  }, { timeout: 5_000 }).toBe(true);
+});

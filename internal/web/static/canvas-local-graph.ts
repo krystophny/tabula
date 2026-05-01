@@ -29,6 +29,14 @@ type GraphPayload = {
   error?: string;
 };
 
+export type GraphTarget = {
+  sourcePath?: string;
+  artifactID?: number;
+  artifactPath?: string;
+  rootID?: string;
+  label?: string;
+};
+
 const RELATIONS = [
   ['markdown_link', 'Links'],
   ['backlink', 'Backlinks'],
@@ -70,8 +78,16 @@ function relationParams(form: HTMLFormElement): string[] {
   return checked.map((input) => input.value).filter(Boolean);
 }
 
-function graphQuery(sourcePath: string, form: HTMLFormElement): URLSearchParams {
-  const params = new URLSearchParams({ source: sourcePath });
+function normalizeGraphTarget(target: GraphTarget | string): GraphTarget {
+  return typeof target === 'string' ? { sourcePath: target, label: target } : target;
+}
+
+function graphQuery(target: GraphTarget, form: HTMLFormElement): URLSearchParams {
+  const params = new URLSearchParams();
+  if (target.sourcePath) params.set('source', target.sourcePath);
+  if (target.artifactID && Number.isFinite(target.artifactID)) params.set('artifact_id', String(target.artifactID));
+  if (target.artifactPath) params.set('artifact_path', target.artifactPath);
+  if (target.rootID) params.set('root', target.rootID);
   for (const relation of relationParams(form)) params.append('relation', relation);
   const source = String(new FormData(form).get('source_filter') || '').trim();
   const label = String(new FormData(form).get('label') || '').trim();
@@ -260,9 +276,10 @@ function renderGraph(host: HTMLElement, payload: GraphPayload, renderCanvas: Ren
 export async function renderLocalGraphSection(
   panel: HTMLElement,
   workspaceID: string,
-  sourcePath: string,
+  target: GraphTarget | string,
   renderCanvas: RenderCanvas,
 ) {
+  const graphTarget = normalizeGraphTarget(target);
   const section = makeGraphSection(panel);
   const heading = section.querySelector('.canvas-link-panel-heading') || document.createElement('h4');
   heading.className = 'canvas-link-panel-heading';
@@ -270,17 +287,17 @@ export async function renderLocalGraphSection(
   section.replaceChildren(heading);
   let graphHost: HTMLElement;
   const form = renderGraphControls(section, () => {
-    void loadGraph(workspaceID, sourcePath, form, graphHost, renderCanvas);
+    void loadGraph(workspaceID, graphTarget, form, graphHost, renderCanvas);
   });
   graphHost = document.createElement('div');
   graphHost.className = 'canvas-local-graph-host';
   section.appendChild(graphHost);
-  await loadGraph(workspaceID, sourcePath, form, graphHost, renderCanvas);
+  await loadGraph(workspaceID, graphTarget, form, graphHost, renderCanvas);
 }
 
-async function loadGraph(workspaceID: string, sourcePath: string, form: HTMLFormElement, host: HTMLElement, renderCanvas: RenderCanvas) {
+async function loadGraph(workspaceID: string, target: GraphTarget, form: HTMLFormElement, host: HTMLElement, renderCanvas: RenderCanvas) {
   renderGraphMessage(host, 'Loading graph...');
-  const params = graphQuery(sourcePath, form);
+  const params = graphQuery(target, form);
   const resp = await fetch(apiURL(`workspaces/${encodeURIComponent(workspaceID)}/graph?${params.toString()}`), { cache: 'no-store' });
   if (!resp.ok) {
     renderGraphMessage(host, (await resp.text()).trim() || `HTTP ${resp.status}`);
