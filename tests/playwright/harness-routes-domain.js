@@ -31,6 +31,24 @@ __harnessRouteHandlers.push(async function harnessRouteDomain(u, opts) {
         if (delayMs > 0) await sleep(delayMs);
         return new Response(JSON.stringify({ ok: true, counts, sections }), { status: 200 });
       }
+      if (u.includes('/api/items/projects')) {
+        const sphere = requestedSphere(u);
+        const filters = requestedItemFilters(u);
+        const projectItems = projectItemReviewRows(sphere, filters);
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'project_item_review',
+          method: opts?.method || 'GET',
+          url: u,
+          payload: { count: projectItems.length },
+        });
+        return new Response(JSON.stringify({
+          ok: true,
+          project_items: projectItems,
+          total: projectItems.length,
+          stalled: projectItems.filter((row) => Boolean(row?.health?.stalled)).length,
+        }), { status: 200 });
+      }
       if (u.includes('/api/workspaces')) {
         const workspaces = Array.isArray(window.__itemSidebarWorkspaces) ? window.__itemSidebarWorkspaces : defaultItemSidebarWorkspaces();
         const sphere = requestedSphere(u);

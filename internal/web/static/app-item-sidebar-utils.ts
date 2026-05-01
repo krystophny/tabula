@@ -383,13 +383,15 @@ export async function fetchItemSidebarWorkspaces() {
     .filter((workspace) => workspace.id > 0 && workspace.name);
 }
 
-// fetchItemSidebarProjectItemReview pulls the GTD composite-outcome review
-// surface: every active Item(kind=project) plus its current health flags and
-// per-state child counts. Workspaces and external source containers (Todoist
-// projects, GitHub Projects, mail folders) never appear here — they only
-// surface as filters elsewhere.
-export async function fetchItemSidebarProjectItemReview() {
-  const resp = await fetch(apiURL(appendSphereQuery('items/projects')), { cache: 'no-store' });
+function normalizeProjectChildCount(value) {
+  const count = Number(value || 0);
+  return Number.isFinite(count) && count > 0 ? Math.trunc(count) : 0;
+}
+
+export async function fetchItemSidebarProjectItemReview(filters = state.itemSidebarFilters) {
+  const normalizedFilters = normalizeItemSidebarFilters(filters);
+  const endpoint = appendItemSidebarFilterQuery(appendSphereQuery('items/projects', state.activeSphere, normalizedFilters.all_spheres), normalizedFilters);
+  const resp = await fetch(apiURL(endpoint), { cache: 'no-store' });
   if (!resp.ok) {
     const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
     throw new Error(detail);
@@ -416,24 +418,20 @@ export async function fetchItemSidebarProjectItemReview() {
           stalled: Boolean(health?.stalled),
         },
         children: {
-          inbox: Number(children?.inbox || 0),
-          next: Number(children?.next || 0),
-          waiting: Number(children?.waiting || 0),
-          deferred: Number(children?.deferred || 0),
-          someday: Number(children?.someday || 0),
-          review: Number(children?.review || 0),
-          done: Number(children?.done || 0),
-          total: Number(children?.total || 0),
+          inbox: normalizeProjectChildCount(children?.inbox),
+          next: normalizeProjectChildCount(children?.next),
+          waiting: normalizeProjectChildCount(children?.waiting),
+          deferred: normalizeProjectChildCount(children?.deferred),
+          someday: normalizeProjectChildCount(children?.someday),
+          review: normalizeProjectChildCount(children?.review),
+          done: normalizeProjectChildCount(children?.done),
+          total: normalizeProjectChildCount(children?.total),
         },
       };
     })
     .filter((row) => row.id > 0 && row.title);
 }
 
-// fetchItemSidebarProjectItems returns the lightweight list shape used by
-// inline project-item pickers: id/title/state only. It now reuses the canonical
-// /api/items/projects review surface so the picker and the weekly review agree
-// on which outcomes are active.
 export async function fetchItemSidebarProjectItems() {
   const reviews = await fetchItemSidebarProjectItemReview();
   return reviews.map((row) => ({

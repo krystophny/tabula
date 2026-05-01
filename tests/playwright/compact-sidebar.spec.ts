@@ -161,6 +161,87 @@ test.describe('compact sidebar navigation (#746)', () => {
     })).toBe('');
   });
 
+  test('project item section lists child counts and opens a child-action queue', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await waitReady(page);
+    await seedSectionFixture(page, {
+      projectItemsOpen: 2,
+      peopleOpen: 0,
+      driftReview: 0,
+      dedupReview: 0,
+      recentMeetings: 0,
+    });
+    await page.evaluate(() => {
+      (window as any).__setItemSidebarData({
+        inbox: [],
+        next: [
+          { id: 900, title: 'Ship compact outcome', kind: 'project', state: 'next', sphere: 'private' },
+          { id: 901, title: 'Work-only outcome', kind: 'project', state: 'next', sphere: 'work' },
+          { id: 101, title: 'Write rollout note', state: 'next', sphere: 'private', project_item_id: 900 },
+          { id: 102, title: 'Unlinked next action', state: 'next', sphere: 'private', project_item_id: 999 },
+        ],
+        waiting: [
+          { id: 103, title: 'Waiting on reviewer', state: 'waiting', sphere: 'private', project_item_id: 900 },
+        ],
+        deferred: [
+          { id: 104, title: 'Check release date', state: 'deferred', sphere: 'private', project_item_id: 900 },
+        ],
+        someday: [
+          { id: 105, title: 'Consider polish pass', state: 'someday', sphere: 'private', project_item_id: 900 },
+        ],
+        done: [
+          { id: 106, title: 'Closed design note', state: 'done', sphere: 'private', project_item_id: 900 },
+        ],
+      });
+    });
+    await openInbox(page);
+    await page.locator('#sidebar-secondary-toggle').click();
+    await page.locator('.sidebar-secondary-row[data-section-id="project-items"]').click();
+
+    const projectRow = page.locator('#pr-file-list .pr-file-item[data-item-id="900"]');
+    await expect(projectRow).toBeVisible();
+    await expect(projectRow).toContainText('next 1');
+    await expect(projectRow).toContainText('waiting 1');
+    await expect(projectRow).toContainText('deferred 1');
+    await expect(projectRow).toContainText('someday 1');
+    await expect(projectRow).toContainText('recently closed 1');
+    await expect(page.locator('#pr-file-list')).not.toContainText('Work-only outcome');
+
+    await projectRow.click();
+    await expect.poll(async () => page.evaluate(() => {
+      const app = (window as any)._slopshellApp;
+      const s = app?.getState?.() || {};
+      return {
+        projectItemID: Number(s.itemSidebarFilters?.project_item_id || 0),
+        section: String(s.itemSidebarFilters?.section || ''),
+        view: String(s.itemSidebarView || ''),
+      };
+    })).toEqual({ projectItemID: 900, section: '', view: 'next' });
+    await expect(page.locator('#pr-file-list .pr-file-item[data-item-id="101"]')).toContainText('Write rollout note');
+    await expect(page.locator('#pr-file-list')).not.toContainText('Unlinked next action');
+  });
+
+  test('project item section has a clear empty state', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await waitReady(page);
+    await seedSectionFixture(page, { projectItemsOpen: 0 });
+    await page.evaluate(() => {
+      (window as any).__setItemSidebarData({
+        inbox: [],
+        next: [],
+        waiting: [],
+        deferred: [],
+        someday: [],
+        done: [],
+      });
+    });
+    await openInbox(page);
+    await page.locator('#sidebar-secondary-toggle').click();
+    await page.locator('.sidebar-secondary-row[data-section-id="project-items"]').click();
+
+    await expect(page.locator('#pr-file-list .pr-file-item')).toContainText('No project items.');
+  });
+
   test('clicking the recent-meetings row drills into review with a recent_meetings filter', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await waitReady(page);

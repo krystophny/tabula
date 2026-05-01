@@ -24,6 +24,7 @@ const hideItemSidebarMenu = (...args) => refs.hideItemSidebarMenu(...args);
 const applyItemSidebarCounts = (...args) => refs.applyItemSidebarCounts(...args);
 const itemSidebarEndpoint = (...args) => refs.itemSidebarEndpoint(...args);
 const itemSidebarCountsEndpoint = (...args) => refs.itemSidebarCountsEndpoint(...args);
+const fetchItemSidebarProjectItemReview = (...args) => refs.fetchItemSidebarProjectItemReview(...args);
 const openSidebarArtifactItem = (...args) => refs.openSidebarArtifactItem(...args);
 const isMobileViewport = (...args) => refs.isMobileViewport(...args);
 const suppressSyntheticClick = (...args) => refs.suppressSyntheticClick(...args);
@@ -138,22 +139,30 @@ export async function loadItemSidebarView(view = state.itemSidebarView, filters 
     return false;
   }
   try {
-    const [itemsResp, countsResp] = await Promise.all([
-      fetch(apiURL(itemSidebarEndpoint(normalizedView, normalizedFilters)), { cache: 'no-store' }),
+    const projectItemList = normalizedFilters.section === 'project_items';
+    const [itemsPayload, countsResp] = await Promise.all([
+      projectItemList
+        ? fetchItemSidebarProjectItemReview(normalizedFilters)
+        : fetch(apiURL(itemSidebarEndpoint(normalizedView, normalizedFilters)), { cache: 'no-store' }),
       fetch(apiURL(itemSidebarCountsEndpoint(normalizedFilters)), { cache: 'no-store' }),
     ]);
-    if (!itemsResp.ok) {
-      const detail = (await itemsResp.text()).trim() || `HTTP ${itemsResp.status}`;
-      throw new Error(detail);
-    }
     if (!countsResp.ok) {
       const detail = (await countsResp.text()).trim() || `HTTP ${countsResp.status}`;
       throw new Error(detail);
     }
-    const [itemsPayload, countsPayload] = await Promise.all([itemsResp.json(), countsResp.json()]);
+    const countsPayload = await countsResp.json();
+    const sidebarItems = projectItemList
+      ? (Array.isArray(itemsPayload) ? itemsPayload : [])
+      : (itemsPayload.ok ? await itemsPayload.json() : null);
+    if (!projectItemList && !itemsPayload.ok) {
+      const detail = (await itemsPayload.text()).trim() || `HTTP ${itemsPayload.status}`;
+      throw new Error(detail);
+    }
     if (workspaceID !== String(state.activeWorkspaceId || '').trim()) return false;
     if (loadSeq !== Number(state.itemSidebarLoadSeq || 0)) return false;
-    state.itemSidebarItems = Array.isArray(itemsPayload?.items) ? itemsPayload.items : [];
+    state.itemSidebarItems = projectItemList
+      ? sidebarItems
+      : (Array.isArray(sidebarItems?.items) ? sidebarItems.items : []);
     state.itemSidebarLoading = false;
     state.itemSidebarError = '';
     applyItemSidebarCounts(countsPayload?.counts, countsPayload?.sections);
@@ -231,9 +240,27 @@ export async function openSidebarPRReview(prNumber) {
   }
 }
 
+export async function openProjectItemQueue(item) {
+  const projectItemID = Number(item?.id || 0);
+  if (projectItemID <= 0) return false;
+  state.itemSidebarActiveItemID = projectItemID;
+  const nextFilters = {
+    all_spheres: Boolean(state.itemSidebarFilters?.all_spheres),
+    project_item_id: projectItemID,
+    section: '',
+  };
+  await loadItemSidebarView('next', nextFilters);
+  showStatus(`project item: ${String(item?.title || '').trim() || projectItemID}`);
+  return true;
+}
+
 export async function openSidebarItem(item) {
   state.itemSidebarActiveItemID = Number(item?.id || 0);
   renderPrReviewFileList();
+  if (String(item?.kind || '').trim().toLowerCase() === 'project') {
+    await openProjectItemQueue(item);
+    return;
+  }
   if (String(item?.artifact_kind || '').trim().toLowerCase() !== 'github_pr') {
     try {
       const opened = await openSidebarArtifactItem(item);
@@ -256,6 +283,7 @@ export async function openSidebarItem(item) {
 }
 
 export function itemKindLabel(item) {
+  if (String(item?.kind || '').trim().toLowerCase() === 'project') return 'project item';
   const artifactKind = String(item?.artifact_kind || '').trim().toLowerCase();
   if (artifactKind === 'idea_note') return 'idea';
   if (artifactKind === 'email' || artifactKind === 'email_thread' || artifactKind === 'email_draft') return 'email';
@@ -268,6 +296,7 @@ export function itemKindLabel(item) {
 }
 
 export function itemIconForRow(item) {
+  if (String(item?.kind || '').trim().toLowerCase() === 'project') return { icon: 'symbol', text: 'P' };
   const artifactKind = String(item?.artifact_kind || '').trim().toLowerCase();
   const source = itemSourceLabel(item);
   if (artifactKind === 'github_pr') return { icon: 'symbol', text: 'R' };
@@ -312,11 +341,31 @@ export function buildItemSidebarBadges(item) {
   const badges = [];
   const kind = itemKindLabel(item);
   if (kind) badges.push(kind);
+  if (String(item?.kind || '').trim().toLowerCase() === 'project') {
+    return badges.concat(projectItemChildBadges(item));
+  }
   const source = itemSourceLabel(item);
   if (source) badges.push(source);
   const artifactKind = normalizeDisplayText(item?.artifact_kind).toLowerCase();
   if (artifactKind && artifactKind !== kind) badges.push(artifactKind);
   return badges.filter((badge, index, all) => badge && all.indexOf(badge) === index);
+}
+
+function projectItemChildBadges(item) {
+  const children = item && typeof item === 'object' && item.children && typeof item.children === 'object'
+    ? item.children
+    : {};
+  const count = (field) => {
+    const value = Number(children[field] || 0);
+    return Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
+  };
+  return [
+    `next ${count('next')}`,
+    `waiting ${count('waiting')}`,
+    `deferred ${count('deferred')}`,
+    `someday ${count('someday')}`,
+    `recently closed ${count('done')}`,
+  ];
 }
 
 export function renderSidebarRow({
@@ -607,10 +656,13 @@ export function renderItemSidebarList(list) {
   actions.appendChild(scanButton);
   list.appendChild(actions);
   if (items.length === 0) {
+    const emptyLabel = String(state.itemSidebarFilters?.section || '').trim().toLowerCase() === 'project_items'
+      ? 'No project items.'
+      : `No ${sidebarTabLabel(state.itemSidebarView).toLowerCase()} items.`;
     list.appendChild(renderSidebarRow({
       icon: 'symbol',
       iconText: '0',
-      label: `No ${sidebarTabLabel(state.itemSidebarView).toLowerCase()} items.`,
+      label: emptyLabel,
       onClick: () => {},
     }));
     return;

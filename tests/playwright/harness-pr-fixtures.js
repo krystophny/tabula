@@ -568,15 +568,17 @@
         const source = String(parsed.searchParams.get('source') || '').trim().toLowerCase();
         const workspaceRaw = String(parsed.searchParams.get('workspace_id') || '').trim().toLowerCase();
         const contextID = Number(parsed.searchParams.get('context_id') || 0);
+        const projectItemID = Number(parsed.searchParams.get('project_item_id') || 0);
         const section = String(parsed.searchParams.get('section') || '').trim().toLowerCase();
         return {
           source,
           workspace_id: workspaceRaw,
           context_id: Number.isFinite(contextID) && contextID > 0 ? contextID : 0,
+          project_item_id: Number.isFinite(projectItemID) && projectItemID > 0 ? projectItemID : 0,
           section,
         };
       } catch (_) {
-        return { source: '', workspace_id: '', context_id: 0, section: '' };
+        return { source: '', workspace_id: '', context_id: 0, project_item_id: 0, section: '' };
       }
     }
     function descendantContextIDs(contextID) {
@@ -607,6 +609,7 @@
       if (sphere && itemSphere !== sphere) return false;
       const itemSource = String(item?.source || '').trim().toLowerCase();
       if (filters?.source && itemSource !== filters.source) return false;
+      if (Number(filters?.project_item_id || 0) > 0 && Number(item?.project_item_id || 0) !== Number(filters.project_item_id)) return false;
       if (filters?.section === 'project_items') {
         if (String(item?.kind || '').trim().toLowerCase() !== 'project') return false;
         if (String(item?.state || '').trim().toLowerCase() === 'done') return false;
@@ -626,6 +629,50 @@
         return itemContextIDs.some((value) => allowed.has(value));
       }
       return true;
+    }
+    function allItemSidebarEntries() {
+      const itemData = window.__itemSidebarData || defaultItemSidebarData();
+      return itemSidebarStateKeys().flatMap((key) => cloneItemSidebarEntries(itemData[key]));
+    }
+    function projectChildCounts(projectID) {
+      const counts = {
+        inbox: 0,
+        next: 0,
+        waiting: 0,
+        deferred: 0,
+        someday: 0,
+        review: 0,
+        done: 0,
+        total: 0,
+      };
+      allItemSidebarEntries().forEach((item) => {
+        if (Number(item?.project_item_id || 0) !== Number(projectID)) return;
+        const stateKey = String(item?.state || '').trim().toLowerCase();
+        if (Object.prototype.hasOwnProperty.call(counts, stateKey)) {
+          counts[stateKey] += 1;
+        }
+        counts.total += 1;
+      });
+      return counts;
+    }
+    function projectItemReviewRows(sphere, filters) {
+      const projectFilters = { ...(filters || {}), project_item_id: 0, section: 'project_items' };
+      return allItemSidebarEntries()
+        .filter((item) => matchesItemFilters(item, sphere, projectFilters))
+        .map((item) => {
+          const children = projectChildCounts(item.id);
+          return {
+            item,
+            health: {
+              has_next_action: children.next > 0,
+              has_waiting: children.waiting > 0,
+              has_deferred: children.deferred > 0,
+              has_someday: children.someday > 0,
+              stalled: children.next + children.waiting + children.deferred + children.someday === 0,
+            },
+            children,
+          };
+        });
     }
     const nextHarnessProjectId = (kind) => {
       const cleanKind = String(kind || 'project').trim().toLowerCase() || 'project';
