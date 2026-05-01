@@ -392,10 +392,10 @@ func (s *Store) CountSidebarSectionsFiltered(now time.Time, filter ItemListFilte
 		return out, err
 	}
 
-	peopleParts := []string{"items.actor_id IS NOT NULL", "items.state <> ?"}
-	peopleArgs := []any{ItemStateDone}
+	peopleParts := []string{"items.actor_id IS NOT NULL", "items.kind = ?", "items.state IN (?, ?, ?, ?)", "actors.kind = ?"}
+	peopleArgs := []any{ItemKindAction, ItemStateWaiting, ItemStateDeferred, ItemStateNext, ItemStateInbox, ActorKindHuman}
 	peopleParts, peopleArgs = appendItemFilterClauses(peopleParts, peopleArgs, normalizedFilter, "")
-	peopleQuery := `SELECT COUNT(DISTINCT items.actor_id) FROM items WHERE ` + stringsJoin(peopleParts, ` AND `)
+	peopleQuery := `SELECT COUNT(DISTINCT items.actor_id) FROM items JOIN actors ON actors.id = items.actor_id WHERE ` + stringsJoin(peopleParts, ` AND `)
 	if err := s.db.QueryRow(peopleQuery, peopleArgs...).Scan(&out.PeopleOpen); err != nil {
 		return out, err
 	}

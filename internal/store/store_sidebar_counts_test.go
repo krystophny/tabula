@@ -147,35 +147,34 @@ func TestCountSidebarSectionsFilteredExcludesAgedMeetings(t *testing.T) {
 func TestCountSidebarSectionsFilteredCountsDistinctPeopleOnOpenItems(t *testing.T) {
 	s := newTestStore(t)
 
-	alice, err := s.CreateActor("Alice", ActorKindHuman)
-	if err != nil {
-		t.Fatalf("CreateActor(Alice) error: %v", err)
+	mustActor := func(name, kind string) Actor {
+		actor, err := s.CreateActor(name, kind)
+		if err != nil {
+			t.Fatalf("CreateActor(%s) error: %v", name, err)
+		}
+		return actor
 	}
-	bob, err := s.CreateActor("Bob", ActorKindHuman)
-	if err != nil {
-		t.Fatalf("CreateActor(Bob) error: %v", err)
-	}
-	carol, err := s.CreateActor("Carol", ActorKindHuman)
-	if err != nil {
-		t.Fatalf("CreateActor(Carol) error: %v", err)
-	}
+	alice := mustActor("Alice", ActorKindHuman)
+	bob := mustActor("Bob", ActorKindHuman)
+	carol := mustActor("Carol", ActorKindHuman)
+	agent := mustActor("Codex Agent", ActorKindAgent)
 
-	if _, err := s.CreateItem("Awaiting Alice", ItemOptions{State: ItemStateWaiting, ActorID: &alice.ID}); err != nil {
-		t.Fatalf("CreateItem(Alice) error: %v", err)
+	items := []struct {
+		title string
+		opts  ItemOptions
+	}{
+		{"Awaiting Alice", ItemOptions{State: ItemStateWaiting, ActorID: &alice.ID}},
+		{"Also awaiting Alice", ItemOptions{State: ItemStateNext, ActorID: &alice.ID}},
+		{"Owe Bob", ItemOptions{State: ItemStateNext, ActorID: &bob.ID}},
+		{"Carol done", ItemOptions{State: ItemStateDone, ActorID: &carol.ID}},
+		{"Agent loop", ItemOptions{State: ItemStateWaiting, ActorID: &agent.ID}},
+		{"Project with actor", ItemOptions{Kind: ItemKindProject, State: ItemStateNext, ActorID: &carol.ID}},
+		{"No actor", ItemOptions{State: ItemStateNext}},
 	}
-	if _, err := s.CreateItem("Also awaiting Alice", ItemOptions{State: ItemStateNext, ActorID: &alice.ID}); err != nil {
-		t.Fatalf("CreateItem(Alice second) error: %v", err)
-	}
-	if _, err := s.CreateItem("Owe Bob", ItemOptions{State: ItemStateNext, ActorID: &bob.ID}); err != nil {
-		t.Fatalf("CreateItem(Bob) error: %v", err)
-	}
-	// Done item should not be counted even if it has an actor.
-	if _, err := s.CreateItem("Carol done", ItemOptions{State: ItemStateDone, ActorID: &carol.ID}); err != nil {
-		t.Fatalf("CreateItem(Carol done) error: %v", err)
-	}
-	// Item without actor should not contribute to people count.
-	if _, err := s.CreateItem("No actor", ItemOptions{State: ItemStateNext}); err != nil {
-		t.Fatalf("CreateItem(no actor) error: %v", err)
+	for _, item := range items {
+		if _, err := s.CreateItem(item.title, item.opts); err != nil {
+			t.Fatalf("CreateItem(%s) error: %v", item.title, err)
+		}
 	}
 
 	now := time.Date(2026, time.April, 30, 10, 0, 0, 0, time.UTC)
@@ -184,7 +183,7 @@ func TestCountSidebarSectionsFilteredCountsDistinctPeopleOnOpenItems(t *testing.
 		t.Fatalf("CountSidebarSectionsFiltered() error: %v", err)
 	}
 	if got.PeopleOpen != 2 {
-		t.Fatalf("PeopleOpen = %d, want 2 (Alice + Bob; Carol's done item excluded; un-actor-ed item ignored)", got.PeopleOpen)
+		t.Fatalf("PeopleOpen = %d, want 2 (Alice + Bob human action loops only)", got.PeopleOpen)
 	}
 }
 
