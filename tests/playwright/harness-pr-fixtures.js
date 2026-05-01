@@ -569,16 +569,18 @@
         const workspaceRaw = String(parsed.searchParams.get('workspace_id') || '').trim().toLowerCase();
         const contextID = Number(parsed.searchParams.get('context_id') || 0);
         const projectItemID = Number(parsed.searchParams.get('project_item_id') || 0);
+        const actorID = Number(parsed.searchParams.get('actor_id') || 0);
         const section = String(parsed.searchParams.get('section') || '').trim().toLowerCase();
         return {
           source,
           workspace_id: workspaceRaw,
           context_id: Number.isFinite(contextID) && contextID > 0 ? contextID : 0,
           project_item_id: Number.isFinite(projectItemID) && projectItemID > 0 ? projectItemID : 0,
+          actor_id: Number.isFinite(actorID) && actorID > 0 ? actorID : 0,
           section,
         };
       } catch (_) {
-        return { source: '', workspace_id: '', context_id: 0, project_item_id: 0, section: '' };
+        return { source: '', workspace_id: '', context_id: 0, project_item_id: 0, actor_id: 0, section: '' };
       }
     }
     function descendantContextIDs(contextID) {
@@ -609,6 +611,7 @@
       if (sphere && itemSphere !== sphere) return false;
       const itemSource = String(item?.source || '').trim().toLowerCase();
       if (filters?.source && itemSource !== filters.source) return false;
+      if (Number(filters?.actor_id || 0) > 0 && Number(item?.actor_id || 0) !== Number(filters.actor_id)) return false;
       if (Number(filters?.project_item_id || 0) > 0 && Number(item?.project_item_id || 0) !== Number(filters.project_item_id)) return false;
       if (filters?.section === 'project_items') {
         if (String(item?.kind || '').trim().toLowerCase() !== 'project') return false;
@@ -672,6 +675,78 @@
             },
             children,
           };
+        });
+    }
+    function actorByID(actorID) {
+      const actors = Array.isArray(window.__itemSidebarActors) ? window.__itemSidebarActors : defaultItemSidebarActors();
+      return actors.find((actor) => Number(actor?.id || 0) === Number(actorID || 0)) || null;
+    }
+    function personDashboardMeta(actor) {
+      let meta = {};
+      try { meta = JSON.parse(String(actor?.meta_json || '{}')); } catch (_) { meta = {}; }
+      const diagnostics = Array.isArray(meta?.diagnostics)
+        ? meta.diagnostics.map((entry) => String(entry || '').trim()).filter(Boolean)
+        : [];
+      if (!String(meta?.person_path || '').trim() && !diagnostics.some((entry) => entry.startsWith('needs_person_note:'))) {
+        diagnostics.push(`needs_person_note: ${String(actor?.name || '').trim()}`);
+      }
+      return {
+        person_path: String(meta?.person_path || '').trim(),
+        diagnostics,
+      };
+    }
+    function personDashboardForActor(actorID, sphere, filters) {
+      const actor = actorByID(actorID);
+      if (!actor) return null;
+      const scopedFilters = { ...(filters || {}), actor_id: Number(actorID || 0), section: '' };
+      const items = allItemSidebarEntries().filter((item) => {
+        if (String(item?.kind || 'action').trim().toLowerCase() === 'project') return false;
+        return matchesItemFilters(item, sphere, scopedFilters);
+      });
+      const waiting = items.filter((item) => ['waiting', 'deferred'].includes(String(item?.state || '').trim().toLowerCase()));
+      const owed = items.filter((item) => ['next', 'inbox'].includes(String(item?.state || '').trim().toLowerCase()));
+      const closed = items.filter((item) => String(item?.state || '').trim().toLowerCase() === 'done');
+      const childIDs = new Set(items.map((item) => Number(item?.id || 0)));
+      const projectItems = allItemSidebarEntries().filter((item) => {
+        if (String(item?.kind || '').trim().toLowerCase() !== 'project') return false;
+        return allItemSidebarEntries().some((child) => Number(child?.project_item_id || 0) === Number(item?.id || 0) && childIDs.has(Number(child?.id || 0)));
+      });
+      const meta = personDashboardMeta(actor);
+      return {
+        actor,
+        person: String(actor?.name || '').trim(),
+        person_path: meta.person_path || undefined,
+        counts: {
+          waiting_on_them: waiting.length,
+          i_owe_them: owed.length,
+          recently_closed: closed.length,
+          open: waiting.length + owed.length,
+        },
+        waiting_on_them: waiting,
+        i_owe_them: owed,
+        recently_closed: closed,
+        project_items: projectItems,
+        diagnostics: meta.diagnostics,
+      };
+    }
+    function personDashboardRows(sphere, filters) {
+      const actorIDs = new Set();
+      allItemSidebarEntries().forEach((item) => {
+        const actorID = Number(item?.actor_id || 0);
+        if (!(actorID > 0)) return;
+        const actor = actorByID(actorID);
+        if (String(actor?.kind || '').trim().toLowerCase() !== 'human') return;
+        if (String(item?.kind || 'action').trim().toLowerCase() === 'project') return;
+        if (matchesItemFilters(item, sphere, { ...(filters || {}), actor_id: 0, section: '' })) {
+          actorIDs.add(actorID);
+        }
+      });
+      return Array.from(actorIDs)
+        .map((actorID) => personDashboardForActor(actorID, sphere, filters))
+        .filter((row) => row && Number(row.counts?.open || 0) > 0)
+        .sort((left, right) => {
+          if (left.counts.open !== right.counts.open) return right.counts.open - left.counts.open;
+          return String(left.person || '').localeCompare(String(right.person || ''));
         });
     }
     const nextHarnessProjectId = (kind) => {

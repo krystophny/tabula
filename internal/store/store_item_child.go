@@ -2,8 +2,10 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 )
 
 const itemChildrenTableSchema = `CREATE TABLE IF NOT EXISTS item_children (
@@ -289,6 +291,242 @@ func sortProjectItemReviewsForWeeklyReview(reviews []ProjectItemReview) {
 		}
 		return reviews[i].Item.ID < reviews[j].Item.ID
 	})
+}
+
+func (s *Store) ListPersonOpenLoopDashboardsFiltered(filter ItemListFilter) ([]PersonOpenLoopDashboard, error) {
+	normalizedFilter, err := s.prepareItemListFilter(filter)
+	if err != nil {
+		return nil, err
+	}
+	items, err := s.listPersonOpenLoopItems(normalizedFilter, nil)
+	if err != nil {
+		return nil, err
+	}
+	actors, err := s.actorsByID()
+	if err != nil {
+		return nil, err
+	}
+	out := dashboardsFromPersonItems(items, actors)
+	sortPersonOpenLoopDashboards(out)
+	return out, nil
+}
+
+func (s *Store) GetPersonOpenLoopDashboardFiltered(actorID int64, filter ItemListFilter) (PersonOpenLoopDashboard, error) {
+	if actorID <= 0 {
+		return PersonOpenLoopDashboard{}, errors.New("actor_id must be a positive integer")
+	}
+	normalizedFilter, err := s.prepareItemListFilter(filter)
+	if err != nil {
+		return PersonOpenLoopDashboard{}, err
+	}
+	items, err := s.listPersonOpenLoopItems(normalizedFilter, &actorID)
+	if err != nil {
+		return PersonOpenLoopDashboard{}, err
+	}
+	actor, err := s.GetActor(actorID)
+	if err != nil {
+		return PersonOpenLoopDashboard{}, err
+	}
+	dashboard := newPersonOpenLoopDashboard(actor)
+	addPersonOpenLoopItems(&dashboard, items)
+	dashboard.ProjectItems, err = s.listLinkedProjectItemsForPerson(items, normalizedFilter)
+	if err != nil {
+		return PersonOpenLoopDashboard{}, err
+	}
+	return dashboard, nil
+}
+
+func (s *Store) listPersonOpenLoopItems(filter ItemListFilter, actorID *int64) ([]ItemSummary, error) {
+	scoped := filter
+	scoped.Section = ""
+	scoped.ActorID = nil
+	parts := []string{"i.actor_id IS NOT NULL", "i.kind = ?", "i.state IN (?, ?, ?, ?, ?)"}
+	args := []any{ItemKindAction, ItemStateWaiting, ItemStateDeferred, ItemStateNext, ItemStateInbox, ItemStateDone}
+	if actorID != nil {
+		parts = append(parts, "i.actor_id = ?")
+		args = append(args, *actorID)
+	}
+	parts, args = appendItemFilterClauses(parts, args, scoped, "i.")
+	query := itemSummarySelect + ` WHERE ` + stringsJoin(parts, ` AND `) + ` ORDER BY i.updated_at DESC, i.id ASC`
+	return s.listItemSummaries(query, args...)
+}
+
+func (s *Store) actorsByID() (map[int64]Actor, error) {
+	actors, err := s.ListActors()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64]Actor, len(actors))
+	for _, actor := range actors {
+		out[actor.ID] = actor
+	}
+	return out, nil
+}
+
+func dashboardsFromPersonItems(items []ItemSummary, actors map[int64]Actor) []PersonOpenLoopDashboard {
+	byActorID := map[int64]*PersonOpenLoopDashboard{}
+	for _, item := range items {
+		if item.ActorID == nil {
+			continue
+		}
+		actor, ok := actors[*item.ActorID]
+		if !ok || actor.Kind != ActorKindHuman {
+			continue
+		}
+		dashboard := byActorID[actor.ID]
+		if dashboard == nil {
+			next := newPersonOpenLoopDashboard(actor)
+			dashboard = &next
+			byActorID[actor.ID] = dashboard
+		}
+		addPersonOpenLoopItem(dashboard, item)
+	}
+	out := make([]PersonOpenLoopDashboard, 0, len(byActorID))
+	for _, dashboard := range byActorID {
+		if dashboard.Counts.Open > 0 {
+			out = append(out, *dashboard)
+		}
+	}
+	return out
+}
+
+func newPersonOpenLoopDashboard(actor Actor) PersonOpenLoopDashboard {
+	personPath, diagnostics := personDashboardMeta(actor)
+	return PersonOpenLoopDashboard{
+		Actor:       actor,
+		Person:      actor.Name,
+		PersonPath:  personPath,
+		Diagnostics: diagnostics,
+	}
+}
+
+func addPersonOpenLoopItems(dashboard *PersonOpenLoopDashboard, items []ItemSummary) {
+	for _, item := range items {
+		addPersonOpenLoopItem(dashboard, item)
+	}
+}
+
+func addPersonOpenLoopItem(dashboard *PersonOpenLoopDashboard, item ItemSummary) {
+	switch item.State {
+	case ItemStateWaiting, ItemStateDeferred:
+		dashboard.WaitingOnThem = append(dashboard.WaitingOnThem, item)
+		dashboard.Counts.WaitingOnThem++
+		dashboard.Counts.Open++
+	case ItemStateNext, ItemStateInbox:
+		dashboard.IOweThem = append(dashboard.IOweThem, item)
+		dashboard.Counts.IOweThem++
+		dashboard.Counts.Open++
+	case ItemStateDone:
+		dashboard.RecentlyClosed = append(dashboard.RecentlyClosed, item)
+		dashboard.Counts.RecentlyClosed++
+	}
+}
+
+func personDashboardMeta(actor Actor) (*string, []string) {
+	meta := map[string]any{}
+	if actor.MetaJSON != nil && strings.TrimSpace(*actor.MetaJSON) != "" {
+		_ = json.Unmarshal([]byte(*actor.MetaJSON), &meta)
+	}
+	personPath := firstMetaString(meta, "person_path", "brain_person_path")
+	diagnostics := metaDiagnostics(meta, actor.Name)
+	if personPath == nil && actor.Kind == ActorKindHuman && !hasNeedsPersonNoteDiagnostic(diagnostics) {
+		diagnostics = append(diagnostics, "needs_person_note: "+actor.Name)
+	}
+	return personPath, diagnostics
+}
+
+func firstMetaString(meta map[string]any, keys ...string) *string {
+	for _, key := range keys {
+		value := strings.TrimSpace(stringFromMeta(meta[key]))
+		if value != "" {
+			return &value
+		}
+	}
+	return nil
+}
+
+func metaDiagnostics(meta map[string]any, fallbackName string) []string {
+	out := []string{}
+	if raw, ok := meta["diagnostics"].([]any); ok {
+		for _, entry := range raw {
+			if text := strings.TrimSpace(stringFromMeta(entry)); text != "" {
+				out = append(out, text)
+			}
+		}
+	}
+	if text := strings.TrimSpace(stringFromMeta(meta["diagnostic"])); text != "" {
+		out = append(out, text)
+	}
+	if needs, ok := meta["needs_person_note"].(bool); ok && needs && !hasNeedsPersonNoteDiagnostic(out) {
+		name := strings.TrimSpace(stringFromMeta(meta["name"]))
+		if name == "" {
+			name = strings.TrimSpace(stringFromMeta(meta["person"]))
+		}
+		if name == "" {
+			name = strings.TrimSpace(fallbackName)
+		}
+		out = append(out, "needs_person_note: "+name)
+	}
+	return out
+}
+
+func stringFromMeta(value any) string {
+	text, _ := value.(string)
+	return text
+}
+
+func hasNeedsPersonNoteDiagnostic(diagnostics []string) bool {
+	for _, diagnostic := range diagnostics {
+		if strings.HasPrefix(strings.TrimSpace(diagnostic), "needs_person_note:") {
+			return true
+		}
+	}
+	return false
+}
+
+func sortPersonOpenLoopDashboards(dashboards []PersonOpenLoopDashboard) {
+	sort.Slice(dashboards, func(i, j int) bool {
+		left, right := dashboards[i], dashboards[j]
+		if left.Counts.Open != right.Counts.Open {
+			return left.Counts.Open > right.Counts.Open
+		}
+		return strings.ToLower(left.Person) < strings.ToLower(right.Person)
+	})
+}
+
+func (s *Store) listLinkedProjectItemsForPerson(items []ItemSummary, filter ItemListFilter) ([]ItemSummary, error) {
+	childIDs := itemSummaryIDs(items)
+	if len(childIDs) == 0 {
+		return []ItemSummary{}, nil
+	}
+	scoped := filter
+	scoped.Section = ""
+	scoped.ActorID = nil
+	scoped.ProjectItemID = nil
+	placeholders := make([]string, 0, len(childIDs))
+	args := []any{ItemKindProject}
+	for _, id := range childIDs {
+		placeholders = append(placeholders, "?")
+		args = append(args, id)
+	}
+	parts := []string{"i.kind = ?", `EXISTS (
+SELECT 1 FROM item_children link
+WHERE link.parent_item_id = i.id
+  AND link.child_item_id IN (` + stringsJoin(placeholders, ",") + `)
+)`}
+	parts, args = appendItemFilterClauses(parts, args, scoped, "i.")
+	query := itemSummarySelect + ` WHERE ` + stringsJoin(parts, ` AND `)
+	return s.listItemSummaries(query, args...)
+}
+
+func itemSummaryIDs(items []ItemSummary) []int64 {
+	out := make([]int64, 0, len(items))
+	for _, item := range items {
+		if item.ID > 0 {
+			out = append(out, item.ID)
+		}
+	}
+	return out
 }
 
 func (s *Store) GetProjectItemHealth(itemID int64) (ProjectItemHealth, error) {

@@ -10,6 +10,7 @@ import * as itemSidebarUtilsModule from './app-item-sidebar-utils.js';
 import * as itemSidebarGesturesModule from './app-item-sidebar-gestures.js';
 import * as itemSidebarArtifactsModule from './app-item-sidebar-artifacts.js';
 import * as itemSidebarSecondaryModule from './app-item-sidebar-secondary.js';
+import * as itemSidebarPeopleModule from './app-item-sidebar-people.js';
 import * as itemSidebarUiModule from './app-item-sidebar-ui.js';
 import * as prReviewModule from './app-pr-review.js';
 import * as chatUiModule from './app-chat-ui.js';
@@ -43,6 +44,7 @@ setAppRefs({
   ...itemSidebarGesturesModule,
   ...itemSidebarArtifactsModule,
   ...itemSidebarSecondaryModule,
+  ...itemSidebarPeopleModule,
   ...itemSidebarUiModule,
   ...prReviewModule,
   ...chatUiModule,

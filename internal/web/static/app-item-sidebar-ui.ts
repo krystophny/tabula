@@ -25,6 +25,9 @@ const applyItemSidebarCounts = (...args) => refs.applyItemSidebarCounts(...args)
 const itemSidebarEndpoint = (...args) => refs.itemSidebarEndpoint(...args);
 const itemSidebarCountsEndpoint = (...args) => refs.itemSidebarCountsEndpoint(...args);
 const fetchItemSidebarProjectItemReview = (...args) => refs.fetchItemSidebarProjectItemReview(...args);
+const fetchItemSidebarPeopleDashboard = (...args) => refs.fetchItemSidebarPeopleDashboard(...args);
+const fetchItemSidebarPersonDashboard = (...args) => refs.fetchItemSidebarPersonDashboard(...args);
+const openPersonOpenLoops = (...args) => refs.openPersonOpenLoops(...args);
 const openSidebarArtifactItem = (...args) => refs.openSidebarArtifactItem(...args);
 const isMobileViewport = (...args) => refs.isMobileViewport(...args);
 const suppressSyntheticClick = (...args) => refs.suppressSyntheticClick(...args);
@@ -134,6 +137,7 @@ export async function loadItemSidebarView(view = state.itemSidebarView, filters 
       }
     } catch (_) {}
     state.itemSidebarItems = [];
+    state.itemSidebarPersonDashboard = null;
     state.itemSidebarLoading = false;
     applyItemSidebarCounts(defaultItemSidebarCounts(), null);
     renderPrReviewFileList();
@@ -141,9 +145,15 @@ export async function loadItemSidebarView(view = state.itemSidebarView, filters 
   }
   try {
     const projectItemList = normalizedFilters.section === 'project_items';
+    const peopleList = normalizedFilters.section === 'people' && !(Number(normalizedFilters.actor_id || 0) > 0);
+    const personDetail = normalizedFilters.section === 'people' && Number(normalizedFilters.actor_id || 0) > 0;
     const [itemsPayload, countsResp] = await Promise.all([
       projectItemList
         ? fetchItemSidebarProjectItemReview(normalizedFilters)
+        : peopleList
+          ? fetchItemSidebarPeopleDashboard(normalizedFilters)
+          : personDetail
+            ? fetchItemSidebarPersonDashboard(normalizedFilters.actor_id, normalizedFilters)
         : fetch(apiURL(itemSidebarEndpoint(normalizedView, normalizedFilters)), { cache: 'no-store' }),
       fetch(apiURL(itemSidebarCountsEndpoint(normalizedFilters)), { cache: 'no-store' }),
     ]);
@@ -152,16 +162,19 @@ export async function loadItemSidebarView(view = state.itemSidebarView, filters 
       throw new Error(detail);
     }
     const countsPayload = await countsResp.json();
-    const sidebarItems = projectItemList
+    const sidebarItems = projectItemList || peopleList
       ? (Array.isArray(itemsPayload) ? itemsPayload : [])
+      : personDetail
+        ? []
       : (itemsPayload.ok ? await itemsPayload.json() : null);
-    if (!projectItemList && !itemsPayload.ok) {
+    if (!projectItemList && !peopleList && !personDetail && !itemsPayload.ok) {
       const detail = (await itemsPayload.text()).trim() || `HTTP ${itemsPayload.status}`;
       throw new Error(detail);
     }
     if (workspaceID !== String(state.activeWorkspaceId || '').trim()) return false;
     if (loadSeq !== Number(state.itemSidebarLoadSeq || 0)) return false;
-    state.itemSidebarItems = projectItemList
+    state.itemSidebarPersonDashboard = personDetail ? itemsPayload : null;
+    state.itemSidebarItems = projectItemList || peopleList
       ? sidebarItems
       : (Array.isArray(sidebarItems?.items) ? sidebarItems.items : []);
     state.itemSidebarLoading = false;
@@ -173,6 +186,7 @@ export async function loadItemSidebarView(view = state.itemSidebarView, filters 
     if (workspaceID !== String(state.activeWorkspaceId || '').trim()) return false;
     if (loadSeq !== Number(state.itemSidebarLoadSeq || 0)) return false;
     state.itemSidebarItems = [];
+    state.itemSidebarPersonDashboard = null;
     state.itemSidebarLoading = false;
     state.itemSidebarError = String(err?.message || err || 'item list unavailable');
     renderPrReviewFileList();
@@ -258,6 +272,10 @@ export async function openProjectItemQueue(item) {
 export async function openSidebarItem(item) {
   state.itemSidebarActiveItemID = Number(item?.id || 0);
   renderPrReviewFileList();
+  if (String(item?.kind || '').trim().toLowerCase() === 'person_dashboard') {
+    await openPersonOpenLoops(item);
+    return;
+  }
   if (String(item?.kind || '').trim().toLowerCase() === 'project') {
     await openProjectItemQueue(item);
     return;
@@ -284,6 +302,7 @@ export async function openSidebarItem(item) {
 }
 
 export function itemKindLabel(item) {
+  if (String(item?.kind || '').trim().toLowerCase() === 'person_dashboard') return 'person';
   if (String(item?.kind || '').trim().toLowerCase() === 'project') return 'project item';
   const artifactKind = String(item?.artifact_kind || '').trim().toLowerCase();
   if (artifactKind === 'idea_note') return 'idea';
@@ -297,6 +316,7 @@ export function itemKindLabel(item) {
 }
 
 export function itemIconForRow(item) {
+  if (String(item?.kind || '').trim().toLowerCase() === 'person_dashboard') return { icon: 'symbol', text: '@' };
   if (String(item?.kind || '').trim().toLowerCase() === 'project') return { icon: 'symbol', text: 'P' };
   const artifactKind = String(item?.artifact_kind || '').trim().toLowerCase();
   const source = itemSourceLabel(item);
@@ -342,6 +362,9 @@ export function buildItemSidebarBadges(item) {
   const badges = [];
   const kind = itemKindLabel(item);
   if (kind) badges.push(kind);
+  if (String(item?.kind || '').trim().toLowerCase() === 'person_dashboard') {
+    return badges.concat(personOpenLoopBadges(item));
+  }
   if (String(item?.kind || '').trim().toLowerCase() === 'project') {
     return badges.concat(projectItemChildBadges(item));
   }
@@ -350,6 +373,26 @@ export function buildItemSidebarBadges(item) {
   const artifactKind = normalizeDisplayText(item?.artifact_kind).toLowerCase();
   if (artifactKind && artifactKind !== kind) badges.push(artifactKind);
   return badges.filter((badge, index, all) => badge && all.indexOf(badge) === index);
+}
+
+function personOpenLoopBadges(item) {
+  const counts = item && typeof item === 'object' && item.counts && typeof item.counts === 'object'
+    ? item.counts
+    : {};
+  const count = (field) => {
+    const value = Number(counts[field] || 0);
+    return Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
+  };
+  const badges = [
+    `waiting ${count('waiting_on_them')}`,
+    `owed ${count('i_owe_them')}`,
+    `closed ${count('recently_closed')}`,
+  ];
+  const diagnostics = Array.isArray(item?.diagnostics) ? item.diagnostics : [];
+  if (diagnostics.some((entry) => String(entry || '').trim().startsWith('needs_person_note:'))) {
+    badges.push('needs person note');
+  }
+  return badges;
 }
 
 function projectItemChildBadges(item) {
@@ -558,6 +601,54 @@ export function renderSidebarRow({
   return button;
 }
 
+function renderPersonGroupHeading(label, count) {
+  const heading = document.createElement('div');
+  heading.className = 'sidebar-group-heading';
+  heading.textContent = `${label} (${Number(count || 0)})`;
+  return heading;
+}
+
+function renderPersonOpenLoopRows(list, label, rows) {
+  const items = Array.isArray(rows) ? rows : [];
+  list.appendChild(renderPersonGroupHeading(label, items.length));
+  items.forEach((item) => {
+    const icon = itemIconForRow(item);
+    list.appendChild(renderSidebarRow({
+      icon: icon.icon,
+      iconText: icon.text,
+      label: String(item?.title || 'Untitled item'),
+      subtitle: buildItemSidebarSubtitle(item),
+      badges: buildItemSidebarBadges(item),
+      meta: formatSidebarAge(item?.updated_at || item?.created_at),
+      active: Number(item?.id || 0) === Number(state.itemSidebarActiveItemID || 0),
+      item,
+      onClick: () => { void openSidebarItem(item); },
+    }));
+  });
+}
+
+function renderPersonDashboard(list, dashboard) {
+  if (!dashboard) return false;
+  const diagnostics = Array.isArray(dashboard?.diagnostics) ? dashboard.diagnostics : [];
+  if (diagnostics.length > 0) {
+    list.appendChild(renderSidebarRow({
+      icon: 'symbol',
+      iconText: '!',
+      label: diagnostics.join('; '),
+      badges: ['diagnostic'],
+      onClick: () => {},
+    }));
+  }
+  renderPersonOpenLoopRows(list, 'Waiting on them', dashboard.waiting_on_them);
+  renderPersonOpenLoopRows(list, 'I owe them', dashboard.i_owe_them);
+  renderPersonOpenLoopRows(list, 'Recently closed', dashboard.recently_closed);
+  const projectItems = Array.isArray(dashboard?.project_items) ? dashboard.project_items : [];
+  if (projectItems.length > 0) {
+    renderPersonOpenLoopRows(list, 'Project items', projectItems);
+  }
+  return true;
+}
+
 export function renderItemSidebarList(list) {
   if (state.itemSidebarLoading) {
     list.appendChild(renderSidebarRow({
@@ -578,6 +669,7 @@ export function renderItemSidebarList(list) {
     return;
   }
   const items = Array.isArray(state.itemSidebarItems) ? state.itemSidebarItems : [];
+  const personDashboard = state.itemSidebarPersonDashboard || null;
   const activeItem = items.find((entry) => Number(entry?.id || 0) === Number(state.itemSidebarActiveItemID || 0)) || null;
   const actions = document.createElement('div');
   actions.className = 'sidebar-actions';
@@ -657,10 +749,15 @@ export function renderItemSidebarList(list) {
   });
   actions.appendChild(scanButton);
   list.appendChild(actions);
+  if (personDashboard) {
+    renderPersonDashboard(list, personDashboard);
+    return;
+  }
   if (items.length === 0) {
-    const emptyLabel = String(state.itemSidebarFilters?.section || '').trim().toLowerCase() === 'project_items'
-      ? 'No project items.'
-      : `No ${sidebarTabLabel(state.itemSidebarView).toLowerCase()} items.`;
+    const section = String(state.itemSidebarFilters?.section || '').trim().toLowerCase();
+    let emptyLabel = `No ${sidebarTabLabel(state.itemSidebarView).toLowerCase()} items.`;
+    if (section === 'project_items') emptyLabel = 'No project items.';
+    if (section === 'people') emptyLabel = 'No people with open loops.';
     list.appendChild(renderSidebarRow({
       icon: 'symbol',
       iconText: '0',

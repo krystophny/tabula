@@ -248,3 +248,145 @@ func TestItemProjectReviewSourceContainerStaysAFilter(t *testing.T) {
 		}
 	}
 }
+
+func TestItemPeopleDashboardCountsOpenLoopsByPersonAndSphere(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	meta := `{"person_path":"brain/people/Ada Example.md"}`
+	ada, err := app.store.CreateActorWithOptions("Ada Example", store.ActorKindHuman, store.ActorOptions{MetaJSON: &meta})
+	if err != nil {
+		t.Fatalf("CreateActor(Ada) error: %v", err)
+	}
+	bob, err := app.store.CreateActor("Bob Missing", store.ActorKindHuman)
+	if err != nil {
+		t.Fatalf("CreateActor(Bob) error: %v", err)
+	}
+	carol, err := app.store.CreateActor("Carol Closed", store.ActorKindHuman)
+	if err != nil {
+		t.Fatalf("CreateActor(Carol) error: %v", err)
+	}
+	agent, err := app.store.CreateActor("Codex Agent", store.ActorKindAgent)
+	if err != nil {
+		t.Fatalf("CreateActor(agent) error: %v", err)
+	}
+	work := store.SphereWork
+	private := store.SpherePrivate
+	if _, err := app.store.CreateItem("Waiting for Ada draft", store.ItemOptions{State: store.ItemStateWaiting, ActorID: &ada.ID, Sphere: &work}); err != nil {
+		t.Fatalf("CreateItem(waiting) error: %v", err)
+	}
+	if _, err := app.store.CreateItem("Send Ada answer", store.ItemOptions{State: store.ItemStateNext, ActorID: &ada.ID, Sphere: &work}); err != nil {
+		t.Fatalf("CreateItem(owe) error: %v", err)
+	}
+	if _, err := app.store.CreateItem("Closed Ada thread", store.ItemOptions{State: store.ItemStateDone, ActorID: &ada.ID, Sphere: &work}); err != nil {
+		t.Fatalf("CreateItem(done) error: %v", err)
+	}
+	if _, err := app.store.CreateItem("Private Ada task", store.ItemOptions{State: store.ItemStateNext, ActorID: &ada.ID, Sphere: &private}); err != nil {
+		t.Fatalf("CreateItem(private) error: %v", err)
+	}
+	if _, err := app.store.CreateItem("Waiting for Bob", store.ItemOptions{State: store.ItemStateWaiting, ActorID: &bob.ID, Sphere: &work}); err != nil {
+		t.Fatalf("CreateItem(Bob) error: %v", err)
+	}
+	if _, err := app.store.CreateItem("Closed Carol thread", store.ItemOptions{State: store.ItemStateDone, ActorID: &carol.ID, Sphere: &work}); err != nil {
+		t.Fatalf("CreateItem(Carol) error: %v", err)
+	}
+	if _, err := app.store.CreateItem("Waiting on agent", store.ItemOptions{State: store.ItemStateWaiting, ActorID: &agent.ID, Sphere: &work}); err != nil {
+		t.Fatalf("CreateItem(agent item) error: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/people?sphere=work", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	rows, _ := decodeJSONResponse(t, rr)["people"].([]any)
+	if len(rows) != 2 {
+		t.Fatalf("people len = %d, want 2", len(rows))
+	}
+	adaRow := personDashboardByName(t, rows, "Ada Example")
+	counts := adaRow["counts"].(map[string]any)
+	if int(counts["waiting_on_them"].(float64)) != 1 || int(counts["i_owe_them"].(float64)) != 1 || int(counts["recently_closed"].(float64)) != 1 {
+		t.Fatalf("Ada counts = %#v, want 1/1/1", counts)
+	}
+	if adaRow["person_path"] != "brain/people/Ada Example.md" {
+		t.Fatalf("Ada person_path = %v", adaRow["person_path"])
+	}
+	bobRow := personDashboardByName(t, rows, "Bob Missing")
+	diagnostics, _ := bobRow["diagnostics"].([]any)
+	if len(diagnostics) != 1 || diagnostics[0] != "needs_person_note: Bob Missing" {
+		t.Fatalf("Bob diagnostics = %#v", bobRow["diagnostics"])
+	}
+	if row := findPersonDashboardByName(rows, "Carol Closed"); row != nil {
+		t.Fatalf("closed-only person was listed: %#v", row)
+	}
+	if row := findPersonDashboardByName(rows, "Codex Agent"); row != nil {
+		t.Fatalf("agent was listed as a person: %#v", row)
+	}
+}
+
+func TestItemPersonDashboardDrillsIntoGroupsAndLinkedProjectItems(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	actor, err := app.store.CreateActor("Ada Example", store.ActorKindHuman)
+	if err != nil {
+		t.Fatalf("CreateActor() error: %v", err)
+	}
+	waiting, err := app.store.CreateItem("Waiting for Ada draft", store.ItemOptions{State: store.ItemStateWaiting, ActorID: &actor.ID})
+	if err != nil {
+		t.Fatalf("CreateItem(waiting) error: %v", err)
+	}
+	owe, err := app.store.CreateItem("Send Ada answer", store.ItemOptions{State: store.ItemStateInbox, ActorID: &actor.ID})
+	if err != nil {
+		t.Fatalf("CreateItem(owe) error: %v", err)
+	}
+	if _, err := app.store.CreateItem("Closed Ada thread", store.ItemOptions{State: store.ItemStateDone, ActorID: &actor.ID}); err != nil {
+		t.Fatalf("CreateItem(done) error: %v", err)
+	}
+	project, err := app.store.CreateItem("Ada collaboration outcome", store.ItemOptions{Kind: store.ItemKindProject, State: store.ItemStateNext})
+	if err != nil {
+		t.Fatalf("CreateItem(project) error: %v", err)
+	}
+	if err := app.store.LinkItemChild(project.ID, waiting.ID, store.ItemLinkRoleSupport); err != nil {
+		t.Fatalf("LinkItemChild(waiting) error: %v", err)
+	}
+	if err := app.store.LinkItemChild(project.ID, owe.ID, store.ItemLinkRoleNextAction); err != nil {
+		t.Fatalf("LinkItemChild(owe) error: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/people/"+itoa(actor.ID), nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	person := decodeJSONResponse(t, rr)["person"].(map[string]any)
+	if len(person["waiting_on_them"].([]any)) != 1 {
+		t.Fatalf("waiting_on_them = %#v, want one item", person["waiting_on_them"])
+	}
+	if len(person["i_owe_them"].([]any)) != 1 {
+		t.Fatalf("i_owe_them = %#v, want one item", person["i_owe_them"])
+	}
+	if len(person["recently_closed"].([]any)) != 1 {
+		t.Fatalf("recently_closed = %#v, want one item", person["recently_closed"])
+	}
+	projects, _ := person["project_items"].([]any)
+	if len(projects) != 1 || projects[0].(map[string]any)["title"] != "Ada collaboration outcome" {
+		t.Fatalf("project_items = %#v, want linked outcome", person["project_items"])
+	}
+}
+
+func personDashboardByName(t *testing.T, rows []any, name string) map[string]any {
+	t.Helper()
+	row := findPersonDashboardByName(rows, name)
+	if row != nil {
+		return row
+	}
+	t.Fatalf("missing person dashboard %q in %#v", name, rows)
+	return nil
+}
+
+func findPersonDashboardByName(rows []any, name string) map[string]any {
+	for _, raw := range rows {
+		row := raw.(map[string]any)
+		if row["person"] == name {
+			return row
+		}
+	}
+	return nil
+}

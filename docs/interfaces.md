@@ -169,6 +169,8 @@ Domain model API:
 - `GET /api/items/someday`
 - `GET /api/items/review`
 - `GET /api/items/projects`
+- `GET /api/items/people`
+- `GET /api/items/people/{actor_id}`
 - `GET /api/items/done`
 - `GET /api/items/counts`
 - `POST /api/items/sync/github`

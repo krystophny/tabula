@@ -323,6 +323,25 @@ type ProjectItemReview struct {
 	Children ProjectChildCounts `json:"children"`
 }
 
+type PersonOpenLoopCounts struct {
+	WaitingOnThem  int `json:"waiting_on_them"`
+	IOweThem       int `json:"i_owe_them"`
+	RecentlyClosed int `json:"recently_closed"`
+	Open           int `json:"open"`
+}
+
+type PersonOpenLoopDashboard struct {
+	Actor          Actor                `json:"actor"`
+	Person         string               `json:"person"`
+	PersonPath     *string              `json:"person_path,omitempty"`
+	Counts         PersonOpenLoopCounts `json:"counts"`
+	WaitingOnThem  []ItemSummary        `json:"waiting_on_them,omitempty"`
+	IOweThem       []ItemSummary        `json:"i_owe_them,omitempty"`
+	RecentlyClosed []ItemSummary        `json:"recently_closed,omitempty"`
+	ProjectItems   []ItemSummary        `json:"project_items,omitempty"`
+	Diagnostics    []string             `json:"diagnostics,omitempty"`
+}
+
 type TimeEntry struct {
 	ID          int64   `json:"id"`
 	WorkspaceID *int64  `json:"workspace_id,omitempty"`

@@ -31,6 +31,34 @@ __harnessRouteHandlers.push(async function harnessRouteDomain(u, opts) {
         if (delayMs > 0) await sleep(delayMs);
         return new Response(JSON.stringify({ ok: true, counts, sections }), { status: 200 });
       }
+      if (/\/api\/items\/people\/\d+(?:\?|$)/.test(u)) {
+        const sphere = requestedSphere(u);
+        const filters = requestedItemFilters(u);
+        const match = u.match(/\/api\/items\/people\/(\d+)(?:\?|$)/);
+        const person = personDashboardForActor(Number(match?.[1] || 0), sphere, filters);
+        if (!person) return new Response('person not found', { status: 404 });
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'person_dashboard',
+          method: opts?.method || 'GET',
+          url: u,
+          payload: { actor_id: Number(match?.[1] || 0) },
+        });
+        return new Response(JSON.stringify({ ok: true, person }), { status: 200 });
+      }
+      if (u.includes('/api/items/people')) {
+        const sphere = requestedSphere(u);
+        const filters = requestedItemFilters(u);
+        const people = personDashboardRows(sphere, filters);
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'people_dashboard',
+          method: opts?.method || 'GET',
+          url: u,
+          payload: { count: people.length },
+        });
+        return new Response(JSON.stringify({ ok: true, people, total: people.length }), { status: 200 });
+      }
       if (u.includes('/api/items/projects')) {
         const sphere = requestedSphere(u);
         const filters = requestedItemFilters(u);

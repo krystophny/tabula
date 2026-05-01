@@ -242,6 +242,67 @@ test.describe('compact sidebar navigation (#746)', () => {
     await expect(page.locator('#pr-file-list .pr-file-item')).toContainText('No project items.');
   });
 
+  test('people section lists open-loop counts and drills into per-person queues', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await waitReady(page);
+    await seedSectionFixture(page, {
+      projectItemsOpen: 1,
+      peopleOpen: 2,
+      driftReview: 0,
+      dedupReview: 0,
+      recentMeetings: 0,
+    });
+    await page.evaluate(() => {
+      (window as any).__itemSidebarActors = [
+        { id: 1, name: 'Ada Example', kind: 'human', meta_json: '{"person_path":"brain/people/Ada Example.md"}' },
+        { id: 2, name: 'Missing Person', kind: 'human' },
+      ];
+      (window as any).__setItemSidebarData({
+        inbox: [
+          { id: 101, title: 'Send Ada answer', state: 'inbox', sphere: 'private', actor_id: 1, actor_name: 'Ada Example', project_item_id: 900 },
+          { id: 201, title: 'Clarify missing note', state: 'inbox', sphere: 'private', actor_id: 2, actor_name: 'Missing Person' },
+        ],
+        waiting: [
+          { id: 102, title: 'Waiting for Ada draft', state: 'waiting', sphere: 'private', actor_id: 1, actor_name: 'Ada Example', project_item_id: 900 },
+        ],
+        deferred: [],
+        someday: [],
+        done: [
+          { id: 103, title: 'Closed Ada thread', state: 'done', sphere: 'private', actor_id: 1, actor_name: 'Ada Example', project_item_id: 900 },
+        ],
+        next: [
+          { id: 900, title: 'Ada collaboration outcome', kind: 'project', state: 'next', sphere: 'private' },
+        ],
+      });
+    });
+    await openInbox(page);
+    await page.locator('#sidebar-secondary-toggle').click();
+    await page.locator('.sidebar-secondary-row[data-section-id="people"]').click();
+
+    const adaRow = page.locator('#pr-file-list .pr-file-item[data-item-id="1"]');
+    await expect(adaRow).toBeVisible();
+    await expect(adaRow).toContainText('Ada Example');
+    await expect(adaRow).toContainText('waiting 1');
+    await expect(adaRow).toContainText('owed 1');
+    await expect(adaRow).toContainText('closed 1');
+    await expect(page.locator('#pr-file-list')).toContainText('needs person note');
+
+    await adaRow.click();
+    await expect.poll(async () => page.evaluate(() => {
+      const app = (window as any)._slopshellApp;
+      const s = app?.getState?.() || {};
+      return {
+        actorID: Number(s.itemSidebarFilters?.actor_id || 0),
+        section: String(s.itemSidebarFilters?.section || ''),
+      };
+    })).toEqual({ actorID: 1, section: 'people' });
+    await expect(page.locator('#pr-file-list')).toContainText('Waiting on them (1)');
+    await expect(page.locator('#pr-file-list')).toContainText('I owe them (1)');
+    await expect(page.locator('#pr-file-list')).toContainText('Recently closed (1)');
+    await expect(page.locator('#pr-file-list')).toContainText('Project items (1)');
+    await expect(page.locator('#pr-file-list')).toContainText('Ada collaboration outcome');
+  });
+
   test('clicking the recent-meetings row drills into review with a recent_meetings filter', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await waitReady(page);

@@ -296,6 +296,7 @@ export const state = {
   },
   itemSidebarLabelName: '',
   itemSidebarItems: [],
+  itemSidebarPersonDashboard: null,
   itemSidebarCounts: { inbox: 0, next: 0, waiting: 0, deferred: 0, someday: 0, review: 0, done: 0 },
   itemSidebarSectionCounts: { project_items_open: 0, people_open: 0, drift_review: 0, dedup_review: 0, recent_meetings: 0 },
   itemSidebarSecondaryOpen: false,
