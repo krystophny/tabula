@@ -66,9 +66,15 @@ func commandArgs(args []string) []string {
 	if i >= len(args) {
 		return nil
 	}
-	if strings.ToLower(args[i]) == "brain" {
+	switch strings.ToLower(args[i]) {
+	case "brain":
 		if i+1 >= len(args) {
 			return []string{"brain"}
+		}
+		return args[i+1:]
+	case "gtd":
+		if i+1 >= len(args) {
+			return []string{"gtd"}
 		}
 		return args[i+1:]
 	}

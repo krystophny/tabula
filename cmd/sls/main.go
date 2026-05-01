@@ -43,17 +43,20 @@ func main() {
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	if isBrainSubcommand(args) || isTopLevelLinkFollow(args) || isTopLevelAgentHere(args) {
-		brainArgs := commandArgs(args)
+	if isBrainSubcommand(args) || isTopLevelLinkFollow(args) || isTopLevelAgentHere(args) || isGtdSubcommand(args) {
+		subArgs := commandArgs(args)
 		opts, _, err := parseFlags(args)
 		if err != nil {
 			fmt.Fprintln(stderr, err)
 			return 2
 		}
 		if isTopLevelAgentHere(args) {
-			return handleAgentHereCommand(brainArgs, opts, stdout, stderr)
+			return handleAgentHereCommand(subArgs, opts, stdout, stderr)
 		}
-		return handleBrainCommand(brainArgs, opts)
+		if isGtdSubcommand(args) {
+			return handleGtdCommand(subArgs, opts, stdout, stderr)
+		}
+		return handleBrainCommand(subArgs, opts)
 	}
 
 	opts, tail, err := parseFlags(args)
@@ -211,6 +214,19 @@ Brain commands (standalone, before chat flags):
   sls brain links <note> [<sphere>]  show links in a brain note
   sls brain backlinks <note> [<sphere>] find backlinks to a brain note
   sls brain link follow <note> <target> [<sphere>] resolve a wiki link
+
+GTD commands (standalone, before chat flags):
+  sls gtd inbox       [filters...]   unprocessed captures across all sources
+  sls gtd next        [filters...]   actionable next actions
+  sls gtd waiting     [filters...]   delegated/awaited items
+  sls gtd later       [filters...]   deferred/tickler items (alias: deferred)
+  sls gtd someday     [filters...]   parked actions and project items
+  sls gtd review      [filters...]   stalled or needs-clarification items
+  sls gtd projects    [filters...]   Item(kind=project) outcomes only
+  Filter flags: --vault, --source, --source-container, --label, --label-id,
+                --actor-id, --workspace, --project-item-id (alias --project,
+                --project-item), --due-before, --due-after,
+                --follow-up-before, --follow-up-after, --json
 
 Link follow (top-level):
   sls link follow <note> <target> [<sphere>]    same as sls brain link follow

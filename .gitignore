@@ -13,6 +13,7 @@ test-results/
 tests/manual/
 /slopshell
 /slopshell-edge
+/sls
 tools/
 .env
 internal/web/static/vad/
