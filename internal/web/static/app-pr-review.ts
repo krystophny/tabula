@@ -474,7 +474,7 @@ export async function submitMeetingSummaryItems(panel) {
     showStatus('select at least one action item');
     return false;
   }
-  setMeetingSummaryItemsBusy(panel, true, 'Creating inbox items...');
+  setMeetingSummaryItemsBusy(panel, true, 'Sending actions to GTD...');
   try {
     const resp = await fetch(apiURL('workspaces/active/meeting-items'), {
       method: 'POST',
@@ -502,8 +502,8 @@ export async function submitMeetingSummaryItems(panel) {
     const status = panel.querySelector('.meeting-summary-items-status');
     if (status instanceof HTMLElement) {
       status.textContent = createdCount === 1
-        ? '1 inbox item created from this summary.'
-        : `${createdCount} inbox items created from this summary.`;
+        ? '1 action sent to GTD from this summary.'
+        : `${createdCount} actions sent to GTD from this summary.`;
     }
     await loadItemSidebarView('inbox');
     setMeetingSummaryItemsBusy(panel, false);
@@ -514,12 +514,12 @@ export async function submitMeetingSummaryItems(panel) {
       }
     });
     updateMeetingSummaryItemsSelection(panel);
-    showStatus(createdCount === 1 ? 'meeting item added to inbox' : 'meeting items added to inbox');
+    showStatus(createdCount === 1 ? 'meeting action sent to GTD' : 'meeting actions sent to GTD');
     return true;
   } catch (err) {
     setMeetingSummaryItemsBusy(panel, false);
     updateMeetingSummaryItemsSelection(panel);
-    showStatus(`meeting item create failed: ${String(err?.message || err || 'unknown error')}`);
+    showStatus(`meeting GTD ingest failed: ${String(err?.message || err || 'unknown error')}`);
     return false;
   }
 }

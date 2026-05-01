@@ -40,7 +40,7 @@ export {
   requestMicRefresh,
 } from './app-voice-audio.js';
 
-const { marked, apiURL, wsURL, renderCanvas, clearCanvas, getLocationFromSelection, clearLineHighlight, escapeHtml, sanitizeHtml, getActiveArtifactTitle, getActiveTextEventId, getPreviousArtifactText, getUiState, setUiMode, showIndicatorMode, hideIndicator, showTextInput, hideTextInput, showOverlay, hideOverlay, updateOverlay, isOverlayVisible, isTextInputVisible, isRecording, setRecording, getInputAnchor, setInputAnchor, getAnchorFromPoint, buildContextPrefix, getLastInputPosition, setLastInputPosition, configureLiveSession, getLiveSessionSnapshot, handleLiveSessionMessage, isLiveSessionListenActive, LIVE_SESSION_HOTWORD_DEFAULT, LIVE_SESSION_MODE_DIALOGUE, LIVE_SESSION_MODE_MEETING, onLiveSessionTTSPlaybackComplete, cancelLiveSessionListen, resumeDialogueListen, setDialogueTTSBargeInMode, startLiveSession, stopLiveSession, initHotword, startHotwordMonitor, stopHotwordMonitor, isHotwordActive, onHotwordDetected, setHotwordThreshold, setHotwordAudioContext, getPreRollAudio, getHotwordMicStream, initVAD, ensureVADLoaded } = env;
+const { marked, apiURL, wsURL, renderCanvas, clearCanvas, getLocationFromSelection, clearLineHighlight, escapeHtml, sanitizeHtml, getActiveArtifactTitle, getActiveTextEventId, getPreviousArtifactText, getUiState, setUiMode, showIndicatorMode, hideIndicator, showTextInput, hideTextInput, showOverlay, hideOverlay, updateOverlay, isOverlayVisible, isTextInputVisible, isRecording, setRecording, getInputAnchor, setInputAnchor, getAnchorFromPoint, buildContextPrefix, getLastInputPosition, setLastInputPosition, configureLiveSession, getLiveSessionSnapshot, handleLiveSessionMessage, isLiveSessionListenActive, LIVE_SESSION_HOTWORD_DEFAULT, LIVE_SESSION_MODE_DIALOGUE, LIVE_SESSION_MODE_MEETING, onLiveSessionTTSPlaybackComplete, cancelLiveSessionListen, resumeDialogueListen, setDialogueTTSBargeInMode, startLiveSession, stopLiveSession, initHotword, startHotwordMonitor, stopHotwordMonitor, isHotwordActive, onHotwordDetected, setHotwordThreshold, setHotwordAudioContext, getPreRollAudio, getHotwordMicStream, ensureSharedVAD, setSharedVADMode, clearSharedVADMode, SHARED_VAD_MODE_CAPTURE } = env;
 const { refs, state, getState, isVoiceTurn, COMPANION_VIEW_PATH_PREFIX, COMPANION_TRANSCRIPT_VIEW_PATH, COMPANION_SUMMARY_VIEW_PATH, COMPANION_REFERENCES_VIEW_PATH, MEETING_TRANSCRIPT_LABEL, MEETING_SUMMARY_LABEL, MEETING_REFERENCES_LABEL, MEETING_SUMMARY_ITEMS_PANEL_ID, CHAT_CTRL_LONG_PRESS_MS, ARTIFACT_EDIT_LONG_TAP_MS, ITEM_SIDEBAR_VIEWS, ITEM_SIDEBAR_GESTURE_CANCEL_PX, ITEM_SIDEBAR_GESTURE_COMMIT_PX, ITEM_SIDEBAR_GESTURE_LONG_PX, ITEM_SIDEBAR_DEFAULT_LATER_HOUR_UTC, ITEM_SIDEBAR_MENU_ID, DEV_UI_RELOAD_POLL_MS, ASSISTANT_ACTIVITY_POLL_MS, CHAT_WS_STALE_THRESHOLD_MS, ACTIVE_TURN_NO_ID_CLEAR_GRACE_MS, ACTIVE_TURN_ACTIVITY_CLEAR_GRACE_MS, PROJECT_CHAT_MODEL_ALIASES, PROJECT_CHAT_MODEL_REASONING_EFFORTS, TTS_SILENT_STORAGE_KEY, YOLO_MODE_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_ENABLED_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_LAST_SHOWN_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_INTERVAL_MS, ACTIVE_PROJECT_STORAGE_KEY, LAST_VIEW_STORAGE_KEY, RUNTIME_RELOAD_CONTEXT_STORAGE_KEY, SIDEBAR_IMAGE_EXTENSIONS, PANEL_MOTION_WATCH_QUERIES, VOICE_LIFECYCLE, COMPANION_IDLE_SURFACES, COMPANION_RUNTIME_STATES, TOOL_PALETTE_MODES } = context;
 
 const showStatus = (...args) => refs.showStatus(...args);
@@ -67,9 +67,7 @@ const beginConversationVoiceCapture = (...args) => refs.beginConversationVoiceCa
 const isVoiceMailActive = () => Boolean(refs.isVoiceMailActive?.());
 const handleVoiceMailTranscript = (...args) => refs.handleVoiceMailTranscript(...args);
 
-const VOICE_VAD_NO_SPEECH_MS = 4000;
 const VOICE_VAD_MAX_RECORDING_HARD_MS = 240000;
-const HOTWORD_VAD_NO_SPEECH_MS = 7000;
 const VOICE_VAD_RECORDER_CHUNK_MS = 250;
 const VOICE_CAPTURE_STOP_FLUSH_TIMEOUT_MS = 1500;
 
@@ -415,79 +413,43 @@ export function stopChatVoiceMedia(capture) {
   }
   capture.mediaRecorder = null;
   capture.mediaStream = null;
-  if (capture._sileroDeferred) {
-    try { capture._sileroDeferred.destroy(); } catch (_) {}
-    capture._sileroDeferred = null;
-  }
-  if (capture._vadStream) {
-    for (const track of capture._vadStream.getTracks()) { track.stop(); }
-    capture._vadStream = null;
-  }
-  if (capture._vadAudioContext) {
-    try { capture._vadAudioContext.close(); } catch (_) {}
-    capture._vadAudioContext = null;
-  }
-}
-
-function handleVADNoSpeechTimeout(capture) {
-  const triggerSource = normalizeVoiceTriggerSource(capture?.triggerSource);
-  if (triggerSource === VOICE_TRIGGER_SOURCE_HOTWORD) {
-    // If the MediaRecorder captured audio chunks but the VAD missed the speech
-    // (e.g. speech occurred during VAD init), use the recorder chunks directly.
-    if (capture.chunks?.length > 0 && capture.recorderChunkBytes > 1000) {
-      emitDialogueServerDiagnostic('voice_capture_vad_no_speech_recorder_fallback', {
-        trigger_source: triggerSource, chunks: capture.chunks.length, bytes: capture.recorderChunkBytes });
-      capture._vadAutoStopped = true;
-      stopVADMonitor(capture);
-      void stopVoiceCaptureAndSend();
-      return;
-    }
-    const hotwordAudio = buildHotwordVADAudio(new Float32Array(0));
-    if (hotwordAudio) {
-      emitDialogueServerDiagnostic('voice_capture_vad_no_speech', {
-        trigger_source: triggerSource, pre_roll_samples: hotwordAudio.preRollSamples, samples: hotwordAudio.totalSamples });
-      capture._vadAudioBlob = hotwordAudio.blob;
-      capture._vadAudioNormalization = hotwordAudio.normalization;
-      capture._vadAudioDurationMs = hotwordAudio.durationMs;
-      capture._vadAutoStopped = true;
-      stopVADMonitor(capture);
-      void stopVoiceCaptureAndSend();
-      return;
-    }
-  }
-  stopVADMonitor(capture);
-  state.indicatorSuppressedByCanvasUpdate = false;
-  showStatus('no speech detected');
-  setRecording(false);
-  setVoiceLifecycle(VOICE_LIFECYCLE.IDLE, 'voice-vad-no-speech');
-  sttCancel();
-  stopChatVoiceMedia(capture);
-  if (state.chatVoiceCapture === capture) {
-    state.chatVoiceCapture = null;
-  }
-  updateAssistantActivityIndicator();
-  window.setTimeout(() => {
-    if (isUiReadyForStatus()) {
-      showStatus('ready');
-    }
-  }, 800);
 }
 
 export function startVADMonitor(capture) {
   if (!isVoiceVADAutoSendEnabled()) return;
   if (!capture || capture.vadState) return;
   if (!capture.mediaStream) return;
-  void startSileroVADMonitor(capture);
+  void startSharedCaptureVAD(capture);
 }
 
-export async function startSileroVADMonitor(capture) {
-  const triggerSource = normalizeVoiceTriggerSource(capture?.triggerSource);
+function commitCaptureVADAudio(capture, audio, triggerSource) {
   const isHotwordCapture = triggerSource === VOICE_TRIGGER_SOURCE_HOTWORD;
-  const vadNoSpeechMs = isHotwordCapture ? HOTWORD_VAD_NO_SPEECH_MS : VOICE_VAD_NO_SPEECH_MS;
+  const hotwordAudio = isHotwordCapture ? buildHotwordVADAudio(audio) : null;
+  emitDialogueServerDiagnostic('voice_capture_vad_speech_end', {
+    trigger_source: triggerSource,
+    samples: audio instanceof Float32Array ? audio.length : 0,
+    pre_roll_samples: Number(hotwordAudio?.preRollSamples || 0),
+    combined_samples: Number(hotwordAudio?.totalSamples || 0),
+  });
+  if (hotwordAudio) {
+    capture._vadAudioBlob = hotwordAudio.blob;
+    capture._vadAudioNormalization = hotwordAudio.normalization;
+    capture._vadAudioDurationMs = hotwordAudio.durationMs;
+    capture._vadAutoStopped = true;
+    return;
+  }
+  if (audio instanceof Float32Array && audio.length > 0) {
+    const normalized = buildNormalizedSpeechWav(audio, 16000);
+    capture._vadAudioBlob = normalized.blob;
+    capture._vadAudioNormalization = normalized;
+    capture._vadAudioDurationMs = Math.round((audio.length / 16000) * 1000);
+    capture._vadAutoStopped = true;
+  }
+}
 
+export async function startSharedCaptureVAD(capture) {
+  const triggerSource = normalizeVoiceTriggerSource(capture?.triggerSource);
   const vadState = {
-    sileroInstance: null,
-    noSpeechTimer: null,
     maxDurationTimer: null,
     committed: false,
     isRunning: true,
@@ -501,86 +463,49 @@ export async function startSileroVADMonitor(capture) {
     void stopVoiceCaptureAndSend();
   }, VOICE_VAD_MAX_RECORDING_HARD_MS);
 
-  try {
-    // Clone the stream so MicVAD's AudioContext/AudioWorklet cannot interfere
-    // with the MediaRecorder consuming the original stream (Safari bug).
-    const vadStream = capture.mediaStream.clone();
-    capture._vadStream = vadStream;
+  setSharedVADMode(SHARED_VAD_MODE_CAPTURE, {
+    onSpeechStart() {
+      if (!vadState.isRunning || vadState.committed) return;
+      emitDialogueServerDiagnostic('voice_capture_vad_speech_start', { trigger_source: triggerSource });
+      if (state.chatVoiceCapture === capture) {
+        capture.speechDetected = true;
+        setVoiceLifecycle(VOICE_LIFECYCLE.LISTENING, 'voice-capture-vad-speech-start');
+        updateAssistantActivityIndicator();
+      }
+    },
+    onSpeechEnd(audio) {
+      if (!vadState.isRunning || vadState.committed) return;
+      vadState.committed = true;
+      commitCaptureVADAudio(capture, audio, triggerSource);
+      stopVADMonitor(capture);
+      void stopVoiceCaptureAndSend();
+    },
+    onError(err) {
+      emitDialogueServerDiagnostic('voice_capture_vad_error', {
+        trigger_source: triggerSource,
+        message: String(err?.message || err || 'unknown error'),
+      });
+    },
+  });
 
-      const instance = await initVAD({
-      stream: vadStream,
-      audioContext: capture._vadAudioContext || undefined,
-      redemptionMs: isHotwordCapture ? 1400 : undefined,
-      minSpeechMs: isHotwordCapture ? 200 : undefined,
-      onSpeechStart() {
-        if (!vadState.isRunning || vadState.committed) return;
-        emitDialogueServerDiagnostic('voice_capture_vad_speech_start', {
-          trigger_source: triggerSource,
-        });
-        if (state.chatVoiceCapture === capture) {
-          capture.speechDetected = true;
-          setVoiceLifecycle(VOICE_LIFECYCLE.LISTENING, 'voice-capture-vad-speech-start');
-          updateAssistantActivityIndicator();
-        }
-        if (vadState.noSpeechTimer) {
-          window.clearTimeout(vadState.noSpeechTimer);
-          vadState.noSpeechTimer = null;
-        }
-      },
-      onSpeechEnd(audio) {
-        if (!vadState.isRunning || vadState.committed) return;
-        vadState.committed = true;
-        const hotwordAudio = isHotwordCapture ? buildHotwordVADAudio(audio) : null;
-        emitDialogueServerDiagnostic('voice_capture_vad_speech_end', {
-          trigger_source: triggerSource,
-          samples: audio instanceof Float32Array ? audio.length : 0,
-          pre_roll_samples: Number(hotwordAudio?.preRollSamples || 0),
-          combined_samples: Number(hotwordAudio?.totalSamples || 0),
-        });
-        if (hotwordAudio) {
-          capture._vadAudioBlob = hotwordAudio.blob;
-          capture._vadAudioNormalization = hotwordAudio.normalization;
-          capture._vadAudioDurationMs = hotwordAudio.durationMs;
-          capture._vadAutoStopped = true;
-        } else if (audio instanceof Float32Array && audio.length > 0) {
-          const normalized = buildNormalizedSpeechWav(audio, 16000);
-          capture._vadAudioBlob = normalized.blob;
-          capture._vadAudioNormalization = normalized;
-          capture._vadAudioDurationMs = Math.round((audio.length / 16000) * 1000);
-          capture._vadAutoStopped = true;
-        }
-        stopVADMonitor(capture);
-        void stopVoiceCaptureAndSend();
-      },
-      onError(err) {
-        emitDialogueServerDiagnostic('voice_capture_vad_error', {
-          trigger_source: triggerSource,
-          message: String(err?.message || err || 'unknown error'),
-        });
-      },
-    });
+  try {
+    const instance = await ensureSharedVAD({ stream: capture.mediaStream });
 
     if (!vadState.isRunning) {
-      if (instance) instance.destroy();
       return;
     }
 
-    vadState.sileroInstance = instance;
-    if (instance) instance.start();
-
-    // Start the no-speech timer only after the VAD is running. On Safari,
-    // model + AudioWorklet init can exceed 4s; starting the timer before
-    // init would fire handleVADNoSpeechTimeout and tear down the capture
-    // before the VAD ever processed a frame.
-    vadState.noSpeechTimer = window.setTimeout(() => {
-      if (!vadState.isRunning || vadState.committed) return;
-      handleVADNoSpeechTimeout(capture);
-    }, vadNoSpeechMs);
+    if (!instance) {
+      emitDialogueServerDiagnostic('voice_capture_vad_unavailable', { trigger_source: triggerSource });
+      clearSharedVADMode(SHARED_VAD_MODE_CAPTURE);
+    }
   } catch (err) {
     console.warn('Silero VAD init failed:', err);
-    if (vadState.isRunning) {
-      handleVADNoSpeechTimeout(capture);
-    }
+    clearSharedVADMode(SHARED_VAD_MODE_CAPTURE);
+    emitDialogueServerDiagnostic('voice_capture_vad_start_error', {
+      trigger_source: triggerSource,
+      message: String(err?.message || err || 'unknown error'),
+    });
   }
 }
 
@@ -590,12 +515,8 @@ function stopVADMonitor(capture) {
   capture.vadState = null;
   vs.isRunning = false;
 
-  if (vs.noSpeechTimer) window.clearTimeout(vs.noSpeechTimer);
   if (vs.maxDurationTimer) window.clearTimeout(vs.maxDurationTimer);
-  if (vs.sileroInstance) {
-    try { vs.sileroInstance.pause(); } catch (_) {}
-    capture._sileroDeferred = vs.sileroInstance;
-  }
+  clearSharedVADMode(SHARED_VAD_MODE_CAPTURE);
 }
 
 export function stopChatVoiceMediaAndFlush(capture) {
@@ -663,19 +584,6 @@ export async function beginVoiceCapture(x, y, anchor, options: Record<string, an
   // Interrupt TTS playback when starting recording
   stopTTSPlayback();
 
-  // Pre-create AudioContext during the user gesture (synchronous, before
-  // any await) so iOS Safari allows it to enter "running" state.  Without
-  // this, vad.MicVAD.new() creates its own AudioContext deep in an async
-  // chain where iOS Safari considers the gesture expired and suspends it,
-  // causing the AudioWorklet to never process frames.
-  let vadAudioContext = null;
-  if (isVoiceVADAutoSendEnabled() && typeof AudioContext !== 'undefined') {
-    try {
-      vadAudioContext = new AudioContext();
-      if (vadAudioContext.state === 'suspended') vadAudioContext.resume();
-    } catch (_) {}
-  }
-
   const capture: Record<string, any> = {
     active: false,
     stopping: false,
@@ -714,7 +622,6 @@ export async function beginVoiceCapture(x, y, anchor, options: Record<string, an
     const hotwordStream = triggerSource === VOICE_TRIGGER_SOURCE_HOTWORD ? getHotwordMicStream() : null;
     const stream = hasLiveAudioTrack(hotwordStream) ? hotwordStream : await acquireMicStream();
     if (state.chatVoiceCapture !== capture) {
-      if (vadAudioContext) { try { vadAudioContext.close(); } catch (_) {} }
       return;
     }
     const recorder = newMediaRecorder(stream);
@@ -725,13 +632,10 @@ export async function beginVoiceCapture(x, y, anchor, options: Record<string, an
       track: describeAudioTrack(stream),
     });
     if (state.chatVoiceCapture !== capture) {
-      if (vadAudioContext) { try { vadAudioContext.close(); } catch (_) {} }
       return;
     }
     capture.mediaStream = stream;
     capture.mediaRecorder = recorder;
-    capture._vadAudioContext = vadAudioContext;
-    vadAudioContext = null;
     const pcmBackupStarted = startPCMBackupCapture(capture, stream);
     emitDialogueServerDiagnostic('voice_recorder_ready', {
       trigger_source: triggerSource,
@@ -764,7 +668,6 @@ export async function beginVoiceCapture(x, y, anchor, options: Record<string, an
     if (state.chatVoiceCapture === capture) {
       state.chatVoiceCapture = null;
     }
-    if (vadAudioContext) { try { vadAudioContext.close(); } catch (_) {} }
   }
 }
 

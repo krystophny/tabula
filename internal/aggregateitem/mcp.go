@@ -16,6 +16,7 @@ import (
 const (
 	toolGTDBind      = "brain.gtd.bind"
 	toolGTDDedupScan = "brain.gtd.dedup_scan"
+	toolGTDIngest    = "brain.gtd.ingest"
 	toolBrainParse   = "brain.note.parse"
 	toolGTDSetStatus = "brain.gtd.set_status"
 )
@@ -41,6 +42,15 @@ type ScanRequest struct {
 	DeterministicThreshold float64
 	LLMThreshold           float64
 	CandidateThreshold     float64
+}
+
+type IngestRequest struct {
+	ConfigPath    string
+	SourcesConfig string
+	Sphere        string
+	Source        string
+	Paths         []string
+	Path          string
 }
 
 type ParseCommitmentRequest struct {
@@ -103,6 +113,14 @@ func (c *Client) Scan(ctx context.Context, req ScanRequest) (ScanResult, error) 
 	return decodeStructuredField[ScanResult](result, "dedup")
 }
 
+func (c *Client) Ingest(ctx context.Context, req IngestRequest) (map[string]any, error) {
+	args, err := req.arguments()
+	if err != nil {
+		return nil, err
+	}
+	return c.call(ctx, toolGTDIngest, args)
+}
+
 func (c *Client) ParseCommitment(ctx context.Context, req ParseCommitmentRequest) (Commitment, error) {
 	args, err := req.arguments()
 	if err != nil {
@@ -152,6 +170,20 @@ func (r ScanRequest) arguments() (map[string]any, error) {
 	addPositiveFloat(args, "llm_threshold", r.LLMThreshold)
 	addPositiveFloat(args, "candidate_threshold", r.CandidateThreshold)
 	if err := requireArgs(args, "sphere"); err != nil {
+		return nil, err
+	}
+	return args, nil
+}
+
+func (r IngestRequest) arguments() (map[string]any, error) {
+	args := map[string]any{}
+	addString(args, "config_path", r.ConfigPath)
+	addString(args, "sources_config", r.SourcesConfig)
+	addString(args, "sphere", r.Sphere)
+	addString(args, "source", r.Source)
+	addString(args, "path", r.Path)
+	addStringSlice(args, "paths", r.Paths)
+	if err := requireArgs(args, "sphere", "source"); err != nil {
 		return nil, err
 	}
 	return args, nil

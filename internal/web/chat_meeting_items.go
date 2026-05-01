@@ -1,9 +1,9 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"path/filepath"
 	"regexp"
@@ -39,10 +39,12 @@ type projectMeetingItemsResponse struct {
 }
 
 type createdMeetingItem struct {
-	ID        int64  `json:"id"`
-	Title     string `json:"title"`
-	State     string `json:"state"`
-	ActorName string `json:"actor_name,omitempty"`
+	ID         int64          `json:"id,omitempty"`
+	Title      string         `json:"title"`
+	State      string         `json:"state"`
+	ActorName  string         `json:"actor_name,omitempty"`
+	SourcePath string         `json:"source_path,omitempty"`
+	Ingest     map[string]any `json:"ingest,omitempty"`
 }
 
 type createMeetingItemsRequest struct {
@@ -271,35 +273,6 @@ func (a *App) ensureMeetingSummaryArtifact(workspace store.Workspace, project *s
 	return a.store.CreateArtifact(store.ArtifactKindMarkdown, &summaryPath, nil, &title, &metaJSON)
 }
 
-func (a *App) resolveMeetingItemActor(name string) (*store.Actor, error) {
-	cleanName := strings.TrimSpace(name)
-	if cleanName == "" {
-		return nil, nil
-	}
-	actors, err := a.store.ListActors()
-	if err != nil {
-		return nil, err
-	}
-	var exact *store.Actor
-	for i := range actors {
-		if strings.EqualFold(actors[i].Name, cleanName) {
-			if exact != nil {
-				return nil, nil
-			}
-			actor := actors[i]
-			exact = &actor
-		}
-	}
-	if exact != nil {
-		return exact, nil
-	}
-	created, err := a.store.CreateActor(cleanName, store.ActorKindHuman)
-	if err != nil {
-		return nil, err
-	}
-	return &created, nil
-}
-
 func normalizeSelectedMeetingItems(selected []int, limit int) []int {
 	seen := map[int]struct{}{}
 	out := make([]int, 0, len(selected))
@@ -316,48 +289,34 @@ func normalizeSelectedMeetingItems(selected []int, limit int) []int {
 	return out
 }
 
-func (a *App) handleCreateMeetingItems(workspace store.Workspace, project *store.Workspace, session *store.ParticipantSession, summaryText string, proposed []proposedMeetingItem, selected []int) ([]createdMeetingItem, error) {
+func (a *App) handleCreateMeetingItems(ctx context.Context, workspace store.Workspace, project *store.Workspace, session *store.ParticipantSession, summaryText string, proposed []proposedMeetingItem, selected []int) ([]createdMeetingItem, error) {
 	chosen := normalizeSelectedMeetingItems(selected, len(proposed))
 	if len(chosen) == 0 {
 		return nil, errors.New("at least one proposed item must be selected")
 	}
-	artifact, err := a.ensureMeetingSummaryArtifact(workspace, project, session, summaryText)
-	if err != nil {
+	if _, err := a.ensureMeetingSummaryArtifact(workspace, project, session, summaryText); err != nil {
 		return nil, err
 	}
-	workspaceID := &workspace.ID
-	if project != nil {
-		resolvedID, resolveErr := a.resolveConversationWorkspaceID(*project, &artifact)
-		if resolveErr != nil {
-			return nil, resolveErr
-		}
-		if resolvedID != nil {
-			workspaceID = resolvedID
-		}
+	selectedItems := make([]proposedMeetingItem, 0, len(chosen))
+	for _, index := range chosen {
+		selectedItems = append(selectedItems, proposed[index])
+	}
+	sourcePath := filepath.Join(companionArtifactDir(workspace, session), "selected-meeting-actions.md")
+	if err := writeCompanionArtifactFile(sourcePath, meetingActionNoteMarkdown(*session, selectedItems)); err != nil {
+		return nil, err
+	}
+	ingest, sourceRel, err := a.ingestMeetingActionNote(ctx, workspace, sourcePath)
+	if err != nil {
+		return nil, err
 	}
 	created := make([]createdMeetingItem, 0, len(chosen))
 	for _, index := range chosen {
 		proposal := proposed[index]
-		opts := store.ItemOptions{
-			WorkspaceID: workspaceID,
-			ArtifactID:  &artifact.ID,
-		}
-		if actor, err := a.resolveMeetingItemActor(proposal.ActorName); err != nil {
-			return nil, err
-		} else if actor != nil {
-			opts.ActorID = &actor.ID
-		}
-		sourceRef := fmt.Sprintf("%s:%d", session.ID, index)
-		opts.Source = stringPtr(meetingSummaryItemSource)
-		opts.SourceRef = &sourceRef
-		item, err := a.store.CreateItem(proposal.Title, opts)
-		if err != nil {
-			return nil, err
-		}
 		createdItem := createdMeetingItem{
-			ID:    item.ID,
-			Title: item.Title,
-			State: item.State,
+			Title:      proposal.Title,
+			State:      store.ItemStateInbox,
+			SourcePath: sourceRel,
+			Ingest:     ingest,
 		}
 		if proposal.ActorName != "" {
 			createdItem.ActorName = proposal.ActorName
@@ -384,7 +343,7 @@ func (a *App) handleWorkspaceMeetingItemsCreate(w http.ResponseWriter, r *http.R
 		http.Error(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
-	created, err := a.handleCreateMeetingItems(workspace, project, session, summaryText, proposed, req.Selected)
+	created, err := a.handleCreateMeetingItems(r.Context(), workspace, project, session, summaryText, proposed, req.Selected)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
