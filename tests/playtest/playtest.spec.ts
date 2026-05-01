@@ -137,8 +137,9 @@ test.describe('live playtest smoke', () => {
 
     await clearLiveChat(sessionToken);
     await openLiveApp(page, sessionToken);
-    await openTopEdge(page);
     await waitForLiveAppReady(page);
+    await setCircleToggle(page, 'fast', false);
+    await setCircleToggle(page, 'silent', false);
 
     const usualCount = await page.locator('#chat-history .chat-message.chat-assistant:not(.is-pending)').count();
     await submitPrompt(page, 'Reply with the single word ORBIT.');
