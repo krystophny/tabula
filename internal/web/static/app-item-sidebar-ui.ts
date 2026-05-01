@@ -425,60 +425,81 @@ export function renderSidebarRow({
   triageEnabled = false,
   onClick,
 }) {
+  const button = createSidebarRowButton(active, item);
+  appendSidebarRowContent(button, { icon, iconText, label, subtitle, badges, meta });
+  const recentTouch = addSidebarRowTouchHandlers(button, item, triageEnabled, onClick);
+  addSidebarRowFocusHandler(button, item, workspaceEntry);
+  addSidebarRowClickHandler(button, workspaceEntry, recentTouch, onClick);
+  return button;
+}
+
+function createSidebarRowButton(active, item) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'pr-file-item';
-  if (active) {
-    button.classList.add('is-active');
-  }
+  if (active) button.classList.add('is-active');
   if (item && Number(item?.id || 0) > 0) {
     button.dataset.itemId = String(Number(item.id));
   }
+  return button;
+}
 
+function appendSidebarRowContent(button, { icon, iconText, label, subtitle, badges, meta }) {
+  button.appendChild(sidebarRowIcon(icon, iconText));
+  button.appendChild(sidebarRowBody(label, subtitle, badges));
+  if (!meta) return;
+  const metaEl = document.createElement('span');
+  metaEl.className = 'pr-file-status';
+  metaEl.textContent = String(meta);
+  button.appendChild(metaEl);
+}
+
+function sidebarRowIcon(icon, iconText) {
   const iconEl = document.createElement('span');
   iconEl.className = `chooser-icon icon-${icon}`;
   iconEl.textContent = String(iconText || '');
+  return iconEl;
+}
 
+function sidebarRowBody(label, subtitle, badges) {
   const bodyEl = document.createElement('span');
   bodyEl.className = 'sidebar-row-main';
-
   const labelEl = document.createElement('span');
   labelEl.className = 'pr-file-name';
   labelEl.textContent = String(label || '');
-
   bodyEl.appendChild(labelEl);
-  if (subtitle || badges.length > 0) {
-    const secondaryEl = document.createElement('span');
-    secondaryEl.className = 'sidebar-row-secondary';
-    if (subtitle) {
-      const subtitleEl = document.createElement('span');
-      subtitleEl.className = 'sidebar-row-subtitle';
-      subtitleEl.textContent = String(subtitle);
-      secondaryEl.appendChild(subtitleEl);
-    }
-    if (badges.length > 0) {
-      const badgesEl = document.createElement('span');
-      badgesEl.className = 'sidebar-row-badges';
-      badges.forEach((badgeText) => {
-        const badgeEl = document.createElement('span');
-        badgeEl.className = 'sidebar-badge';
-        badgeEl.textContent = String(badgeText);
-        badgesEl.appendChild(badgeEl);
-      });
-      secondaryEl.appendChild(badgesEl);
-    }
-    bodyEl.appendChild(secondaryEl);
-  }
+  const secondaryEl = sidebarRowSecondary(subtitle, badges);
+  if (secondaryEl) bodyEl.appendChild(secondaryEl);
+  return bodyEl;
+}
 
-  button.appendChild(iconEl);
-  button.appendChild(bodyEl);
-  if (meta) {
-    const metaEl = document.createElement('span');
-    metaEl.className = 'pr-file-status';
-    metaEl.textContent = String(meta);
-    button.appendChild(metaEl);
+function sidebarRowSecondary(subtitle, badges) {
+  if (!subtitle && badges.length === 0) return null;
+  const secondaryEl = document.createElement('span');
+  secondaryEl.className = 'sidebar-row-secondary';
+  if (subtitle) {
+    const subtitleEl = document.createElement('span');
+    subtitleEl.className = 'sidebar-row-subtitle';
+    subtitleEl.textContent = String(subtitle);
+    secondaryEl.appendChild(subtitleEl);
   }
+  if (badges.length > 0) secondaryEl.appendChild(sidebarRowBadges(badges));
+  return secondaryEl;
+}
 
+function sidebarRowBadges(badges) {
+  const badgesEl = document.createElement('span');
+  badgesEl.className = 'sidebar-row-badges';
+  badges.forEach((badgeText) => {
+    const badgeEl = document.createElement('span');
+    badgeEl.className = 'sidebar-badge';
+    badgeEl.textContent = String(badgeText);
+    badgesEl.appendChild(badgeEl);
+  });
+  return badgesEl;
+}
+
+function addSidebarRowTouchHandlers(button, item, triageEnabled, onClick) {
   const resetSwipeUi = () => {
     button.style.removeProperty('--swipe-offset');
     delete button.dataset.triageAction;
@@ -535,14 +556,7 @@ export function renderSidebarRow({
       resetSwipeUi();
     });
   }
-  if (item) {
-    button.addEventListener('contextmenu', (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      state.itemSidebarActiveItemID = Number(item?.id || 0);
-      showItemSidebarActionMenu(item, ev.clientX, ev.clientY);
-    });
-  }
+  addSidebarRowContextMenu(button, item);
   button.addEventListener('touchend', (ev) => {
     const t = ev.changedTouches && ev.changedTouches[0];
     const current = touchState;
@@ -576,6 +590,20 @@ export function renderSidebarRow({
     lastTouchAt = Date.now();
     onClick(ev);
   }, { passive: false });
+  return () => Date.now() - lastTouchAt < 700;
+}
+
+function addSidebarRowContextMenu(button, item) {
+  if (!item) return;
+  button.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    state.itemSidebarActiveItemID = Number(item?.id || 0);
+    showItemSidebarActionMenu(item, ev.clientX, ev.clientY);
+  });
+}
+
+function addSidebarRowFocusHandler(button, item, workspaceEntry) {
   if (item) {
     button.addEventListener('focus', () => {
       state.itemSidebarActiveItemID = Number(item?.id || 0);
@@ -586,8 +614,11 @@ export function renderSidebarRow({
       state.workspaceBrowserActiveIsDir = Boolean(workspaceEntry?.is_dir);
     });
   }
+}
+
+function addSidebarRowClickHandler(button, workspaceEntry, recentTouch, onClick) {
   button.addEventListener('click', (ev) => {
-    if (Date.now() - lastTouchAt < 700) {
+    if (recentTouch()) {
       ev.preventDefault();
       return;
     }
@@ -598,7 +629,6 @@ export function renderSidebarRow({
     }
     onClick(ev);
   });
-  return button;
 }
 
 function renderPersonGroupHeading(label, count) {
@@ -649,6 +679,94 @@ function renderPersonDashboard(list, dashboard) {
   return true;
 }
 
+function createSidebarActionButton(id, label, onClick) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'edge-btn';
+  button.id = id;
+  button.textContent = label;
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+function activeSidebarMailItem(items) {
+  const activeItem = items.find((entry) => Number(entry?.id || 0) === Number(state.itemSidebarActiveItemID || 0)) || null;
+  const artifactKind = String(activeItem?.artifact_kind || '').trim().toLowerCase();
+  return ['email', 'email_thread'].includes(artifactKind) ? activeItem : null;
+}
+
+function appendMailSidebarActions(actions, item) {
+  if (!item) return;
+  actions.appendChild(createSidebarActionButton('reply-mail-trigger', 'Reply', () => {
+    void launchReplyAuthoring(item);
+  }));
+  actions.appendChild(createSidebarActionButton('reply-all-mail-trigger', 'Reply All', () => {
+    void launchReplyAllAuthoring(item);
+  }));
+  actions.appendChild(createSidebarActionButton('forward-mail-trigger', 'Forward', () => {
+    void launchForwardAuthoring(item);
+  }));
+}
+
+function renderItemSidebarActions(list, items) {
+  const actions = document.createElement('div');
+  actions.className = 'sidebar-actions';
+  const activeLabelID = Number(state.itemSidebarFilters?.label_id || 0);
+  const labelFilter = activeLabelID > 0
+    ? `Label: ${String(state.itemSidebarLabelName || '').trim() || `#${activeLabelID}`}`
+    : 'Filter by Label';
+  const labelFilterButton = createSidebarActionButton('item-sidebar-label-filter', labelFilter, () => {
+    const rect = labelFilterButton.getBoundingClientRect();
+    void showItemSidebarLabelFilterMenu(rect.left, rect.bottom + 8);
+  });
+  actions.appendChild(labelFilterButton);
+  if (activeLabelID > 0) {
+    actions.appendChild(createSidebarActionButton('item-sidebar-label-clear', 'Clear Label Filter', () => {
+      void applyItemSidebarLabelFilter(0, '');
+    }));
+  }
+  actions.appendChild(createSidebarActionButton('new-mail-trigger', 'New Mail', () => {
+    void launchNewMailAuthoring();
+  }));
+  appendMailSidebarActions(actions, activeSidebarMailItem(items));
+  actions.appendChild(createSidebarActionButton('scan-upload-trigger', 'Scan Notes', () => {
+    openScanImportPicker();
+  }));
+  list.appendChild(actions);
+}
+
+function renderEmptyItemSidebarList(list) {
+  const section = String(state.itemSidebarFilters?.section || '').trim().toLowerCase();
+  let emptyLabel = `No ${sidebarTabLabel(state.itemSidebarView).toLowerCase()} items.`;
+  if (section === 'project_items') emptyLabel = 'No project items.';
+  if (section === 'people') emptyLabel = 'No people with open loops.';
+  list.appendChild(renderSidebarRow({
+    icon: 'symbol',
+    iconText: '0',
+    label: emptyLabel,
+    onClick: () => {},
+  }));
+}
+
+function renderItemSidebarRows(list, items) {
+  items.forEach((item) => {
+    const icon = itemIconForRow(item);
+    const triageEnabled = state.itemSidebarView === 'inbox' || state.itemSidebarView === 'next';
+    list.appendChild(renderSidebarRow({
+      icon: icon.icon,
+      iconText: icon.text,
+      label: String(item?.title || 'Untitled item'),
+      subtitle: buildItemSidebarSubtitle(item),
+      badges: buildItemSidebarBadges(item),
+      meta: formatSidebarAge(item?.updated_at || item?.created_at),
+      active: Number(item?.id || 0) === Number(state.itemSidebarActiveItemID || 0),
+      item,
+      triageEnabled,
+      onClick: () => { void openSidebarItem(item); },
+    }));
+  });
+}
+
 export function renderItemSidebarList(list) {
   if (state.itemSidebarLoading) {
     list.appendChild(renderSidebarRow({
@@ -669,119 +787,16 @@ export function renderItemSidebarList(list) {
     return;
   }
   const items = Array.isArray(state.itemSidebarItems) ? state.itemSidebarItems : [];
-  const personDashboard = state.itemSidebarPersonDashboard || null;
-  const activeItem = items.find((entry) => Number(entry?.id || 0) === Number(state.itemSidebarActiveItemID || 0)) || null;
-  const actions = document.createElement('div');
-  actions.className = 'sidebar-actions';
-  const activeLabelID = Number(state.itemSidebarFilters?.label_id || 0);
-  const labelFilterButton = document.createElement('button');
-  labelFilterButton.type = 'button';
-  labelFilterButton.className = 'edge-btn';
-  labelFilterButton.id = 'item-sidebar-label-filter';
-  labelFilterButton.textContent = activeLabelID > 0
-    ? `Label: ${String(state.itemSidebarLabelName || '').trim() || `#${activeLabelID}`}`
-    : 'Filter by Label';
-  labelFilterButton.addEventListener('click', () => {
-    const rect = labelFilterButton.getBoundingClientRect();
-    void showItemSidebarLabelFilterMenu(rect.left, rect.bottom + 8);
-  });
-  actions.appendChild(labelFilterButton);
-  if (activeLabelID > 0) {
-    const clearLabelButton = document.createElement('button');
-    clearLabelButton.type = 'button';
-    clearLabelButton.className = 'edge-btn';
-    clearLabelButton.id = 'item-sidebar-label-clear';
-    clearLabelButton.textContent = 'Clear Label Filter';
-    clearLabelButton.addEventListener('click', () => {
-      void applyItemSidebarLabelFilter(0, '');
-    });
-    actions.appendChild(clearLabelButton);
-  }
-  const newMailButton = document.createElement('button');
-  newMailButton.type = 'button';
-  newMailButton.className = 'edge-btn';
-  newMailButton.id = 'new-mail-trigger';
-  newMailButton.textContent = 'New Mail';
-  newMailButton.addEventListener('click', () => {
-    void launchNewMailAuthoring();
-  });
-  actions.appendChild(newMailButton);
-  if (activeItem && ['email', 'email_thread'].includes(String(activeItem?.artifact_kind || '').trim().toLowerCase())) {
-    const replyButton = document.createElement('button');
-    replyButton.type = 'button';
-    replyButton.className = 'edge-btn';
-    replyButton.id = 'reply-mail-trigger';
-    replyButton.textContent = 'Reply';
-    replyButton.addEventListener('click', () => {
-      void launchReplyAuthoring(activeItem);
-    });
-    actions.appendChild(replyButton);
-  }
-  if (activeItem && ['email', 'email_thread'].includes(String(activeItem?.artifact_kind || '').trim().toLowerCase())) {
-    const replyAllButton = document.createElement('button');
-    replyAllButton.type = 'button';
-    replyAllButton.className = 'edge-btn';
-    replyAllButton.id = 'reply-all-mail-trigger';
-    replyAllButton.textContent = 'Reply All';
-    replyAllButton.addEventListener('click', () => {
-      void launchReplyAllAuthoring(activeItem);
-    });
-    actions.appendChild(replyAllButton);
-  }
-  if (activeItem && ['email', 'email_thread'].includes(String(activeItem?.artifact_kind || '').trim().toLowerCase())) {
-    const forwardButton = document.createElement('button');
-    forwardButton.type = 'button';
-    forwardButton.className = 'edge-btn';
-    forwardButton.id = 'forward-mail-trigger';
-    forwardButton.textContent = 'Forward';
-    forwardButton.addEventListener('click', () => {
-      void launchForwardAuthoring(activeItem);
-    });
-    actions.appendChild(forwardButton);
-  }
-  const scanButton = document.createElement('button');
-  scanButton.id = 'scan-upload-trigger';
-  scanButton.type = 'button';
-  scanButton.className = 'edge-btn';
-  scanButton.textContent = 'Scan Notes';
-  scanButton.addEventListener('click', () => {
-    openScanImportPicker();
-  });
-  actions.appendChild(scanButton);
-  list.appendChild(actions);
-  if (personDashboard) {
-    renderPersonDashboard(list, personDashboard);
+  renderItemSidebarActions(list, items);
+  if (state.itemSidebarPersonDashboard) {
+    renderPersonDashboard(list, state.itemSidebarPersonDashboard);
     return;
   }
   if (items.length === 0) {
-    const section = String(state.itemSidebarFilters?.section || '').trim().toLowerCase();
-    let emptyLabel = `No ${sidebarTabLabel(state.itemSidebarView).toLowerCase()} items.`;
-    if (section === 'project_items') emptyLabel = 'No project items.';
-    if (section === 'people') emptyLabel = 'No people with open loops.';
-    list.appendChild(renderSidebarRow({
-      icon: 'symbol',
-      iconText: '0',
-      label: emptyLabel,
-      onClick: () => {},
-    }));
+    renderEmptyItemSidebarList(list);
     return;
   }
-  items.forEach((item) => {
-    const icon = itemIconForRow(item);
-    const triageEnabled = state.itemSidebarView === 'inbox' || state.itemSidebarView === 'next';
-    list.appendChild(renderSidebarRow({
-      icon: icon.icon,
-      iconText: icon.text,
-      label: String(item?.title || 'Untitled item'),
-      subtitle: buildItemSidebarSubtitle(item),
-      badges: buildItemSidebarBadges(item),
-      meta: formatSidebarAge(item?.updated_at || item?.created_at),
-      active: Number(item?.id || 0) === Number(state.itemSidebarActiveItemID || 0),
-      item,
-      triageEnabled,
-      onClick: () => { void openSidebarItem(item); },
-    }));
-  });
+  renderItemSidebarRows(list, items);
 }
 
 export function handleItemSidebarKeyboardShortcut(ev) {
