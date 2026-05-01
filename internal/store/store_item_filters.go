@@ -131,10 +131,11 @@ func appendItemSectionFilterClauses(parts []string, args []any, filter ItemListF
 	case ItemSidebarSectionPeople:
 		parts = append(parts, column("actor_id")+" IS NOT NULL")
 	case ItemSidebarSectionDrift:
-		parts = append(parts,
-			column("review_target")+" IS NOT NULL",
-			"trim("+column("review_target")+") <> ''",
-		)
+		parts = append(parts, `EXISTS (
+SELECT 1 FROM external_binding_drifts drift
+WHERE drift.item_id = `+outerColumn("id")+`
+  AND drift.resolved_at IS NULL
+)`)
 	case ItemSidebarSectionDedup:
 		parts = append(parts,
 			column("source")+" IS NOT NULL",

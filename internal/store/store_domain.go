@@ -132,6 +132,30 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_external_bindings_identity
   ON external_bindings(account_id, provider, object_type, remote_id);
 CREATE INDEX IF NOT EXISTS idx_external_bindings_stale
   ON external_bindings(provider, last_synced_at);
+CREATE TABLE IF NOT EXISTS external_binding_drifts (
+  id INTEGER PRIMARY KEY,
+  binding_id INTEGER NOT NULL REFERENCES external_bindings(id) ON DELETE CASCADE,
+  item_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
+  account_id INTEGER NOT NULL REFERENCES external_accounts(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  object_type TEXT NOT NULL,
+  remote_id TEXT NOT NULL,
+  source_container TEXT,
+  local_state TEXT NOT NULL,
+  upstream_state TEXT NOT NULL,
+  local_title TEXT NOT NULL DEFAULT '',
+  upstream_title TEXT NOT NULL DEFAULT '',
+  local_updated_at TEXT NOT NULL DEFAULT '',
+  upstream_updated_at TEXT,
+  upstream_revision TEXT NOT NULL,
+  detected_at TEXT NOT NULL DEFAULT (datetime('now')),
+  resolved_at TEXT,
+  resolution TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_external_binding_drifts_revision
+  ON external_binding_drifts(binding_id, upstream_revision);
+CREATE INDEX IF NOT EXISTS idx_external_binding_drifts_open
+  ON external_binding_drifts(resolved_at, detected_at);
 CREATE TABLE IF NOT EXISTS batch_runs (
   id INTEGER PRIMARY KEY,
   workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,

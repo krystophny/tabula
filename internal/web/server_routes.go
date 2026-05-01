@@ -154,6 +154,7 @@ func (a *App) Router() http.Handler {
 	r.Get("/api/items/counts", a.handleItemCounts)
 	r.Post("/api/items/sync/github", a.handleGitHubIssueSync)
 	r.Post("/api/items/sync/github/reviews", a.handleGitHubPRReviewSync)
+	r.Post("/api/items/drift/{drift_id}/{action}", a.handleItemDriftAction)
 	r.Get("/api/items/{item_id}/artifacts", a.handleItemArtifactList)
 	r.Post("/api/items/{item_id}/artifacts", a.handleItemArtifactLink)
 	r.Delete("/api/items/{item_id}/artifacts/{artifact_id}", a.handleItemArtifactUnlink)

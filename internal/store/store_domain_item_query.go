@@ -369,8 +369,7 @@ type SidebarSectionCounts struct {
 
 // CountSidebarSectionsFiltered counts open project items (Item.kind=project,
 // state != done), distinct actors with at least one open delegated/awaiting
-// item (people we owe or await), items currently in the GTD review queue with
-// a review_target set (drift dispatch backlog), open items whose
+// item (people we owe or await), unresolved external-binding drift, open items whose
 // (source, source_ref) pair has duplicates (dedup review backlog), and
 // meeting-note artifacts created within the last seven days. The filter
 // respects sphere/workspace/label scoping so the sidebar matches the active
@@ -400,15 +399,9 @@ func (s *Store) CountSidebarSectionsFiltered(now time.Time, filter ItemListFilte
 		return out, err
 	}
 
-	driftParts := []string{
-		"items.state = ?",
-		"items.review_target IS NOT NULL",
-		"trim(items.review_target) <> ''",
-	}
-	driftArgs := []any{ItemStateReview}
-	driftParts, driftArgs = appendItemFilterClauses(driftParts, driftArgs, normalizedFilter, "")
-	driftQuery := `SELECT COUNT(*) FROM items WHERE ` + stringsJoin(driftParts, ` AND `)
-	if err := s.db.QueryRow(driftQuery, driftArgs...).Scan(&out.DriftReview); err != nil {
+	driftFilter := normalizedFilter
+	driftFilter.Section = ""
+	if out.DriftReview, err = s.CountUnresolvedExternalBindingDrifts(driftFilter); err != nil {
 		return out, err
 	}
 

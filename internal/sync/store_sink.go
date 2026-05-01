@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/sloppy-org/slopshell/internal/store"
 )
@@ -24,6 +25,15 @@ func (s *StoreSink) UpsertItem(_ context.Context, item store.Item, binding store
 	}
 
 	if existingItem != nil {
+		if shouldRecordItemDrift(*existingItem, existingBinding, item, binding) {
+			if _, err := s.store.RecordExternalBindingDrift(withBindingUpdate(existingBinding, binding), *existingItem, item); err != nil {
+				return store.Item{}, err
+			}
+			if _, err := s.store.UpsertExternalBinding(withBindingUpdate(existingBinding, binding)); err != nil {
+				return store.Item{}, err
+			}
+			return *existingItem, nil
+		}
 		update, err := s.itemUpdate(account, item, assignment)
 		if err != nil {
 			return store.Item{}, err
@@ -339,6 +349,54 @@ func (s *StoreSink) linkArtifactWorkspace(artifact store.Artifact, workspaceID *
 		return err
 	}
 	return nil
+}
+
+func shouldRecordItemDrift(local store.Item, existing store.ExternalBinding, upstream store.Item, incoming store.ExternalBinding) bool {
+	if strings.TrimSpace(upstream.State) == "" || local.State == upstream.State {
+		return false
+	}
+	if !remoteRevisionChanged(existing.RemoteUpdatedAt, incoming.RemoteUpdatedAt) {
+		return false
+	}
+	return storeTimeAfter(local.UpdatedAt, existing.LastSyncedAt)
+}
+
+func remoteRevisionChanged(oldRevision, newRevision *string) bool {
+	oldValue := strings.TrimSpace(stringFromPointer(oldRevision))
+	newValue := strings.TrimSpace(stringFromPointer(newRevision))
+	return newValue != "" && oldValue != newValue
+}
+
+func storeTimeAfter(left, right string) bool {
+	leftTime, leftOK := parseStoreTime(left)
+	rightTime, rightOK := parseStoreTime(right)
+	return leftOK && rightOK && leftTime.After(rightTime)
+}
+
+func parseStoreTime(raw string) (time.Time, bool) {
+	text := strings.TrimSpace(raw)
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05"} {
+		parsed, err := time.Parse(layout, text)
+		if err == nil {
+			return parsed, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func withBindingUpdate(existing, incoming store.ExternalBinding) store.ExternalBinding {
+	return store.ExternalBinding{
+		ID:              existing.ID,
+		AccountID:       existing.AccountID,
+		Provider:        existing.Provider,
+		ObjectType:      existing.ObjectType,
+		RemoteID:        existing.RemoteID,
+		ItemID:          existing.ItemID,
+		ArtifactID:      existing.ArtifactID,
+		ContainerRef:    normalizeContainerRef(incoming.ContainerRef),
+		RemoteUpdatedAt: incoming.RemoteUpdatedAt,
+		LastSyncedAt:    existing.LastSyncedAt,
+	}
 }
 
 func normalizeContainerRef(value *string) *string {

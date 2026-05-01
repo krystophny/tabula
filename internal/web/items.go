@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/sloppy-org/slopshell/internal/store"
 )
 
@@ -330,12 +331,44 @@ func (a *App) handleItemReview(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if filter.Section == store.ItemSidebarSectionDrift {
+		drifts, err := a.store.ListUnresolvedExternalBindingDrifts(filter)
+		if err != nil {
+			writeItemStoreError(w, err)
+			return
+		}
+		writeAPIData(w, http.StatusOK, map[string]any{
+			"items": drifts,
+		})
+		return
+	}
 	items, err := a.store.ListReviewItemsFiltered(filter)
 	if err != nil {
 		writeItemStoreError(w, err)
 		return
 	}
 	a.writeItemSummaryList(w, items)
+}
+
+func (a *App) handleItemDriftAction(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAuth(w, r) {
+		return
+	}
+	driftID, err := parseURLInt64Param(r, "drift_id")
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	action := strings.TrimSpace(chi.URLParam(r, "action"))
+	drift, err := a.store.ResolveExternalBindingDrift(driftID, action)
+	if err != nil {
+		writeItemStoreError(w, err)
+		return
+	}
+	writeAPIData(w, http.StatusOK, map[string]any{
+		"drift":  drift,
+		"action": action,
+	})
 }
 
 func (a *App) handleItemSomeday(w http.ResponseWriter, r *http.Request) {

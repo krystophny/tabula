@@ -272,6 +272,7 @@ export async function openProjectItemQueue(item) {
 export async function openSidebarItem(item) {
   state.itemSidebarActiveItemID = Number(item?.id || 0);
   renderPrReviewFileList();
+  if (isDriftSidebarItem(item)) return;
   if (String(item?.kind || '').trim().toLowerCase() === 'person_dashboard') {
     await openPersonOpenLoops(item);
     return;
@@ -302,6 +303,7 @@ export async function openSidebarItem(item) {
 }
 
 export function itemKindLabel(item) {
+  if (isDriftSidebarItem(item)) return 'drift';
   if (String(item?.kind || '').trim().toLowerCase() === 'person_dashboard') return 'person';
   if (String(item?.kind || '').trim().toLowerCase() === 'project') return 'project item';
   const artifactKind = String(item?.artifact_kind || '').trim().toLowerCase();
@@ -316,6 +318,7 @@ export function itemKindLabel(item) {
 }
 
 export function itemIconForRow(item) {
+  if (isDriftSidebarItem(item)) return { icon: 'symbol', text: 'D' };
   if (String(item?.kind || '').trim().toLowerCase() === 'person_dashboard') return { icon: 'symbol', text: '@' };
   if (String(item?.kind || '').trim().toLowerCase() === 'project') return { icon: 'symbol', text: 'P' };
   const artifactKind = String(item?.artifact_kind || '').trim().toLowerCase();
@@ -350,6 +353,13 @@ export function formatSidebarAge(value) {
 }
 
 export function buildItemSidebarSubtitle(item) {
+  if (isDriftSidebarItem(item)) {
+    const local = String(item?.local_state || '').trim() || 'local';
+    const upstream = String(item?.upstream_state || '').trim() || 'upstream';
+    const binding = String(item?.source_binding || '').trim();
+    const container = String(item?.source_container || '').trim();
+    return [`local ${local}`, `upstream ${upstream}`, binding, container ? `container ${container}` : ''].filter(Boolean).join(' · ');
+  }
   const parts = [];
   const artifactTitle = String(item?.artifact_title || '').trim();
   if (artifactTitle) parts.push(artifactTitle);
@@ -362,6 +372,10 @@ export function buildItemSidebarBadges(item) {
   const badges = [];
   const kind = itemKindLabel(item);
   if (kind) badges.push(kind);
+  if (isDriftSidebarItem(item)) {
+    const links = Array.isArray(item?.project_item_links) ? item.project_item_links : [];
+    return badges.concat(links.map((link) => `project item: ${String(link)}`));
+  }
   if (String(item?.kind || '').trim().toLowerCase() === 'person_dashboard') {
     return badges.concat(personOpenLoopBadges(item));
   }
@@ -649,7 +663,7 @@ function renderPersonOpenLoopRows(list, label, rows) {
       label: String(item?.title || 'Untitled item'),
       subtitle: buildItemSidebarSubtitle(item),
       badges: buildItemSidebarBadges(item),
-      meta: formatSidebarAge(item?.updated_at || item?.created_at),
+      meta: formatSidebarAge(item?.updated_at || item?.created_at || item?.detected_at),
       active: Number(item?.id || 0) === Number(state.itemSidebarActiveItemID || 0),
       item,
       onClick: () => { void openSidebarItem(item); },
@@ -752,19 +766,63 @@ function renderItemSidebarRows(list, items) {
   items.forEach((item) => {
     const icon = itemIconForRow(item);
     const triageEnabled = state.itemSidebarView === 'inbox' || state.itemSidebarView === 'next';
-    list.appendChild(renderSidebarRow({
+    const row = renderSidebarRow({
       icon: icon.icon,
       iconText: icon.text,
       label: String(item?.title || 'Untitled item'),
       subtitle: buildItemSidebarSubtitle(item),
       badges: buildItemSidebarBadges(item),
-      meta: formatSidebarAge(item?.updated_at || item?.created_at),
+      meta: formatSidebarAge(item?.updated_at || item?.created_at || item?.detected_at),
       active: Number(item?.id || 0) === Number(state.itemSidebarActiveItemID || 0),
       item,
       triageEnabled,
       onClick: () => { void openSidebarItem(item); },
-    }));
+    });
+    if (isDriftSidebarItem(item)) appendDriftActions(row, item);
+    list.appendChild(row);
   });
+}
+
+function isDriftSidebarItem(item) {
+  return Number(item?.drift_id || 0) > 0 || String(item?.kind || '').trim().toLowerCase() === 'drift';
+}
+
+function appendDriftActions(row, item) {
+  const actions = document.createElement('span');
+  actions.className = 'sidebar-row-badges';
+  const buttons = [
+    ['keep_local', 'Keep local'],
+    ['take_upstream', 'Take upstream'],
+    ['reingest_source', 'Re-ingest'],
+    ['dismiss', 'Dismiss'],
+  ];
+  buttons.forEach(([action, label]) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'sidebar-badge';
+    button.textContent = label;
+    button.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      void performDriftAction(item, action);
+    });
+    actions.appendChild(button);
+  });
+  row.querySelector('.sidebar-row-secondary')?.appendChild(actions);
+}
+
+async function performDriftAction(item, action) {
+  const driftID = Number(item?.drift_id || 0);
+  if (driftID <= 0) return false;
+  const resp = await fetch(apiURL(`items/drift/${driftID}/${encodeURIComponent(action)}`), { method: 'POST' });
+  if (!resp.ok) {
+    const detail = (await resp.text()).trim() || `HTTP ${resp.status}`;
+    showStatus(`drift action failed: ${detail}`);
+    return false;
+  }
+  showStatus(`drift ${String(action).replace(/_/g, ' ')}`);
+  await loadItemSidebarView(state.itemSidebarView, state.itemSidebarFilters);
+  return true;
 }
 
 export function renderItemSidebarList(list) {

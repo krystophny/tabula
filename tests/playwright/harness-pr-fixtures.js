@@ -620,6 +620,9 @@
         if (String(item?.kind || '').trim().toLowerCase() !== 'project') return false;
         if (String(item?.state || '').trim().toLowerCase() === 'done') return false;
       }
+      if (filters?.section === 'drift' && !(Number(item?.drift_id || 0) > 0 || String(item?.kind || '').trim().toLowerCase() === 'drift')) {
+        return false;
+      }
       if (filters?.workspace_id === 'null') {
         return item?.workspace_id == null;
       }

@@ -178,6 +178,7 @@ var WebRouteSections = []RouteSection{
 			"GET /api/items/counts",
 			"POST /api/items/sync/github",
 			"POST /api/items/sync/github/reviews",
+			"POST /api/items/drift/{drift_id}/{action}",
 			"GET /api/items/{item_id}",
 			"GET /api/items/{item_id}/artifacts",
 			"POST /api/items/{item_id}/artifacts",

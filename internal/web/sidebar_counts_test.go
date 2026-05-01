@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -43,7 +44,7 @@ func TestItemCountsExposesSidebarSectionCountsAlongsidePerStateCounts(t *testing
 		t.Fatalf("sections[people_open] = %d, want 2 (Alice + Bob)", got)
 	}
 	if got := int(sections["drift_review"].(float64)); got != 1 {
-		t.Fatalf("sections[drift_review] = %d, want 1 (review item with review_target set)", got)
+		t.Fatalf("sections[drift_review] = %d, want 1 (unresolved external-binding drift)", got)
 	}
 	if got := int(sections["dedup_review"].(float64)); got != 2 {
 		t.Fatalf("sections[dedup_review] = %d, want 2 (the colliding source/source_ref pair)", got)
@@ -95,15 +96,7 @@ func seedSidebarCountsFixture(t *testing.T, app *App) {
 		t.Fatalf("CreateItem(owe Bob) error: %v", err)
 	}
 
-	driftItem, err := app.store.CreateItem("Drifted PR", store.ItemOptions{State: store.ItemStateReview})
-	if err != nil {
-		t.Fatalf("CreateItem(drift) error: %v", err)
-	}
-	target := store.ItemReviewTargetGitHub
-	reviewer := "krystophny"
-	if err := app.store.UpdateItemReviewDispatch(driftItem.ID, &target, &reviewer); err != nil {
-		t.Fatalf("UpdateItemReviewDispatch() error: %v", err)
-	}
+	seedDriftReviewFixture(t, app)
 
 	source := "github"
 	dupRef := "krystophny/repo#42"
@@ -126,6 +119,74 @@ func seedSidebarCountsFixture(t *testing.T, app *App) {
 	transcriptTitle := "Recent transcript"
 	if _, err := app.store.CreateArtifact(store.ArtifactKindTranscript, &transcriptPath, nil, &transcriptTitle, nil); err != nil {
 		t.Fatalf("CreateArtifact(transcript) error: %v", err)
+	}
+}
+
+func seedDriftReviewFixture(t *testing.T, app *App) store.ExternalBindingDrift {
+	t.Helper()
+
+	account, err := app.store.CreateExternalAccount(store.SphereWork, store.ExternalProviderTodoist, "Todoist", map[string]any{})
+	if err != nil {
+		t.Fatalf("CreateExternalAccount() error: %v", err)
+	}
+	driftItem, err := app.store.CreateItem("Drifted task", store.ItemOptions{State: store.ItemStateWaiting})
+	if err != nil {
+		t.Fatalf("CreateItem(drift) error: %v", err)
+	}
+	remoteAt := "2026-03-08T10:05:00Z"
+	container := "Errands"
+	binding, err := app.store.UpsertExternalBinding(store.ExternalBinding{
+		AccountID:       account.ID,
+		Provider:        account.Provider,
+		ObjectType:      "task",
+		RemoteID:        "task-1",
+		ItemID:          &driftItem.ID,
+		ContainerRef:    &container,
+		RemoteUpdatedAt: &remoteAt,
+	})
+	if err != nil {
+		t.Fatalf("UpsertExternalBinding() error: %v", err)
+	}
+	upstream := driftItem
+	upstream.State = store.ItemStateDone
+	upstream.Title = "Drifted task upstream"
+	drift, err := app.store.RecordExternalBindingDrift(binding, driftItem, upstream)
+	if err != nil {
+		t.Fatalf("RecordExternalBindingDrift() error: %v", err)
+	}
+	return drift
+}
+
+func TestItemReviewDriftQueueAndActions(t *testing.T) {
+	app := newAuthedTestApp(t)
+	drift := seedDriftReviewFixture(t, app)
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/review?section=drift", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("drift list status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	items, ok := decodeJSONResponse(t, rr)["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("drift list items = %#v, want one row", decodeJSONResponse(t, rr)["items"])
+	}
+	row, _ := items[0].(map[string]any)
+	if row["local_state"] != store.ItemStateWaiting || row["upstream_state"] != store.ItemStateDone {
+		t.Fatalf("drift row states = %#v, want local waiting/upstream done", row)
+	}
+	if row["source_binding"] != "todoist:task:task-1" || row["source_container"] != "Errands" {
+		t.Fatalf("drift source metadata = %#v, want binding and container", row)
+	}
+
+	rr = doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/drift/"+strconv.FormatInt(drift.ID, 10)+"/take_upstream", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("take upstream status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	item, err := app.store.GetItem(*drift.ItemID)
+	if err != nil {
+		t.Fatalf("GetItem() error: %v", err)
+	}
+	if item.State != store.ItemStateDone || item.WorkspaceID != nil {
+		t.Fatalf("item after take upstream = state %q workspace %v, want done with workspace unchanged", item.State, item.WorkspaceID)
 	}
 }
 
