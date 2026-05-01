@@ -580,20 +580,8 @@ func (a *App) handleItemStateUpdate(w http.ResponseWriter, r *http.Request) {
 		writeItemStoreError(w, err)
 		return
 	}
-	if todoistBackedItem(item) && todoistDoneState(req.State) && item.State != store.ItemStateDone {
-		if err := a.syncTodoistItemCompletion(item); err != nil {
-			writeAPIError(w, http.StatusBadGateway, err.Error())
-			return
-		}
-	}
-	if item.State != strings.TrimSpace(req.State) {
-		if err := a.syncRemoteEmailItemState(r.Context(), item, req.State); err != nil {
-			writeAPIError(w, http.StatusBadGateway, err.Error())
-			return
-		}
-	}
-	if err := a.store.UpdateItemState(itemID, req.State); err != nil {
-		writeItemStoreError(w, err)
+	if err := a.updateItemState(r.Context(), item, req.State); err != nil {
+		writeItemStateUpdateError(w, err)
 		return
 	}
 	item, err = a.store.GetItem(itemID)

@@ -53,10 +53,10 @@ func runGtdMutationCommand(t *testing.T, srv *httptest.Server, token string, arg
 	return stdout.String(), stderr.String(), code
 }
 
-func TestHandleGtdCloseRoutesThroughStateEndpoint(t *testing.T) {
+func TestHandleGtdCloseRoutesThroughGTDStatusEndpoint(t *testing.T) {
 	srv, token, captures := newGtdMutationHarness(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPut || r.URL.Path != "/api/items/42/state" {
-			t.Fatalf("request = %s %s, want PUT /api/items/42/state", r.Method, r.URL.Path)
+		if r.Method != http.MethodPut || r.URL.Path != "/api/items/42/gtd-status" {
+			t.Fatalf("request = %s %s, want PUT /api/items/42/gtd-status", r.Method, r.URL.Path)
 		}
 		writeGtdMutationJSON(t, w, `{"item":{"id":42,"title":"Done","kind":"action","state":"done","sphere":"work"}}`)
 	})

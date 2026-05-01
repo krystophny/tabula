@@ -105,7 +105,7 @@ func (c *gtdMutationClient) close(args []string) (string, error) {
 		return "", err
 	}
 	var resp gtdItemResponse
-	if err := c.request(http.MethodPut, fmt.Sprintf("/api/items/%d/state", itemID), map[string]any{"state": "done"}, &resp); err != nil {
+	if err := c.request(http.MethodPut, fmt.Sprintf("/api/items/%d/gtd-status", itemID), map[string]any{"state": "done"}, &resp); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("closed #%d state=%s", resp.Item.ID, resp.Item.State), nil
