@@ -1,5 +1,6 @@
 import { apiURL } from './paths.js';
 import { openResolvedMarkdownLink } from './canvas-markdown-links.js';
+import { renderLocalGraphSection } from './canvas-local-graph.js';
 
 const PANEL_ID = 'canvas-markdown-link-panel';
 
@@ -341,6 +342,7 @@ export async function renderMarkdownLinkPanel(workspaceID: string, sourcePath: s
     const payload = (await resp.json()) as PanelPayload;
     if (panel.dataset.sourcePath !== cleanSource) return;
     renderPanelContent(panel, payload, renderCanvas);
+    void renderLocalGraphSection(panel, id, cleanSource, renderCanvas);
   } catch (err) {
     if (panel.dataset.sourcePath !== cleanSource) return;
     renderPanelContent(panel, {

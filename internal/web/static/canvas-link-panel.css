@@ -71,3 +71,73 @@
   font-style: italic;
   margin: 0;
 }
+.canvas-local-graph-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+.canvas-local-graph-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--fg-muted, #475569);
+  font-size: 0.82em;
+}
+.canvas-local-graph-controls input[type="text"],
+.canvas-local-graph-controls input:not([type]),
+.canvas-local-graph-controls select {
+  border: 1px solid var(--border, #cbd5e1);
+  background: var(--bg, #fff);
+  color: var(--fg, #0f172a);
+  border-radius: 4px;
+  min-height: 1.75rem;
+  padding: 0.2rem 0.35rem;
+  font: inherit;
+  font-size: 0.82em;
+}
+.canvas-local-graph-controls button {
+  border: 1px solid var(--accent, #2563eb);
+  background: var(--accent, #2563eb);
+  color: white;
+  border-radius: 4px;
+  min-height: 1.75rem;
+  padding: 0.2rem 0.5rem;
+  font: inherit;
+  font-size: 0.82em;
+  cursor: pointer;
+}
+.canvas-local-graph-host {
+  min-height: 180px;
+}
+.canvas-local-graph {
+  width: 100%;
+  max-height: 300px;
+  display: block;
+}
+.canvas-local-graph-edge {
+  stroke: var(--border, #cbd5e1);
+  stroke-width: 1.4;
+}
+.canvas-local-graph-node {
+  cursor: pointer;
+}
+.canvas-local-graph-node circle {
+  stroke: white;
+  stroke-width: 2;
+}
+.canvas-local-graph-node text {
+  fill: var(--fg, #0f172a);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11px;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--bg-elevated, #f8fafc);
+  stroke-width: 3px;
+}
+.canvas-local-graph-node:hover circle,
+.canvas-local-graph-node:focus circle {
+  stroke: var(--accent, #2563eb);
+  stroke-width: 3;
+}

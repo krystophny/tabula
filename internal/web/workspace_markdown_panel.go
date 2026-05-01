@@ -134,55 +134,38 @@ func collectMarkdownBacklinks(workspace store.Workspace, sourceRel string) ([]wo
 	sourceBase := strings.TrimSuffix(filepath.Base(sourceAbs), ".md")
 
 	results := []workspaceMarkdownBacklink{}
-	scanned := 0
 	scanLimitReached := false
 	truncated := false
 
-	walkErr := filepath.WalkDir(brainRoot, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return nil
-		}
-		if entry.IsDir() {
-			if pathInWorkPersonalGuardrail(path) {
-				return filepath.SkipDir
-			}
-			base := entry.Name()
-			if base != "." && strings.HasPrefix(base, ".") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.EqualFold(filepath.Ext(entry.Name()), ".md") {
-			return nil
-		}
+	files, fileLimitReached, err := listWorkspaceMarkdownNoteFiles(brainRoot, workspaceMarkdownBacklinkScanFileCap)
+	if err != nil {
+		return nil, false, false, err
+	}
+	scanLimitReached = fileLimitReached
+	for _, path := range files {
 		if path == sourceAbs {
-			return nil
+			continue
 		}
 		if pathInWorkPersonalGuardrail(path) {
-			return nil
-		}
-		scanned++
-		if scanned > workspaceMarkdownBacklinkScanFileCap {
-			scanLimitReached = true
-			return filepath.SkipAll
+			continue
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return nil
+			continue
 		}
 		text := string(data)
 		refs := parseMarkdownLinkRefs(text)
 		if len(refs) == 0 {
-			return nil
+			continue
 		}
 		fileVaultRel, relErr := filepath.Rel(vaultRoot, path)
 		if relErr != nil {
-			return nil
+			continue
 		}
 		fileVaultRel = filepath.ToSlash(filepath.Clean(fileVaultRel))
 		brainRel, brainRelErr := filepath.Rel(brainRoot, path)
 		if brainRelErr != nil {
-			return nil
+			continue
 		}
 		brainRel = filepath.ToSlash(filepath.Clean(brainRel))
 		for _, ref := range refs {
@@ -191,7 +174,7 @@ func collectMarkdownBacklinks(workspace store.Workspace, sourceRel string) ([]wo
 			}
 			if len(results) >= workspaceMarkdownBacklinkResultCap {
 				truncated = true
-				return filepath.SkipAll
+				break
 			}
 			results = append(results, workspaceMarkdownBacklink{
 				SourcePath: fileVaultRel,
@@ -202,10 +185,9 @@ func collectMarkdownBacklinks(workspace store.Workspace, sourceRel string) ([]wo
 			})
 			break
 		}
-		return nil
-	})
-	if walkErr != nil {
-		return results, truncated, scanLimitReached, walkErr
+		if truncated {
+			break
+		}
 	}
 	sort.SliceStable(results, func(i, j int) bool {
 		return results[i].SourcePath < results[j].SourcePath

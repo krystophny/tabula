@@ -544,10 +544,41 @@ __harnessRouteHandlers.push(async function harnessRouteRuntime(u, opts) {
           headers: { 'Content-Type': 'application/json' },
         });
       }
+      if (u.includes('/api/workspaces/') && u.includes('/markdown-link/panel')) {
+        const payload = window.__mockMarkdownLinkPanel || {
+          ok: true,
+          source_path: 'topics/active.md',
+          outgoing: [],
+          broken_count: 0,
+          backlinks: [],
+        };
+        return new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       if (u.includes('/api/workspaces/') && u.includes('/markdown-link/file')) {
         return new Response(String(window.__mockMarkdownLinkFileText || ''), {
           status: 200,
           headers: { 'Content-Type': 'text/markdown; charset=utf-8' },
+        });
+      }
+      if (u.includes('/api/workspaces/') && u.includes('/graph')) {
+        const payload = window.__mockWorkspaceLocalGraph || {
+          ok: true,
+          source_path: 'topics/active.md',
+          nodes: [],
+          edges: [],
+        };
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'local_graph',
+          method: opts?.method || 'GET',
+          url: u,
+        });
+        return new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
         });
       }
       if (u.includes('/api/workspaces/') && u.includes('/companion/config') && opts?.method === 'PUT') {
