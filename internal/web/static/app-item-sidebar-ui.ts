@@ -352,13 +352,25 @@ export function formatSidebarAge(value) {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
+export function formatSidebarTimestamp(value) {
+  const parsed = parseSidebarTimestamp(value);
+  if (parsed === null) return '';
+  return `${new Date(parsed).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+}
+
+function driftStateSummary(label, stateValue, updatedAt) {
+  const stateText = String(stateValue || '').trim() || label;
+  const timestamp = formatSidebarTimestamp(updatedAt);
+  return timestamp ? `${label} ${stateText} @ ${timestamp}` : `${label} ${stateText}`;
+}
+
 export function buildItemSidebarSubtitle(item) {
   if (isDriftSidebarItem(item)) {
-    const local = String(item?.local_state || '').trim() || 'local';
-    const upstream = String(item?.upstream_state || '').trim() || 'upstream';
+    const local = driftStateSummary('local', item?.local_state, item?.local_updated_at);
+    const upstream = driftStateSummary('upstream', item?.upstream_state, item?.upstream_updated_at);
     const binding = String(item?.source_binding || '').trim();
     const container = String(item?.source_container || '').trim();
-    return [`local ${local}`, `upstream ${upstream}`, binding, container ? `container ${container}` : ''].filter(Boolean).join(' · ');
+    return [local, upstream, binding, container ? `container ${container}` : ''].filter(Boolean).join(' · ');
   }
   const parts = [];
   const artifactTitle = String(item?.artifact_title || '').trim();

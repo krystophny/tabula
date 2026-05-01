@@ -219,6 +219,52 @@ test.describe('item inbox sidebar', () => {
     expect(log.some((entry: any) => entry?.type === 'command_sent' && entry?.command === '/pr 144')).toBe(true);
   });
 
+  test('drift review rows show local and upstream timestamps', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await waitReady(page);
+
+    await page.evaluate(async () => {
+      (window as any).__itemSidebarSectionCounts = {
+        project_items_open: 0,
+        people_open: 0,
+        drift_review: 1,
+        dedup_review: 0,
+        recent_meetings: 0,
+      };
+      (window as any).__setItemSidebarData({
+        inbox: [],
+        review: [{
+          id: 701,
+          drift_id: 9001,
+          kind: 'drift',
+          title: 'Drifted task',
+          state: 'review',
+          sphere: 'private',
+          source: 'todoist',
+          source_binding: 'todoist:task:task-1',
+          source_container: 'Errands',
+          local_state: 'waiting',
+          upstream_state: 'done',
+          local_updated_at: '2026-03-08T09:58:00Z',
+          upstream_updated_at: '2026-03-08T10:05:00Z',
+          detected_at: '2026-03-08T10:06:00Z',
+        }],
+        waiting: [],
+        someday: [],
+        done: [],
+      });
+      const mod = await import('../../internal/web/static/app-item-sidebar-ui.js');
+      await mod.openItemSidebarView('review', { section: 'drift' });
+    });
+
+    await expect(page.locator('#pr-file-pane')).toHaveClass(/is-open/);
+    const row = page.locator('#pr-file-list .pr-file-item').filter({ hasText: 'Drifted task' });
+    await expect(row).toContainText('local waiting @ 2026-03-08 09:58 UTC');
+    await expect(row).toContainText('upstream done @ 2026-03-08 10:05 UTC');
+    await expect(row).toContainText('todoist:task:task-1');
+    await expect(row).toContainText('container Errands');
+  });
+
   test('system actions can open provider-filtered and unassigned inbox views', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await waitReady(page);
