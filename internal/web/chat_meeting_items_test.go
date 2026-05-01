@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -78,6 +79,20 @@ func TestProjectMeetingItemsAPIAndCreation(t *testing.T) {
 	}, "\n"), `["Alice"]`, `[]`); err != nil {
 		t.Fatalf("UpsertParticipantRoomState() error: %v", err)
 	}
+	var ingestRequest map[string]any
+	mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&ingestRequest); err != nil {
+			t.Fatalf("decode MCP request: %v", err)
+		}
+		writeMCPStructuredResult(t, w, map[string]any{
+			"count":   2,
+			"paths":   []string{".slopshell/artifacts/companion/" + session.ID + "/selected-meeting-actions.md"},
+			"created": []string{"brain/commitments/a.md", "brain/commitments/b.md"},
+			"updated": true,
+		})
+	}))
+	t.Cleanup(mcp.Close)
+	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/workspaces/"+itoa(workspace.ID)+"/meeting-items", nil)
 	if rr.Code != http.StatusOK {
@@ -110,47 +125,34 @@ func TestProjectMeetingItemsAPIAndCreation(t *testing.T) {
 	if len(created.CreatedItems) != 2 {
 		t.Fatalf("created_items len = %d, want 2", len(created.CreatedItems))
 	}
+	params, _ := ingestRequest["params"].(map[string]any)
+	if params["name"] != "brain.gtd.ingest" {
+		t.Fatalf("MCP tool name = %q, want brain.gtd.ingest", params["name"])
+	}
+	args, _ := params["arguments"].(map[string]any)
+	if args["source"] != "meetings" {
+		t.Fatalf("ingest source = %q, want meetings", args["source"])
+	}
+	if paths, ok := args["paths"].([]any); !ok || len(paths) != 1 || !strings.HasSuffix(paths[0].(string), "/selected-meeting-actions.md") {
+		t.Fatalf("ingest paths = %#v, want selected meeting action note", args["paths"])
+	}
 
 	items, err := app.store.ListInboxItems(time.Now())
 	if err != nil {
 		t.Fatalf("ListInboxItems() error: %v", err)
 	}
-	if len(items) != 2 {
-		t.Fatalf("ListInboxItems() len = %d, want 2", len(items))
+	if len(items) != 0 {
+		t.Fatalf("ListInboxItems() len = %d, want 0 because GTD ingest owns creation", len(items))
 	}
 
-	var draftItem, reviewItem store.ItemSummary
-	for _, item := range items {
-		switch item.Title {
-		case "Draft the revised agenda":
-			draftItem = item
-		case "Review the budget appendix":
-			reviewItem = item
-		}
-	}
-	if draftItem.ID == 0 || reviewItem.ID == 0 {
-		t.Fatalf("created inbox items = %#v", items)
-	}
-	if draftItem.WorkspaceID == nil || *draftItem.WorkspaceID != workspace.ID {
-		t.Fatalf("draft workspace_id = %v, want %d", draftItem.WorkspaceID, workspace.ID)
-	}
-	if reviewItem.WorkspaceID == nil || *reviewItem.WorkspaceID != workspace.ID {
-		t.Fatalf("review workspace_id = %v, want %d", reviewItem.WorkspaceID, workspace.ID)
-	}
-	if draftItem.ActorName == nil || *draftItem.ActorName != "Alice" {
-		t.Fatalf("draft actor_name = %v, want Alice", draftItem.ActorName)
-	}
-	if reviewItem.ActorName != nil && *reviewItem.ActorName != "" {
-		t.Fatalf("review actor_name = %v, want nil/empty", reviewItem.ActorName)
-	}
-	if draftItem.ArtifactID == nil || reviewItem.ArtifactID == nil || *draftItem.ArtifactID != *reviewItem.ArtifactID {
-		t.Fatalf("artifact ids = %v and %v, want shared summary artifact", draftItem.ArtifactID, reviewItem.ArtifactID)
-	}
-
-	artifact, err := app.store.GetArtifact(*draftItem.ArtifactID)
+	artifacts, err := app.store.ListArtifactsByKind(store.ArtifactKindMarkdown)
 	if err != nil {
-		t.Fatalf("GetArtifact() error: %v", err)
+		t.Fatalf("ListArtifactsByKind() error: %v", err)
 	}
+	if len(artifacts) != 1 {
+		t.Fatalf("markdown artifacts = %d, want 1", len(artifacts))
+	}
+	artifact := artifacts[0]
 	if artifact.RefPath == nil || !strings.HasSuffix(*artifact.RefPath, "/summary.md") {
 		t.Fatalf("artifact ref_path = %v, want summary.md", artifact.RefPath)
 	}

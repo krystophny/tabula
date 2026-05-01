@@ -53,3 +53,12 @@ export {
   getHotwordMicStream,
 } from './hotword.js';
 export { initVAD, ensureVADLoaded, float32ToWav, normalizeSpeechSamples } from './vad.js';
+export {
+  ensureSharedVAD,
+  setSharedVADMode,
+  clearSharedVADMode,
+  SHARED_VAD_MODE_CAPTURE,
+  SHARED_VAD_MODE_DIALOGUE,
+  SHARED_VAD_MODE_IDLE,
+  SHARED_VAD_MODE_MEETING,
+} from './shared-vad.js';

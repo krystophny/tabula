@@ -1,13 +1,17 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/sloppy-org/slopshell/internal/aggregateitem"
 	"github.com/sloppy-org/slopshell/internal/store"
 )
 
@@ -123,6 +127,71 @@ func meetingCaptureSourceRef(sessionID string, item proposedMeetingItem) string 
 	return strings.TrimSpace(sessionID) + ":" + meetingCaptureKey(item.ActorName) + ":" + meetingCaptureKey(item.Title)
 }
 
+func meetingActionNoteMarkdown(session store.ParticipantSession, items []proposedMeetingItem) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Live Meeting Actions\n\nSession: %s\n\n## Action Checklist\n\n", strings.TrimSpace(session.ID))
+	grouped := map[string][]string{}
+	order := make([]string, 0, len(items))
+	for _, item := range items {
+		title := strings.TrimSpace(item.Title)
+		if title == "" {
+			continue
+		}
+		actor := strings.TrimSpace(item.ActorName)
+		if actor == "" {
+			actor = "General / Unassigned"
+		}
+		if _, exists := grouped[actor]; !exists {
+			order = append(order, actor)
+		}
+		grouped[actor] = append(grouped[actor], title)
+	}
+	for _, actor := range order {
+		fmt.Fprintf(&b, "### %s\n\n", actor)
+		for _, title := range grouped[actor] {
+			fmt.Fprintf(&b, "- [ ] %s\n", title)
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func meetingActionNotePath(workspace store.Workspace, session store.ParticipantSession) string {
+	return filepath.Join(companionArtifactDir(workspace, &session), "meeting-actions.md")
+}
+
+func meetingSourceRel(workspace store.Workspace, path string) (string, error) {
+	rel, err := filepath.Rel(strings.TrimSpace(workspace.DirPath), path)
+	if err != nil {
+		return "", err
+	}
+	if strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("meeting source path is outside workspace")
+	}
+	return filepath.ToSlash(rel), nil
+}
+
+func (a *App) ingestMeetingActionNote(ctx context.Context, workspace store.Workspace, path string) (map[string]any, string, error) {
+	rel, err := meetingSourceRel(workspace, path)
+	if err != nil {
+		return nil, "", err
+	}
+	client, err := aggregateitem.NewClient(a.localMCPEndpointURL(), a.localMCPEndpoint.HTTPClient(20*time.Second))
+	if err != nil {
+		return nil, "", err
+	}
+	sphere := strings.TrimSpace(workspace.Sphere)
+	if sphere == "" {
+		sphere = store.SphereWork
+	}
+	result, err := client.Ingest(ctx, aggregateitem.IngestRequest{
+		Sphere: sphere,
+		Source: "meetings",
+		Paths:  []string{rel},
+	})
+	return result, rel, err
+}
+
 func parseMeetingCapturePayload(raw string) map[string]any {
 	clean := strings.TrimSpace(raw)
 	if clean == "" {
@@ -144,6 +213,28 @@ func meetingCapturePayloadString(payload map[string]any, key string) string {
 		return ""
 	}
 	return value
+}
+
+func meetingActionEventsAsItems(events []store.ParticipantEvent) []proposedMeetingItem {
+	out := make([]proposedMeetingItem, 0, len(events))
+	for _, event := range events {
+		if strings.TrimSpace(event.EventType) != "meeting_action_item_captured" {
+			continue
+		}
+		payload := parseMeetingCapturePayload(event.PayloadJSON)
+		title := strings.TrimSpace(meetingCapturePayloadString(payload, "title"))
+		if title == "" {
+			title = strings.TrimSpace(meetingCapturePayloadString(payload, "item_title"))
+		}
+		if title == "" {
+			continue
+		}
+		out = append(out, proposedMeetingItem{
+			ActorName: strings.TrimSpace(meetingCapturePayloadString(payload, "actor_name")),
+			Title:     title,
+		})
+	}
+	return out
 }
 
 func (a *App) captureMeetingNotesForSegment(participantSessionID string, seg store.ParticipantSegment) {
@@ -209,24 +300,43 @@ func (a *App) captureMeetingNotesForSegment(participantSessionID string, seg sto
 	if !a.livePolicyConfig().CaptureActionItems || session.WorkspaceID <= 0 {
 		return
 	}
-	workspaceID := session.WorkspaceID
+	workspace, err := a.store.GetWorkspace(session.WorkspaceID)
+	if err != nil {
+		log.Printf("meeting capture workspace lookup error: %v", err)
+		return
+	}
+	newItems := make([]proposedMeetingItem, 0)
 	for _, item := range a.extractMeetingItems(text) {
 		sourceRef := meetingCaptureSourceRef(participantSessionID, item)
 		if _, exists := actionRefs[sourceRef]; exists {
 			continue
 		}
-		created, err := a.store.UpsertItemFromSource(meetingCaptureItemSource, sourceRef, meetingCaptureItemTitle(item), &workspaceID)
-		if err != nil {
-			log.Printf("meeting capture item upsert error: %v", err)
-			continue
-		}
+		newItems = append(newItems, item)
+	}
+	if len(newItems) == 0 {
+		return
+	}
+	sourcePath := meetingActionNotePath(workspace, session)
+	allItems := append(meetingActionEventsAsItems(events), newItems...)
+	if err := writeCompanionArtifactFile(sourcePath, meetingActionNoteMarkdown(session, allItems)); err != nil {
+		log.Printf("meeting capture action note write error: %v", err)
+		return
+	}
+	ingest, sourceRel, err := a.ingestMeetingActionNote(context.Background(), workspace, sourcePath)
+	if err != nil {
+		log.Printf("meeting capture gtd ingest error: %v", err)
+		return
+	}
+	for _, item := range newItems {
+		sourceRef := meetingCaptureSourceRef(participantSessionID, item)
 		payload, err := json.Marshal(map[string]any{
-			"actor_name": item.ActorName,
-			"item_id":    created.ID,
-			"item_title": created.Title,
-			"source_ref": sourceRef,
-			"text":       created.Title,
-			"title":      item.Title,
+			"actor_name":  item.ActorName,
+			"ingest":      ingest,
+			"item_title":  meetingCaptureItemTitle(item),
+			"source_ref":  sourceRef,
+			"source_path": sourceRel,
+			"text":        meetingCaptureItemTitle(item),
+			"title":       item.Title,
 		})
 		if err != nil {
 			continue

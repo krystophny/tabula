@@ -156,7 +156,7 @@ func TestCompanionRuntimeProtocolEmitsMeetingWakeWordEvent(t *testing.T) {
 
 	sttSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"text":"Computer, open the transcript."}`))
+		_, _ = w.Write([]byte(`{"text":"Alice said computer, open the transcript."}`))
 	}))
 	defer sttSrv.Close()
 	app.sttURL = sttSrv.URL

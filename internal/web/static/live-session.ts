@@ -1,4 +1,11 @@
-import { initVAD, float32ToWav } from './vad.js';
+import { float32ToWav } from './vad.js';
+import {
+  clearSharedVADMode,
+  ensureSharedVAD,
+  setSharedVADMode,
+  SHARED_VAD_MODE_DIALOGUE,
+  SHARED_VAD_MODE_MEETING,
+} from './shared-vad.js';
 import { emitDialogueServerDiagnostic, recordDialogueVoiceDiagnostic } from './app-dialogue-diagnostics.js';
 import {
   isTurnIntelligenceConnected,
@@ -34,9 +41,6 @@ const state = {
   mode: '',
   hotword: LIVE_SESSION_HOTWORD_DEFAULT,
   dialogueListenActive: false,
-  dialogueListenSileroVAD: null,
-  dialogueListenVADStream: null,
-  dialogueListenVADAudioContext: null,
   dialogueSessionToken: 0,
   ttsBargeInMode: false,
   ttsBargeInArmedAt: 0,
@@ -68,25 +72,8 @@ function notifyStateChange() {
   }
 }
 
-function clearDialogueSileroVAD() {
-  if (state.dialogueListenSileroVAD) {
-    try { state.dialogueListenSileroVAD.destroy(); } catch (_) {}
-    state.dialogueListenSileroVAD = null;
-  }
-  if (state.dialogueListenVADStream) {
-    for (const track of state.dialogueListenVADStream.getTracks()) {
-      try { track.stop(); } catch (_) {}
-    }
-    state.dialogueListenVADStream = null;
-  }
-  if (state.dialogueListenVADAudioContext) {
-    try { state.dialogueListenVADAudioContext.close(); } catch (_) {}
-    state.dialogueListenVADAudioContext = null;
-  }
-}
-
 function closeDialogueListenWindow() {
-  clearDialogueSileroVAD();
+  clearSharedVADMode(SHARED_VAD_MODE_DIALOGUE);
   state.ttsBargeInMode = false;
   state.ttsBargeInArmedAt = 0;
   state.bargeInPending = false;
@@ -98,7 +85,7 @@ function closeDialogueListenWindow() {
 }
 
 function pauseDialogueListenForCapture() {
-  clearDialogueSileroVAD();
+  clearSharedVADMode(SHARED_VAD_MODE_DIALOGUE);
   state.dialogueListenActive = false;
   state.ttsBargeInMode = false;
   state.ttsBargeInArmedAt = 0;
@@ -136,74 +123,63 @@ function fireDialogueListenError(message) {
   }
 }
 
-async function startSileroDialogueMonitor(stream, token) {
-  try {
-    const vadStream = typeof stream?.clone === 'function' ? stream.clone() : stream;
-    state.dialogueListenVADStream = vadStream && vadStream !== stream ? vadStream : null;
-    const vadAudioContext = state.dialogueListenVADAudioContext || undefined;
-    const handleDialogueSpeechDetected = (via) => {
+async function startSharedDialogueMonitor(stream, token) {
+  const handleDialogueSpeechDetected = (via) => {
+    if (token !== state.dialogueSessionToken) return;
+    if (!state.dialogueListenActive) return;
+    const interruptedAssistant = Boolean(state.ttsBargeInMode);
+    if (interruptedAssistant && !localBargeInFallbackArmed()) return;
+    recordDialogueVoiceDiagnostic('dialogue_listen_speech_detected', {
+      via: String(via || '').trim() || 'unknown',
+      barge_in: interruptedAssistant,
+    });
+    emitDialogueServerDiagnostic('dialogue_listen_speech_detected', {
+      via: String(via || '').trim() || 'unknown',
+      barge_in: interruptedAssistant,
+    });
+    if (isTurnIntelligenceConnected()) {
+      sendTurnSpeechStart(interruptedAssistant);
+    }
+    if (interruptedAssistant) {
+      fireBargeIn();
+      return;
+    }
+    onDialogueSpeechDetected();
+  };
+  setSharedVADMode(SHARED_VAD_MODE_DIALOGUE, {
+    onSpeechStart() {
+      handleDialogueSpeechDetected('shared_vad_on_speech_start');
+    },
+    onFrameProcessed(probs) {
       if (token !== state.dialogueSessionToken) return;
       if (!state.dialogueListenActive) return;
-      const interruptedAssistant = Boolean(state.ttsBargeInMode);
-      if (interruptedAssistant && !localBargeInFallbackArmed()) return;
-      recordDialogueVoiceDiagnostic('dialogue_listen_speech_detected', {
-        via: String(via || '').trim() || 'unknown',
-        barge_in: interruptedAssistant,
-      });
-      emitDialogueServerDiagnostic('dialogue_listen_speech_detected', {
-        via: String(via || '').trim() || 'unknown',
-        barge_in: interruptedAssistant,
-      });
+      const p = typeof probs === 'number' ? probs
+        : (probs && typeof probs.isSpeech === 'number' ? probs.isSpeech : 0);
       if (isTurnIntelligenceConnected()) {
-        sendTurnSpeechStart(interruptedAssistant);
+        sendTurnSpeechProbability(p, state.ttsBargeInMode);
       }
-      if (interruptedAssistant) {
-        fireBargeIn();
-        return;
-      }
-      onDialogueSpeechDetected();
-    };
-    let initErrorMessage = '';
-    const instance = await initVAD({
-      stream: vadStream,
-      audioContext: vadAudioContext,
-      onSpeechStart() {
-        handleDialogueSpeechDetected('silero_on_speech_start');
-      },
-      onFrameProcessed(probs) {
-        if (token !== state.dialogueSessionToken) return;
-        if (!state.dialogueListenActive) return;
-        const p = typeof probs === 'number' ? probs
-          : (probs && typeof probs.isSpeech === 'number' ? probs.isSpeech : 0);
-        if (isTurnIntelligenceConnected()) {
-          sendTurnSpeechProbability(p, state.ttsBargeInMode);
-        }
-      },
-      onError(err) {
-        initErrorMessage = String(err?.message || err || 'unknown error');
-        emitDialogueServerDiagnostic('dialogue_listen_vad_error', {
-          message: initErrorMessage,
-        });
-      },
-    });
+    },
+    onError(err) {
+      emitDialogueServerDiagnostic('dialogue_listen_vad_error', {
+        message: String(err?.message || err || 'unknown error'),
+      });
+    },
+  });
+  try {
+    const instance = await ensureSharedVAD({ stream });
 
     if (token !== state.dialogueSessionToken || !state.dialogueListenActive) {
-      if (instance) instance.destroy();
       return;
     }
 
     if (!instance) {
-      const detail = initErrorMessage || 'speech detection unavailable';
-      fireDialogueListenError(`speech detection unavailable: ${detail}`);
+      fireDialogueListenError('speech detection unavailable');
       return;
     }
 
-    state.dialogueListenSileroVAD = instance;
-    instance.start();
     emitDialogueServerDiagnostic('dialogue_listen_vad_ready', {
       token,
-      cloned_stream: Boolean(state.dialogueListenVADStream),
-      audio_context: vadAudioContext ? 'dedicated' : 'default',
+      shared_vad: true,
     });
     notifyStateChange();
   } catch (err) {
@@ -229,17 +205,6 @@ async function openDialogueListenWindow() {
   if (!canStartDialogueListen()) return;
   closeDialogueListenWindow();
   const token = nextDialogueToken();
-  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-  if (AudioContextCtor) {
-    try {
-      state.dialogueListenVADAudioContext = new AudioContextCtor();
-      if (state.dialogueListenVADAudioContext.state === 'suspended' && typeof state.dialogueListenVADAudioContext.resume === 'function') {
-        void state.dialogueListenVADAudioContext.resume().catch(() => {});
-      }
-    } catch (_) {
-      state.dialogueListenVADAudioContext = null;
-    }
-  }
   state.dialogueListenActive = true;
   sendTurnListenState(true);
   emitDialogueServerDiagnostic('dialogue_listen_open', {
@@ -270,7 +235,7 @@ async function openDialogueListenWindow() {
       closeDialogueListenWindow();
       return;
     }
-    void startSileroDialogueMonitor(stream, token);
+    void startSharedDialogueMonitor(stream, token);
   } catch (err) {
     if (token !== state.dialogueSessionToken) return;
     const detail = String(err?.message || err || 'unknown error');
@@ -334,7 +299,7 @@ export async function startLiveSession(mode, ws) {
     return true;
   }
 
-  const capture = new MeetingLiveCapture();
+  const capture = new MeetingLiveCapture({ acquireMicStream: hooks.acquireMicStream });
   capture.onSegment = hooks.onMeetingSegment;
   capture.onStarted = (message) => {
     if (state.meetingCapture !== capture) return;
@@ -391,7 +356,7 @@ export function stopLiveSession() {
 }
 
 export function cancelLiveSessionListen() {
-  if (!state.dialogueListenActive && state.dialogueListenSileroVAD === null) {
+  if (!state.dialogueListenActive) {
     return;
   }
   nextDialogueToken();
@@ -435,7 +400,7 @@ export function handleLiveSessionMessage(message) {
 export class MeetingLiveCapture {
   _ws: any;
   _stream: any;
-  _vadInstance: any;
+  _acquireMicStream: any;
   _active: boolean;
   _sessionId: any;
   _onSegment: any;
@@ -451,7 +416,7 @@ export class MeetingLiveCapture {
   constructor(options: Record<string, any> = {}) {
     this._ws = null;
     this._stream = null;
-    this._vadInstance = null;
+    this._acquireMicStream = typeof options.acquireMicStream === 'function' ? options.acquireMicStream : null;
     this._active = false;
     this._sessionId = null;
     this._onSegment = null;
@@ -513,7 +478,9 @@ export class MeetingLiveCapture {
     this._clearAudioBuffers();
 
     try {
-      this._stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this._stream = this._acquireMicStream
+        ? await this._acquireMicStream()
+        : await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
       this._emitError('Microphone access denied: ' + err.message);
       return false;
@@ -521,27 +488,23 @@ export class MeetingLiveCapture {
 
     this._active = true;
     ws.send(JSON.stringify({ type: 'participant_start' }));
-    await this._startSileroCapture();
+    await this._startSharedCapture();
     return this._active;
   }
 
-  async _startSileroCapture() {
+  async _startSharedCapture() {
+    setSharedVADMode(SHARED_VAD_MODE_MEETING, {
+      onSpeechEnd: (audio) => {
+        void this._handleSpeechEnd(audio);
+      },
+      onError: (err) => this._handleCaptureError(err),
+    });
     try {
-      const instance = await initVAD({
+      const instance = await ensureSharedVAD({
         stream: this._stream,
-        positiveSpeechThreshold: 0.5,
-        negativeSpeechThreshold: 0.3,
-        redemptionMs: 800,
-        minSpeechMs: 300,
-        preSpeechPadMs: 300,
-        onSpeechEnd: (audio) => {
-          void this._handleSpeechEnd(audio);
-        },
-        onError: (err) => this._handleCaptureError(err),
       });
 
       if (!this._active) {
-        if (instance) instance.destroy();
         return;
       }
       if (!instance) {
@@ -549,8 +512,6 @@ export class MeetingLiveCapture {
         return;
       }
 
-      this._vadInstance = instance;
-      instance.start();
     } catch (err) {
       this._handleCaptureError(err);
     }
@@ -561,17 +522,9 @@ export class MeetingLiveCapture {
     this._active = false;
     this._clearAudioBuffers();
 
-    if (this._vadInstance) {
-      try { this._vadInstance.destroy(); } catch (_) {}
-      this._vadInstance = null;
-    }
+    clearSharedVADMode(SHARED_VAD_MODE_MEETING);
 
-    if (this._stream) {
-      for (const track of this._stream.getTracks()) {
-        track.stop();
-      }
-      this._stream = null;
-    }
+    this._stream = null;
 
     if (this._ws && this._ws.readyState === WebSocket.OPEN) {
       this._ws.send(JSON.stringify({ type: 'participant_stop' }));
@@ -607,16 +560,8 @@ export class MeetingLiveCapture {
   _cleanup() {
     this._active = false;
     this._clearAudioBuffers();
-    if (this._vadInstance) {
-      try { this._vadInstance.destroy(); } catch (_) {}
-      this._vadInstance = null;
-    }
-    if (this._stream) {
-      for (const track of this._stream.getTracks()) {
-        track.stop();
-      }
-      this._stream = null;
-    }
+    clearSharedVADMode(SHARED_VAD_MODE_MEETING);
+    this._stream = null;
     this._ws = null;
   }
 
