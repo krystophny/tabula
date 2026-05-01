@@ -6,6 +6,7 @@ import * as runtimeDefaultsModule from './app-runtime-defaults.js';
 import * as runtimeUiModule from './app-runtime-ui.js';
 import * as dialogueDiagnosticsModule from './app-dialogue-diagnostics.js';
 import * as voiceModule from './app-voice.js';
+import * as itemSidebarCountsModule from './app-item-sidebar-counts.js';
 import * as itemSidebarUtilsModule from './app-item-sidebar-utils.js';
 import * as itemSidebarGesturesModule from './app-item-sidebar-gestures.js';
 import * as itemSidebarArtifactsModule from './app-item-sidebar-artifacts.js';
@@ -42,6 +43,7 @@ setAppRefs({
   ...runtimeUiModule,
   ...dialogueDiagnosticsModule,
   ...voiceModule,
+  ...itemSidebarCountsModule,
   ...itemSidebarUtilsModule,
   ...itemSidebarGesturesModule,
   ...itemSidebarArtifactsModule,

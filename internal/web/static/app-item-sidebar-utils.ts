@@ -1,5 +1,11 @@
 import * as env from './app-env.js';
 import * as context from './app-context.js';
+import {
+  defaultItemSidebarCounts,
+  normalizeItemSidebarCounts,
+  normalizeItemSidebarSectionCounts,
+  setInboxTriggerCount,
+} from './app-item-sidebar-counts.js';
 
 const { marked, apiURL, wsURL, renderCanvas, clearCanvas, getLocationFromSelection, clearLineHighlight, escapeHtml, sanitizeHtml, getActiveArtifactTitle, getActiveTextEventId, getPreviousArtifactText, getUiState, setUiMode, showIndicatorMode, hideIndicator, showTextInput, hideTextInput, showOverlay, hideOverlay, updateOverlay, isOverlayVisible, isTextInputVisible, isRecording, setRecording, getInputAnchor, setInputAnchor, getAnchorFromPoint, buildContextPrefix, getLastInputPosition, setLastInputPosition, configureLiveSession, getLiveSessionSnapshot, handleLiveSessionMessage, isLiveSessionListenActive, LIVE_SESSION_HOTWORD_DEFAULT, LIVE_SESSION_MODE_DIALOGUE, LIVE_SESSION_MODE_MEETING, onLiveSessionTTSPlaybackComplete, cancelLiveSessionListen, startLiveSession, stopLiveSession, initHotword, startHotwordMonitor, stopHotwordMonitor, isHotwordActive, onHotwordDetected, setHotwordThreshold, setHotwordAudioContext, getPreRollAudio, getHotwordMicStream, initVAD, ensureVADLoaded, float32ToWav } = env;
 const { refs, state, getState, isVoiceTurn, COMPANION_VIEW_PATH_PREFIX, COMPANION_TRANSCRIPT_VIEW_PATH, COMPANION_SUMMARY_VIEW_PATH, COMPANION_REFERENCES_VIEW_PATH, MEETING_TRANSCRIPT_LABEL, MEETING_SUMMARY_LABEL, MEETING_REFERENCES_LABEL, MEETING_SUMMARY_ITEMS_PANEL_ID, CHAT_CTRL_LONG_PRESS_MS, ARTIFACT_EDIT_LONG_TAP_MS, ITEM_SIDEBAR_VIEWS, ITEM_SIDEBAR_GESTURE_CANCEL_PX, ITEM_SIDEBAR_GESTURE_COMMIT_PX, ITEM_SIDEBAR_GESTURE_LONG_PX, ITEM_SIDEBAR_DEFAULT_LATER_HOUR_UTC, ITEM_SIDEBAR_MENU_ID, DEV_UI_RELOAD_POLL_MS, ASSISTANT_ACTIVITY_POLL_MS, CHAT_WS_STALE_THRESHOLD_MS, ACTIVE_TURN_NO_ID_CLEAR_GRACE_MS, ACTIVE_TURN_ACTIVITY_CLEAR_GRACE_MS, PROJECT_CHAT_MODEL_ALIASES, PROJECT_CHAT_MODEL_REASONING_EFFORTS, TTS_SILENT_STORAGE_KEY, YOLO_MODE_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_ENABLED_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_LAST_SHOWN_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_INTERVAL_MS, ACTIVE_PROJECT_STORAGE_KEY, LAST_VIEW_STORAGE_KEY, RUNTIME_RELOAD_CONTEXT_STORAGE_KEY, SIDEBAR_IMAGE_EXTENSIONS, PANEL_MOTION_WATCH_QUERIES, VOICE_LIFECYCLE, COMPANION_IDLE_SURFACES, COMPANION_RUNTIME_STATES, TOOL_PALETTE_MODES } = context;
@@ -21,18 +27,6 @@ function appendSphereQuery(path, sphere = state.activeSphere, allSpheres = false
   const cleanSphere = normalizeActiveSphere(sphere);
   const separator = String(path || '').includes('?') ? '&' : '?';
   return `${path}${separator}sphere=${encodeURIComponent(cleanSphere)}`;
-}
-
-export function defaultItemSidebarCounts() {
-  return {
-    inbox: 0,
-    next: 0,
-    waiting: 0,
-    deferred: 0,
-    someday: 0,
-    review: 0,
-    done: 0,
-  };
 }
 
 export function normalizeItemSidebarView(rawView) {
@@ -139,54 +133,6 @@ export async function fetchItemSidebarDedupReview(filters = state.itemSidebarFil
   }
   const payload = await resp.json();
   return Array.isArray(payload?.groups) ? payload.groups : [];
-}
-
-export function normalizeItemSidebarCounts(rawCounts) {
-  const counts = defaultItemSidebarCounts();
-  if (!rawCounts || typeof rawCounts !== 'object') return counts;
-  ITEM_SIDEBAR_VIEWS.forEach((view) => {
-    const value = Number(rawCounts[view] ?? 0);
-    counts[view] = Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
-  });
-  return counts;
-}
-
-export function setInboxTriggerCount(count) {
-  const edgeLeftTap = document.getElementById('edge-left-tap');
-  if (!(edgeLeftTap instanceof HTMLElement)) return;
-  const normalizedCount = Number.isFinite(Number(count)) && Number(count) > 0
-    ? Math.trunc(Number(count))
-    : 0;
-  if (normalizedCount > 0) {
-    edgeLeftTap.dataset.inboxCount = String(normalizedCount);
-    edgeLeftTap.classList.add('has-inbox-count');
-    return;
-  }
-  edgeLeftTap.dataset.inboxCount = '';
-  edgeLeftTap.classList.remove('has-inbox-count');
-}
-
-export function defaultItemSidebarSectionCounts() {
-  return {
-    project_items_open: 0,
-    people_open: 0,
-    drift_review: 0,
-    dedup_review: 0,
-    recent_meetings: 0,
-  };
-}
-
-export function normalizeItemSidebarSectionCounts(rawSections) {
-  const out = defaultItemSidebarSectionCounts();
-  if (!rawSections || typeof rawSections !== 'object') return out;
-  const fields = ['project_items_open', 'people_open', 'drift_review', 'dedup_review', 'recent_meetings'];
-  for (const field of fields) {
-    const raw = Number(rawSections[field] ?? 0);
-    if (Number.isFinite(raw) && raw > 0) {
-      out[field] = Math.trunc(raw);
-    }
-  }
-  return out;
 }
 
 export function applyItemSidebarCounts(rawCounts, rawSections = null) {
