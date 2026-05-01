@@ -190,20 +190,34 @@ func TestCountSidebarSectionsFilteredCountsDistinctPeopleOnOpenItems(t *testing.
 func TestCountSidebarSectionsFilteredCountsDriftReviewItems(t *testing.T) {
 	s := newTestStore(t)
 
-	driftWithTarget, err := s.CreateItem("Drift with target", ItemOptions{State: ItemStateReview})
+	account, err := s.CreateExternalAccount(SphereWork, ExternalProviderTodoist, "Todoist", map[string]any{})
 	if err != nil {
-		t.Fatalf("CreateItem(drift target) error: %v", err)
+		t.Fatalf("CreateExternalAccount() error: %v", err)
 	}
-	target := ItemReviewTargetGitHub
-	reviewer := "krystophny"
-	if err := s.UpdateItemReviewDispatch(driftWithTarget.ID, &target, &reviewer); err != nil {
-		t.Fatalf("UpdateItemReviewDispatch() error: %v", err)
+	driftItem, err := s.CreateItem("Local overlay task", ItemOptions{State: ItemStateWaiting})
+	if err != nil {
+		t.Fatalf("CreateItem(drift item) error: %v", err)
 	}
-	// Review state without target should not be counted as drift.
-	if _, err := s.CreateItem("Review no target", ItemOptions{State: ItemStateReview}); err != nil {
-		t.Fatalf("CreateItem(review no target) error: %v", err)
+	remoteAt := "2026-03-08T10:05:00Z"
+	binding, err := s.UpsertExternalBinding(ExternalBinding{
+		AccountID:       account.ID,
+		Provider:        account.Provider,
+		ObjectType:      "task",
+		RemoteID:        "task-1",
+		ItemID:          &driftItem.ID,
+		RemoteUpdatedAt: &remoteAt,
+	})
+	if err != nil {
+		t.Fatalf("UpsertExternalBinding() error: %v", err)
 	}
-	// Non-review items should not be counted even if they have a target later.
+	upstream := driftItem
+	upstream.State = ItemStateDone
+	if _, err := s.RecordExternalBindingDrift(binding, driftItem, upstream); err != nil {
+		t.Fatalf("RecordExternalBindingDrift() error: %v", err)
+	}
+	if _, err := s.CreateItem("Review item without source drift", ItemOptions{State: ItemStateReview}); err != nil {
+		t.Fatalf("CreateItem(review no drift) error: %v", err)
+	}
 	if _, err := s.CreateItem("Next item", ItemOptions{State: ItemStateNext}); err != nil {
 		t.Fatalf("CreateItem(next) error: %v", err)
 	}
@@ -214,7 +228,7 @@ func TestCountSidebarSectionsFilteredCountsDriftReviewItems(t *testing.T) {
 		t.Fatalf("CountSidebarSectionsFiltered() error: %v", err)
 	}
 	if got.DriftReview != 1 {
-		t.Fatalf("DriftReview = %d, want 1 (only review-state item with review_target set)", got.DriftReview)
+		t.Fatalf("DriftReview = %d, want 1 (only unresolved external-binding drift)", got.DriftReview)
 	}
 }
 

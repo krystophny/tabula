@@ -1,19 +1,17 @@
 package web
 
 import (
+	"context"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
+	"github.com/sloppy-org/slopshell/internal/email"
+	"github.com/sloppy-org/slopshell/internal/providerdata"
 	"github.com/sloppy-org/slopshell/internal/store"
 )
 
-// The compact sidebar (issue #746) renders Workspace pin, item queues, and a
-// secondary expandable section that surfaces project-item, people,
-// drift-review, dedup-review, and recent-meeting counts as filters. The counts
-// API must include both the per-state map and a `sections` payload so the
-// frontend can render those filters without confusing project items with
-// Workspaces.
 func TestItemCountsExposesSidebarSectionCountsAlongsidePerStateCounts(t *testing.T) {
 	app := newAuthedTestApp(t)
 
@@ -43,7 +41,7 @@ func TestItemCountsExposesSidebarSectionCountsAlongsidePerStateCounts(t *testing
 		t.Fatalf("sections[people_open] = %d, want 2 (Alice + Bob)", got)
 	}
 	if got := int(sections["drift_review"].(float64)); got != 1 {
-		t.Fatalf("sections[drift_review] = %d, want 1 (review item with review_target set)", got)
+		t.Fatalf("sections[drift_review] = %d, want 1 (unresolved external-binding drift)", got)
 	}
 	if got := int(sections["dedup_review"].(float64)); got != 2 {
 		t.Fatalf("sections[dedup_review] = %d, want 2 (the colliding source/source_ref pair)", got)
@@ -95,15 +93,7 @@ func seedSidebarCountsFixture(t *testing.T, app *App) {
 		t.Fatalf("CreateItem(owe Bob) error: %v", err)
 	}
 
-	driftItem, err := app.store.CreateItem("Drifted PR", store.ItemOptions{State: store.ItemStateReview})
-	if err != nil {
-		t.Fatalf("CreateItem(drift) error: %v", err)
-	}
-	target := store.ItemReviewTargetGitHub
-	reviewer := "krystophny"
-	if err := app.store.UpdateItemReviewDispatch(driftItem.ID, &target, &reviewer); err != nil {
-		t.Fatalf("UpdateItemReviewDispatch() error: %v", err)
-	}
+	seedDriftReviewFixture(t, app)
 
 	source := "github"
 	dupRef := "krystophny/repo#42"
@@ -126,6 +116,213 @@ func seedSidebarCountsFixture(t *testing.T, app *App) {
 	transcriptTitle := "Recent transcript"
 	if _, err := app.store.CreateArtifact(store.ArtifactKindTranscript, &transcriptPath, nil, &transcriptTitle, nil); err != nil {
 		t.Fatalf("CreateArtifact(transcript) error: %v", err)
+	}
+}
+
+func seedDriftReviewFixture(t *testing.T, app *App) store.ExternalBindingDrift {
+	t.Helper()
+
+	account, err := app.store.CreateExternalAccount(store.SphereWork, store.ExternalProviderTodoist, "Todoist", map[string]any{})
+	if err != nil {
+		t.Fatalf("CreateExternalAccount() error: %v", err)
+	}
+	driftItem, err := app.store.CreateItem("Drifted task", store.ItemOptions{State: store.ItemStateWaiting})
+	if err != nil {
+		t.Fatalf("CreateItem(drift) error: %v", err)
+	}
+	remoteAt := "2026-03-08T10:05:00Z"
+	container := "Errands"
+	binding, err := app.store.UpsertExternalBinding(store.ExternalBinding{
+		AccountID:       account.ID,
+		Provider:        account.Provider,
+		ObjectType:      "task",
+		RemoteID:        "task-1",
+		ItemID:          &driftItem.ID,
+		ContainerRef:    &container,
+		RemoteUpdatedAt: &remoteAt,
+	})
+	if err != nil {
+		t.Fatalf("UpsertExternalBinding() error: %v", err)
+	}
+	upstream := driftItem
+	upstream.State = store.ItemStateDone
+	upstream.Title = "Drifted task upstream"
+	drift, err := app.store.RecordExternalBindingDrift(binding, driftItem, upstream)
+	if err != nil {
+		t.Fatalf("RecordExternalBindingDrift() error: %v", err)
+	}
+	return drift
+}
+
+func TestItemReviewDriftQueueAndActions(t *testing.T) {
+	app := newAuthedTestApp(t)
+	drift := seedDriftReviewFixture(t, app)
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/review?section=drift", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("drift list status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	items, ok := decodeJSONResponse(t, rr)["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("drift list items = %#v, want one row", decodeJSONResponse(t, rr)["items"])
+	}
+	row, _ := items[0].(map[string]any)
+	if row["local_state"] != store.ItemStateWaiting || row["upstream_state"] != store.ItemStateDone {
+		t.Fatalf("drift row states = %#v, want local waiting/upstream done", row)
+	}
+	if row["source_binding"] != "todoist:task:task-1" || row["source_container"] != "Errands" {
+		t.Fatalf("drift source metadata = %#v, want binding and container", row)
+	}
+
+	rr = doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/drift/"+strconv.FormatInt(drift.ID, 10)+"/take_upstream", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("take upstream status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	item, err := app.store.GetItem(*drift.ItemID)
+	if err != nil {
+		t.Fatalf("GetItem() error: %v", err)
+	}
+	if item.State != store.ItemStateDone || item.WorkspaceID != nil {
+		t.Fatalf("item after take upstream = state %q workspace %v, want done with workspace unchanged", item.State, item.WorkspaceID)
+	}
+}
+
+func TestItemDriftActionsResolveQueueEntries(t *testing.T) {
+	for _, action := range []string{"keep_local", "dismiss"} {
+		t.Run(action, func(t *testing.T) {
+			app := newAuthedTestApp(t)
+			drift := seedDriftReviewFixture(t, app)
+
+			rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/drift/"+strconv.FormatInt(drift.ID, 10)+"/"+action, nil)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("%s status = %d, want 200: %s", action, rr.Code, rr.Body.String())
+			}
+			drifts, err := app.store.ListUnresolvedExternalBindingDrifts(store.ItemListFilter{})
+			if err != nil {
+				t.Fatalf("ListUnresolvedExternalBindingDrifts() error: %v", err)
+			}
+			if len(drifts) != 0 {
+				t.Fatalf("unresolved drift count after %s = %d, want 0", action, len(drifts))
+			}
+		})
+	}
+}
+
+func TestItemDriftReingestRefreshesSourceBeforeResolving(t *testing.T) {
+	app := newAuthedTestApp(t)
+	account, err := app.store.CreateExternalAccount(store.SphereWork, store.ExternalProviderGmail, "Gmail", nil)
+	if err != nil {
+		t.Fatalf("CreateExternalAccount() error: %v", err)
+	}
+	local, err := app.store.CreateItem("Local overlay", store.ItemOptions{State: store.ItemStateWaiting})
+	if err != nil {
+		t.Fatalf("CreateItem(local) error: %v", err)
+	}
+	remoteAt := "2026-03-08T10:05:00Z"
+	binding, err := app.store.UpsertExternalBinding(store.ExternalBinding{
+		AccountID:       account.ID,
+		Provider:        account.Provider,
+		ObjectType:      emailBindingObjectType,
+		RemoteID:        "gmail-drift",
+		ItemID:          &local.ID,
+		RemoteUpdatedAt: &remoteAt,
+	})
+	if err != nil {
+		t.Fatalf("UpsertExternalBinding() error: %v", err)
+	}
+	upstream := local
+	upstream.Title = "Remote refreshed"
+	upstream.State = store.ItemStateInbox
+	drift, err := app.store.RecordExternalBindingDrift(binding, local, upstream)
+	if err != nil {
+		t.Fatalf("RecordExternalBindingDrift() error: %v", err)
+	}
+	provider := &fakeEmailSyncProvider{
+		listFunc: func(opts email.SearchOptions) ([]string, error) {
+			if opts.Folder == "INBOX" || !opts.Since.IsZero() {
+				return []string{"gmail-drift"}, nil
+			}
+			return nil, nil
+		},
+		messages: map[string]*providerdata.EmailMessage{
+			"gmail-drift": {
+				ID:         "gmail-drift",
+				ThreadID:   "thread-gmail-drift",
+				Subject:    "Remote refreshed",
+				Sender:     "Source <source@example.com>",
+				Recipients: []string{"me@example.com"},
+				Date:       time.Date(2026, time.March, 8, 10, 5, 0, 0, time.UTC),
+				Labels:     []string{"INBOX"},
+			},
+		},
+	}
+	app.newEmailSyncProvider = func(context.Context, store.ExternalAccount) (emailSyncProvider, error) {
+		return provider, nil
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/drift/"+strconv.FormatInt(drift.ID, 10)+"/reingest_source", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("reingest status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	item, err := app.store.GetItem(local.ID)
+	if err != nil {
+		t.Fatalf("GetItem() error: %v", err)
+	}
+	if item.Title != "Remote refreshed" || item.State != store.ItemStateInbox {
+		t.Fatalf("item after reingest = title %q state %q, want refreshed inbox", item.Title, item.State)
+	}
+	drifts, err := app.store.ListUnresolvedExternalBindingDrifts(store.ItemListFilter{})
+	if err != nil {
+		t.Fatalf("ListUnresolvedExternalBindingDrifts() error: %v", err)
+	}
+	if len(drifts) != 0 {
+		t.Fatalf("unresolved drift count after reingest = %d, want 0", len(drifts))
+	}
+	if len(provider.listCalls) == 0 {
+		t.Fatal("reingest_source did not call the source provider")
+	}
+}
+
+func TestDismissedDriftReappearsOnlyAfterUpstreamRevisionChanges(t *testing.T) {
+	app := newAuthedTestApp(t)
+	drift := seedDriftReviewFixture(t, app)
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/drift/"+strconv.FormatInt(drift.ID, 10)+"/dismiss", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("dismiss status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	binding, err := app.store.GetBindingByRemote(drift.AccountID, drift.Provider, drift.ObjectType, drift.RemoteID)
+	if err != nil {
+		t.Fatalf("GetBindingByRemote() error: %v", err)
+	}
+	item, err := app.store.GetItem(*drift.ItemID)
+	if err != nil {
+		t.Fatalf("GetItem() error: %v", err)
+	}
+	upstream := item
+	upstream.State = store.ItemStateDone
+	if _, err := app.store.RecordExternalBindingDrift(binding, item, upstream); err != nil {
+		t.Fatalf("RecordExternalBindingDrift(same revision) error: %v", err)
+	}
+	drifts, err := app.store.ListUnresolvedExternalBindingDrifts(store.ItemListFilter{})
+	if err != nil {
+		t.Fatalf("ListUnresolvedExternalBindingDrifts(same revision) error: %v", err)
+	}
+	if len(drifts) != 0 {
+		t.Fatalf("same upstream revision reappeared with %d drifts, want 0", len(drifts))
+	}
+
+	nextRemoteAt := "2026-03-08T10:10:00Z"
+	binding.RemoteUpdatedAt = &nextRemoteAt
+	if _, err := app.store.RecordExternalBindingDrift(binding, item, upstream); err != nil {
+		t.Fatalf("RecordExternalBindingDrift(new revision) error: %v", err)
+	}
+	drifts, err = app.store.ListUnresolvedExternalBindingDrifts(store.ItemListFilter{})
+	if err != nil {
+		t.Fatalf("ListUnresolvedExternalBindingDrifts(new revision) error: %v", err)
+	}
+	if len(drifts) != 1 {
+		t.Fatalf("new upstream revision drift count = %d, want 1", len(drifts))
 	}
 }
 

@@ -37,6 +37,14 @@ type emailSyncProvider interface {
 	Close() error
 }
 
+type reingestEmailSink struct {
+	*tabsync.StoreSink
+}
+
+func (s reingestEmailSink) UpsertItem(ctx context.Context, item store.Item, binding store.ExternalBinding) (store.Item, error) {
+	return s.StoreSink.UpsertItemFromSource(ctx, item, binding)
+}
+
 type emailFollowUpRuleConfig struct {
 	Text    string `json:"text"`
 	Subject string `json:"subject"`
@@ -903,4 +911,52 @@ func (a *App) syncEmailAccountDirect(ctx context.Context, account store.External
 		return 0, err
 	}
 	return result.MessageCount, nil
+}
+
+func (a *App) reingestEmailDrift(ctx context.Context, account store.ExternalAccount, drift store.ExternalBindingDrift) error {
+	if drift.ObjectType != emailBindingObjectType {
+		return unsupportedExternalBindingDriftReingest(drift)
+	}
+	cfg, err := decodeEmailSyncAccountConfig(account)
+	if err != nil {
+		return err
+	}
+	provider, err := a.emailSyncProviderForAccount(ctx, account, cfg)
+	if err != nil {
+		return err
+	}
+	defer provider.Close()
+
+	followUpIDs, err := emailFollowUpMessageIDs(ctx, provider, cfg)
+	if err != nil {
+		return err
+	}
+	if err := a.reconcileEmailFollowUpBindings(account, followUpIDs); err != nil {
+		return err
+	}
+	messages, err := provider.GetMessages(ctx, []string{drift.RemoteID}, "full")
+	if err != nil {
+		return err
+	}
+	message := emailMessageByID(messages, drift.RemoteID)
+	if message == nil {
+		return fmt.Errorf("reingest_source could not fetch email %s", drift.RemoteID)
+	}
+	mappings, err := a.store.ListContainerMappings(account.Provider)
+	if err != nil {
+		return err
+	}
+	sink := reingestEmailSink{StoreSink: tabsync.NewStoreSink(a.store)}
+	_, err = a.persistEmailMessage(ctx, sink, account, message, mappings, hasEmailMessageID(followUpIDs, drift.RemoteID))
+	return err
+}
+
+func emailMessageByID(messages []*providerdata.EmailMessage, id string) *providerdata.EmailMessage {
+	clean := strings.TrimSpace(id)
+	for _, message := range messages {
+		if message != nil && strings.TrimSpace(message.ID) == clean {
+			return message
+		}
+	}
+	return nil
 }

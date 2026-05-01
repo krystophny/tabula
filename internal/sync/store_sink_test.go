@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sloppy-org/slopshell/internal/store"
 	tabsync "github.com/sloppy-org/slopshell/internal/sync"
@@ -134,6 +135,190 @@ func TestStoreSinkUpsertArtifactLinksWorkspaceAndTracksBinding(t *testing.T) {
 	if binding.ArtifactID == nil || *binding.ArtifactID != artifact.ID {
 		t.Fatalf("binding.ArtifactID = %v, want %d", binding.ArtifactID, artifact.ID)
 	}
+}
+
+func TestStoreSinkRecordsStateDriftInsteadOfOverwritingLocalOverlay(t *testing.T) {
+	s := newTestStore(t)
+	sink := tabsync.NewStoreSink(s)
+
+	account, err := s.CreateExternalAccount(store.SphereWork, store.ExternalProviderTodoist, "todo", map[string]any{})
+	if err != nil {
+		t.Fatalf("CreateExternalAccount() error: %v", err)
+	}
+	remoteAt := "2026-03-08T10:00:00Z"
+	item, err := sink.UpsertItem(context.Background(), store.Item{
+		Title: "Close upstream task",
+		State: store.ItemStateNext,
+	}, store.ExternalBinding{
+		AccountID:       account.ID,
+		Provider:        account.Provider,
+		ObjectType:      "task",
+		RemoteID:        "remote-drift",
+		RemoteUpdatedAt: &remoteAt,
+	})
+	if err != nil {
+		t.Fatalf("UpsertItem(create) error: %v", err)
+	}
+
+	time.Sleep(1100 * time.Millisecond)
+	localState := store.ItemStateWaiting
+	if err := s.UpdateItem(item.ID, store.ItemUpdate{State: &localState}); err != nil {
+		t.Fatalf("UpdateItem(local overlay) error: %v", err)
+	}
+	nextRemoteAt := "2026-03-08T10:05:00Z"
+	if _, err := sink.UpsertItem(context.Background(), store.Item{
+		Title: "Closed upstream task",
+		State: store.ItemStateDone,
+	}, store.ExternalBinding{
+		AccountID:       account.ID,
+		Provider:        account.Provider,
+		ObjectType:      "task",
+		RemoteID:        "remote-drift",
+		RemoteUpdatedAt: &nextRemoteAt,
+	}); err != nil {
+		t.Fatalf("UpsertItem(conflict) error: %v", err)
+	}
+
+	got, err := s.GetItem(item.ID)
+	if err != nil {
+		t.Fatalf("GetItem() error: %v", err)
+	}
+	if got.State != store.ItemStateWaiting {
+		t.Fatalf("local item state = %q, want waiting preserved", got.State)
+	}
+	drifts, err := s.ListUnresolvedExternalBindingDrifts(store.ItemListFilter{})
+	if err != nil {
+		t.Fatalf("ListUnresolvedExternalBindingDrifts() error: %v", err)
+	}
+	if len(drifts) != 1 {
+		t.Fatalf("drift count = %d, want 1", len(drifts))
+	}
+	if drifts[0].LocalState != store.ItemStateWaiting || drifts[0].UpstreamState != store.ItemStateDone {
+		t.Fatalf("drift states = local %q upstream %q, want waiting/done", drifts[0].LocalState, drifts[0].UpstreamState)
+	}
+}
+
+func TestStoreSinkReopensDismissedStateDriftOnNewRemoteRevision(t *testing.T) {
+	s := newTestStore(t)
+	sink := tabsync.NewStoreSink(s)
+
+	account, item := createSyncedTodoistItem(t, s, sink, "remote-redrift")
+
+	time.Sleep(1100 * time.Millisecond)
+	localState := store.ItemStateWaiting
+	if err := s.UpdateItem(item.ID, store.ItemUpdate{State: &localState}); err != nil {
+		t.Fatalf("UpdateItem(local overlay) error: %v", err)
+	}
+	upsertTodoistRemoteState(t, sink, account, "remote-redrift", "Closed upstream task", store.ItemStateDone, "2026-03-08T10:05:00Z")
+	drifts := unresolvedDrifts(t, s)
+	if len(drifts) != 1 {
+		t.Fatalf("first drift count = %d, want 1", len(drifts))
+	}
+	if _, err := s.ResolveExternalBindingDrift(drifts[0].ID, store.ExternalBindingDriftActionDismiss); err != nil {
+		t.Fatalf("ResolveExternalBindingDrift(dismiss) error: %v", err)
+	}
+
+	upsertTodoistRemoteState(t, sink, account, "remote-redrift", "Closed upstream task", store.ItemStateDone, "2026-03-08T10:05:00Z")
+	got, err := s.GetItem(item.ID)
+	if err != nil {
+		t.Fatalf("GetItem(same revision) error: %v", err)
+	}
+	if got.State != store.ItemStateWaiting {
+		t.Fatalf("same-revision local item state = %q, want waiting preserved", got.State)
+	}
+	if drifts = unresolvedDrifts(t, s); len(drifts) != 0 {
+		t.Fatalf("same-revision drift count = %d, want 0", len(drifts))
+	}
+
+	upsertTodoistRemoteState(t, sink, account, "remote-redrift", "Deferred upstream task", store.ItemStateDeferred, "2026-03-08T10:10:00Z")
+	got, err = s.GetItem(item.ID)
+	if err != nil {
+		t.Fatalf("GetItem() error: %v", err)
+	}
+	if got.State != store.ItemStateWaiting {
+		t.Fatalf("local item state = %q, want waiting preserved", got.State)
+	}
+	drifts = unresolvedDrifts(t, s)
+	if len(drifts) != 1 {
+		t.Fatalf("second drift count = %d, want 1", len(drifts))
+	}
+	if drifts[0].LocalState != store.ItemStateWaiting || drifts[0].UpstreamState != store.ItemStateDeferred {
+		t.Fatalf("drift states = local %q upstream %q, want waiting/deferred", drifts[0].LocalState, drifts[0].UpstreamState)
+	}
+}
+
+func TestStoreSinkUpdatesUnresolvedStateDriftOnNewRemoteRevision(t *testing.T) {
+	s := newTestStore(t)
+	sink := tabsync.NewStoreSink(s)
+
+	account, item := createSyncedTodoistItem(t, s, sink, "remote-open-redrift")
+
+	time.Sleep(1100 * time.Millisecond)
+	localState := store.ItemStateWaiting
+	if err := s.UpdateItem(item.ID, store.ItemUpdate{State: &localState}); err != nil {
+		t.Fatalf("UpdateItem(local overlay) error: %v", err)
+	}
+	upsertTodoistRemoteState(t, sink, account, "remote-open-redrift", "Closed upstream task", store.ItemStateDone, "2026-03-08T10:05:00Z")
+	firstDrifts := unresolvedDrifts(t, s)
+	if len(firstDrifts) != 1 {
+		t.Fatalf("first drift count = %d, want 1", len(firstDrifts))
+	}
+
+	upsertTodoistRemoteState(t, sink, account, "remote-open-redrift", "Deferred upstream task", store.ItemStateDeferred, "2026-03-08T10:10:00Z")
+	got, err := s.GetItem(item.ID)
+	if err != nil {
+		t.Fatalf("GetItem() error: %v", err)
+	}
+	if got.State != store.ItemStateWaiting {
+		t.Fatalf("local item state = %q, want waiting preserved", got.State)
+	}
+	secondDrifts := unresolvedDrifts(t, s)
+	if len(secondDrifts) != 1 {
+		t.Fatalf("second drift count = %d, want 1", len(secondDrifts))
+	}
+	if secondDrifts[0].ID != firstDrifts[0].ID {
+		t.Fatalf("second drift ID = %d, want existing drift %d", secondDrifts[0].ID, firstDrifts[0].ID)
+	}
+	if secondDrifts[0].LocalState != store.ItemStateWaiting || secondDrifts[0].UpstreamState != store.ItemStateDeferred {
+		t.Fatalf("drift states = local %q upstream %q, want waiting/deferred", secondDrifts[0].LocalState, secondDrifts[0].UpstreamState)
+	}
+}
+
+func createSyncedTodoistItem(t *testing.T, s *store.Store, sink *tabsync.StoreSink, remoteID string) (store.ExternalAccount, store.Item) {
+	t.Helper()
+	account, err := s.CreateExternalAccount(store.SphereWork, store.ExternalProviderTodoist, "todo", map[string]any{})
+	if err != nil {
+		t.Fatalf("CreateExternalAccount() error: %v", err)
+	}
+	item := upsertTodoistRemoteState(t, sink, account, remoteID, "Keep local task", store.ItemStateNext, "2026-03-08T10:00:00Z")
+	return account, item
+}
+
+func upsertTodoistRemoteState(t *testing.T, sink *tabsync.StoreSink, account store.ExternalAccount, remoteID, title, state, remoteAt string) store.Item {
+	t.Helper()
+	item, err := sink.UpsertItem(context.Background(), store.Item{
+		Title: title,
+		State: state,
+	}, store.ExternalBinding{
+		AccountID:       account.ID,
+		Provider:        account.Provider,
+		ObjectType:      "task",
+		RemoteID:        remoteID,
+		RemoteUpdatedAt: &remoteAt,
+	})
+	if err != nil {
+		t.Fatalf("UpsertItem(%s) error: %v", remoteID, err)
+	}
+	return item
+}
+
+func unresolvedDrifts(t *testing.T, s *store.Store) []store.ExternalBindingDrift {
+	t.Helper()
+	drifts, err := s.ListUnresolvedExternalBindingDrifts(store.ItemListFilter{})
+	if err != nil {
+		t.Fatalf("ListUnresolvedExternalBindingDrifts() error: %v", err)
+	}
+	return drifts
 }
 
 func stringPtr(value string) *string {

@@ -203,6 +203,40 @@ type ExternalBinding struct {
 	LastSyncedAt    string  `json:"last_synced_at"`
 }
 
+const (
+	ExternalBindingDriftActionKeepLocal    = "keep_local"
+	ExternalBindingDriftActionTakeUpstream = "take_upstream"
+	ExternalBindingDriftActionReingest     = "reingest_source"
+	ExternalBindingDriftActionDismiss      = "dismiss"
+)
+
+type ExternalBindingDrift struct {
+	ID                int64    `json:"drift_id"`
+	BindingID         int64    `json:"binding_id"`
+	ItemID            *int64   `json:"item_id,omitempty"`
+	AccountID         int64    `json:"account_id"`
+	Provider          string   `json:"provider"`
+	ObjectType        string   `json:"object_type"`
+	RemoteID          string   `json:"remote_id"`
+	SourceBinding     string   `json:"source_binding"`
+	SourceContainer   *string  `json:"source_container,omitempty"`
+	LocalState        string   `json:"local_state"`
+	UpstreamState     string   `json:"upstream_state"`
+	LocalTitle        string   `json:"local_title"`
+	UpstreamTitle     string   `json:"upstream_title"`
+	LocalUpdatedAt    string   `json:"local_updated_at"`
+	UpstreamUpdatedAt *string  `json:"upstream_updated_at,omitempty"`
+	UpstreamRevision  string   `json:"upstream_revision"`
+	DetectedAt        string   `json:"detected_at"`
+	ResolvedAt        *string  `json:"resolved_at,omitempty"`
+	Resolution        *string  `json:"resolution,omitempty"`
+	ProjectItemLinks  []string `json:"project_item_links,omitempty"`
+	WorkspaceID       *int64   `json:"workspace_id,omitempty"`
+	Title             string   `json:"title"`
+	Kind              string   `json:"kind"`
+	State             string   `json:"state"`
+}
+
 type ExternalContainerMapping struct {
 	ID            int64   `json:"id"`
 	Provider      string  `json:"provider"`

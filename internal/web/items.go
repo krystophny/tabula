@@ -1,13 +1,16 @@
 package web
 
 import (
+	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/sloppy-org/slopshell/internal/store"
 )
 
@@ -330,12 +333,103 @@ func (a *App) handleItemReview(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if filter.Section == store.ItemSidebarSectionDrift {
+		drifts, err := a.store.ListUnresolvedExternalBindingDrifts(filter)
+		if err != nil {
+			writeItemStoreError(w, err)
+			return
+		}
+		writeAPIData(w, http.StatusOK, map[string]any{
+			"items": drifts,
+		})
+		return
+	}
 	items, err := a.store.ListReviewItemsFiltered(filter)
 	if err != nil {
 		writeItemStoreError(w, err)
 		return
 	}
 	a.writeItemSummaryList(w, items)
+}
+
+func (a *App) handleItemDriftAction(w http.ResponseWriter, r *http.Request) {
+	if !a.requireAuth(w, r) {
+		return
+	}
+	driftID, err := parseURLInt64Param(r, "drift_id")
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	drift, action, err := a.applyItemDriftAction(r.Context(), driftID, chi.URLParam(r, "action"))
+	if err != nil {
+		writeItemStoreError(w, err)
+		return
+	}
+	writeAPIData(w, http.StatusOK, map[string]any{
+		"drift":  drift,
+		"action": action,
+	})
+}
+
+func (a *App) applyItemDriftAction(ctx context.Context, driftID int64, action string) (store.ExternalBindingDrift, string, error) {
+	cleanAction := strings.ToLower(strings.TrimSpace(action))
+	if cleanAction == store.ExternalBindingDriftActionReingest {
+		drift, err := a.reingestExternalBindingDrift(ctx, driftID)
+		return drift, cleanAction, err
+	}
+	drift, err := a.store.ResolveExternalBindingDrift(driftID, cleanAction)
+	return drift, cleanAction, err
+}
+
+func (a *App) reingestExternalBindingDrift(ctx context.Context, driftID int64) (store.ExternalBindingDrift, error) {
+	drift, err := a.store.GetExternalBindingDrift(driftID)
+	if err != nil {
+		return store.ExternalBindingDrift{}, err
+	}
+	if drift.ResolvedAt != nil {
+		return drift, nil
+	}
+	syncCtx, cancel := context.WithTimeout(ctx, sourceSyncCommandTimeout)
+	defer cancel()
+	if err := a.reingestExternalBindingSource(syncCtx, drift); err != nil {
+		return store.ExternalBindingDrift{}, err
+	}
+	return a.store.MarkExternalBindingDriftReingested(driftID)
+}
+
+func (a *App) reingestExternalBindingSource(ctx context.Context, drift store.ExternalBindingDrift) error {
+	account, err := a.store.GetExternalAccount(drift.AccountID)
+	if err != nil {
+		return err
+	}
+	if account.Provider != drift.Provider {
+		return fmt.Errorf("drift provider %s does not match account provider %s", drift.Provider, account.Provider)
+	}
+	switch drift.Provider {
+	case store.ExternalProviderTodoist:
+		return a.reingestTodoistDrift(ctx, account, drift)
+	case store.ExternalProviderGmail, store.ExternalProviderExchange, store.ExternalProviderExchangeEWS, store.ExternalProviderIMAP:
+		return a.reingestEmailDrift(ctx, account, drift)
+	default:
+		if a.sourceSync == nil {
+			return unsupportedExternalBindingDriftReingest(drift)
+		}
+		_, err := a.sourceSync.RunNow(ctx)
+		return err
+	}
+}
+
+func (a *App) reingestTodoistDrift(ctx context.Context, account store.ExternalAccount, drift store.ExternalBindingDrift) error {
+	if drift.ObjectType != "task" {
+		return unsupportedExternalBindingDriftReingest(drift)
+	}
+	_, err := a.syncTodoistAccount(ctx, account)
+	return err
+}
+
+func unsupportedExternalBindingDriftReingest(drift store.ExternalBindingDrift) error {
+	return fmt.Errorf("reingest_source does not support %s %s drift", drift.Provider, drift.ObjectType)
 }
 
 func (a *App) handleItemSomeday(w http.ResponseWriter, r *http.Request) {

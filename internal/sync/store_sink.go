@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/sloppy-org/slopshell/internal/store"
 )
@@ -18,39 +19,62 @@ func NewStoreSink(s *store.Store) *StoreSink {
 }
 
 func (s *StoreSink) UpsertItem(_ context.Context, item store.Item, binding store.ExternalBinding) (store.Item, error) {
-	account, existingBinding, existingItem, assignment, err := s.resolveItemTarget(binding)
+	account, existingBinding, existingItem, target, err := s.resolveItemTarget(binding)
 	if err != nil {
 		return store.Item{}, err
 	}
-
 	if existingItem != nil {
-		update, err := s.itemUpdate(account, item, assignment)
-		if err != nil {
-			return store.Item{}, err
-		}
-		if err := s.store.UpdateItem(existingItem.ID, update); err != nil {
-			return store.Item{}, err
-		}
-		updated, err := s.store.GetItem(existingItem.ID)
-		if err != nil {
-			return store.Item{}, err
-		}
-		if _, err := s.store.UpsertExternalBinding(store.ExternalBinding{
-			AccountID:       account.ID,
-			Provider:        account.Provider,
-			ObjectType:      binding.ObjectType,
-			RemoteID:        binding.RemoteID,
-			ItemID:          &updated.ID,
-			ArtifactID:      existingBinding.ArtifactID,
-			ContainerRef:    normalizeContainerRef(binding.ContainerRef),
-			RemoteUpdatedAt: binding.RemoteUpdatedAt,
-		}); err != nil {
-			return store.Item{}, err
-		}
-		return updated, nil
+		return s.updateBoundItem(account, existingBinding, *existingItem, item, binding, target)
 	}
+	return s.createBoundItem(account, existingBinding, item, binding, target)
+}
 
-	options, err := s.itemCreateOptions(account, item, assignment)
+func (s *StoreSink) UpsertItemFromSource(_ context.Context, item store.Item, binding store.ExternalBinding) (store.Item, error) {
+	account, existingBinding, existingItem, target, err := s.resolveItemTarget(binding)
+	if err != nil {
+		return store.Item{}, err
+	}
+	if existingItem != nil {
+		return s.applyBoundItemUpdate(account, existingBinding, *existingItem, item, binding, target)
+	}
+	return s.createBoundItem(account, existingBinding, item, binding, target)
+}
+
+func (s *StoreSink) updateBoundItem(account store.ExternalAccount, existingBinding store.ExternalBinding, existing store.Item, incoming store.Item, binding store.ExternalBinding, target assignment) (store.Item, error) {
+	shouldRecordDrift, err := s.shouldRecordItemDrift(existing, existingBinding, incoming, binding)
+	if err != nil {
+		return store.Item{}, err
+	}
+	if shouldRecordDrift {
+		updatedBinding := withBindingUpdate(existingBinding, binding)
+		if _, err := s.store.RecordExternalBindingDrift(updatedBinding, existing, incoming); err != nil {
+			return store.Item{}, err
+		}
+		if _, err := s.store.UpsertExternalBinding(updatedBinding); err != nil {
+			return store.Item{}, err
+		}
+		return existing, nil
+	}
+	return s.applyBoundItemUpdate(account, existingBinding, existing, incoming, binding, target)
+}
+
+func (s *StoreSink) applyBoundItemUpdate(account store.ExternalAccount, existingBinding store.ExternalBinding, existing store.Item, incoming store.Item, binding store.ExternalBinding, target assignment) (store.Item, error) {
+	update, err := s.itemUpdate(account, incoming, target)
+	if err != nil {
+		return store.Item{}, err
+	}
+	if err := s.store.UpdateItem(existing.ID, update); err != nil {
+		return store.Item{}, err
+	}
+	updated, err := s.store.GetItem(existing.ID)
+	if err != nil {
+		return store.Item{}, err
+	}
+	return updated, s.upsertItemBinding(account, updated.ID, existingBinding.ArtifactID, binding)
+}
+
+func (s *StoreSink) createBoundItem(account store.ExternalAccount, existingBinding store.ExternalBinding, item store.Item, binding store.ExternalBinding, target assignment) (store.Item, error) {
+	options, err := s.itemCreateOptions(account, item, target)
 	if err != nil {
 		return store.Item{}, err
 	}
@@ -62,57 +86,55 @@ func (s *StoreSink) UpsertItem(_ context.Context, item store.Item, binding store
 	if item.ArtifactID != nil {
 		artifactID = item.ArtifactID
 	}
+	return created, s.upsertItemBinding(account, created.ID, artifactID, binding)
+}
+
+func (s *StoreSink) upsertItemBinding(account store.ExternalAccount, itemID int64, artifactID *int64, binding store.ExternalBinding) error {
 	if _, err := s.store.UpsertExternalBinding(store.ExternalBinding{
 		AccountID:       account.ID,
 		Provider:        account.Provider,
 		ObjectType:      binding.ObjectType,
 		RemoteID:        binding.RemoteID,
-		ItemID:          &created.ID,
+		ItemID:          &itemID,
 		ArtifactID:      artifactID,
 		ContainerRef:    normalizeContainerRef(binding.ContainerRef),
 		RemoteUpdatedAt: binding.RemoteUpdatedAt,
 	}); err != nil {
-		return store.Item{}, err
+		return err
 	}
-	return created, nil
+	return nil
 }
 
 func (s *StoreSink) UpsertArtifact(_ context.Context, artifact store.Artifact, binding store.ExternalBinding) (store.Artifact, error) {
-	account, existingBinding, existingArtifact, assignment, err := s.resolveArtifactTarget(binding)
+	account, existingBinding, existingArtifact, target, err := s.resolveArtifactTarget(binding)
 	if err != nil {
 		return store.Artifact{}, err
 	}
-
 	if existingArtifact != nil {
-		update, err := artifactUpdate(artifact)
-		if err != nil {
-			return store.Artifact{}, err
-		}
-		if err := s.store.UpdateArtifact(existingArtifact.ID, update); err != nil {
-			return store.Artifact{}, err
-		}
-		updated, err := s.store.GetArtifact(existingArtifact.ID)
-		if err != nil {
-			return store.Artifact{}, err
-		}
-		if err := s.linkArtifactWorkspace(updated, assignment.WorkspaceID); err != nil {
-			return store.Artifact{}, err
-		}
-		if _, err := s.store.UpsertExternalBinding(store.ExternalBinding{
-			AccountID:       account.ID,
-			Provider:        account.Provider,
-			ObjectType:      binding.ObjectType,
-			RemoteID:        binding.RemoteID,
-			ItemID:          existingBinding.ItemID,
-			ArtifactID:      &updated.ID,
-			ContainerRef:    normalizeContainerRef(binding.ContainerRef),
-			RemoteUpdatedAt: binding.RemoteUpdatedAt,
-		}); err != nil {
-			return store.Artifact{}, err
-		}
-		return updated, nil
+		return s.updateBoundArtifact(account, existingBinding, *existingArtifact, artifact, binding, target)
 	}
+	return s.createBoundArtifact(account, existingBinding, artifact, binding, target)
+}
 
+func (s *StoreSink) updateBoundArtifact(account store.ExternalAccount, existingBinding store.ExternalBinding, existing store.Artifact, incoming store.Artifact, binding store.ExternalBinding, target assignment) (store.Artifact, error) {
+	update, err := artifactUpdate(incoming)
+	if err != nil {
+		return store.Artifact{}, err
+	}
+	if err := s.store.UpdateArtifact(existing.ID, update); err != nil {
+		return store.Artifact{}, err
+	}
+	updated, err := s.store.GetArtifact(existing.ID)
+	if err != nil {
+		return store.Artifact{}, err
+	}
+	if err := s.linkArtifactWorkspace(updated, target.WorkspaceID); err != nil {
+		return store.Artifact{}, err
+	}
+	return updated, s.upsertArtifactBinding(account, existingBinding, updated.ID, binding)
+}
+
+func (s *StoreSink) createBoundArtifact(account store.ExternalAccount, existingBinding store.ExternalBinding, artifact store.Artifact, binding store.ExternalBinding, target assignment) (store.Artifact, error) {
 	if strings.TrimSpace(string(artifact.Kind)) == "" {
 		return store.Artifact{}, errors.New("artifact kind is required")
 	}
@@ -120,22 +142,26 @@ func (s *StoreSink) UpsertArtifact(_ context.Context, artifact store.Artifact, b
 	if err != nil {
 		return store.Artifact{}, err
 	}
-	if err := s.linkArtifactWorkspace(created, assignment.WorkspaceID); err != nil {
+	if err := s.linkArtifactWorkspace(created, target.WorkspaceID); err != nil {
 		return store.Artifact{}, err
 	}
+	return created, s.upsertArtifactBinding(account, existingBinding, created.ID, binding)
+}
+
+func (s *StoreSink) upsertArtifactBinding(account store.ExternalAccount, existingBinding store.ExternalBinding, artifactID int64, binding store.ExternalBinding) error {
 	if _, err := s.store.UpsertExternalBinding(store.ExternalBinding{
 		AccountID:       account.ID,
 		Provider:        account.Provider,
 		ObjectType:      binding.ObjectType,
 		RemoteID:        binding.RemoteID,
 		ItemID:          existingBinding.ItemID,
-		ArtifactID:      &created.ID,
+		ArtifactID:      &artifactID,
 		ContainerRef:    normalizeContainerRef(binding.ContainerRef),
 		RemoteUpdatedAt: binding.RemoteUpdatedAt,
 	}); err != nil {
-		return store.Artifact{}, err
+		return err
 	}
-	return created, nil
+	return nil
 }
 
 type assignment struct {
@@ -341,6 +367,61 @@ func (s *StoreSink) linkArtifactWorkspace(artifact store.Artifact, workspaceID *
 	return nil
 }
 
+func (s *StoreSink) shouldRecordItemDrift(local store.Item, existing store.ExternalBinding, upstream store.Item, incoming store.ExternalBinding) (bool, error) {
+	if strings.TrimSpace(upstream.State) == "" || local.State == upstream.State {
+		return false, nil
+	}
+	hasProtectedDrift, err := s.store.HasLocalExternalBindingDrift(existing.ID, local.State)
+	if err != nil {
+		return false, err
+	}
+	if hasProtectedDrift {
+		return true, nil
+	}
+	if !remoteRevisionChanged(existing.RemoteUpdatedAt, incoming.RemoteUpdatedAt) {
+		return false, nil
+	}
+	return storeTimeAfter(local.UpdatedAt, existing.LastSyncedAt), nil
+}
+
+func remoteRevisionChanged(oldRevision, newRevision *string) bool {
+	oldValue := strings.TrimSpace(stringFromPointer(oldRevision))
+	newValue := strings.TrimSpace(stringFromPointer(newRevision))
+	return newValue != "" && oldValue != newValue
+}
+
+func storeTimeAfter(left, right string) bool {
+	leftTime, leftOK := parseStoreTime(left)
+	rightTime, rightOK := parseStoreTime(right)
+	return leftOK && rightOK && leftTime.After(rightTime)
+}
+
+func parseStoreTime(raw string) (time.Time, bool) {
+	text := strings.TrimSpace(raw)
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05"} {
+		parsed, err := time.Parse(layout, text)
+		if err == nil {
+			return parsed, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func withBindingUpdate(existing, incoming store.ExternalBinding) store.ExternalBinding {
+	return store.ExternalBinding{
+		ID:              existing.ID,
+		AccountID:       existing.AccountID,
+		Provider:        existing.Provider,
+		ObjectType:      existing.ObjectType,
+		RemoteID:        existing.RemoteID,
+		ItemID:          existing.ItemID,
+		ArtifactID:      existing.ArtifactID,
+		ContainerRef:    normalizeContainerRef(incoming.ContainerRef),
+		RemoteUpdatedAt: incoming.RemoteUpdatedAt,
+		LastSyncedAt:    existing.LastSyncedAt,
+	}
+}
+
 func normalizeContainerRef(value *string) *string {
 	if value == nil {
 		return nil
@@ -371,16 +452,6 @@ func firstInt64(values ...*int64) *int64 {
 	for _, value := range values {
 		if value != nil {
 			next := *value
-			return &next
-		}
-	}
-	return nil
-}
-
-func firstString(values ...*string) *string {
-	for _, value := range values {
-		if value != nil && strings.TrimSpace(*value) != "" {
-			next := strings.TrimSpace(*value)
 			return &next
 		}
 	}
