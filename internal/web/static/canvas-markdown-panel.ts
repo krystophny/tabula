@@ -1,6 +1,7 @@
 import { apiURL } from './paths.js';
 import { openResolvedMarkdownLink } from './canvas-markdown-links.js';
 import { renderLocalGraphSection, type GraphTarget } from './canvas-local-graph.js';
+import { renderBrainCanvasCardsSection } from './canvas-brain-cards.js';
 
 const PANEL_ID = 'canvas-markdown-link-panel';
 
@@ -348,6 +349,7 @@ export async function renderMarkdownLinkPanelForCanvasEvent(
     return;
   }
   await renderGraphOnlyPanel(activeWorkspaceID(), target, renderCanvas);
+  void renderBrainCanvasCardsSection(panelHost() ?? document.createElement('div'), activeWorkspaceID(), target.sourcePath || '', renderCanvas);
 }
 
 async function renderGraphOnlyPanel(workspaceID: string, target: GraphTarget, renderCanvas: RenderCanvas) {
@@ -389,6 +391,7 @@ export async function renderMarkdownLinkPanel(workspaceID: string, sourcePath: s
     if (panel.dataset.sourcePath !== cleanSource) return;
     renderPanelContent(panel, payload, renderCanvas);
     void renderLocalGraphSection(panel, id, cleanSource, renderCanvas);
+    void renderBrainCanvasCardsSection(panel, id, cleanSource, renderCanvas);
   } catch (err) {
     if (panel.dataset.sourcePath !== cleanSource) return;
     renderPanelContent(panel, {

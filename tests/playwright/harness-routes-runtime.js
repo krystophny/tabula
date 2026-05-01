@@ -581,6 +581,68 @@ __harnessRouteHandlers.push(async function harnessRouteRuntime(u, opts) {
           headers: { 'Content-Type': 'application/json' },
         });
       }
+      if (u.includes('/api/workspaces/') && u.includes('/brain-canvas/cards/') && u.includes('/open')) {
+        const cardID = String(u.split('/cards/')[1] || '').split('/')[0];
+        const card = (window.__mockBrainCanvas?.cards || []).find((entry) => String(entry?.id || '') === cardID);
+        const payload = card
+          ? {
+            ok: !card.stale,
+            kind: card.binding?.kind || 'unknown',
+            open_url: card.open_url || '',
+            title: card.title || '',
+            body: card.body || '',
+            binding: card.binding || { kind: 'unknown' },
+            error: card.stale ? card.reason || 'stale' : '',
+          }
+          : { ok: false, kind: 'unknown', binding: { kind: 'unknown' }, error: 'card not found' };
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'brain_canvas_open',
+          method: opts?.method || 'GET',
+          url: u,
+          card_id: cardID,
+        });
+        return new Response(JSON.stringify(payload), { status: card ? 200 : 404, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (u.includes('/api/workspaces/') && u.includes('/brain-canvas/cards/') && opts?.method === 'PATCH') {
+        const cardID = String(u.split('/cards/')[1] || '').split('/')[0];
+        let body = {};
+        try { body = JSON.parse(String(opts?.body || '{}')); } catch (_) { body = {}; }
+        window.__brainCanvasPatchLog = window.__brainCanvasPatchLog || [];
+        window.__brainCanvasPatchLog.push({ card_id: cardID, payload: body });
+        const cards = (window.__mockBrainCanvas?.cards || []).map((entry) => {
+          if (String(entry?.id || '') !== cardID) return entry;
+          const next = { ...entry };
+          if (Object.prototype.hasOwnProperty.call(body, 'x')) next.x = Number(body.x) || 0;
+          if (Object.prototype.hasOwnProperty.call(body, 'y')) next.y = Number(body.y) || 0;
+          if (Object.prototype.hasOwnProperty.call(body, 'width')) next.width = Number(body.width) || entry.width;
+          if (Object.prototype.hasOwnProperty.call(body, 'height')) next.height = Number(body.height) || entry.height;
+          if (Object.prototype.hasOwnProperty.call(body, 'title')) next.title = String(body.title || '');
+          if (Object.prototype.hasOwnProperty.call(body, 'body')) next.body = String(body.body || '');
+          return next;
+        });
+        if (window.__mockBrainCanvas) window.__mockBrainCanvas.cards = cards;
+        const updated = cards.find((entry) => String(entry?.id || '') === cardID) || { id: cardID };
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'brain_canvas_patch',
+          method: 'PATCH',
+          url: u,
+          card_id: cardID,
+          payload: body,
+        });
+        return new Response(JSON.stringify(updated), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (u.includes('/api/workspaces/') && u.includes('/brain-canvas')) {
+        const payload = window.__mockBrainCanvas || { ok: true, name: 'default', cards: [] };
+        window.__harnessLog.push({
+          type: 'api_fetch',
+          action: 'brain_canvas_load',
+          method: opts?.method || 'GET',
+          url: u,
+        });
+        return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
       if (u.includes('/api/workspaces/') && u.includes('/companion/config') && opts?.method === 'PUT') {
         let body = {};
         try { body = JSON.parse(String(opts?.body || '{}')); } catch (_) { body = {}; }

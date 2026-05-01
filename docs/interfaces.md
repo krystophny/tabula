@@ -58,6 +58,11 @@ Runtime and chat session management:
 - `GET /api/workspaces/{workspace_id}/markdown-link/file`
 - `GET /api/workspaces/{workspace_id}/markdown-link/panel`
 - `GET /api/workspaces/{workspace_id}/graph`
+- `GET /api/workspaces/{workspace_id}/brain-canvas`
+- `POST /api/workspaces/{workspace_id}/brain-canvas/cards`
+- `PATCH /api/workspaces/{workspace_id}/brain-canvas/cards/{node_id}`
+- `DELETE /api/workspaces/{workspace_id}/brain-canvas/cards/{node_id}`
+- `GET /api/workspaces/{workspace_id}/brain-canvas/cards/{node_id}/open`
 - `GET /api/workspaces/{workspace_id}/companion/config`
 - `PUT /api/workspaces/{workspace_id}/companion/config`
 - `GET /api/workspaces/{workspace_id}/companion/state`
