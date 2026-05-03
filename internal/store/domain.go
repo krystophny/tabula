@@ -359,9 +359,11 @@ type Item struct {
 
 type ItemSummary struct {
 	Item
-	ArtifactTitle *string       `json:"artifact_title,omitempty"`
-	ArtifactKind  *ArtifactKind `json:"artifact_kind,omitempty"`
-	ActorName     *string       `json:"actor_name,omitempty"`
+	ArtifactTitle    *string       `json:"artifact_title,omitempty"`
+	ArtifactKind     *ArtifactKind `json:"artifact_kind,omitempty"`
+	ActorName        *string       `json:"actor_name,omitempty"`
+	ProjectItemID    *int64        `json:"project_item_id,omitempty"`
+	ProjectItemTitle *string       `json:"project_item_title,omitempty"`
 }
 
 type ItemChildLink struct {
@@ -384,14 +386,28 @@ type ProjectItemHealth struct {
 // health: a project item is considered stalled when no child sits in next,
 // waiting, deferred, or someday.
 type ProjectChildCounts struct {
-	Inbox    int `json:"inbox"`
-	Next     int `json:"next"`
-	Waiting  int `json:"waiting"`
-	Deferred int `json:"deferred"`
-	Someday  int `json:"someday"`
-	Review   int `json:"review"`
-	Done     int `json:"done"`
-	Total    int `json:"total"`
+	Inbox      int `json:"inbox"`
+	Next       int `json:"next"`
+	Waiting    int `json:"waiting"`
+	Deferred   int `json:"deferred"`
+	Someday    int `json:"someday"`
+	Review     int `json:"review"`
+	Done       int `json:"done"`
+	NotStarted int `json:"not_started"`
+	Total      int `json:"total"`
+}
+
+type ProjectNextAction struct {
+	ID    int64   `json:"id"`
+	Title string  `json:"title"`
+	DueAt *string `json:"due_at,omitempty"`
+}
+
+type ProjectDeadlinePressure struct {
+	Overdue     int     `json:"overdue"`
+	DueToday    int     `json:"due_today"`
+	DueThisWeek int     `json:"due_this_week"`
+	NextDueAt   *string `json:"next_due_at,omitempty"`
 }
 
 // ProjectItemReview is one row in the composite outcome review: the project
@@ -399,9 +415,11 @@ type ProjectChildCounts struct {
 // review surface exposes Item(kind=project) records only — Workspaces and
 // external source containers are intentionally absent from this aggregate.
 type ProjectItemReview struct {
-	Item     ItemSummary        `json:"item"`
-	Health   ProjectItemHealth  `json:"health"`
-	Children ProjectChildCounts `json:"children"`
+	Item       ItemSummary             `json:"item"`
+	Health     ProjectItemHealth       `json:"health"`
+	Children   ProjectChildCounts      `json:"children"`
+	NextAction *ProjectNextAction      `json:"next_action,omitempty"`
+	Deadline   ProjectDeadlinePressure `json:"deadline"`
 }
 
 type PersonOpenLoopCounts struct {

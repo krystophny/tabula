@@ -5,6 +5,14 @@ import {
   horizontalSwipeDelta,
   isHorizontalSwipeIntent,
 } from './app-swipe.js';
+import {
+  deadlineBadge,
+  deadlineLevelForItem,
+  filterProjectItemsForSidebarView,
+  formatDateBadge,
+  projectDeadlineBadges,
+  projectItemChildBadges,
+} from './app-item-sidebar-projects.js';
 
 const { marked, apiURL, wsURL, renderCanvas, clearCanvas, getLocationFromSelection, clearLineHighlight, escapeHtml, sanitizeHtml, getActiveArtifactTitle, getActiveTextEventId, getPreviousArtifactText, getUiState, setUiMode, showIndicatorMode, hideIndicator, showTextInput, hideTextInput, showOverlay, hideOverlay, updateOverlay, isOverlayVisible, isTextInputVisible, isRecording, setRecording, getInputAnchor, setInputAnchor, getAnchorFromPoint, buildContextPrefix, getLastInputPosition, setLastInputPosition, configureLiveSession, getLiveSessionSnapshot, handleLiveSessionMessage, isLiveSessionListenActive, LIVE_SESSION_HOTWORD_DEFAULT, LIVE_SESSION_MODE_DIALOGUE, LIVE_SESSION_MODE_MEETING, onLiveSessionTTSPlaybackComplete, cancelLiveSessionListen, startLiveSession, stopLiveSession, initHotword, startHotwordMonitor, stopHotwordMonitor, isHotwordActive, onHotwordDetected, setHotwordThreshold, setHotwordAudioContext, getPreRollAudio, getHotwordMicStream, initVAD, ensureVADLoaded, float32ToWav } = env;
 const { refs, state, getState, isVoiceTurn, COMPANION_VIEW_PATH_PREFIX, COMPANION_TRANSCRIPT_VIEW_PATH, COMPANION_SUMMARY_VIEW_PATH, COMPANION_REFERENCES_VIEW_PATH, MEETING_TRANSCRIPT_LABEL, MEETING_SUMMARY_LABEL, MEETING_REFERENCES_LABEL, MEETING_SUMMARY_ITEMS_PANEL_ID, CHAT_CTRL_LONG_PRESS_MS, ARTIFACT_EDIT_LONG_TAP_MS, ITEM_SIDEBAR_VIEWS, ITEM_SIDEBAR_GESTURE_CANCEL_PX, ITEM_SIDEBAR_GESTURE_COMMIT_PX, ITEM_SIDEBAR_GESTURE_LONG_PX, ITEM_SIDEBAR_DEFAULT_LATER_HOUR_UTC, ITEM_SIDEBAR_MENU_ID, DEV_UI_RELOAD_POLL_MS, ASSISTANT_ACTIVITY_POLL_MS, CHAT_WS_STALE_THRESHOLD_MS, ACTIVE_TURN_NO_ID_CLEAR_GRACE_MS, ACTIVE_TURN_ACTIVITY_CLEAR_GRACE_MS, PROJECT_CHAT_MODEL_ALIASES, PROJECT_CHAT_MODEL_REASONING_EFFORTS, TTS_SILENT_STORAGE_KEY, YOLO_MODE_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_ENABLED_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_LAST_SHOWN_STORAGE_KEY, SOMEDAY_REVIEW_NUDGE_INTERVAL_MS, ACTIVE_PROJECT_STORAGE_KEY, LAST_VIEW_STORAGE_KEY, RUNTIME_RELOAD_CONTEXT_STORAGE_KEY, SIDEBAR_IMAGE_EXTENSIONS, PANEL_MOTION_WATCH_QUERIES, VOICE_LIFECYCLE, COMPANION_IDLE_SURFACES, COMPANION_RUNTIME_STATES, TOOL_PALETTE_MODES } = context;
@@ -39,18 +47,11 @@ const showItemSidebarDelegateMenu = (...args) => refs.showItemSidebarDelegateMen
 const performItemSidebarTriage = (...args) => refs.performItemSidebarTriage(...args);
 const performItemSidebarGesture = (...args) => refs.performItemSidebarGesture(...args);
 const performItemSidebarStateUpdate = (...args) => refs.performItemSidebarStateUpdate(...args);
-const showItemSidebarLabelFilterMenu = (...args) => refs.showItemSidebarLabelFilterMenu(...args);
-const applyItemSidebarLabelFilter = (...args) => refs.applyItemSidebarLabelFilter(...args);
 const normalizeWorkspaceBrowserPath = (...args) => refs.normalizeWorkspaceBrowserPath(...args);
 const loadWorkspaceBrowserPath = (...args) => refs.loadWorkspaceBrowserPath(...args);
 const parentWorkspaceBrowserPath = (...args) => refs.parentWorkspaceBrowserPath(...args);
 const workspaceCompanionEntries = (...args) => refs.workspaceCompanionEntries(...args);
 const openWorkspaceSidebarFile = (...args) => refs.openWorkspaceSidebarFile(...args);
-const openScanImportPicker = (...args) => refs.openScanImportPicker(...args);
-const launchNewMailAuthoring = (...args) => refs.launchNewMailAuthoring(...args);
-const launchReplyAuthoring = (...args) => refs.launchReplyAuthoring(...args);
-const launchReplyAllAuthoring = (...args) => refs.launchReplyAllAuthoring(...args);
-const launchForwardAuthoring = (...args) => refs.launchForwardAuthoring(...args);
 
 export async function openItemSidebarView(view = state.itemSidebarView, filters = null) {
   state.fileSidebarMode = 'items';
@@ -181,8 +182,10 @@ export async function loadItemSidebarView(view = state.itemSidebarView, filters 
     if (workspaceID !== String(state.activeWorkspaceId || '').trim()) return false;
     if (loadSeq !== Number(state.itemSidebarLoadSeq || 0)) return false;
     state.itemSidebarPersonDashboard = personDetail ? itemsPayload : null;
-    state.itemSidebarItems = projectItemList || peopleList || dedupList
-      ? sidebarItems
+    state.itemSidebarItems = projectItemList
+      ? filterProjectItemsForSidebarView(sidebarItems, normalizedView)
+      : peopleList || dedupList
+        ? sidebarItems
       : (Array.isArray(sidebarItems?.items) ? sidebarItems.items : []);
     state.itemSidebarLoading = false;
     state.itemSidebarError = '';
@@ -202,6 +205,7 @@ export async function loadItemSidebarView(view = state.itemSidebarView, filters 
 }
 
 export function sidebarTabLabel(view) {
+  if (view === 'projects') return 'Active';
   if (view === 'next') return 'Next';
   if (view === 'waiting') return 'Waiting';
   if (view === 'deferred') return 'Deferred';
@@ -386,6 +390,10 @@ export function buildItemSidebarSubtitle(item) {
     const container = String(item?.source_container || '').trim();
     return [local, upstream, binding, container ? `container ${container}` : ''].filter(Boolean).join(' · ');
   }
+  if (String(item?.kind || '').trim().toLowerCase() === 'project') {
+    const nextTitle = String(item?.next_action?.title || '').trim();
+    if (nextTitle) return `Next: ${nextTitle}`;
+  }
   const parts = [];
   const artifactTitle = String(item?.artifact_title || '').trim();
   if (artifactTitle) parts.push(artifactTitle);
@@ -407,8 +415,19 @@ export function buildItemSidebarBadges(item) {
     return badges.concat(personOpenLoopBadges(item));
   }
   if (String(item?.kind || '').trim().toLowerCase() === 'project') {
-    return badges.concat(projectItemChildBadges(item));
+    return badges.concat(projectItemChildBadges(item), projectDeadlineBadges(item));
   }
+  const projectTitle = String(item?.project_item_title || '').trim();
+  const projectID = Number(item?.project_item_id || 0);
+  if (projectTitle) {
+    badges.push(`project ${projectTitle}`);
+  } else if (Number.isFinite(projectID) && projectID > 0) {
+    badges.push(`project #${Math.trunc(projectID)}`);
+  }
+  const start = formatDateBadge('start', item?.follow_up_at || item?.visible_after);
+  if (start) badges.push(start);
+  const due = deadlineBadge(item?.due_at);
+  if (due) badges.push(due);
   const source = itemSourceLabel(item);
   if (source) badges.push(source);
   const artifactKind = normalizeDisplayText(item?.artifact_kind).toLowerCase();
@@ -434,23 +453,6 @@ function personOpenLoopBadges(item) {
     badges.push('needs person note');
   }
   return badges;
-}
-
-function projectItemChildBadges(item) {
-  const children = item && typeof item === 'object' && item.children && typeof item.children === 'object'
-    ? item.children
-    : {};
-  const count = (field) => {
-    const value = Number(children[field] || 0);
-    return Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
-  };
-  return [
-    `next ${count('next')}`,
-    `waiting ${count('waiting')}`,
-    `deferred ${count('deferred')}`,
-    `someday ${count('someday')}`,
-    `recently closed ${count('done')}`,
-  ];
 }
 
 export function renderSidebarRow({
@@ -481,6 +483,10 @@ function createSidebarRowButton(active, item) {
   if (active) button.classList.add('is-active');
   if (item && Number(item?.id || 0) > 0) {
     button.dataset.itemId = String(Number(item.id));
+  }
+  const deadlineLevel = deadlineLevelForItem(item);
+  if (deadlineLevel) {
+    button.dataset.deadline = deadlineLevel;
   }
   return button;
 }
@@ -680,20 +686,15 @@ function renderPersonGroupHeading(label, count) {
 }
 
 function renderPersonOpenLoopRows(list, label, rows) {
-  const items = Array.isArray(rows) ? rows : [];
-  list.appendChild(renderPersonGroupHeading(label, items.length));
-  items.forEach((item) => {
-    const icon = itemIconForRow(item);
-    list.appendChild(renderSidebarRow({
-      icon: icon.icon,
-      iconText: icon.text,
-      label: String(item?.title || 'Untitled item'),
-      subtitle: buildItemSidebarSubtitle(item),
-      badges: buildItemSidebarBadges(item),
-      meta: formatSidebarAge(item?.updated_at || item?.created_at || item?.detected_at),
-      active: Number(item?.id || 0) === Number(state.itemSidebarActiveItemID || 0),
-      item,
-      onClick: () => { void openSidebarItem(item); },
+	const items = Array.isArray(rows) ? rows : [];
+	list.appendChild(renderPersonGroupHeading(label, items.length));
+	items.forEach((item) => {
+		list.appendChild(renderSidebarRow({
+			icon: 'symbol',
+			label: String(item?.title || 'Untitled item'),
+			active: Number(item?.id || 0) === Number(state.itemSidebarActiveItemID || 0),
+			item,
+			onClick: () => { void openSidebarItem(item); },
     }));
   });
 }
@@ -720,62 +721,6 @@ function renderPersonDashboard(list, dashboard) {
   return true;
 }
 
-function createSidebarActionButton(id, label, onClick) {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'edge-btn';
-  button.id = id;
-  button.textContent = label;
-  button.addEventListener('click', onClick);
-  return button;
-}
-
-function activeSidebarMailItem(items) {
-  const activeItem = items.find((entry) => Number(entry?.id || 0) === Number(state.itemSidebarActiveItemID || 0)) || null;
-  const artifactKind = String(activeItem?.artifact_kind || '').trim().toLowerCase();
-  return ['email', 'email_thread'].includes(artifactKind) ? activeItem : null;
-}
-
-function appendMailSidebarActions(actions, item) {
-  if (!item) return;
-  actions.appendChild(createSidebarActionButton('reply-mail-trigger', 'Reply', () => {
-    void launchReplyAuthoring(item);
-  }));
-  actions.appendChild(createSidebarActionButton('reply-all-mail-trigger', 'Reply All', () => {
-    void launchReplyAllAuthoring(item);
-  }));
-  actions.appendChild(createSidebarActionButton('forward-mail-trigger', 'Forward', () => {
-    void launchForwardAuthoring(item);
-  }));
-}
-
-function renderItemSidebarActions(list, items) {
-  const actions = document.createElement('div');
-  actions.className = 'sidebar-actions';
-  const activeLabelID = Number(state.itemSidebarFilters?.label_id || 0);
-  const labelFilter = activeLabelID > 0
-    ? `Label: ${String(state.itemSidebarLabelName || '').trim() || `#${activeLabelID}`}`
-    : 'Filter by Label';
-  const labelFilterButton = createSidebarActionButton('item-sidebar-label-filter', labelFilter, () => {
-    const rect = labelFilterButton.getBoundingClientRect();
-    void showItemSidebarLabelFilterMenu(rect.left, rect.bottom + 8);
-  });
-  actions.appendChild(labelFilterButton);
-  if (activeLabelID > 0) {
-    actions.appendChild(createSidebarActionButton('item-sidebar-label-clear', 'Clear Label Filter', () => {
-      void applyItemSidebarLabelFilter(0, '');
-    }));
-  }
-  actions.appendChild(createSidebarActionButton('new-mail-trigger', 'New Mail', () => {
-    void launchNewMailAuthoring();
-  }));
-  appendMailSidebarActions(actions, activeSidebarMailItem(items));
-  actions.appendChild(createSidebarActionButton('scan-upload-trigger', 'Scan Notes', () => {
-    openScanImportPicker();
-  }));
-  list.appendChild(actions);
-}
-
 function renderEmptyItemSidebarList(list) {
   const section = String(state.itemSidebarFilters?.section || '').trim().toLowerCase();
   let emptyLabel = `No ${sidebarTabLabel(state.itemSidebarView).toLowerCase()} items.`;
@@ -791,23 +736,18 @@ function renderEmptyItemSidebarList(list) {
 }
 
 function renderItemSidebarRows(list, items) {
-  items.forEach((item) => {
-    if (isDedupCandidateGroup(item)) {
-      list.appendChild(renderDedupCandidateRow(item));
-      return;
-    }
-    const icon = itemIconForRow(item);
-    const triageEnabled = state.itemSidebarView === 'inbox' || state.itemSidebarView === 'next';
-    const row = renderSidebarRow({
-      icon: icon.icon,
-      iconText: icon.text,
-      label: String(item?.title || 'Untitled item'),
-      subtitle: buildItemSidebarSubtitle(item),
-      badges: buildItemSidebarBadges(item),
-      meta: formatSidebarAge(item?.updated_at || item?.created_at || item?.detected_at),
-      active: Number(item?.id || 0) === Number(state.itemSidebarActiveItemID || 0),
-      item,
-      triageEnabled,
+	items.forEach((item) => {
+		if (isDedupCandidateGroup(item)) {
+			list.appendChild(renderDedupCandidateRow(item));
+			return;
+		}
+		const triageEnabled = state.itemSidebarView === 'inbox' || state.itemSidebarView === 'next';
+		const row = renderSidebarRow({
+			icon: 'symbol',
+			label: String(item?.title || 'Untitled item'),
+			active: Number(item?.id || 0) === Number(state.itemSidebarActiveItemID || 0),
+			item,
+			triageEnabled,
       onClick: () => { void openSidebarItem(item); },
     });
     if (isDriftSidebarItem(item)) appendDriftActions(row, item);
@@ -877,7 +817,6 @@ export function renderItemSidebarList(list) {
     return;
   }
   const items = Array.isArray(state.itemSidebarItems) ? state.itemSidebarItems : [];
-  renderItemSidebarActions(list, items);
   if (state.itemSidebarPersonDashboard) {
     renderPersonDashboard(list, state.itemSidebarPersonDashboard);
     return;

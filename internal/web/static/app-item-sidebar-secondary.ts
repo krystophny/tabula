@@ -5,7 +5,7 @@ const { refs, state, SPHERE_OPTIONS, SIDEBAR_SOURCE_FILTERS } = context;
 
 const setActiveSphere = (...args) => refs.setActiveSphere(...args);
 const showTextInput = (...args) => refs.showTextInput(...args);
-const activeProject = (...args) => refs.activeProject(...args);
+const activeWorkspace = (...args) => refs.activeProject(...args);
 const refreshWorkspaceBrowser = (...args) => refs.refreshWorkspaceBrowser(...args);
 const renderPrReviewFileList = (...args) => refs.renderPrReviewFileList(...args);
 const loadItemSidebarView = (...args) => refs.loadItemSidebarView(...args);
@@ -39,6 +39,21 @@ function applySidebarSectionDrilldown(sectionID) {
   const nextFilters = { ...state.itemSidebarFilters, section: nextSection };
   const targetView = nextSection && config.view ? config.view : state.itemSidebarView;
   void loadItemSidebarView(targetView, nextFilters);
+}
+
+function projectItemTabActive() {
+  return String(state.itemSidebarFilters?.section || '').trim().toLowerCase() === 'project_items';
+}
+
+function openProjectItemTab() {
+  const currentSection = String(state.itemSidebarFilters?.section || '').trim().toLowerCase();
+  const nextFilters = {
+    ...state.itemSidebarFilters,
+    section: currentSection === 'project_items' ? '' : 'project_items',
+    project_item_id: null,
+    actor_id: null,
+  };
+  void openItemSidebarView(currentSection === 'project_items' ? state.itemSidebarView : 'next', nextFilters);
 }
 
 export function toggleSidebarSecondary() {
@@ -110,7 +125,7 @@ export function renderSidebarPrimary(list) {
   const pinRow = document.createElement('div');
   pinRow.className = 'sidebar-workspace-pin';
   pinRow.id = 'sidebar-workspace-pin';
-  const project = activeProject();
+  const workspace = activeWorkspace();
   const pinIcon = document.createElement('span');
   pinIcon.className = 'sidebar-workspace-pin-icon';
   pinIcon.setAttribute('aria-hidden', 'true');
@@ -124,11 +139,11 @@ export function renderSidebarPrimary(list) {
   pinBody.appendChild(pinKicker);
   const pinName = document.createElement('span');
   pinName.className = 'sidebar-workspace-pin-name';
-  const projectName = project
-    ? String(workspaceDisplayName(project) || project?.name || project?.id || 'Workspace').trim() || 'Workspace'
+  const workspaceName = workspace
+    ? String(workspaceDisplayName(workspace) || workspace?.name || workspace?.id || 'Workspace').trim() || 'Workspace'
     : 'No workspace';
-  pinName.textContent = projectName;
-  pinName.title = project ? String(project?.root_path || projectName) : 'No workspace pinned';
+  pinName.textContent = workspaceName;
+  pinName.title = workspace ? String(workspace?.root_path || workspaceName) : 'No workspace pinned';
   pinBody.appendChild(pinName);
   pinRow.appendChild(pinBody);
   primary.appendChild(pinRow);
@@ -157,10 +172,10 @@ function sidebarSecondarySections() {
   return [
     {
       id: 'project-items',
-      label: 'Project items',
+      label: 'Active projects',
       count: Number(sectionCounts.project_items_open || 0),
       sectionFilter: 'project_items',
-      title: 'Filter to open project items (Item kind=project). Project items stay surfaced as filters, not Workspaces.',
+      title: 'Filter to open GTD project outcomes. Workspaces are filesystem/runtime scopes, not projects.',
     },
     {
       id: 'people',
@@ -206,7 +221,7 @@ function renderSidebarSecondaryToggle(secondary) {
   caret.textContent = state.itemSidebarSecondaryOpen ? '▾' : '▸';
   const toggleLabel = document.createElement('span');
   toggleLabel.className = 'sidebar-secondary-toggle-label';
-  toggleLabel.textContent = 'Filters & sources';
+  toggleLabel.textContent = 'More';
   toggle.appendChild(caret);
   toggle.appendChild(toggleLabel);
   toggle.addEventListener('click', () => { toggleSidebarSecondary(); });
@@ -216,13 +231,14 @@ function renderSidebarSecondaryToggle(secondary) {
 function renderSidebarSectionRows(body) {
   const activeSection = String(state.itemSidebarFilters?.section || '').trim().toLowerCase();
   for (const section of sidebarSecondarySections()) {
+    const active = section.sectionFilter === activeSection;
+    if (section.count <= 0 && !active) continue;
     const row = document.createElement('button');
     row.type = 'button';
     row.className = 'sidebar-secondary-row';
     row.dataset.sectionId = section.id;
     row.title = section.title;
     row.classList.toggle('is-empty', section.count <= 0);
-    const active = section.sectionFilter === activeSection;
     row.classList.toggle('is-active', active);
     row.setAttribute('aria-pressed', active ? 'true' : 'false');
     const labelEl = document.createElement('span');
@@ -231,7 +247,7 @@ function renderSidebarSectionRows(body) {
     row.appendChild(labelEl);
     const badge = document.createElement('span');
     badge.className = 'sidebar-secondary-row-count';
-    badge.textContent = section.count > 0 ? String(section.count) : '—';
+    badge.textContent = String(Math.max(0, section.count));
     row.appendChild(badge);
     row.addEventListener('click', () => {
       applySidebarSectionDrilldown(section.id);
@@ -241,16 +257,17 @@ function renderSidebarSectionRows(body) {
 }
 
 function renderSidebarSourceFilters(body) {
-  const sourcesGroup = document.createElement('div');
+  const activeSource = String(state.itemSidebarFilters?.source || '').trim().toLowerCase();
+  const sourcesGroup = document.createElement('details');
   sourcesGroup.className = 'sidebar-secondary-sources';
   sourcesGroup.id = 'sidebar-secondary-sources';
-  const sourcesLabel = document.createElement('div');
+  if (activeSource) sourcesGroup.open = true;
+  const sourcesLabel = document.createElement('summary');
   sourcesLabel.className = 'sidebar-secondary-sources-label';
-  sourcesLabel.textContent = 'Sources';
+  sourcesLabel.textContent = activeSource ? `Source: ${activeSource}` : 'Source';
   sourcesGroup.appendChild(sourcesLabel);
   const sourcesPills = document.createElement('div');
   sourcesPills.className = 'sidebar-secondary-sources-pills';
-  const activeSource = String(state.itemSidebarFilters?.source || '').trim().toLowerCase();
   for (const source of SIDEBAR_SOURCE_FILTERS) {
     const pill = document.createElement('button');
     pill.type = 'button';
@@ -291,15 +308,33 @@ export function renderSidebarSecondary(list) {
 export function renderSidebarTabs(list) {
   const tabs = document.createElement('div');
   tabs.className = 'sidebar-tabs';
+  const activeButton = document.createElement('button');
+  activeButton.type = 'button';
+  activeButton.className = 'sidebar-tab';
+  if (projectItemTabActive()) {
+    activeButton.classList.add('is-active');
+  }
+  activeButton.textContent = sidebarTabLabel('projects');
+  const projectCount = Number(state.itemSidebarSectionCounts?.project_items_open || 0);
+  if (projectCount > 0) {
+    const badge = document.createElement('span');
+    badge.className = 'sidebar-tab-count';
+    badge.textContent = String(projectCount);
+    activeButton.appendChild(badge);
+  }
+  bindSidebarTabActivation(activeButton, openProjectItemTab);
+  tabs.appendChild(activeButton);
   ITEM_SIDEBAR_VIEWS.forEach((view) => {
+    const count = Number(state.itemSidebarCounts?.[view] || 0);
+    const current = !projectItemTabActive() && state.fileSidebarMode !== 'workspace' && state.itemSidebarView === view;
+    if (count <= 0 && !current) return;
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'sidebar-tab';
-    if (state.fileSidebarMode !== 'workspace' && state.itemSidebarView === view) {
+    if (current) {
       button.classList.add('is-active');
     }
     button.textContent = sidebarTabLabel(view);
-    const count = Number(state.itemSidebarCounts?.[view] || 0);
     if (count > 0) {
       const badge = document.createElement('span');
       badge.className = 'sidebar-tab-count';

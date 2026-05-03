@@ -79,7 +79,27 @@ var itemSummarySelect = `SELECT
  i.updated_at,
  a.title,
  a.kind,
- actors.name
+ actors.name,
+ (
+   SELECT links.parent_item_id
+   FROM item_children links
+   JOIN items parent ON parent.id = links.parent_item_id
+   WHERE links.child_item_id = i.id
+   ORDER BY CASE links.role WHEN 'next_action' THEN 0 WHEN 'support' THEN 1 ELSE 2 END,
+            datetime(links.created_at) ASC,
+            links.parent_item_id ASC
+   LIMIT 1
+ ),
+ (
+   SELECT parent.title
+   FROM item_children links
+   JOIN items parent ON parent.id = links.parent_item_id
+   WHERE links.child_item_id = i.id
+   ORDER BY CASE links.role WHEN 'next_action' THEN 0 WHEN 'support' THEN 1 ELSE 2 END,
+            datetime(links.created_at) ASC,
+            links.parent_item_id ASC
+   LIMIT 1
+ )
 FROM items i
 LEFT JOIN artifacts a ON a.id = i.artifact_id
 LEFT JOIN actors ON actors.id = i.actor_id`
@@ -158,6 +178,41 @@ func (s *Store) ListInboxItemsFiltered(now time.Time, filter ItemListFilter) ([]
 	return s.listItemSummaries(query, args...)
 }
 
+func appendVisibleNowClauses(parts []string, args []any, column itemFilterColumnFunc, now time.Time) ([]string, []any) {
+	cutoff := now.UTC().Format(time.RFC3339Nano)
+	parts = append(parts,
+		visibleNowClause(column("visible_after")),
+		visibleNowClause(column("follow_up_at")),
+	)
+	return parts, append(args, cutoff, cutoff)
+}
+
+func visibleNowClause(column string) string {
+	return `(
+	     ` + column + ` IS NULL
+	     OR trim(` + column + `) = ''
+	     OR datetime(` + column + `) <= datetime(?)
+	   )`
+}
+
+func dueAtBeforeClause(column string) string {
+	return `(
+	     ` + column + ` IS NOT NULL
+	     AND trim(` + column + `) <> ''
+	     AND datetime(` + column + `) <= datetime(?)
+	   )`
+}
+
+func activeNowOrOverdueClause(column itemFilterColumnFunc) string {
+	return `(
+	     ` + dueAtBeforeClause(column("due_at")) + `
+	     OR (
+	       ` + visibleNowClause(column("visible_after")) + `
+	       AND ` + visibleNowClause(column("follow_up_at")) + `
+	     )
+	   )`
+}
+
 func (s *Store) ListWaitingItems() ([]ItemSummary, error) {
 	return s.ListWaitingItemsFiltered(ItemListFilter{})
 }
@@ -192,8 +247,15 @@ func (s *Store) ListNextItemsFiltered(filter ItemListFilter) ([]ItemSummary, err
 	if err != nil {
 		return nil, err
 	}
-	parts := []string{"i.state = ?"}
-	args := []any{ItemStateNext}
+	cutoff := time.Now().UTC().Format(time.RFC3339Nano)
+	column := func(name string) string { return "i." + name }
+	parts := []string{
+		`(
+		  (i.state = ? AND ` + activeNowOrOverdueClause(column) + `)
+		  OR (i.state = ? AND ` + dueAtBeforeClause("i.due_at") + `)
+		)`,
+	}
+	args := []any{ItemStateNext, cutoff, cutoff, cutoff, ItemStateDeferred, cutoff}
 	if !normalizedFilter.IncludeProjectItems && normalizedFilter.Section != ItemSidebarSectionProject {
 		parts = append(parts, "i.kind = ?")
 		args = append(args, ItemKindAction)
@@ -309,7 +371,12 @@ SELECT
         OR datetime(visible_after) <= datetime(?)
       )
     THEN 1 ELSE 0 END), 0) AS inbox_count,
-  COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS next_count,
+  COALESCE(SUM(CASE
+    WHEN (
+      (state = ? AND ` + activeNowOrOverdueClause(column) + `)
+      OR (state = ? AND ` + dueAtBeforeClause("due_at") + `)
+    )
+    THEN 1 ELSE 0 END), 0) AS next_count,
   COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS waiting_count,
   COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS deferred_count,
   COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS someday_count,
@@ -317,7 +384,7 @@ SELECT
   COALESCE(SUM(CASE WHEN state = ? THEN 1 ELSE 0 END), 0) AS done_count
 FROM items
 `
-	args := []any{ItemStateInbox, cutoff, ItemStateNext, ItemStateWaiting, ItemStateDeferred, ItemStateSomeday}
+	args := []any{ItemStateInbox, cutoff, ItemStateNext, cutoff, cutoff, cutoff, ItemStateDeferred, cutoff, ItemStateWaiting, ItemStateDeferred, ItemStateSomeday}
 	args = append(args, reviewArgs...)
 	args = append(args, ItemStateDone)
 	parts := []string{}
@@ -341,6 +408,8 @@ FROM items
 func reviewQueueClause(now time.Time, column, outerColumn itemFilterColumnFunc) (string, []any) {
 	cutoff := now.UTC().Format(time.RFC3339Nano)
 	clause := `(` + column("state") + ` = ?
+OR (` + column("state") + ` <> ?
+  AND ` + dueAtBeforeClause(column("due_at")) + `)
 OR (` + column("state") + ` = ?
   AND ` + column("follow_up_at") + ` IS NOT NULL AND trim(` + column("follow_up_at") + `) <> ''
   AND datetime(` + column("follow_up_at") + `) <= datetime(?))
@@ -351,7 +420,7 @@ OR (` + column("kind") + ` = ?
     WHERE links.parent_item_id = ` + outerColumn("id") + `
       AND child.state IN (?, ?, ?, ?)
   )))`
-	args := []any{ItemStateReview, ItemStateWaiting, cutoff, ItemKindProject, ItemStateDone}
+	args := []any{ItemStateReview, ItemStateDone, cutoff, ItemStateWaiting, cutoff, ItemKindProject, ItemStateDone}
 	args = append(args, ItemStateNext, ItemStateWaiting, ItemStateDeferred, ItemStateSomeday)
 	return clause, args
 }
@@ -383,8 +452,38 @@ func (s *Store) CountSidebarSectionsFiltered(now time.Time, filter ItemListFilte
 		return out, err
 	}
 
-	projectParts := []string{"items.kind = ?", "items.state <> ?"}
-	projectArgs := []any{ItemKindProject, ItemStateDone}
+	cutoff := now.UTC().Format(time.RFC3339Nano)
+	soon := now.UTC().AddDate(0, 0, 7).Format(time.RFC3339Nano)
+	projectParts := []string{
+		"items.kind = ?",
+		"items.state <> ?",
+		`(
+		  ` + dueAtBeforeClause("items.due_at") + `
+		  OR EXISTS (
+		    SELECT 1
+		    FROM item_children links
+		    JOIN items child ON child.id = links.child_item_id
+		    WHERE links.parent_item_id = items.id
+		      AND child.state <> ?
+		      AND (
+		        ` + dueAtBeforeClause("child.due_at") + `
+		        OR (child.state IN (?, ?) AND ` + activeNowOrOverdueClause(func(name string) string { return "child." + name }) + `)
+		      )
+		  )
+		)`,
+	}
+	projectArgs := []any{
+		ItemKindProject,
+		ItemStateDone,
+		soon,
+		ItemStateDone,
+		soon,
+		ItemStateInbox,
+		ItemStateNext,
+		cutoff,
+		cutoff,
+		cutoff,
+	}
 	projectParts, projectArgs = appendItemFilterClauses(projectParts, projectArgs, normalizedFilter, "")
 	projectQuery := `SELECT COUNT(*) FROM items WHERE ` + stringsJoin(projectParts, ` AND `)
 	if err := s.db.QueryRow(projectQuery, projectArgs...).Scan(&out.ProjectItemsOpen); err != nil {
@@ -411,7 +510,7 @@ func (s *Store) CountSidebarSectionsFiltered(now time.Time, filter ItemListFilte
 		return out, err
 	}
 
-	cutoff := now.UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339Nano)
+	meetingCutoff := now.UTC().Add(-7 * 24 * time.Hour).Format(time.RFC3339Nano)
 	meetingQuery := `SELECT COUNT(DISTINCT a.id)
 FROM artifacts a
 WHERE datetime(a.created_at) >= datetime(?)
@@ -420,7 +519,7 @@ WHERE datetime(a.created_at) >= datetime(?)
     OR (a.meta_json IS NOT NULL AND a.meta_json LIKE '%"source":"meeting_summary"%')
     OR (a.meta_json IS NOT NULL AND a.meta_json LIKE '%"source":"meeting_notes"%')
   )`
-	if err := s.db.QueryRow(meetingQuery, cutoff).Scan(&out.RecentMeetings); err != nil {
+	if err := s.db.QueryRow(meetingQuery, meetingCutoff).Scan(&out.RecentMeetings); err != nil {
 		return out, err
 	}
 	return out, nil

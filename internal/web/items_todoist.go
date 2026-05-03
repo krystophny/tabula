@@ -353,7 +353,7 @@ func (a *App) createTodoistBackedItem(req itemCreateRequest) (store.Item, error)
 		task.IsCompleted = true
 	}
 
-	item, err := a.persistTodoistTask(account, task, nil, mappings, todoistProjectNameByID(projects))
+	item, err := a.persistTodoistTask(account, task, nil, mappings, todoistProjectNameByID(projects), store.ItemKindAction)
 	if err != nil {
 		return store.Item{}, err
 	}

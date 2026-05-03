@@ -77,10 +77,45 @@ test.describe('compact sidebar navigation (#746)', () => {
     });
     expect(layout).not.toBeNull();
     expect(layout?.primaryTop).toBeLessThanOrEqual((layout?.tabsTop || 0));
-    expect(layout?.filesLabel).toEqual(expect.arrayContaining(['Files']));
+    expect(layout?.filesLabel).toEqual(expect.arrayContaining(['Active', 'Files']));
   });
 
-  test('expandable secondary section keeps project items as filters with backend counts and source pills', async ({ page }) => {
+  test('project items are reachable as a first-level tab', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 760 });
+    await waitReady(page);
+    await seedSectionFixture(page, { projectItemsOpen: 2 });
+    await page.evaluate(() => {
+      (window as any).__setItemSidebarData({
+        inbox: [],
+        next: [
+          { id: 900, title: 'Ship mobile project view', kind: 'project', state: 'next', sphere: 'private' },
+          { id: 901, title: 'Open mobile project review', state: 'next', sphere: 'private', project_item_id: 900 },
+        ],
+        waiting: [],
+        deferred: [],
+        someday: [],
+        done: [],
+      });
+    });
+    await openInbox(page);
+    await page.evaluate(async () => {
+      const mod = await import('../../internal/web/static/app-item-sidebar-utils.js');
+      await mod.refreshItemSidebarCounts();
+    });
+
+    const projectsTab = page.locator('.sidebar-tab', { hasText: 'Active' });
+    await expect(projectsTab).toBeVisible();
+    await projectsTab.click();
+    await expect(projectsTab).toHaveClass(/is-active/);
+    await expect.poll(async () => page.evaluate(() => {
+      const app = (window as any)._slopshellApp;
+      const filters = app?.getState?.().itemSidebarFilters || {};
+      return String(filters.section || '');
+    })).toBe('project_items');
+    await expect(page.locator('#pr-file-list .pr-file-item[data-item-id="900"]')).toContainText('Ship mobile project view');
+  });
+
+  test('collapsed secondary section keeps only non-empty filters and tucks source pills away', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await waitReady(page);
     await seedSectionFixture(page, {
@@ -98,7 +133,7 @@ test.describe('compact sidebar navigation (#746)', () => {
 
     const toggle = page.locator('#sidebar-secondary-toggle');
     await expect(toggle).toBeVisible();
-    await expect(toggle).toHaveText(/Filters & sources/i);
+    await expect(toggle).toHaveText(/More/i);
 
     const body = page.locator('#sidebar-secondary-body');
     await expect(body).toBeHidden();
@@ -107,7 +142,7 @@ test.describe('compact sidebar navigation (#746)', () => {
 
     const projectRow = body.locator('.sidebar-secondary-row[data-section-id="project-items"]');
     await expect(projectRow).toBeVisible();
-    await expect(projectRow.locator('.sidebar-secondary-row-label')).toHaveText('Project items');
+    await expect(projectRow.locator('.sidebar-secondary-row-label')).toHaveText('Active projects');
     await expect(projectRow.locator('.sidebar-secondary-row-count')).toHaveText('3');
 
     await expect(body.locator('.sidebar-secondary-row[data-section-id="people"] .sidebar-secondary-row-count')).toHaveText('4');
@@ -116,6 +151,10 @@ test.describe('compact sidebar navigation (#746)', () => {
     const meetingsRow = body.locator('.sidebar-secondary-row[data-section-id="recent-meetings"]');
     await expect(meetingsRow.locator('.sidebar-secondary-row-count')).toHaveText('2');
 
+    const sourceDetails = body.locator('#sidebar-secondary-sources');
+    await expect(sourceDetails).toBeVisible();
+    await expect(sourceDetails.locator('.sidebar-secondary-sources-label')).toHaveText('Source');
+    await sourceDetails.locator('.sidebar-secondary-sources-label').click();
     const sourceLabels = await body.locator('.sidebar-source-pill').allTextContents();
     expect(sourceLabels).toEqual(['Email', 'Todoist', 'GitHub', 'GitLab', 'Markdown', 'Local']);
 
@@ -161,7 +200,7 @@ test.describe('compact sidebar navigation (#746)', () => {
     })).toBe('');
   });
 
-  test('project item section lists child counts and opens a child-action queue', async ({ page }) => {
+  test('project item section stays title-only and opens a child-action queue', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await waitReady(page);
     await seedSectionFixture(page, {
@@ -177,7 +216,16 @@ test.describe('compact sidebar navigation (#746)', () => {
         next: [
           { id: 900, title: 'Ship compact outcome', kind: 'project', state: 'next', sphere: 'private' },
           { id: 901, title: 'Work-only outcome', kind: 'project', state: 'next', sphere: 'work' },
-          { id: 101, title: 'Write rollout note', state: 'next', sphere: 'private', project_item_id: 900 },
+          {
+            id: 101,
+            title: 'Write rollout note',
+            state: 'next',
+            sphere: 'private',
+            project_item_id: 900,
+            project_item_title: 'Ship compact outcome',
+            follow_up_at: '2026-05-02T08:00:00Z',
+            due_at: '2026-05-06T17:00:00Z',
+          },
           { id: 102, title: 'Unlinked next action', state: 'next', sphere: 'private', project_item_id: 999 },
         ],
         waiting: [
@@ -200,11 +248,9 @@ test.describe('compact sidebar navigation (#746)', () => {
 
     const projectRow = page.locator('#pr-file-list .pr-file-item[data-item-id="900"]');
     await expect(projectRow).toBeVisible();
-    await expect(projectRow).toContainText('next 1');
-    await expect(projectRow).toContainText('waiting 1');
-    await expect(projectRow).toContainText('deferred 1');
-    await expect(projectRow).toContainText('someday 1');
-    await expect(projectRow).toContainText('recently closed 1');
+    await expect(projectRow).toHaveText('Ship compact outcome');
+    await expect(projectRow.locator('.sidebar-row-secondary')).toHaveCount(0);
+    await expect(projectRow.locator('.pr-file-status')).toHaveCount(0);
     await expect(page.locator('#pr-file-list')).not.toContainText('Work-only outcome');
 
     await projectRow.click();
@@ -217,7 +263,10 @@ test.describe('compact sidebar navigation (#746)', () => {
         view: String(s.itemSidebarView || ''),
       };
     })).toEqual({ projectItemID: 900, section: '', view: 'next' });
-    await expect(page.locator('#pr-file-list .pr-file-item[data-item-id="101"]')).toContainText('Write rollout note');
+    const childRow = page.locator('#pr-file-list .pr-file-item[data-item-id="101"]');
+    await expect(childRow).toHaveText('Write rollout note');
+    await expect(childRow.locator('.sidebar-row-secondary')).toHaveCount(0);
+    await expect(childRow).toHaveAttribute('data-deadline', 'soon');
     await expect(page.locator('#pr-file-list')).not.toContainText('Unlinked next action');
   });
 
@@ -236,8 +285,7 @@ test.describe('compact sidebar navigation (#746)', () => {
       });
     });
     await openInbox(page);
-    await page.locator('#sidebar-secondary-toggle').click();
-    await page.locator('.sidebar-secondary-row[data-section-id="project-items"]').click();
+    await page.locator('.sidebar-tab', { hasText: 'Active' }).click();
 
     await expect(page.locator('#pr-file-list .pr-file-item')).toContainText('No project items.');
   });
@@ -281,11 +329,8 @@ test.describe('compact sidebar navigation (#746)', () => {
 
     const adaRow = page.locator('#pr-file-list .pr-file-item[data-item-id="1"]');
     await expect(adaRow).toBeVisible();
-    await expect(adaRow).toContainText('Ada Example');
-    await expect(adaRow).toContainText('waiting 1');
-    await expect(adaRow).toContainText('owed 1');
-    await expect(adaRow).toContainText('closed 1');
-    await expect(page.locator('#pr-file-list')).toContainText('needs person note');
+    await expect(adaRow).toHaveText('Ada Example');
+    await expect(adaRow.locator('.sidebar-row-secondary')).toHaveCount(0);
 
     await adaRow.click();
     await expect.poll(async () => page.evaluate(() => {
@@ -358,7 +403,7 @@ test.describe('compact sidebar navigation (#746)', () => {
     const projectRow = page.locator('.sidebar-secondary-row[data-section-id="project-items"]');
     const projectLabel = await projectRow.locator('.sidebar-secondary-row-label').innerText();
 
-    expect(projectLabel).toBe('Project items');
+    expect(projectLabel).toBe('Active projects');
     expect(pinName.trim().length).toBeGreaterThan(0);
     expect(pinName.trim()).not.toBe(projectLabel);
 

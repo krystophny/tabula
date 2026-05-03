@@ -74,11 +74,13 @@ func scanItemSummary(
 	var (
 		out                                    ItemSummary
 		workspaceID, artifactID, actorID       sql.NullInt64
+		projectItemID                          sql.NullInt64
 		visibleAfter, followUpAt, dueAt        sql.NullString
 		sphere                                 string
 		source, sourceRef                      sql.NullString
 		reviewTarget, reviewer, reviewedAt     sql.NullString
 		artifactTitle, artifactKind, actorName sql.NullString
+		projectItemTitle                       sql.NullString
 	)
 	err := row.Scan(
 		&out.ID,
@@ -102,6 +104,8 @@ func scanItemSummary(
 		&artifactTitle,
 		&artifactKind,
 		&actorName,
+		&projectItemID,
+		&projectItemTitle,
 	)
 	if err != nil {
 		return ItemSummary{}, err
@@ -133,6 +137,8 @@ func scanItemSummary(
 		out.ArtifactKind = &normalized
 	}
 	out.ActorName = nullStringPointer(actorName)
+	out.ProjectItemID = nullInt64Pointer(projectItemID)
+	out.ProjectItemTitle = nullStringPointer(projectItemTitle)
 	return out, nil
 }
 

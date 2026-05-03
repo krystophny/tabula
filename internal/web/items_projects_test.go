@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sloppy-org/slopshell/internal/store"
 )
@@ -54,6 +55,81 @@ func TestItemProjectReviewListsActiveOutcomesWithHealth(t *testing.T) {
 	}
 
 	assertItemProjectReviewHealthSpecs(t, rows, specs)
+}
+
+func TestItemProjectReviewSurfacesDeadlinePressureAndActiveNextAction(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	now := time.Now().UTC()
+	past := now.Add(-24 * time.Hour).Format(time.RFC3339)
+	soon := now.Add(72 * time.Hour).Format(time.RFC3339)
+	futureStart := now.Add(72 * time.Hour).Format(time.RFC3339)
+
+	project, err := app.store.CreateItem("Deadline outcome", store.ItemOptions{
+		Kind:  store.ItemKindProject,
+		State: store.ItemStateNext,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(project) error: %v", err)
+	}
+	active, err := app.store.CreateItem("Active next action", store.ItemOptions{
+		State: store.ItemStateNext,
+		DueAt: &soon,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(active) error: %v", err)
+	}
+	overdue, err := app.store.CreateItem("Missed child deadline", store.ItemOptions{
+		State: store.ItemStateNext,
+		DueAt: &past,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(overdue) error: %v", err)
+	}
+	notStarted, err := app.store.CreateItem("Future-start child", store.ItemOptions{
+		State:        store.ItemStateNext,
+		VisibleAfter: &futureStart,
+		FollowUpAt:   &futureStart,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(not started) error: %v", err)
+	}
+	for _, childID := range []int64{active.ID, overdue.ID, notStarted.ID} {
+		if err := app.store.LinkItemChild(project.ID, childID, store.ItemLinkRoleNextAction); err != nil {
+			t.Fatalf("LinkItemChild(%d) error: %v", childID, err)
+		}
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/projects", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	rows, _ := decodeJSONResponse(t, rr)["project_items"].([]any)
+	if len(rows) != 1 {
+		t.Fatalf("project_items len = %d, want 1", len(rows))
+	}
+	row := rows[0].(map[string]any)
+	children := row["children"].(map[string]any)
+	if got := int(children["next"].(float64)); got != 2 {
+		t.Fatalf("children.next = %d, want 2 active next children", got)
+	}
+	if got := int(children["not_started"].(float64)); got != 1 {
+		t.Fatalf("children.not_started = %d, want 1 future-start child", got)
+	}
+	nextAction := row["next_action"].(map[string]any)
+	if int64(nextAction["id"].(float64)) != overdue.ID {
+		t.Fatalf("next_action.id = %v, want overdue child %d first", nextAction["id"], overdue.ID)
+	}
+	deadline := row["deadline"].(map[string]any)
+	if got := int(deadline["overdue"].(float64)); got != 1 {
+		t.Fatalf("deadline.overdue = %d, want 1", got)
+	}
+	if got := int(deadline["due_this_week"].(float64)); got != 1 {
+		t.Fatalf("deadline.due_this_week = %d, want 1", got)
+	}
+	if strings.TrimSpace(strFromAny(deadline["next_due_at"])) != past {
+		t.Fatalf("deadline.next_due_at = %v, want %q", deadline["next_due_at"], past)
+	}
 }
 
 func itemProjectReviewHealthSpecs() []itemProjectReviewSpec {

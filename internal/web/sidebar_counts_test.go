@@ -54,11 +54,21 @@ func TestItemCountsExposesSidebarSectionCountsAlongsidePerStateCounts(t *testing
 func seedSidebarCountsFixture(t *testing.T, app *App) {
 	t.Helper()
 
-	if _, err := app.store.CreateItem("Plan GTD outcome", store.ItemOptions{
+	project, err := app.store.CreateItem("Plan GTD outcome", store.ItemOptions{
 		Kind:  store.ItemKindProject,
 		State: store.ItemStateNext,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("CreateItem(project next) error: %v", err)
+	}
+	projectChild, err := app.store.CreateItem("Plan GTD next action", store.ItemOptions{
+		State: store.ItemStateNext,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(project child) error: %v", err)
+	}
+	if err := app.store.LinkItemChild(project.ID, projectChild.ID, store.ItemLinkRoleNextAction); err != nil {
+		t.Fatalf("LinkItemChild(project) error: %v", err)
 	}
 	if _, err := app.store.CreateItem("Closed outcome", store.ItemOptions{
 		Kind:  store.ItemKindProject,

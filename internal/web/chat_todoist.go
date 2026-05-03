@@ -12,6 +12,7 @@ import (
 
 	"github.com/sloppy-org/slopshell/internal/store"
 	"github.com/sloppy-org/slopshell/internal/todoist"
+	"github.com/sloppy-org/sloptools/pkg/taskgtd"
 )
 
 var (
@@ -257,7 +258,7 @@ func (a *App) activeTodoistAccounts() ([]store.ExternalAccount, error) {
 	return enabled, nil
 }
 
-func (a *App) persistTodoistTask(account store.ExternalAccount, task todoist.Task, comments []todoist.Comment, mappings []store.ExternalContainerMapping, projectNames map[string]string) (store.Item, error) {
+func (a *App) persistTodoistTask(account store.ExternalAccount, task todoist.Task, comments []todoist.Comment, mappings []store.ExternalContainerMapping, projectNames map[string]string, kind string) (store.Item, error) {
 	projectName := ""
 	if task.ProjectID != nil {
 		projectName = strings.TrimSpace(projectNames[strings.TrimSpace(*task.ProjectID)])
@@ -276,17 +277,18 @@ func (a *App) persistTodoistTask(account store.ExternalAccount, task todoist.Tas
 	dueAt := todoistTaskDueAt(task)
 	desiredState := todoistItemState(task, time.Now())
 	if existing, err := a.store.GetItemBySource(source, sourceRef); err == nil {
-		return a.updatePersistedTodoistTask(existing, account, task, comments, mapping, projectName, projectNames, title, source, sourceRef, desiredState, followUpAt, dueAt)
+		return a.updatePersistedTodoistTask(existing, account, task, comments, mapping, projectName, projectNames, title, source, sourceRef, desiredState, followUpAt, dueAt, kind)
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return store.Item{}, err
 	}
-	return a.createPersistedTodoistTask(account, task, comments, mapping, projectName, projectNames, title, source, sourceRef, desiredState, followUpAt, dueAt)
+	return a.createPersistedTodoistTask(account, task, comments, mapping, projectName, projectNames, title, source, sourceRef, desiredState, followUpAt, dueAt, kind)
 }
 
-func (a *App) updatePersistedTodoistTask(existing store.Item, account store.ExternalAccount, task todoist.Task, comments []todoist.Comment, mapping *store.ExternalContainerMapping, projectName string, projectNames map[string]string, title, source, sourceRef, desiredState string, followUpAt, dueAt *string) (store.Item, error) {
+func (a *App) updatePersistedTodoistTask(existing store.Item, account store.ExternalAccount, task todoist.Task, comments []todoist.Comment, mapping *store.ExternalContainerMapping, projectName string, projectNames map[string]string, title, source, sourceRef, desiredState string, followUpAt, dueAt *string, kind string) (store.Item, error) {
 	state := desiredState
 	updates := store.ItemUpdate{
 		Title:        &title,
+		Kind:         todoistKindUpdate(existing.Kind, kind),
 		State:        todoistStateUpdate(existing.State, state),
 		VisibleAfter: todoistTimeUpdate(followUpAt),
 		FollowUpAt:   todoistTimeUpdate(followUpAt),
@@ -331,9 +333,10 @@ func (a *App) updatePersistedTodoistTask(existing store.Item, account store.Exte
 	return item, nil
 }
 
-func (a *App) createPersistedTodoistTask(account store.ExternalAccount, task todoist.Task, comments []todoist.Comment, mapping *store.ExternalContainerMapping, projectName string, projectNames map[string]string, title, source, sourceRef, desiredState string, followUpAt, dueAt *string) (store.Item, error) {
+func (a *App) createPersistedTodoistTask(account store.ExternalAccount, task todoist.Task, comments []todoist.Comment, mapping *store.ExternalContainerMapping, projectName string, projectNames map[string]string, title, source, sourceRef, desiredState string, followUpAt, dueAt *string, kind string) (store.Item, error) {
 	opts := store.ItemOptions{
 		State:        desiredState,
+		Kind:         kind,
 		Sphere:       &account.Sphere,
 		VisibleAfter: followUpAt,
 		FollowUpAt:   followUpAt,
@@ -359,6 +362,14 @@ func (a *App) createPersistedTodoistTask(account store.ExternalAccount, task tod
 		return store.Item{}, err
 	}
 	return item, nil
+}
+
+func todoistKindUpdate(current, desired string) *string {
+	if desired != store.ItemKindProject || current == store.ItemKindProject {
+		return nil
+	}
+	kind := store.ItemKindProject
+	return &kind
 }
 
 func todoistTimeUpdate(value *string) *string {
@@ -497,6 +508,8 @@ func (a *App) syncTodoistAccountDirect(ctx context.Context, account store.Extern
 	if err != nil {
 		return 0, err
 	}
+	parentIDs := taskgtd.ParentTaskIDs(todoistTaskRefs(tasks))
+	itemsByTaskID := make(map[string]store.Item, len(tasks))
 	syncedCount := 0
 	for _, task := range tasks {
 		comments := []todoist.Comment(nil)
@@ -510,12 +523,50 @@ func (a *App) syncTodoistAccountDirect(ctx context.Context, account store.Extern
 			}
 			comments = append(comments, detail.Comments...)
 		}
-		if _, err := a.persistTodoistTask(account, task, comments, mappings, projectNames); err != nil {
+		kind := store.ItemKindAction
+		if parentIDs[strings.TrimSpace(task.ID)] {
+			kind = store.ItemKindProject
+		}
+		item, err := a.persistTodoistTask(account, task, comments, mappings, projectNames, kind)
+		if err != nil {
 			return 0, err
 		}
+		itemsByTaskID[strings.TrimSpace(task.ID)] = item
 		syncedCount++
 	}
+	if err := a.linkSyncedTodoistSubtasks(tasks, itemsByTaskID); err != nil {
+		return 0, err
+	}
 	return syncedCount, nil
+}
+
+func todoistTaskRefs(tasks []todoist.Task) []taskgtd.Task {
+	out := make([]taskgtd.Task, 0, len(tasks))
+	for _, task := range tasks {
+		out = append(out, taskgtd.Task{
+			ID:       strings.TrimSpace(task.ID),
+			ParentID: strings.TrimSpace(optionalStringValue(task.ParentID)),
+		})
+	}
+	return out
+}
+
+func (a *App) linkSyncedTodoistSubtasks(tasks []todoist.Task, itemsByTaskID map[string]store.Item) error {
+	for _, task := range tasks {
+		parentID := strings.TrimSpace(optionalStringValue(task.ParentID))
+		if parentID == "" {
+			continue
+		}
+		parent, parentOK := itemsByTaskID[parentID]
+		child, childOK := itemsByTaskID[strings.TrimSpace(task.ID)]
+		if !parentOK || !childOK {
+			continue
+		}
+		if err := a.store.LinkItemChild(parent.ID, child.ID, "next_action"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func parseTodoistTaskDraft(raw string) (string, string) {
@@ -611,7 +662,7 @@ func (a *App) executeCreateTodoistTaskActionWith(account store.ExternalAccount, 
 	if err != nil {
 		return "", nil, err
 	}
-	item, err := a.persistTodoistTask(account, task, nil, mappings, todoistProjectNameByID(projects))
+	item, err := a.persistTodoistTask(account, task, nil, mappings, todoistProjectNameByID(projects), store.ItemKindAction)
 	if err != nil {
 		return "", nil, err
 	}

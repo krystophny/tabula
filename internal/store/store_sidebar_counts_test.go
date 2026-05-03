@@ -12,18 +12,34 @@ func TestCountSidebarSectionsFilteredCountsOpenProjectItemsAndRecentMeetings(t *
 	now := time.Date(2026, time.April, 30, 10, 0, 0, 0, time.UTC)
 	past := now.Add(-30 * time.Minute).Format(time.RFC3339)
 
-	if _, err := s.CreateItem("Plan Q2 outcome", ItemOptions{
+	plan, err := s.CreateItem("Plan Q2 outcome", ItemOptions{
 		Kind:         ItemKindProject,
 		State:        ItemStateInbox,
 		VisibleAfter: &past,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("CreateItem(project inbox) error: %v", err)
 	}
-	if _, err := s.CreateItem("Ship review queue", ItemOptions{
+	planChild, err := s.CreateItem("Plan Q2 next", ItemOptions{State: ItemStateNext})
+	if err != nil {
+		t.Fatalf("CreateItem(plan child) error: %v", err)
+	}
+	if err := s.LinkItemChild(plan.ID, planChild.ID, ItemLinkRoleNextAction); err != nil {
+		t.Fatalf("LinkItemChild(plan) error: %v", err)
+	}
+	ship, err := s.CreateItem("Ship review queue", ItemOptions{
 		Kind:  ItemKindProject,
 		State: ItemStateNext,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("CreateItem(project next) error: %v", err)
+	}
+	shipChild, err := s.CreateItem("Ship review next", ItemOptions{State: ItemStateNext})
+	if err != nil {
+		t.Fatalf("CreateItem(ship child) error: %v", err)
+	}
+	if err := s.LinkItemChild(ship.ID, shipChild.ID, ItemLinkRoleNextAction); err != nil {
+		t.Fatalf("LinkItemChild(ship) error: %v", err)
 	}
 	if _, err := s.CreateItem("Closed outcome", ItemOptions{
 		Kind:  ItemKindProject,
@@ -60,7 +76,7 @@ func TestCountSidebarSectionsFilteredCountsOpenProjectItemsAndRecentMeetings(t *
 		t.Fatalf("CountSidebarSectionsFiltered() error: %v", err)
 	}
 	if got.ProjectItemsOpen != 2 {
-		t.Fatalf("ProjectItemsOpen = %d, want 2 (open project items only, done excluded)", got.ProjectItemsOpen)
+		t.Fatalf("ProjectItemsOpen = %d, want 2 active project items", got.ProjectItemsOpen)
 	}
 	if got.RecentMeetings != 2 {
 		t.Fatalf("RecentMeetings = %d, want 2 (transcript + meeting_summary metadata)", got.RecentMeetings)
@@ -74,19 +90,35 @@ func TestCountSidebarSectionsFilteredHonorsSphereScope(t *testing.T) {
 
 	workSphere := SphereWork
 	privateSphere := SpherePrivate
-	if _, err := s.CreateItem("Work outcome", ItemOptions{
+	workProject, err := s.CreateItem("Work outcome", ItemOptions{
 		Kind:   ItemKindProject,
 		State:  ItemStateNext,
 		Sphere: &workSphere,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("CreateItem(work) error: %v", err)
 	}
-	if _, err := s.CreateItem("Private outcome", ItemOptions{
+	workChild, err := s.CreateItem("Work next", ItemOptions{State: ItemStateNext, Sphere: &workSphere})
+	if err != nil {
+		t.Fatalf("CreateItem(work child) error: %v", err)
+	}
+	if err := s.LinkItemChild(workProject.ID, workChild.ID, ItemLinkRoleNextAction); err != nil {
+		t.Fatalf("LinkItemChild(work) error: %v", err)
+	}
+	privateProject, err := s.CreateItem("Private outcome", ItemOptions{
 		Kind:   ItemKindProject,
 		State:  ItemStateInbox,
 		Sphere: &privateSphere,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("CreateItem(private) error: %v", err)
+	}
+	privateChild, err := s.CreateItem("Private next", ItemOptions{State: ItemStateNext, Sphere: &privateSphere})
+	if err != nil {
+		t.Fatalf("CreateItem(private child) error: %v", err)
+	}
+	if err := s.LinkItemChild(privateProject.ID, privateChild.ID, ItemLinkRoleNextAction); err != nil {
+		t.Fatalf("LinkItemChild(private) error: %v", err)
 	}
 
 	work, err := s.CountSidebarSectionsFiltered(now, ItemListFilter{Sphere: SphereWork})

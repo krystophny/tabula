@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sort"
 	"strings"
+	"time"
 )
 
 const itemChildrenTableSchema = `CREATE TABLE IF NOT EXISTS item_children (
@@ -186,28 +187,35 @@ func (s *Store) ListProjectItemReviewsFiltered(filter ItemListFilter) ([]Project
 	if len(items) == 0 {
 		return []ProjectItemReview{}, nil
 	}
-	countsByParent, err := s.collectProjectChildCounts(items)
+	statsByParent, err := s.collectProjectChildStats(items)
 	if err != nil {
 		return nil, err
 	}
 	reviews := make([]ProjectItemReview, 0, len(items))
 	for _, item := range items {
-		counts := countsByParent[item.ID]
+		stats := statsByParent[item.ID]
 		reviews = append(reviews, ProjectItemReview{
-			Item:     item,
-			Children: counts,
-			Health:   projectHealthFromCounts(counts),
+			Item:       item,
+			Children:   stats.Counts,
+			Health:     projectHealthFromCounts(stats.Counts),
+			NextAction: stats.NextAction,
+			Deadline:   stats.Deadline,
 		})
 	}
 	sortProjectItemReviewsForWeeklyReview(reviews)
 	return reviews, nil
 }
 
-// collectProjectChildCounts loads child-state tallies for every project item
-// in one round-trip, so the review surface stays O(1) queries regardless of
-// how many outcomes are open.
-func (s *Store) collectProjectChildCounts(parents []ItemSummary) (map[int64]ProjectChildCounts, error) {
-	out := make(map[int64]ProjectChildCounts, len(parents))
+type projectChildStats struct {
+	Counts     ProjectChildCounts
+	NextAction *ProjectNextAction
+	Deadline   ProjectDeadlinePressure
+}
+
+// collectProjectChildStats loads child-state tallies, the first active next
+// action, and hard-deadline pressure for every project item in one round-trip.
+func (s *Store) collectProjectChildStats(parents []ItemSummary) (map[int64]projectChildStats, error) {
+	out := make(map[int64]projectChildStats, len(parents))
 	if len(parents) == 0 {
 		return out, nil
 	}
@@ -216,14 +224,25 @@ func (s *Store) collectProjectChildCounts(parents []ItemSummary) (map[int64]Proj
 	for _, parent := range parents {
 		placeholders = append(placeholders, "?")
 		args = append(args, parent.ID)
-		out[parent.ID] = ProjectChildCounts{}
+		out[parent.ID] = projectChildStats{}
 	}
+	now := time.Now().UTC()
 	rows, err := s.db.Query(
-		`SELECT links.parent_item_id, child.state, COUNT(*) AS state_count
+		`SELECT links.parent_item_id,
+		        child.id,
+		        child.title,
+		        child.state,
+		        child.visible_after,
+		        child.follow_up_at,
+		        child.due_at
 		 FROM item_children links
 		 JOIN items child ON child.id = links.child_item_id
 		 WHERE links.parent_item_id IN (`+stringsJoin(placeholders, ",")+`)
-		 GROUP BY links.parent_item_id, child.state`,
+		 ORDER BY links.parent_item_id ASC,
+		          CASE WHEN child.due_at IS NULL OR trim(child.due_at) = '' THEN 1 ELSE 0 END ASC,
+		          datetime(child.due_at) ASC,
+		          datetime(links.created_at) ASC,
+		          child.id ASC`,
 		args...,
 	)
 	if err != nil {
@@ -232,42 +251,129 @@ func (s *Store) collectProjectChildCounts(parents []ItemSummary) (map[int64]Proj
 	defer rows.Close()
 	for rows.Next() {
 		var (
-			parentID int64
-			state    string
-			count    int
+			parentID, childID               int64
+			title, state                    string
+			visibleAfter, followUpAt, dueAt sql.NullString
 		)
-		if err := rows.Scan(&parentID, &state, &count); err != nil {
+		if err := rows.Scan(&parentID, &childID, &title, &state, &visibleAfter, &followUpAt, &dueAt); err != nil {
 			return nil, err
 		}
-		entry := out[parentID]
-		entry = applyChildStateCount(entry, state, count)
-		out[parentID] = entry
+		stats := out[parentID]
+		started := !itemStartsInFuture(now, visibleAfter, followUpAt, dueAt)
+		stats.Counts = applyChildItemCount(stats.Counts, state, started)
+		if normalizeItemState(state) != ItemStateDone {
+			stats.Deadline = applyProjectDeadlinePressure(stats.Deadline, dueAt, now)
+		}
+		if normalizeItemState(state) == ItemStateNext && started && stats.NextAction == nil {
+			stats.NextAction = &ProjectNextAction{
+				ID:    childID,
+				Title: strings.TrimSpace(title),
+				DueAt: nullStringPointer(dueAt),
+			}
+		}
+		out[parentID] = stats
 	}
 	return out, rows.Err()
 }
 
-func applyChildStateCount(counts ProjectChildCounts, state string, count int) ProjectChildCounts {
-	if count <= 0 {
-		return counts
-	}
+func applyChildItemCount(counts ProjectChildCounts, state string, started bool) ProjectChildCounts {
 	switch normalizeItemState(state) {
 	case ItemStateInbox:
-		counts.Inbox += count
+		if started {
+			counts.Inbox++
+		} else {
+			counts.NotStarted++
+		}
 	case ItemStateNext:
-		counts.Next += count
+		if started {
+			counts.Next++
+		} else {
+			counts.NotStarted++
+		}
 	case ItemStateWaiting:
-		counts.Waiting += count
+		counts.Waiting++
 	case ItemStateDeferred:
-		counts.Deferred += count
+		counts.Deferred++
 	case ItemStateSomeday:
-		counts.Someday += count
+		counts.Someday++
 	case ItemStateReview:
-		counts.Review += count
+		counts.Review++
 	case ItemStateDone:
-		counts.Done += count
+		counts.Done++
 	}
-	counts.Total += count
+	counts.Total++
 	return counts
+}
+
+func itemStartsInFuture(now time.Time, visibleAfter, followUpAt, dueAt sql.NullString) bool {
+	if timestampIsBeforeOrEqual(dueAt, now) {
+		return false
+	}
+	return timestampIsAfter(visibleAfter, now) || timestampIsAfter(followUpAt, now)
+}
+
+func timestampIsAfter(raw sql.NullString, now time.Time) bool {
+	ts, ok := parseOptionalItemTime(raw)
+	return ok && ts.After(now)
+}
+
+func timestampIsBeforeOrEqual(raw sql.NullString, now time.Time) bool {
+	ts, ok := parseOptionalItemTime(raw)
+	return ok && !ts.After(now)
+}
+
+func parseOptionalItemTime(raw sql.NullString) (time.Time, bool) {
+	if !raw.Valid {
+		return time.Time{}, false
+	}
+	value := strings.TrimSpace(raw.String)
+	if value == "" {
+		return time.Time{}, false
+	}
+	if ts, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return ts.UTC(), true
+	}
+	if ts, err := time.Parse(time.RFC3339, value); err == nil {
+		return ts.UTC(), true
+	}
+	return time.Time{}, false
+}
+
+func applyProjectDeadlinePressure(pressure ProjectDeadlinePressure, raw sql.NullString, now time.Time) ProjectDeadlinePressure {
+	dueAt, ok := parseOptionalItemTime(raw)
+	if !ok {
+		return pressure
+	}
+	dueText := strings.TrimSpace(raw.String)
+	if pressure.NextDueAt == nil || dueAt.Before(mustParseProjectDue(*pressure.NextDueAt)) {
+		pressure.NextDueAt = &dueText
+	}
+	if dueAt.Before(now) {
+		pressure.Overdue++
+		return pressure
+	}
+	if sameUTCDate(dueAt, now) {
+		pressure.DueToday++
+		return pressure
+	}
+	if !dueAt.After(now.AddDate(0, 0, 7)) {
+		pressure.DueThisWeek++
+	}
+	return pressure
+}
+
+func mustParseProjectDue(raw string) time.Time {
+	ts, ok := parseOptionalItemTime(sql.NullString{String: raw, Valid: true})
+	if !ok {
+		return time.Time{}
+	}
+	return ts
+}
+
+func sameUTCDate(left, right time.Time) bool {
+	ly, lm, ld := left.UTC().Date()
+	ry, rm, rd := right.UTC().Date()
+	return ly == ry && lm == rm && ld == rd
 }
 
 func projectHealthFromCounts(counts ProjectChildCounts) ProjectItemHealth {
@@ -283,6 +389,9 @@ func projectHealthFromCounts(counts ProjectChildCounts) ProjectItemHealth {
 
 func sortProjectItemReviewsForWeeklyReview(reviews []ProjectItemReview) {
 	sort.SliceStable(reviews, func(i, j int) bool {
+		if deadlineRank(reviews[i].Deadline) != deadlineRank(reviews[j].Deadline) {
+			return deadlineRank(reviews[i].Deadline) < deadlineRank(reviews[j].Deadline)
+		}
 		if reviews[i].Health.Stalled != reviews[j].Health.Stalled {
 			return reviews[i].Health.Stalled
 		}
@@ -291,6 +400,19 @@ func sortProjectItemReviewsForWeeklyReview(reviews []ProjectItemReview) {
 		}
 		return reviews[i].Item.ID < reviews[j].Item.ID
 	})
+}
+
+func deadlineRank(deadline ProjectDeadlinePressure) int {
+	switch {
+	case deadline.Overdue > 0:
+		return 0
+	case deadline.DueToday > 0:
+		return 1
+	case deadline.DueThisWeek > 0:
+		return 2
+	default:
+		return 3
+	}
 }
 
 func (s *Store) ListPersonOpenLoopDashboardsFiltered(filter ItemListFilter) ([]PersonOpenLoopDashboard, error) {
@@ -581,15 +703,17 @@ func (s *Store) GetProjectItemReview(itemID int64) (ProjectItemReview, error) {
 		return ProjectItemReview{}, errors.New("item is not a project")
 	}
 	summary := ItemSummary{Item: item}
-	counts, err := s.collectProjectChildCounts([]ItemSummary{summary})
+	statsByParent, err := s.collectProjectChildStats([]ItemSummary{summary})
 	if err != nil {
 		return ProjectItemReview{}, err
 	}
-	childCounts := counts[itemID]
+	stats := statsByParent[itemID]
 	return ProjectItemReview{
-		Item:     summary,
-		Children: childCounts,
-		Health:   projectHealthFromCounts(childCounts),
+		Item:       summary,
+		Children:   stats.Counts,
+		Health:     projectHealthFromCounts(stats.Counts),
+		NextAction: stats.NextAction,
+		Deadline:   stats.Deadline,
 	}, nil
 }
 

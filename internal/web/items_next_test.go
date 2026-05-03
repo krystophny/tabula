@@ -118,6 +118,12 @@ func TestItemNextAPIScopesToProjectItemChildren(t *testing.T) {
 	if int64(row["id"].(float64)) != childA.ID {
 		t.Fatalf("scoped item id = %v, want %d", row["id"], childA.ID)
 	}
+	if int64(row["project_item_id"].(float64)) != project.ID {
+		t.Fatalf("project_item_id = %v, want %d", row["project_item_id"], project.ID)
+	}
+	if row["project_item_title"] != project.Title {
+		t.Fatalf("project_item_title = %v, want %q", row["project_item_title"], project.Title)
+	}
 
 	rrBad := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/next?project_item_id=bad", nil)
 	if rrBad.Code != http.StatusBadRequest {
@@ -242,6 +248,47 @@ func TestItemNextAPIDoesNotIncludeDeferredFutureItems(t *testing.T) {
 	}
 }
 
+func TestItemNextAPIHidesFutureStartNextItems(t *testing.T) {
+	app := newAuthedTestApp(t)
+
+	future := time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339)
+	if _, err := app.store.CreateItem("Future-start next", store.ItemOptions{
+		State:        store.ItemStateNext,
+		VisibleAfter: &future,
+		FollowUpAt:   &future,
+	}); err != nil {
+		t.Fatalf("CreateItem(future-start next) error: %v", err)
+	}
+	action, err := app.store.CreateItem("Visible next", store.ItemOptions{
+		State: store.ItemStateNext,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(visible next) error: %v", err)
+	}
+
+	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/next", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	items, _ := decodeJSONResponse(t, rr)["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1 visible next item", len(items))
+	}
+	row := items[0].(map[string]any)
+	if int64(row["id"].(float64)) != action.ID {
+		t.Fatalf("returned id = %v, want %d", row["id"], action.ID)
+	}
+
+	countsReq := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/counts", nil)
+	if countsReq.Code != http.StatusOK {
+		t.Fatalf("counts status = %d, want 200: %s", countsReq.Code, countsReq.Body.String())
+	}
+	counts, _ := decodeJSONResponse(t, countsReq)["counts"].(map[string]any)
+	if got := int(counts[store.ItemStateNext].(float64)); got != 1 {
+		t.Fatalf("counts[next] = %d, want 1 visible next item", got)
+	}
+}
+
 func TestItemNextAPISurfacesOverdueWithoutChangingState(t *testing.T) {
 	app := newAuthedTestApp(t)
 
@@ -343,8 +390,7 @@ func TestItemNextAPIFiltersByDueAndFollowUpWindows(t *testing.T) {
 
 	dueSoon := time.Now().UTC().Add(2 * time.Hour).Format(time.RFC3339)
 	dueLater := time.Now().UTC().Add(72 * time.Hour).Format(time.RFC3339)
-	followSoon := time.Now().UTC().Add(2 * time.Hour).Format(time.RFC3339)
-	followLater := time.Now().UTC().Add(72 * time.Hour).Format(time.RFC3339)
+	followSoon := time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339)
 
 	soon, err := app.store.CreateItem("Due soon", store.ItemOptions{
 		State:      store.ItemStateNext,
@@ -355,9 +401,8 @@ func TestItemNextAPIFiltersByDueAndFollowUpWindows(t *testing.T) {
 		t.Fatalf("CreateItem(due soon) error: %v", err)
 	}
 	if _, err := app.store.CreateItem("Due later", store.ItemOptions{
-		State:      store.ItemStateNext,
-		DueAt:      &dueLater,
-		FollowUpAt: &followLater,
+		State: store.ItemStateNext,
+		DueAt: &dueLater,
 	}); err != nil {
 		t.Fatalf("CreateItem(due later) error: %v", err)
 	}

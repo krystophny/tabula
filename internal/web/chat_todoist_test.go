@@ -174,6 +174,72 @@ func TestClassifyAndExecuteSystemActionSyncTodoist(t *testing.T) {
 	}
 }
 
+func TestClassifyAndExecuteSystemActionSyncTodoistLinksSubtasksUnderProjectItems(t *testing.T) {
+	app := newAuthedTestApp(t)
+	app.intentLLMURL = ""
+
+	parentID := "task-parent"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/projects":
+			writeTodoistJSON(t, w, []map[string]any{{"id": "proj-1", "name": "Admin"}})
+		case r.Method == http.MethodGet && r.URL.Path == "/tasks":
+			writeTodoistJSON(t, w, []map[string]any{
+				{
+					"id":         parentID,
+					"content":    "Publish revised manual",
+					"project_id": "proj-1",
+				},
+				{
+					"id":         "task-child",
+					"content":    "Check author list",
+					"project_id": "proj-1",
+					"parent_id":  parentID,
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	createTodoistTestAccount(t, app, "Personal Todoist", server.URL)
+	workspace, err := app.ensureDefaultWorkspace()
+	if err != nil {
+		t.Fatalf("ensure default workspace: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSession(workspace.WorkspacePath)
+	if err != nil {
+		t.Fatalf("chat session: %v", err)
+	}
+
+	if _, _, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "sync todoist"); !handled {
+		t.Fatal("expected sync command to be handled")
+	}
+
+	parent, err := app.store.GetItemBySource(store.ExternalProviderTodoist, "task:task-parent")
+	if err != nil {
+		t.Fatalf("GetItemBySource(parent) error: %v", err)
+	}
+	child, err := app.store.GetItemBySource(store.ExternalProviderTodoist, "task:task-child")
+	if err != nil {
+		t.Fatalf("GetItemBySource(child) error: %v", err)
+	}
+	if parent.Kind != store.ItemKindProject {
+		t.Fatalf("parent kind = %q, want %q", parent.Kind, store.ItemKindProject)
+	}
+	if child.Kind != store.ItemKindAction {
+		t.Fatalf("child kind = %q, want %q", child.Kind, store.ItemKindAction)
+	}
+	links, err := app.store.ListItemChildLinks(parent.ID)
+	if err != nil {
+		t.Fatalf("ListItemChildLinks() error: %v", err)
+	}
+	if len(links) != 1 || links[0].ChildItemID != child.ID || links[0].Role != "next_action" {
+		t.Fatalf("links = %#v, want child %d as next_action", links, child.ID)
+	}
+}
+
 func TestClassifyAndExecuteSystemActionSyncTodoistMapsStartAndDeadline(t *testing.T) {
 	app := newAuthedTestApp(t)
 	app.intentLLMURL = ""
