@@ -78,6 +78,48 @@ func TestServeIndexUsesForwardedPrefixBaseHref(t *testing.T) {
 	}
 }
 
+func TestStaticAssetsVersionRelativeImports(t *testing.T) {
+	app := newAuthedTestApp(t)
+	app.bootID = "cache test"
+
+	tests := []struct {
+		path     string
+		contains string
+		missing  string
+	}{
+		{
+			path:     "/static/app.js?v=old",
+			contains: `from "./app-context.js?v=cache+test"`,
+			missing:  `from "./app-context.js";`,
+		},
+		{
+			path:     "/static/style.css?v=old",
+			contains: `@import url("./base.css?v=cache+test");`,
+			missing:  `@import url("./base.css");`,
+		},
+	}
+
+	for _, tc := range tests {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		rr := httptest.NewRecorder()
+		app.Router().ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("GET %s status = %d, want 200", tc.path, rr.Code)
+		}
+		if got := rr.Header().Get("Cache-Control"); got != "no-store" {
+			t.Fatalf("GET %s Cache-Control = %q, want no-store", tc.path, got)
+		}
+		body := rr.Body.String()
+		if !strings.Contains(body, tc.contains) {
+			t.Fatalf("GET %s body missing %q", tc.path, tc.contains)
+		}
+		if strings.Contains(body, tc.missing) {
+			t.Fatalf("GET %s body still contains unversioned import %q", tc.path, tc.missing)
+		}
+	}
+}
+
 func TestServeCanvasRedirectIsRelative(t *testing.T) {
 	app := newAuthedTestApp(t)
 

@@ -253,12 +253,7 @@ func (a *App) Router() http.Handler {
 	r.Get("/static/vendor/openwakeword/keyword.onnx.data", a.serveHotwordRuntimeAsset)
 	r.Head("/static/vendor/openwakeword/keyword.onnx", a.serveHotwordRuntimeAsset)
 	r.Head("/static/vendor/openwakeword/keyword.onnx.data", a.serveHotwordRuntimeAsset)
-	staticHandler := withNoStore(http.StripPrefix("/static/", http.FileServer(http.FS(staticSubFS()))))
-	if a.devRuntime {
-		diskDir := filepath.Join(a.localProjectDir, "internal", "web", "static")
-		staticHandler = withNoStore(http.StripPrefix("/static/", http.FileServer(http.Dir(diskDir))))
-	}
-	r.Handle("/static/*", staticHandler)
+	r.Handle("/static/*", a.staticAssetHandler())
 	return securityHeaders(r)
 }
 
@@ -292,16 +287,6 @@ func (a *App) serveHotwordRuntimeAsset(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", contentType)
 	http.ServeContent(w, r, name, info.ModTime(), file)
-}
-
-func withNoStore(next http.Handler) http.Handler {
-	if next == nil {
-		return http.NotFoundHandler()
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		next.ServeHTTP(w, r)
-	})
 }
 
 func staticSubFS() fs.FS {
