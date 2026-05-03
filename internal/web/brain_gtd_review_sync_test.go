@@ -23,6 +23,7 @@ func TestSyncBrainGTDReviewListsImportsCanonicalMarkdownAndGoogleTasks(t *testin
 				SourceRef: "todo.old/task-1",
 				Title:     "Submit ChatGPT invoices",
 				Queue:     "next",
+				Track:     "private-admin",
 				Due:       "2026-05-06",
 			}}}, nil
 		}
@@ -31,6 +32,7 @@ func TestSyncBrainGTDReviewListsImportsCanonicalMarkdownAndGoogleTasks(t *testin
 			Source:   store.ExternalProviderMarkdown,
 			Title:    "Reply to grant mail",
 			Queue:    "next",
+			Track:    "admin",
 			Path:     "brain/commitments/work.md",
 			FollowUp: "2026-05-04",
 			Due:      "2026-05-10",
@@ -51,12 +53,18 @@ func TestSyncBrainGTDReviewListsImportsCanonicalMarkdownAndGoogleTasks(t *testin
 	if markdown.Sphere != store.SphereWork || markdown.FollowUpAt == nil || markdown.DueAt == nil {
 		t.Fatalf("markdown item timing/sphere = %#v", markdown)
 	}
+	if markdown.Track != "admin" {
+		t.Fatalf("markdown track = %q, want admin", markdown.Track)
+	}
 	task, err := app.store.GetItemBySource(store.ExternalProviderGoogleTasks, "todo.old/task-1")
 	if err != nil {
 		t.Fatalf("GetItemBySource(google_tasks): %v", err)
 	}
 	if task.Sphere != store.SpherePrivate || task.DueAt == nil || *task.DueAt != "2026-05-06T23:59:59Z" {
 		t.Fatalf("google task = %#v, want private hard due end of day", task)
+	}
+	if task.Track != "private-admin" {
+		t.Fatalf("google task track = %q, want private-admin", task.Track)
 	}
 }
 

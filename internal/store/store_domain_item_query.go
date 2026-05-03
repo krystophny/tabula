@@ -27,7 +27,7 @@ func (s *Store) ListItemsByStateFiltered(state string, filter ItemListFilter) ([
 	parts := []string{"state = ?"}
 	args := []any{cleanState}
 	parts, args = appendItemFilterClauses(parts, args, normalizedFilter, "")
-	query := `SELECT id, title, kind, state, workspace_id, ` + scopedContextSelect("context_items", "item_id", "items.id") + ` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, due_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
+	query := `SELECT id, title, kind, state, track, workspace_id, ` + scopedContextSelect("context_items", "item_id", "items.id") + ` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, due_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 		 FROM items
 		 WHERE ` + stringsJoin(parts, " AND ")
 	rows, err := s.db.Query(
@@ -63,6 +63,7 @@ var itemSummarySelect = `SELECT
 	i.title,
 	i.kind,
 	i.state,
+	i.track,
 	i.workspace_id,
 	` + scopedContextSelect("context_items", "item_id", "i.id") + `,
  i.artifact_id,
@@ -534,7 +535,7 @@ func (s *Store) ListItemsFiltered(filter ItemListFilter) ([]Item, error) {
 	if err != nil {
 		return nil, err
 	}
-	query := `SELECT id, title, kind, state, workspace_id, ` + scopedContextSelect("context_items", "item_id", "items.id") + ` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, due_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
+	query := `SELECT id, title, kind, state, track, workspace_id, ` + scopedContextSelect("context_items", "item_id", "items.id") + ` AS sphere, artifact_id, actor_id, visible_after, follow_up_at, due_at, source, source_ref, review_target, reviewer, reviewed_at, created_at, updated_at
 		 FROM items`
 	args := []any{}
 	parts := []string{}

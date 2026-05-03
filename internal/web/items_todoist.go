@@ -369,6 +369,11 @@ func (a *App) createTodoistBackedItem(req itemCreateRequest) (store.Item, error)
 		updates.ActorID = req.ActorID
 		hasUpdates = true
 	}
+	if strings.TrimSpace(req.Track) != "" {
+		track := strings.TrimSpace(req.Track)
+		updates.Track = &track
+		hasUpdates = true
+	}
 	if req.VisibleAfter != nil {
 		updates.VisibleAfter = req.VisibleAfter
 		hasUpdates = true

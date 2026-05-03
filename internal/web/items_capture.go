@@ -23,6 +23,7 @@ import (
 type itemCaptureRequest struct {
 	Title           string  `json:"title"`
 	Kind            string  `json:"kind"`
+	Track           string  `json:"track"`
 	Sphere          *string `json:"sphere"`
 	WorkspaceID     *int64  `json:"workspace_id"`
 	ArtifactID      *int64  `json:"artifact_id"`
@@ -36,8 +37,8 @@ type itemCaptureRequest struct {
 }
 
 type itemCaptureProjectLink struct {
-	ProjectItemID int64                `json:"project_item_id"`
-	Role          string               `json:"role"`
+	ProjectItemID int64                 `json:"project_item_id"`
+	Role          string                `json:"role"`
 	Links         []store.ItemChildLink `json:"links"`
 }
 
@@ -169,6 +170,7 @@ func (a *App) createCapturedItem(req itemCaptureRequest, plan captureValidationP
 		return a.createTodoistBackedItem(itemCreateRequest{
 			Title:        strings.TrimSpace(req.Title),
 			State:        store.ItemStateInbox,
+			Track:        req.Track,
 			WorkspaceID:  req.WorkspaceID,
 			Sphere:       req.Sphere,
 			ArtifactID:   req.ArtifactID,
@@ -183,6 +185,7 @@ func (a *App) createCapturedItem(req itemCaptureRequest, plan captureValidationP
 	return a.store.CreateItem(strings.TrimSpace(req.Title), store.ItemOptions{
 		Kind:        plan.kind,
 		State:       store.ItemStateInbox,
+		Track:       req.Track,
 		WorkspaceID: req.WorkspaceID,
 		Sphere:      req.Sphere,
 		ArtifactID:  req.ArtifactID,

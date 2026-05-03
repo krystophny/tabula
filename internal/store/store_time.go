@@ -12,6 +12,7 @@ import (
 const timeEntriesTableSchema = `CREATE TABLE IF NOT EXISTS time_entries (
   id INTEGER PRIMARY KEY,
   workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
+  track TEXT NOT NULL DEFAULT '',
   started_at TEXT NOT NULL,
   ended_at TEXT,
   activity TEXT NOT NULL DEFAULT '',
@@ -31,6 +32,7 @@ func scanTimeEntry(scanner interface {
 		&out.ID,
 		&workspace,
 		&out.Sphere,
+		&out.Track,
 		&out.StartedAt,
 		&endedAt,
 		&out.Activity,
@@ -42,6 +44,7 @@ func scanTimeEntry(scanner interface {
 	out.EndedAt = nullStringPointer(endedAt)
 	out.Notes = nullStringPointer(notes)
 	out.Sphere = normalizeSphere(out.Sphere)
+	out.Track = strings.TrimSpace(out.Track)
 	out.Activity = strings.TrimSpace(out.Activity)
 	return out, nil
 }
@@ -54,7 +57,7 @@ func formatTimeEntryTimestamp(ts time.Time) string {
 }
 
 func normalizeTimeEntryFilter(filter TimeEntryListFilter) (TimeEntryListFilter, error) {
-	normalized := TimeEntryListFilter{ActiveOnly: filter.ActiveOnly}
+	normalized := TimeEntryListFilter{ActiveOnly: filter.ActiveOnly, Track: strings.TrimSpace(filter.Track)}
 	sphere, err := normalizeOptionalSphereFilter(filter.Sphere)
 	if err != nil {
 		return TimeEntryListFilter{}, err
@@ -75,10 +78,17 @@ func normalizeTimeEntryFilter(filter TimeEntryListFilter) (TimeEntryListFilter, 
 }
 
 func timeEntryContextMatches(entry *TimeEntry, workspaceID *int64, sphere string) bool {
+	return timeEntryContextMatchesTrack(entry, workspaceID, sphere, "")
+}
+
+func timeEntryContextMatchesTrack(entry *TimeEntry, workspaceID *int64, sphere, track string) bool {
 	if entry == nil {
 		return false
 	}
 	if normalizeSphere(entry.Sphere) != normalizeSphere(sphere) {
+		return false
+	}
+	if strings.TrimSpace(entry.Track) != strings.TrimSpace(track) {
 		return false
 	}
 	switch {
@@ -119,7 +129,7 @@ func (s *Store) ActiveWorkspace() (Workspace, error) {
 
 func (s *Store) ActiveTimeEntry() (*TimeEntry, error) {
 	entry, err := scanTimeEntry(s.db.QueryRow(
-		`SELECT id, workspace_id, ` + scopedContextSelect("context_time_entries", "time_entry_id", "time_entries.id") + ` AS sphere, started_at, ended_at, activity, notes
+		`SELECT id, workspace_id, ` + scopedContextSelect("context_time_entries", "time_entry_id", "time_entries.id") + ` AS sphere, track, started_at, ended_at, activity, notes
 		 FROM time_entries
 		 WHERE ended_at IS NULL
 		 ORDER BY started_at DESC, id DESC
@@ -135,19 +145,25 @@ func (s *Store) ActiveTimeEntry() (*TimeEntry, error) {
 }
 
 func (s *Store) StartTimeEntry(at time.Time, workspaceID *int64, sphere, activity string, notes *string) (TimeEntry, error) {
+	return s.StartTimeEntryWithTrack(at, workspaceID, sphere, "", activity, notes)
+}
+
+func (s *Store) StartTimeEntryWithTrack(at time.Time, workspaceID *int64, sphere, track, activity string, notes *string) (TimeEntry, error) {
 	if err := s.validateTimeEntryContext(workspaceID, sphere); err != nil {
 		return TimeEntry{}, err
 	}
 	startedAt := formatTimeEntryTimestamp(at)
 	cleanSphere := normalizeRequiredSphere(sphere)
+	cleanTrack := strings.TrimSpace(track)
 	cleanActivity := strings.TrimSpace(activity)
 	if cleanActivity == "" {
 		cleanActivity = "context_switch"
 	}
 	res, err := s.db.Exec(
-		`INSERT INTO time_entries (workspace_id, started_at, activity, notes)
-		 VALUES (?, ?, ?, ?)`,
+		`INSERT INTO time_entries (workspace_id, track, started_at, activity, notes)
+		 VALUES (?, ?, ?, ?, ?)`,
 		nullablePositiveID(derefInt64(workspaceID)),
+		cleanTrack,
 		startedAt,
 		cleanActivity,
 		normalizeOptionalString(notes),
@@ -166,6 +182,10 @@ func (s *Store) StartTimeEntry(at time.Time, workspaceID *int64, sphere, activit
 }
 
 func (s *Store) SwitchActiveTimeEntry(at time.Time, workspaceID *int64, sphere, activity string, notes *string) (TimeEntry, bool, error) {
+	return s.SwitchActiveTimeEntryWithTrack(at, workspaceID, sphere, "", activity, notes)
+}
+
+func (s *Store) SwitchActiveTimeEntryWithTrack(at time.Time, workspaceID *int64, sphere, track, activity string, notes *string) (TimeEntry, bool, error) {
 	if err := s.validateTimeEntryContext(workspaceID, sphere); err != nil {
 		return TimeEntry{}, false, err
 	}
@@ -173,13 +193,13 @@ func (s *Store) SwitchActiveTimeEntry(at time.Time, workspaceID *int64, sphere, 
 	if err != nil {
 		return TimeEntry{}, false, err
 	}
-	if timeEntryContextMatches(active, workspaceID, sphere) {
+	if timeEntryContextMatchesTrack(active, workspaceID, sphere, track) {
 		return *active, false, nil
 	}
 	if _, err := s.StopActiveTimeEntries(at); err != nil {
 		return TimeEntry{}, false, err
 	}
-	entry, err := s.StartTimeEntry(at, workspaceID, sphere, activity, notes)
+	entry, err := s.StartTimeEntryWithTrack(at, workspaceID, sphere, track, activity, notes)
 	if err != nil {
 		return TimeEntry{}, false, err
 	}
@@ -201,7 +221,7 @@ func (s *Store) StopActiveTimeEntries(at time.Time) (int64, error) {
 
 func (s *Store) GetTimeEntry(id int64) (TimeEntry, error) {
 	return scanTimeEntry(s.db.QueryRow(
-		`SELECT id, workspace_id, `+scopedContextSelect("context_time_entries", "time_entry_id", "time_entries.id")+` AS sphere, started_at, ended_at, activity, notes
+		`SELECT id, workspace_id, `+scopedContextSelect("context_time_entries", "time_entry_id", "time_entries.id")+` AS sphere, track, started_at, ended_at, activity, notes
 		 FROM time_entries
 		 WHERE id = ?`,
 		id,
@@ -213,7 +233,7 @@ func (s *Store) ListTimeEntries(filter TimeEntryListFilter) ([]TimeEntry, error)
 	if err != nil {
 		return nil, err
 	}
-	query := `SELECT id, workspace_id, ` + scopedContextSelect("context_time_entries", "time_entry_id", "time_entries.id") + ` AS sphere, started_at, ended_at, activity, notes
+	query := `SELECT id, workspace_id, ` + scopedContextSelect("context_time_entries", "time_entry_id", "time_entries.id") + ` AS sphere, track, started_at, ended_at, activity, notes
 		FROM time_entries`
 	parts := make([]string, 0, 4)
 	args := make([]any, 0, 4)
@@ -223,6 +243,10 @@ func (s *Store) ListTimeEntries(filter TimeEntryListFilter) ([]TimeEntry, error)
 	}
 	if normalized.ActiveOnly {
 		parts = append(parts, "ended_at IS NULL")
+	}
+	if normalized.Track != "" {
+		parts = append(parts, "lower(trim(track)) = lower(trim(?))")
+		args = append(args, normalized.Track)
 	}
 	if normalized.From != nil {
 		parts = append(parts, "(ended_at IS NULL OR ended_at >= ?)")
@@ -265,9 +289,9 @@ func (s *Store) SummarizeTimeEntries(filter TimeEntryListFilter, groupBy string,
 		cleanGroupBy = "workspace"
 	}
 	switch cleanGroupBy {
-	case "workspace", "sphere":
+	case "workspace", "sphere", "track":
 	default:
-		return nil, errors.New("group_by must be workspace, project or sphere")
+		return nil, errors.New("group_by must be workspace, project, sphere or track")
 	}
 	entries, err := s.ListTimeEntries(normalized)
 	if err != nil {
@@ -353,6 +377,20 @@ func summarizeTimeEntry(entry TimeEntry, groupBy string) (string, TimeEntrySumma
 			Label:       fmt.Sprintf("Workspace %d", *entry.WorkspaceID),
 			WorkspaceID: entry.WorkspaceID,
 			Sphere:      entry.Sphere,
+		}
+	case "track":
+		if strings.TrimSpace(entry.Track) == "" {
+			return "track:none", TimeEntrySummary{
+				Key:    "track:none",
+				Label:  "No track",
+				Sphere: entry.Sphere,
+			}
+		}
+		return "track:" + entry.Track, TimeEntrySummary{
+			Key:    "track:" + entry.Track,
+			Label:  entry.Track,
+			Sphere: entry.Sphere,
+			Track:  entry.Track,
 		}
 	default:
 		return "sphere:" + entry.Sphere, TimeEntrySummary{

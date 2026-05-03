@@ -15,6 +15,7 @@ const itemsTableSchema = `CREATE TABLE IF NOT EXISTS items (
   title TEXT NOT NULL,
   kind TEXT NOT NULL DEFAULT 'action' CHECK (kind IN ('action', 'project')),
   state TEXT NOT NULL DEFAULT 'inbox' CHECK (state IN ('inbox', 'next', 'waiting', 'deferred', 'someday', 'review', 'done')),
+  track TEXT NOT NULL DEFAULT '',
   workspace_id INTEGER REFERENCES workspaces(id) ON DELETE SET NULL,
   artifact_id INTEGER REFERENCES artifacts(id) ON DELETE SET NULL,
   actor_id INTEGER REFERENCES actors(id) ON DELETE SET NULL,
@@ -292,6 +293,9 @@ CREATE TABLE IF NOT EXISTS context_time_entries (
 	if err := s.migrateItemDueAtSupport(); err != nil {
 		return err
 	}
+	if err := s.migrateTrackSupport(); err != nil {
+		return err
+	}
 	if err := s.migrateMailTriageReviewActionSupport(); err != nil {
 		return err
 	}
@@ -401,6 +405,24 @@ func (s *Store) migrateItemDueAtSupport() error {
 	}
 	_, err = s.db.Exec(`ALTER TABLE items ADD COLUMN due_at TEXT`)
 	return err
+}
+
+func (s *Store) migrateTrackSupport() error {
+	tableColumns, err := s.tableColumnSet("items", "time_entries")
+	if err != nil {
+		return err
+	}
+	if !tableColumns["items"]["track"] {
+		if _, err := s.db.Exec(`ALTER TABLE items ADD COLUMN track TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if !tableColumns["time_entries"]["track"] {
+		if _, err := s.db.Exec(`ALTER TABLE time_entries ADD COLUMN track TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func normalizeItemReviewTarget(target string) string {

@@ -83,6 +83,7 @@ type ItemUpdate struct {
 	Title        *string `json:"title,omitempty"`
 	Kind         *string `json:"kind,omitempty"`
 	State        *string `json:"state,omitempty"`
+	Track        *string `json:"track,omitempty"`
 	WorkspaceID  *int64  `json:"workspace_id,omitempty"`
 	Sphere       *string `json:"sphere,omitempty"`
 	ArtifactID   *int64  `json:"artifact_id,omitempty"`
@@ -99,6 +100,7 @@ type ItemUpdate struct {
 type ItemOptions struct {
 	State        string  `json:"state,omitempty"`
 	Kind         string  `json:"kind,omitempty"`
+	Track        string  `json:"track,omitempty"`
 	WorkspaceID  *int64  `json:"workspace_id,omitempty"`
 	Sphere       *string `json:"sphere,omitempty"`
 	ArtifactID   *int64  `json:"artifact_id,omitempty"`
@@ -114,6 +116,7 @@ type ItemOptions struct {
 
 type ItemListFilter struct {
 	Sphere               string `json:"sphere,omitempty"`
+	Track                string `json:"track,omitempty"`
 	Source               string `json:"source,omitempty"`
 	SourceContainer      string `json:"source_container,omitempty"`
 	WorkspaceID          *int64 `json:"workspace_id,omitempty"`
@@ -343,6 +346,7 @@ type Item struct {
 	Title        string  `json:"title"`
 	Kind         string  `json:"kind"`
 	State        string  `json:"state"`
+	Track        string  `json:"track,omitempty"`
 	WorkspaceID  *int64  `json:"workspace_id,omitempty"`
 	Sphere       string  `json:"sphere"`
 	ArtifactID   *int64  `json:"artifact_id,omitempty"`
@@ -447,6 +451,7 @@ type TimeEntry struct {
 	ID          int64   `json:"id"`
 	WorkspaceID *int64  `json:"workspace_id,omitempty"`
 	Sphere      string  `json:"sphere"`
+	Track       string  `json:"track,omitempty"`
 	StartedAt   string  `json:"started_at"`
 	EndedAt     *string `json:"ended_at,omitempty"`
 	Activity    string  `json:"activity,omitempty"`
@@ -455,6 +460,7 @@ type TimeEntry struct {
 
 type TimeEntryListFilter struct {
 	Sphere     string     `json:"sphere,omitempty"`
+	Track      string     `json:"track,omitempty"`
 	From       *time.Time `json:"from,omitempty"`
 	To         *time.Time `json:"to,omitempty"`
 	ActiveOnly bool       `json:"active_only,omitempty"`
@@ -468,6 +474,7 @@ type TimeEntrySummary struct {
 	EntryCount  int    `json:"entry_count"`
 	WorkspaceID *int64 `json:"workspace_id,omitempty"`
 	Sphere      string `json:"sphere,omitempty"`
+	Track       string `json:"track,omitempty"`
 }
 
 type BatchRun struct {

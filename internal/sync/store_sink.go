@@ -280,6 +280,7 @@ func (s *StoreSink) itemCreateOptions(account store.ExternalAccount, item store.
 	}
 	opts := store.ItemOptions{
 		State:        item.State,
+		Track:        item.Track,
 		ArtifactID:   item.ArtifactID,
 		ActorID:      item.ActorID,
 		VisibleAfter: item.VisibleAfter,
@@ -308,6 +309,7 @@ func (s *StoreSink) itemUpdate(account store.ExternalAccount, existing, item sto
 	}
 	update := store.ItemUpdate{
 		Title:        stringPointer(item.Title),
+		Track:        stringPointer(item.Track),
 		VisibleAfter: item.VisibleAfter,
 		FollowUpAt:   item.FollowUpAt,
 		DueAt:        item.DueAt,

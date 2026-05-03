@@ -89,6 +89,51 @@ func TestTimeEntrySwitchAndSummaryLifecycle(t *testing.T) {
 	}
 }
 
+func TestTimeEntrySummaryGroupsAndFiltersByTrack(t *testing.T) {
+	s := newTestStore(t)
+	start := time.Date(2026, 3, 9, 8, 0, 0, 0, time.UTC)
+	middle := start.Add(45 * time.Minute)
+	end := middle.Add(15 * time.Minute)
+
+	first, changed, err := s.SwitchActiveTimeEntryWithTrack(start, nil, SphereWork, "software-compilers", "focus", nil)
+	if err != nil {
+		t.Fatalf("SwitchActiveTimeEntryWithTrack(first) error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected first tracked switch to create an entry")
+	}
+	second, changed, err := s.SwitchActiveTimeEntryWithTrack(middle, nil, SphereWork, "research-fusion", "focus", nil)
+	if err != nil {
+		t.Fatalf("SwitchActiveTimeEntryWithTrack(second) error: %v", err)
+	}
+	if !changed || second.ID == first.ID {
+		t.Fatalf("expected second track to create a new entry: first=%d second=%d changed=%v", first.ID, second.ID, changed)
+	}
+	if stopped, err := s.StopActiveTimeEntries(end); err != nil {
+		t.Fatalf("StopActiveTimeEntries() error: %v", err)
+	} else if stopped != 1 {
+		t.Fatalf("StopActiveTimeEntries() = %d, want 1", stopped)
+	}
+
+	rows, err := s.SummarizeTimeEntries(TimeEntryListFilter{From: &start, To: &end}, "track", end)
+	if err != nil {
+		t.Fatalf("SummarizeTimeEntries(track) error: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("track summary len = %d, want 2: %#v", len(rows), rows)
+	}
+	if rows[0].Track != "software-compilers" || rows[0].Seconds != 45*60 {
+		t.Fatalf("first track row = %#v, want software-compilers 45m", rows[0])
+	}
+	filtered, err := s.ListTimeEntries(TimeEntryListFilter{Track: "research-fusion"})
+	if err != nil {
+		t.Fatalf("ListTimeEntries(track) error: %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].ID != second.ID {
+		t.Fatalf("filtered entries = %#v, want second entry only", filtered)
+	}
+}
+
 func TestActiveWorkspaceReturnsCurrentSelection(t *testing.T) {
 	s := newTestStore(t)
 

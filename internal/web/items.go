@@ -17,6 +17,7 @@ import (
 type itemCreateRequest struct {
 	Title        string  `json:"title"`
 	State        string  `json:"state"`
+	Track        string  `json:"track"`
 	WorkspaceID  *int64  `json:"workspace_id"`
 	Sphere       *string `json:"sphere"`
 	ArtifactID   *int64  `json:"artifact_id"`
@@ -31,6 +32,7 @@ type itemCreateRequest struct {
 type itemUpdateRequest struct {
 	Title        *string `json:"title"`
 	State        *string `json:"state"`
+	Track        *string `json:"track"`
 	WorkspaceID  *int64  `json:"workspace_id"`
 	Sphere       *string `json:"sphere"`
 	ArtifactID   *int64  `json:"artifact_id"`
@@ -95,6 +97,7 @@ func (a *App) resurfaceDueItemsForRead(w http.ResponseWriter) bool {
 func parseItemListFilterQuery(r *http.Request) (store.ItemListFilter, error) {
 	filter := store.ItemListFilter{
 		Sphere:          strings.TrimSpace(r.URL.Query().Get("sphere")),
+		Track:           strings.TrimSpace(r.URL.Query().Get("track")),
 		Source:          strings.TrimSpace(r.URL.Query().Get("source")),
 		SourceContainer: strings.TrimSpace(r.URL.Query().Get("source_container")),
 		Section:         strings.TrimSpace(r.URL.Query().Get("section")),
@@ -528,6 +531,7 @@ func (a *App) handleItemCreate(w http.ResponseWriter, r *http.Request) {
 	} else {
 		item, err = a.store.CreateItem(req.Title, store.ItemOptions{
 			State:        req.State,
+			Track:        req.Track,
 			WorkspaceID:  req.WorkspaceID,
 			Sphere:       req.Sphere,
 			ArtifactID:   req.ArtifactID,
@@ -616,6 +620,7 @@ func (a *App) handleItemUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := a.store.UpdateItem(itemID, store.ItemUpdate{
 		Title:        req.Title,
 		State:        req.State,
+		Track:        req.Track,
 		WorkspaceID:  req.WorkspaceID,
 		Sphere:       req.Sphere,
 		ArtifactID:   req.ArtifactID,

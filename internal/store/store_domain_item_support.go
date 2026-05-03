@@ -15,6 +15,7 @@ func scanItem(
 		out                                Item
 		workspaceID, artifactID, actorID   sql.NullInt64
 		visibleAfter, followUpAt, dueAt    sql.NullString
+		track                              sql.NullString
 		sphere                             string
 		source, sourceRef                  sql.NullString
 		reviewTarget, reviewer, reviewedAt sql.NullString
@@ -24,6 +25,7 @@ func scanItem(
 		&out.Title,
 		&out.Kind,
 		&out.State,
+		&track,
 		&workspaceID,
 		&sphere,
 		&artifactID,
@@ -45,6 +47,7 @@ func scanItem(
 	out.Title = strings.TrimSpace(out.Title)
 	out.Kind = normalizeItemKind(out.Kind)
 	out.State = normalizeItemState(out.State)
+	out.Track = strings.TrimSpace(track.String)
 	out.WorkspaceID = nullInt64Pointer(workspaceID)
 	out.Sphere = normalizeSphere(sphere)
 	out.ArtifactID = nullInt64Pointer(artifactID)
@@ -76,6 +79,7 @@ func scanItemSummary(
 		workspaceID, artifactID, actorID       sql.NullInt64
 		projectItemID                          sql.NullInt64
 		visibleAfter, followUpAt, dueAt        sql.NullString
+		track                                  sql.NullString
 		sphere                                 string
 		source, sourceRef                      sql.NullString
 		reviewTarget, reviewer, reviewedAt     sql.NullString
@@ -87,6 +91,7 @@ func scanItemSummary(
 		&out.Title,
 		&out.Kind,
 		&out.State,
+		&track,
 		&workspaceID,
 		&sphere,
 		&artifactID,
@@ -113,6 +118,7 @@ func scanItemSummary(
 	out.Title = strings.TrimSpace(out.Title)
 	out.Kind = normalizeItemKind(out.Kind)
 	out.State = normalizeItemState(out.State)
+	out.Track = strings.TrimSpace(track.String)
 	out.WorkspaceID = nullInt64Pointer(workspaceID)
 	out.Sphere = normalizeSphere(sphere)
 	out.ArtifactID = nullInt64Pointer(artifactID)
@@ -193,6 +199,10 @@ func appendItemCoreUpdateClauses(plan *itemUpdatePlan, updates ItemUpdate) error
 		}
 		plan.parts = append(plan.parts, "kind = ?")
 		plan.args = append(plan.args, kind)
+	}
+	if updates.Track != nil {
+		plan.parts = append(plan.parts, "track = ?")
+		plan.args = append(plan.args, strings.TrimSpace(*updates.Track))
 	}
 	if updates.ArtifactID != nil {
 		plan.artifactUpdated = true

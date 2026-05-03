@@ -26,6 +26,7 @@ func normalizeItemListFilter(filter ItemListFilter) (ItemListFilter, error) {
 	normalized := ItemListFilter{
 		Source:              normalizeOptionalSourceFilter(filter.Source),
 		SourceContainer:     strings.TrimSpace(filter.SourceContainer),
+		Track:               strings.TrimSpace(filter.Track),
 		WorkspaceUnassigned: filter.WorkspaceUnassigned,
 	}
 	sphere, err := normalizeOptionalSphereFilter(filter.Sphere)
@@ -190,6 +191,10 @@ func appendItemScopeFilterClauses(parts []string, args []any, filter ItemListFil
 	if filter.Source != "" {
 		parts = append(parts, "lower(trim("+column("source")+")) = ?")
 		args = append(args, filter.Source)
+	}
+	if filter.Track != "" {
+		parts = append(parts, "lower(trim("+column("track")+")) = lower(trim(?))")
+		args = append(args, filter.Track)
 	}
 	if filter.SourceContainer != "" {
 		parts = append(parts, `EXISTS (

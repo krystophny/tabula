@@ -870,6 +870,34 @@ func TestDomainCRUDRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateItem(source completion) error: %v", err)
 	}
+	trackedItem, err := s.CreateItem("Tracked item", ItemOptions{
+		State: ItemStateNext,
+		Track: "software-compilers",
+	})
+	if err != nil {
+		t.Fatalf("CreateItem(tracked) error: %v", err)
+	}
+	if trackedItem.Track != "software-compilers" {
+		t.Fatalf("CreateItem(tracked).Track = %q, want software-compilers", trackedItem.Track)
+	}
+	trackedRows, err := s.ListNextItemsFiltered(ItemListFilter{Track: "software-compilers"})
+	if err != nil {
+		t.Fatalf("ListNextItemsFiltered(track) error: %v", err)
+	}
+	if len(trackedRows) != 1 || trackedRows[0].ID != trackedItem.ID {
+		t.Fatalf("track-filtered rows = %#v, want tracked item %d", trackedRows, trackedItem.ID)
+	}
+	nextTrack := "research-fusion"
+	if err := s.UpdateItem(trackedItem.ID, ItemUpdate{Track: &nextTrack}); err != nil {
+		t.Fatalf("UpdateItem(track) error: %v", err)
+	}
+	updatedTracked, err := s.GetItem(trackedItem.ID)
+	if err != nil {
+		t.Fatalf("GetItem(tracked) error: %v", err)
+	}
+	if updatedTracked.Track != nextTrack {
+		t.Fatalf("GetItem(tracked).Track = %q, want %q", updatedTracked.Track, nextTrack)
+	}
 
 	if err := s.AssignItem(artifactItem.ID, agent.ID); err != nil {
 		t.Fatalf("AssignItem() error: %v", err)

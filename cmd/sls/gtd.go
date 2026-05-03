@@ -63,6 +63,7 @@ func isGtdSubcommand(args []string) bool {
 
 type gtdFilters struct {
 	sphere          string
+	track           string
 	source          string
 	sourceContainer string
 	label           string
@@ -82,6 +83,7 @@ func parseGtdFilters(args []string) (gtdFilters, error) {
 	fs.SetOutput(io.Discard)
 	var f gtdFilters
 	fs.StringVar(&f.sphere, "vault", "", "vault sphere: work|private")
+	fs.StringVar(&f.track, "track", "", "filter by attention track")
 	fs.StringVar(&f.source, "source", "", "filter by source backend (todoist, github, imap, ...)")
 	fs.StringVar(&f.sourceContainer, "source-container", "", "filter by upstream container (Todoist project, mail folder, GitHub Project)")
 	fs.StringVar(&f.label, "label", "", "filter by label name")
@@ -113,6 +115,7 @@ func (f gtdFilters) query() url.Values {
 		}
 	}
 	setIf("sphere", f.sphere)
+	setIf("track", f.track)
 	setIf("source", f.source)
 	setIf("source_container", f.sourceContainer)
 	setIf("label", f.label)
@@ -132,6 +135,7 @@ type gtdItem struct {
 	Title        string  `json:"title"`
 	Kind         string  `json:"kind"`
 	State        string  `json:"state"`
+	Track        string  `json:"track"`
 	Sphere       string  `json:"sphere"`
 	Source       *string `json:"source"`
 	SourceRef    *string `json:"source_ref"`

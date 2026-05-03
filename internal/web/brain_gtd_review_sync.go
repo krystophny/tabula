@@ -38,6 +38,7 @@ type brainGTDReviewItem struct {
 	Kind      string `json:"kind"`
 	Path      string `json:"path"`
 	Project   string `json:"project"`
+	Track     string `json:"track"`
 	Due       string `json:"due"`
 	FollowUp  string `json:"follow_up"`
 }
@@ -52,6 +53,7 @@ type brainGTDCommitmentItem struct {
 	Title    string   `json:"title"`
 	Status   string   `json:"status"`
 	Project  string   `json:"project"`
+	Track    string   `json:"track"`
 	Due      string   `json:"due"`
 	FollowUp string   `json:"follow_up"`
 	Bindings []string `json:"bindings"`
@@ -263,6 +265,7 @@ func brainGTDStoreItem(sphere, provider, sourceRef string, item brainGTDReviewIt
 		Title:        brainGTDReviewTitle(item),
 		Kind:         store.ItemKindAction,
 		State:        brainGTDState(item.Status, item.Queue),
+		Track:        strings.TrimSpace(item.Track),
 		Sphere:       sphere,
 		ArtifactID:   &artifactID,
 		VisibleAfter: followUp,
@@ -276,6 +279,7 @@ func brainGTDStoreItem(sphere, provider, sourceRef string, item brainGTDReviewIt
 func brainGTDReviewChanged(existing store.Item, incoming store.Item) bool {
 	return existing.Title != incoming.Title ||
 		existing.State != incoming.State ||
+		existing.Track != incoming.Track ||
 		optionalStoreString(existing.VisibleAfter) != optionalStoreString(incoming.VisibleAfter) ||
 		optionalStoreString(existing.FollowUpAt) != optionalStoreString(incoming.FollowUpAt) ||
 		optionalStoreString(existing.DueAt) != optionalStoreString(incoming.DueAt) ||
@@ -287,6 +291,7 @@ func (a *App) updateBrainGTDReviewItem(id int64, incoming store.Item) error {
 	return a.store.UpdateItem(id, store.ItemUpdate{
 		Title:        &incoming.Title,
 		State:        &incoming.State,
+		Track:        &incoming.Track,
 		ArtifactID:   incoming.ArtifactID,
 		VisibleAfter: incoming.VisibleAfter,
 		FollowUpAt:   incoming.FollowUpAt,
@@ -358,6 +363,7 @@ func (a *App) upsertCanonicalMarkdownArtifact(ctx context.Context, sphere string
 		Queue:    item.Status,
 		Path:     item.Path,
 		Project:  item.Project,
+		Track:    item.Track,
 		Due:      item.Due,
 		FollowUp: item.FollowUp,
 	}
@@ -377,6 +383,7 @@ func (a *App) updateItemToCanonicalMarkdown(id int64, canonical brainGTDCommitme
 		VisibleAfter: brainGTDDateTime(canonical.FollowUp, false),
 		FollowUpAt:   brainGTDDateTime(canonical.FollowUp, false),
 		DueAt:        brainGTDDateTime(canonical.Due, true),
+		Track:        optionalString(canonical.Track),
 		Source:       &source,
 		SourceRef:    &path,
 	})
@@ -389,6 +396,7 @@ func (a *App) updateItemAsMergedDuplicate(id int64, canonical brainGTDCommitment
 	return a.store.UpdateItem(id, store.ItemUpdate{
 		Title:      &title,
 		State:      &done,
+		Track:      optionalString(canonical.Track),
 		ArtifactID: &artifactID,
 		Source:     &source,
 		SourceRef:  &sourceRef,
@@ -565,6 +573,7 @@ func brainGTDMetaJSON(item brainGTDReviewItem) string {
 		"status":     strings.TrimSpace(item.Status),
 		"queue":      strings.TrimSpace(item.Queue),
 		"project":    strings.TrimSpace(item.Project),
+		"track":      strings.TrimSpace(item.Track),
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

@@ -68,13 +68,14 @@ func timeEntryListFilterFromRequest(r *http.Request) (store.TimeEntryListFilter,
 	}
 	return store.TimeEntryListFilter{
 		Sphere: strings.TrimSpace(query.Get("sphere")),
+		Track:  strings.TrimSpace(query.Get("track")),
 		From:   from,
 		To:     to,
 	}, nil
 }
 
 func csvSummaryRows(rows []store.TimeEntrySummary) [][]string {
-	out := [][]string{{"key", "label", "seconds", "duration", "entry_count", "sphere", "workspace_id"}}
+	out := [][]string{{"key", "label", "seconds", "duration", "entry_count", "sphere", "track", "workspace_id"}}
 	for _, row := range rows {
 		workspaceID := ""
 		if row.WorkspaceID != nil {
@@ -87,6 +88,7 @@ func csvSummaryRows(rows []store.TimeEntrySummary) [][]string {
 			row.Duration,
 			strconv.Itoa(row.EntryCount),
 			row.Sphere,
+			row.Track,
 			workspaceID,
 		})
 	}
