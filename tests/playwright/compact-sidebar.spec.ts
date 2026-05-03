@@ -45,6 +45,43 @@ async function openInbox(page: Page) {
   })).toBe('inbox');
 }
 
+async function switchHarnessWorkspace(page: Page, workspaceID: string) {
+  await page.evaluate(async (id) => {
+    const mod = await import('../../internal/web/static/app-chat-transport.js');
+    await mod.switchProject(id);
+  }, workspaceID);
+  await expect.poll(async () => page.evaluate(() => {
+    const state = (window as any)._slopshellApp?.getState?.() || {};
+    return String(state.activeWorkspaceId || '');
+  })).toBe(workspaceID);
+}
+
+async function openNextQueue(page: Page) {
+  await page.locator('#edge-left-tap').click();
+  await expect(page.locator('#pr-file-pane')).toHaveClass(/is-open/);
+  await page.evaluate(async () => {
+    const mod = await import('../../internal/web/static/app-item-sidebar-ui.js');
+    await mod.openItemSidebarView('next', { section: '' });
+  });
+  await expect(page.locator('.sidebar-tab.is-active')).toContainText('Next');
+}
+
+async function seedRuntimeWorkspaces(page: Page, activeWorkspaceID = '1') {
+  await page.evaluate(async (activeID) => {
+    (window as any).__harnessLog = [];
+    (window as any).__setProjects([
+      { id: '1', name: 'Brain', root_path: '/tmp/brain', workspace_path: '/tmp/brain', sphere: 'private' },
+      { id: '2', name: 'Lab', root_path: '/tmp/lab', workspace_path: '/tmp/lab', sphere: 'private' },
+    ], activeID);
+    (window as any).__setItemSidebarWorkspaces([
+      { id: 1, name: 'Brain', dir_path: '/tmp/brain', sphere: 'private', is_active: activeID === '1' },
+      { id: 2, name: 'Lab', dir_path: '/tmp/lab', sphere: 'private', is_active: activeID === '2' },
+    ]);
+    await (window as any)._slopshellApp?.fetchProjects?.();
+  }, activeWorkspaceID);
+  await switchHarnessWorkspace(page, activeWorkspaceID);
+}
+
 test.describe('compact sidebar navigation (#746)', () => {
   test('exposes a single primary header with sphere selector, workspace pin and capture button above queue tabs', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -128,6 +165,62 @@ test.describe('compact sidebar navigation (#746)', () => {
     await expect(inboxTab).toHaveText(/Inbox1/);
     await inboxTab.click();
     await expect(page.locator('#pr-file-list .pr-file-item[data-item-id="702"]')).toContainText('New uncategorized mail');
+  });
+
+  test('activating a linked action reopens its remembered workspace', async ({ page }) => {
+    await waitReady(page);
+    await seedRuntimeWorkspaces(page, '1');
+    await page.evaluate(() => {
+      (window as any).__setItemSidebarData({
+        inbox: [],
+        next: [{ id: 801, title: 'Tune lab notebook', state: 'next', sphere: 'private', workspace_id: 2 }],
+        waiting: [],
+        deferred: [],
+        someday: [],
+        review: [],
+        done: [],
+      });
+    });
+
+    await openNextQueue(page);
+    await page.locator('#pr-file-list .pr-file-item[data-item-id="801"]').click();
+
+    await expect.poll(async () => page.evaluate(() => {
+      const state = (window as any)._slopshellApp?.getState?.() || {};
+      return String(state.activeWorkspaceId || '');
+    })).toBe('2');
+    await expect.poll(async () => page.evaluate(() => {
+      const log = (window as any).__harnessLog || [];
+      return log.some((entry: any) => entry?.action === 'project_activate' && String(entry?.payload?.workspace_id || '') === '2');
+    })).toBe(true);
+  });
+
+  test('activating an unlinked action remembers the current non-default workspace', async ({ page }) => {
+    await waitReady(page);
+    await seedRuntimeWorkspaces(page, '2');
+    await page.evaluate(() => {
+      (window as any).__setItemSidebarData({
+        inbox: [],
+        next: [{ id: 802, title: 'Record lab follow-up', state: 'next', sphere: 'private' }],
+        waiting: [],
+        deferred: [],
+        someday: [],
+        review: [],
+        done: [],
+      });
+    });
+
+    await openNextQueue(page);
+    await page.locator('#pr-file-list .pr-file-item[data-item-id="802"]').click();
+
+    await expect.poll(async () => page.evaluate(() => {
+      const data = (window as any).__itemSidebarData || {};
+      return Number(data.next?.find((item: any) => Number(item?.id || 0) === 802)?.workspace_id || 0);
+    })).toBe(2);
+    await expect.poll(async () => page.evaluate(() => {
+      const log = (window as any).__harnessLog || [];
+      return log.some((entry: any) => entry?.action === 'item_workspace' && Number(entry?.payload?.workspace_id || 0) === 2);
+    })).toBe(true);
   });
 
   test('capture button opens the composer', async ({ page }) => {
@@ -527,5 +620,29 @@ test.describe('compact sidebar navigation (#746)', () => {
     expect(layout?.sphereWidth).toBeGreaterThan(0);
     expect(layout?.captureLabel).toMatch(/Capture/i);
     expect(layout?.minTabHeight).toBeGreaterThanOrEqual(47);
+  });
+
+  test('mobile right panel keeps the circle clear of the message input', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 760 });
+    await waitReady(page);
+
+    await page.locator('#edge-right-tap').click();
+    await expect(page.locator('#edge-right')).toHaveClass(/edge-pinned/);
+
+    const layout = await page.evaluate(() => {
+      const dot = document.getElementById('slopshell-circle-dot');
+      const input = document.getElementById('chat-pane-input');
+      if (!(dot instanceof HTMLElement) || !(input instanceof HTMLElement)) return null;
+      const dotRect = dot.getBoundingClientRect();
+      const inputRect = input.getBoundingClientRect();
+      return {
+        dotBottom: dotRect.bottom,
+        inputTop: inputRect.top,
+        inputHeight: inputRect.height,
+      };
+    });
+    expect(layout).not.toBeNull();
+    expect(layout?.dotBottom).toBeLessThanOrEqual((layout?.inputTop || 0) - 4);
+    expect(layout?.inputHeight).toBeGreaterThanOrEqual(47);
   });
 });

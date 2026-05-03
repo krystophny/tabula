@@ -47,6 +47,7 @@ const loadWorkspaceBrowserPath = (...args) => refs.loadWorkspaceBrowserPath(...a
 const parentWorkspaceBrowserPath = (...args) => refs.parentWorkspaceBrowserPath(...args);
 const workspaceCompanionEntries = (...args) => refs.workspaceCompanionEntries(...args);
 const openWorkspaceSidebarFile = (...args) => refs.openWorkspaceSidebarFile(...args);
+const switchProject = (...args) => refs.switchProject(...args);
 
 export async function openItemSidebarView(view = state.itemSidebarView, filters = null) {
   state.fileSidebarMode = 'items';
@@ -265,12 +266,14 @@ export async function openProjectItemQueue(item) {
   const projectItemID = Number(item?.id || 0);
   if (projectItemID <= 0) return false;
   state.itemSidebarActiveItemID = projectItemID;
+  await resolveWorkspaceForSidebarItem(item);
   const nextFilters = {
     all_spheres: Boolean(state.itemSidebarFilters?.all_spheres),
     project_item_id: projectItemID,
     section: '',
   };
   await loadItemSidebarView('next', nextFilters);
+  await activatePreferredProjectAction(item);
   showStatus(`project: ${String(item?.title || '').trim() || projectItemID}`);
   return true;
 }
@@ -288,6 +291,9 @@ export async function openSidebarItem(item) {
     await openProjectItemQueue(item);
     return;
   }
+  await resolveWorkspaceForSidebarItem(item);
+  state.itemSidebarActiveItemID = Number(item?.id || 0);
+  renderPrReviewFileList();
   if (String(item?.artifact_kind || '').trim().toLowerCase() !== 'github_pr') {
     try {
       const opened = await openSidebarArtifactItem(item);
@@ -307,6 +313,105 @@ export async function openSidebarItem(item) {
   if (opened && isMobileViewport()) {
     closeEdgePanels();
   }
+}
+
+function itemWorkspaceID(item) {
+  const id = Number(item?.workspace_id || 0);
+  return Number.isFinite(id) && id > 0 ? String(Math.trunc(id)) : '';
+}
+
+function workspaceExists(workspaceID) {
+  const id = String(workspaceID || '').trim();
+  if (!id) return false;
+  return (Array.isArray(state.projects) ? state.projects : []).some((project) => String(project?.id || '').trim() === id);
+}
+
+function fallbackWorkspaceID() {
+  const defaultID = String(state.defaultWorkspaceId || '').trim();
+  if (workspaceExists(defaultID)) return defaultID;
+  const brain = (Array.isArray(state.projects) ? state.projects : []).find((project) => {
+    const name = String(project?.name || '').trim().toLowerCase();
+    const root = String(project?.root_path || project?.workspace_path || '').trim().toLowerCase();
+    return Boolean(project?.is_default) || name === 'brain' || root.endsWith('/brain');
+  });
+  if (brain) return String(brain.id || '').trim();
+  return String(state.projects?.[0]?.id || '').trim();
+}
+
+function rememberableWorkspaceID() {
+  const current = String(state.activeWorkspaceId || '').trim();
+  if (!current || current === fallbackWorkspaceID()) return '';
+  if (!/^\d+$/.test(current)) return '';
+  return current;
+}
+
+function updateCachedItemWorkspaceID(itemID, workspaceID) {
+  const id = Number(itemID || 0);
+  if (id <= 0) return;
+  const nextWorkspaceID = workspaceID === null ? null : Number(workspaceID || 0);
+  (Array.isArray(state.itemSidebarItems) ? state.itemSidebarItems : []).forEach((item) => {
+    if (Number(item?.id || 0) === id) item.workspace_id = nextWorkspaceID;
+  });
+}
+
+async function rememberSidebarItemWorkspace(item, workspaceID) {
+  const itemID = Number(item?.id || 0);
+  const numericWorkspaceID = Number(workspaceID || 0);
+  if (itemID <= 0 || !Number.isFinite(numericWorkspaceID) || numericWorkspaceID <= 0) return false;
+  try {
+    const resp = await fetch(apiURL(`items/${encodeURIComponent(String(itemID))}/workspace`), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_id: Math.trunc(numericWorkspaceID) }),
+    });
+    if (!resp.ok) return false;
+    item.workspace_id = Math.trunc(numericWorkspaceID);
+    updateCachedItemWorkspaceID(itemID, Math.trunc(numericWorkspaceID));
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function switchToItemWorkspace(workspaceID) {
+  const target = String(workspaceID || '').trim();
+  if (!target || target === String(state.activeWorkspaceId || '').trim()) return true;
+  if (!workspaceExists(target)) return false;
+  await switchProject(target);
+  return target === String(state.activeWorkspaceId || '').trim();
+}
+
+async function resolveWorkspaceForSidebarItem(item) {
+  const linkedWorkspaceID = itemWorkspaceID(item);
+  if (linkedWorkspaceID) {
+    if (await switchToItemWorkspace(linkedWorkspaceID)) return linkedWorkspaceID;
+  }
+  const currentWorkspaceID = rememberableWorkspaceID();
+  if (currentWorkspaceID) {
+    await rememberSidebarItemWorkspace(item, currentWorkspaceID);
+    return currentWorkspaceID;
+  }
+  const fallbackID = fallbackWorkspaceID();
+  if (fallbackID) {
+    await switchToItemWorkspace(fallbackID);
+  }
+  return fallbackID;
+}
+
+async function activatePreferredProjectAction(projectItem) {
+  const preferredID = Number(projectItem?.next_action?.id || 0);
+  const rows = Array.isArray(state.itemSidebarItems) ? state.itemSidebarItems : [];
+  const preferred = preferredID > 0
+    ? rows.find((item) => Number(item?.id || 0) === preferredID)
+    : null;
+  const firstAction = preferred || rows.find((item) => String(item?.kind || 'action').trim().toLowerCase() !== 'project');
+  if (!firstAction) return false;
+  state.itemSidebarActiveItemID = Number(firstAction?.id || 0);
+  renderPrReviewFileList();
+  await resolveWorkspaceForSidebarItem(firstAction);
+  state.itemSidebarActiveItemID = Number(firstAction?.id || 0);
+  renderPrReviewFileList();
+  return true;
 }
 
 export function itemIconForRow(item) {

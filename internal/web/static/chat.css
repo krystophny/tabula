@@ -9,6 +9,7 @@
 
 .chat-pane-input-row textarea {
   width: 100%;
+  min-height: 40px;
   box-sizing: border-box;
   resize: none;
   border: 1px solid var(--border);
@@ -20,6 +21,18 @@
   background: var(--bg);
   color: var(--text);
   outline: none;
+}
+
+@media (hover: none) and (pointer: coarse) {
+  .chat-pane-input-row textarea {
+    min-height: 48px;
+  }
+}
+
+@media (max-width: 767px) {
+  .chat-pane-input-row textarea {
+    min-height: 48px;
+  }
 }
 
 .chat-message {

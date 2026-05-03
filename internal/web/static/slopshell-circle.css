@@ -50,6 +50,11 @@
   bottom: calc(1rem + var(--safe-area-bottom));
 }
 
+body:has(.edge-right.edge-pinned) .slopshell-circle[data-corner="bottom_left"],
+body:has(.edge-right.edge-pinned) .slopshell-circle[data-corner="bottom_right"] {
+  bottom: calc(5.2rem + var(--safe-area-bottom));
+}
+
 .slopshell-circle.is-expanded {
   pointer-events: auto;
 }

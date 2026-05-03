@@ -386,8 +386,17 @@ export async function fetchItemSidebarProjectItemReview(filters: Record<string, 
         title: String(item?.title || '').trim(),
         state: String(item?.state || '').trim().toLowerCase(),
         kind: String(item?.kind || '').trim().toLowerCase(),
+        workspace_id: Number(item?.workspace_id || 0) > 0 ? Number(item.workspace_id) : null,
         source: String(item?.source || '').trim().toLowerCase(),
         source_ref: String(item?.source_ref || '').trim(),
+        next_action: row?.next_action && Number(row.next_action.id || 0) > 0
+          ? {
+            id: Number(row.next_action.id),
+            title: String(row.next_action.title || '').trim(),
+            due_at: String(row.next_action.due_at || '').trim(),
+          }
+          : null,
+        deadline: row?.deadline && typeof row.deadline === 'object' ? row.deadline : null,
         health: {
           has_next_action: Boolean(health?.has_next_action),
           has_waiting: Boolean(health?.has_waiting),
