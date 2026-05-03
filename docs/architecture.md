@@ -2,9 +2,17 @@
 
 > **Legal notice:** Slopshell is provided "as is" and "as available" without warranties, and to the maximum extent permitted by applicable law the authors/contributors accept no liability for damages, data loss, or misuse. You are solely responsible for backups, verification, and safe operation. See [`DISCLAIMER.md`](/DISCLAIMER.md).
 
-Slopshell is a Go monolithic web runtime with a split listener model:
+Slopshell is a Go monolithic UI/runtime with a split listener model:
 - public web/UI listener
-- local-only MCP listener
+- private local runtime/control socket
+
+There are exactly two external agent-facing MCP servers in the sloppy stack:
+
+- `sloppy` = `sloptools mcp-server`
+- `helpy` = `helpy mcp-stdio`
+
+`slopshell` is not an external MCP server. The local Unix-socket routes
+described here are private Slopshell runtime interfaces.
 
 Runtime stack:
 - `slopshell-web.service` runs the Go monolith (`slopshell server`)
@@ -17,11 +25,11 @@ Runtime stack:
 - `cmd/slopshell/main.go`
   - CLI entrypoint and subcommand dispatch.
 - `internal/mcp/server.go`
-  - MCP JSON-RPC methods and tool dispatch.
+  - Private runtime JSON-RPC methods and tool dispatch.
 - `internal/canvas/adapter.go`
   - Canvas sessions, artifact state, and event log.
 - `internal/serve/app.go`
-  - MCP HTTP daemon (`/mcp`) and canvas websocket (`/ws/canvas`) mounted on the MCP listener.
+  - Private runtime socket routes (`/mcp`) and canvas websocket (`/ws/canvas`) mounted on the Unix-socket listener.
 - `internal/web/server.go`
   - Browser APIs for chat sessions, canvas APIs, and chat/canvas websocket routes on the web listener.
 - `internal/extensions/host.go`
@@ -39,8 +47,8 @@ Runtime stack:
 
 ## Runtime Modes
 
-- `slopshell mcp-server`: stdio MCP runtime
-- `slopshell server`: monolithic runtime (web + local MCP listeners)
+- `slopshell server`: monolithic runtime (web listener + private local runtime socket)
+- `slopshell bootstrap`: project-local setup for Slopshell state and agent config helpers
 
 ## Local Sidecars
 
@@ -62,7 +70,7 @@ The browser UI is a full-viewport canvas with no visible chrome:
 
 ## Primary Data Flows
 
-1. MCP client calls tool on `slopshell mcp-server` or the local MCP listener from `slopshell server`.
+1. External agents call tools on `sloppy` or `helpy`; Slopshell itself uses its private local runtime/control socket where needed.
 2. Tool dispatch in `internal/mcp/server.go` resolves into adapter operations.
 3. Adapter updates session/artifact state in memory and emits events.
 4. Browser consumes websocket events: responses stream into ephemeral overlay, artifacts update the canvas in place.
@@ -146,7 +154,8 @@ Utterance filtering (server-side in `internal/stt/transcribe.go`):
 - Slopshell does not require direct credentials to producer systems.
 - Producer endpoint authority remains outside Slopshell.
 - Slopshell stores local auth/session state in SQLite under web data dir.
-- MCP routes are not mounted on the web listener and default to loopback-only bind.
+- Private runtime routes are not mounted on the web listener and stay on the private Unix socket.
+- Slopshell is UI/runtime only; backend/domain authority lives in `sloptools` (`sloppy`) and `helpy`.
 
 ## Modular Core Direction
 

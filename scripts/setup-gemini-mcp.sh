@@ -13,6 +13,9 @@ if ! command -v gemini >/dev/null 2>&1; then
   exit 0
 fi
 
+gemini mcp remove slopshell >/dev/null 2>&1 || true
+gemini mcp remove sloptools >/dev/null 2>&1 || true
+
 gemini mcp remove sloppy >/dev/null 2>&1 || true
 gemini mcp add sloppy "$SLOPTOOLS_BIN" mcp-server   --stdio --vault-config "$VAULT_CONFIG" --project-dir "$SLOPPY_PROJECT_DIR" --data-dir "$SLOPPY_DATA_DIR"
 

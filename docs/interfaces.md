@@ -4,9 +4,11 @@
 
 # Interfaces
 
-This document summarizes externally relevant interfaces in the current release.
+This document summarizes the current Slopshell HTTP and private runtime interfaces.
 
-## MCP HTTP Daemon
+There are exactly two external agent-facing MCP servers in the sloppy stack: `sloppy` (`sloptools mcp-server`) and `helpy` (`helpy mcp-stdio`). Slopshell itself is UI/runtime only. The routes and tool names listed here describe Slopshell's private runtime/control surface, not a third external AI server.
+
+## Private Runtime Socket Routes
 
 Routes in `internal/serve/app.go`:
 - `POST /mcp`
@@ -143,6 +145,10 @@ Domain model API:
 - `GET /api/time-entries/summary`
 - `POST /api/time-entries/stamp-in`
 - `POST /api/time-entries/stamp-out`
+- `GET /api/tracks/active`
+- `PUT /api/tracks/active`
+- `PUT /api/tracks/active/action`
+- `PUT /api/tracks/active/project`
 - `GET /api/spheres/{sphere}/accounts`
 - `POST /api/spheres/{sphere}/accounts`
 - `DELETE /api/spheres/{sphere}/accounts/{account_id}`
@@ -250,9 +256,9 @@ Participant and STT APIs:
 - `POST /api/hotword/train/deploy`
 - `GET /api/hotword/train/models`
 
-## MCP Tool Surface
+## Private Runtime Tool Surface
 
-Defined in `internal/surface/definitions.go` and used by `internal/mcp/server.go`:
+Defined in `internal/surface/definitions.go` and used by `internal/mcp/server.go` for the local Slopshell runtime/control path:
 - `canvas_session_open`
 - `canvas_artifact_show`
 - `canvas_status`

@@ -30,7 +30,8 @@ Current runtime shape:
 - `slopshell server` is the web/UI runtime. It embeds the sloptools MCP and binds it to a Unix domain socket (mode 0600, parent dir 0700) — there is no loopback TCP MCP listener.
 - The MCP socket path defaults to `$XDG_RUNTIME_DIR/sloppy/mcp.sock` on Linux and `$HOME/Library/Caches/sloppy/mcp.sock` on macOS. Override with `--mcp-socket` or `SLOPSHELL_MCP_SOCKET`.
 - The helpy MCP for web search/fetch is spawned as a stdio subprocess (`helpy mcp-stdio`). No socket is exposed; disable with `SLOPSHELL_HELPY_BIN=off`.
-- `slopshell mcp-server` remains available for legacy stdio MCP use.
+- External agents register exactly two MCP servers: `sloppy` and `helpy`.
+- Do not register `slopshell` as an agent MCP server; the local socket is private runtime/control transport only.
 
 Privacy: this host (Linux + faepmac1) is multi-user. Plaintext loopback MCP listeners would let any local UID read mail, calendar, and canvas, so they are forbidden. All embedded MCPs use stdio or 0600 unix sockets.
 
@@ -83,7 +84,7 @@ Rules:
 - Canvas content is not duplicated into chat speech.
 - Ephemeral canvas content uses temporary files under `.slopshell/artifacts/tmp`.
 - Long-response temp-file routing is part of the prompt contract and scratch-artifact support, but it is not currently hard-enforced by the backend render-plan stub.
-- Canvas operations should go through the Slopshell MCP surface, not ad hoc filesystem-event assumptions.
+- Canvas operations should go through the private Slopshell runtime surface, not ad hoc filesystem-event assumptions.
 
 ## Interaction Model
 
@@ -138,7 +139,7 @@ systemctl --user restart slopshell-codex-app-server.service slopshell-piper-tts.
 ## Endpoints
 
 - Web: `http://127.0.0.1:8420`
-- MCP: `unix:$XDG_RUNTIME_DIR/sloppy/mcp.sock` (mode 0600); `/mcp`, `/ws/canvas`, `/files/...` routes served over the socket via http+unix.
+- Private runtime socket: `unix:$XDG_RUNTIME_DIR/sloppy/mcp.sock` (mode 0600); `/mcp`, `/ws/canvas`, `/files/...` routes served over the socket via http+unix for Slopshell-local control only.
 - App-server: `ws://127.0.0.1:8787`
 - TTS base URL: `http://127.0.0.1:8424` (`/v1/audio/speech`)
 - Intent LLM base URL: `http://127.0.0.1:8081` (Slopshell calls `/v1/chat/completions`)
@@ -265,24 +266,24 @@ scripts/check-version-consistency.sh
 ## Code Map
 
 ```text
-cmd/slopshell/              CLI entry point, bootstrap, server startup, stdio MCP
+cmd/slopshell/              CLI entry point, bootstrap, and server startup
 cmd/surfacegen/          Generated interface doc sync
 internal/
   appserver/             Codex app-server websocket client/session logic
   canvas/                Canvas session/artifact state
   extensions/            Legacy manifest compatibility runtime
   licensing/             License compliance tests
-  mcp/                   MCP protocol server and tool dispatch
+  mcp/                   private runtime protocol server and tool dispatch
   modelprofile/          Model alias and reasoning-effort resolution
   plugins/               Legacy webhook compatibility runtime
   protocol/              Project bootstrap (.slopshell, MCP config, gitignore)
   ptt/                   Push-to-talk daemon integration
   pty/                   PTY abstraction
   ptyd/                  PTY daemon application
-  serve/                 MCP HTTP server runtime
+  serve/                 private runtime socket server
   store/                 SQLite persistence
   stt/                   STT client, normalization, VAD/hallucination guards
-  surface/               MCP/web interface inventory for docs/tests
+  surface/               private-runtime/web interface inventory for docs/tests
   update/                Binary update flow
   web/                   Public HTTP/WS runtime and UI coordination
     chat.go              Chat HTTP handlers

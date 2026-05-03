@@ -16,7 +16,7 @@ Legal notice: Slopshell is provided "as is" and "as available" without warrantie
 - **System architecture**: [`docs/architecture.md`](docs/architecture.md)
 - **Live session architecture**: [`docs/architecture.md`](docs/architecture.md)
 - **Codex app-server integration**: [`docs/codex-app-server-pivot.md`](docs/codex-app-server-pivot.md)
-- **HTTP/MCP interface inventory**: [`docs/interfaces.md`](docs/interfaces.md)
+- **HTTP/private-runtime interface inventory**: [`docs/interfaces.md`](docs/interfaces.md)
 - **UI paradigm**: [`docs/object-scoped-intent-ui.md`](docs/object-scoped-intent-ui.md)
 - **Model download policy**: [`docs/model-download-policy.md`](docs/model-download-policy.md)
 - **Meeting notes privacy**: [`docs/meeting-notes-privacy.md`](docs/meeting-notes-privacy.md)
@@ -78,12 +78,25 @@ dialogue, hotword, and tap-to-talk browser VAD on a fresh checkout.
 Requirements:
 - Go 1.24+
 
+## External AI Surface Contract
+
+There are exactly two external agent-facing MCP servers in the sloppy stack:
+
+- `sloppy` = `sloptools mcp-server`
+- `helpy` = `helpy mcp-stdio`
+
+`slopshell` is the UI/runtime layer. Do not register `slopshell` as an agent
+MCP server. The Unix-socket routes documented in this repo are private
+runtime/control interfaces for local Slopshell integration, not a third external
+AI surface.
+
 ## Core Commands
 
 ```bash
 slopshell bootstrap --workspace-dir .
-slopshell mcp-server --workspace-dir .
+./scripts/setup-slopshell-mcp.sh
 sloptools mcp-server --workspace-dir . --data-dir ~/.local/share/sloppy
+helpy mcp-stdio
 slopshell server --workspace-dir . --data-dir ~/.slopshell-web --mcp-socket "${XDG_RUNTIME_DIR:-$HOME/.cache}/sloppy/mcp.sock" --web-host 0.0.0.0 --web-port 8420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424
 slopshell server --workspace-dir . --data-dir ~/.slopshell-web --mcp-socket "${XDG_RUNTIME_DIR:-$HOME/.cache}/sloppy/mcp.sock" --web-host 0.0.0.0 --web-port 8443 --web-cert-file ~/.config/slopshell/certs/slopshell.pem --web-key-file ~/.config/slopshell/certs/slopshell-key.pem --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424
 ```
@@ -137,10 +150,9 @@ go test -tags=e2e ./cmd/sls/...
 
 ## Runtime Stack (Canonical)
 
-Slopshell runs with one web runtime that embeds the local MCP on a private Unix
-socket:
+Slopshell runs with one web runtime plus private local backend/runtime links:
 
-1. `slopshell-web.service` (`slopshell server`, serving MCP over `--mcp-socket`)
+1. `slopshell-web.service` (`slopshell server`, serving the private runtime socket over `--mcp-socket`)
 3. `slopshell-codex-app-server.service`
 4. TTS sidecar on `127.0.0.1:8424/v1/audio/speech`
    - default: Piper
@@ -160,7 +172,7 @@ Why TTS remains an HTTP sidecar:
 
 - Web UI/API listener: `http://localhost:8420` (public-facing)
 - Optional HTTPS listener: add `--web-cert-file <cert.pem> --web-key-file <key.pem>` (for example on `8443`)
-- Local MCP listener: `unix:$XDG_RUNTIME_DIR/sloppy/mcp.sock` (mode 0600)
+- Private runtime socket: `unix:$XDG_RUNTIME_DIR/sloppy/mcp.sock` (mode 0600)
 - Canvas websocket relay source: `unix:$XDG_RUNTIME_DIR/sloppy/mcp.sock` (`/ws/canvas`)
 - Codex app-server websocket: `ws://127.0.0.1:8787`
 - TTS endpoint: `http://127.0.0.1:8424/v1/audio/speech`
@@ -179,11 +191,12 @@ Why TTS remains an HTTP sidecar:
 - Spark thinking budget for Spark model (fast path): `SLOPSHELL_APP_SERVER_SPARK_REASONING_EFFORT=low` (`low`/`medium`/`high`/`xhigh`)
 
 Security model:
-- MCP routes are intentionally not exposed on the web listener.
-- `slopshell server` embeds the sloptools MCP on a Unix socket; no TCP MCP
-  listener is started.
-- External agents use stdio MCP (`sloptools mcp-server`, `helpy mcp-stdio`)
-  instead of TCP.
+- MCP-style routes are intentionally not exposed on the web listener.
+- `slopshell server` exposes only a private Unix-socket runtime/control surface;
+  no TCP MCP listener is started.
+- External agents use exactly two stdio MCP servers: `sloppy`
+  (`sloptools mcp-server`) and `helpy` (`helpy mcp-stdio`).
+- `slopshell` itself is not an agent-facing MCP server.
 
 ## Temporary Voxtype Branch Pin
 
@@ -254,7 +267,10 @@ See:
 - [`docs/object-scoped-intent-ui.md`](docs/object-scoped-intent-ui.md)
 - [`docs/interfaces.md`](docs/interfaces.md)
 
-## Integration Example (Optional)
+## Private Runtime Integration Example (Optional)
+
+The socket below is for local Slopshell runtime/control integration only. It is
+not an external coding-agent registration target.
 
 ```bash
 PRODUCER_SOCKET=/path/to/producer.sock
