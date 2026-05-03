@@ -59,7 +59,7 @@ func (s *StoreSink) updateBoundItem(account store.ExternalAccount, existingBindi
 }
 
 func (s *StoreSink) applyBoundItemUpdate(account store.ExternalAccount, existingBinding store.ExternalBinding, existing store.Item, incoming store.Item, binding store.ExternalBinding, target assignment) (store.Item, error) {
-	update, err := s.itemUpdate(account, incoming, target)
+	update, err := s.itemUpdate(account, existing, incoming, target)
 	if err != nil {
 		return store.Item{}, err
 	}
@@ -284,6 +284,7 @@ func (s *StoreSink) itemCreateOptions(account store.ExternalAccount, item store.
 		ActorID:      item.ActorID,
 		VisibleAfter: item.VisibleAfter,
 		FollowUpAt:   item.FollowUpAt,
+		DueAt:        item.DueAt,
 		Source:       item.Source,
 		SourceRef:    item.SourceRef,
 	}
@@ -301,7 +302,7 @@ func (s *StoreSink) itemCreateOptions(account store.ExternalAccount, item store.
 	return opts, nil
 }
 
-func (s *StoreSink) itemUpdate(account store.ExternalAccount, item store.Item, assignment assignment) (store.ItemUpdate, error) {
+func (s *StoreSink) itemUpdate(account store.ExternalAccount, existing, item store.Item, assignment assignment) (store.ItemUpdate, error) {
 	if strings.TrimSpace(item.Title) == "" {
 		return store.ItemUpdate{}, errors.New("item title is required")
 	}
@@ -309,6 +310,7 @@ func (s *StoreSink) itemUpdate(account store.ExternalAccount, item store.Item, a
 		Title:        stringPointer(item.Title),
 		VisibleAfter: item.VisibleAfter,
 		FollowUpAt:   item.FollowUpAt,
+		DueAt:        item.DueAt,
 		Source:       item.Source,
 		SourceRef:    item.SourceRef,
 	}
@@ -318,7 +320,7 @@ func (s *StoreSink) itemUpdate(account store.ExternalAccount, item store.Item, a
 	if workspaceID := firstInt64(item.WorkspaceID, assignment.WorkspaceID); workspaceID != nil {
 		update.WorkspaceID = int64Pointer(*workspaceID)
 	}
-	if update.WorkspaceID == nil {
+	if update.WorkspaceID == nil && existing.WorkspaceID == nil {
 		sphere := strings.TrimSpace(item.Sphere)
 		if sphere == "" {
 			sphere = strings.TrimSpace(stringFromPointer(assignment.Sphere))

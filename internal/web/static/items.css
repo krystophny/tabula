@@ -56,7 +56,7 @@
   top: 0;
   z-index: 1;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(4.5rem, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   border-bottom: 1px solid #d1d5db;
   background: #f9fafb;
 }
@@ -67,11 +67,11 @@
   border: 0;
   border-right: 1px solid #d1d5db;
   border-radius: 0;
-  min-height: 38px;
-  padding: 0.48rem 0.18rem;
+  min-height: 46px;
+  padding: 0.52rem 0.38rem;
   background: transparent;
   color: #111827;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -283,7 +283,7 @@
   .sidebar-tab,
   .pr-file-item,
   .item-sidebar-menu-item {
-    min-height: 48px;
+    min-height: 52px;
   }
 
   .pr-file-item {

@@ -77,7 +77,7 @@ func runAgentHere(ctx context.Context, client *chatClient, res agentHereResoluti
 	}
 	turnCtx, cancel := context.WithTimeout(ctx, opts.timeout)
 	defer cancel()
-	final, err := client.sendAndWaitForFinal(turnCtx, workspace.ChatSessionID, agentHerePrompt, res.SourceCursor, renderer)
+	final, err := client.sendAndWaitForFinal(turnCtx, workspace.ChatSessionID, agentHerePrompt, res.SourceCursor, renderer, false)
 	if err != nil {
 		return err
 	}

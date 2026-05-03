@@ -27,3 +27,4 @@ platforms/android/build/
 platforms/android/flow-contracts/.gradle/
 platforms/android/flow-contracts/build/
 platforms/ios/.build/
+.sloptools/

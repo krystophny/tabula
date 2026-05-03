@@ -127,6 +127,9 @@ func (a *App) runLocalAssistantTurn(req *assistantTurnRequest) {
 	if a == nil || req == nil {
 		return
 	}
+	if a.tryRunDeterministicSystemActionTurn(req) {
+		return
+	}
 	if strings.TrimSpace(a.assistantLLMBaseURL()) == "" {
 		if a.tryRunLocalSystemActionTurn(req.sessionID, req.session, req.userText, req.cursorCtx, req.captureMode, req.outputMode, req.localOnly) {
 			return
@@ -228,4 +231,33 @@ func (a *App) runLocalAssistantTurn(req *assistantTurnRequest) {
 		req.outputMode,
 		newAssistantResponseMetadata(a.localAssistantProvider(), a.localAssistantModelLabel(), time.Since(turnStartedAt)),
 	)
+}
+
+func (a *App) tryRunDeterministicSystemActionTurn(req *assistantTurnRequest) bool {
+	if a == nil || req == nil || !req.localOnly || strings.TrimSpace(req.userText) == "" {
+		return false
+	}
+	now := time.Now().UTC()
+	if a.calendarNow != nil {
+		now = a.calendarNow().UTC()
+	}
+	match := tryDeterministicFastPath(req.userText, deterministicFastPathContext{
+		Now:         now,
+		CaptureMode: req.captureMode,
+		Cursor:      req.cursorCtx,
+	})
+	turnStartedAt := time.Now()
+	if match == nil {
+		if req.localOnly {
+			a.finalizeHandledLocalActionTurn(req.sessionID, req.session.WorkspacePath, req.outputMode, turnStartedAt, "I can only handle system actions in local-only mode.", nil)
+			return true
+		}
+		return false
+	}
+	message, payloads, handled := a.executeDeterministicFastPath(context.Background(), req.sessionID, req.session, req.userText, match)
+	if !handled {
+		return false
+	}
+	a.finalizeHandledLocalActionTurn(req.sessionID, req.session.WorkspacePath, req.outputMode, turnStartedAt, message, payloads)
+	return true
 }

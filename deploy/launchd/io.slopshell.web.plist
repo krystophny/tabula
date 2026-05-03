@@ -33,6 +33,8 @@
     <string>qwen3.5-9b</string>
     <key>SLOPSHELL_INTENT_LLM_PROFILE_OPTIONS</key>
     <string>qwen3.5-9b</string>
+    <key>SLOPSHELL_BRAIN_GTD_SYNC</key>
+    <string>on</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

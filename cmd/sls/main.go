@@ -305,7 +305,7 @@ func runOneShot(ctx context.Context, client *chatClient, session *chatSessionInf
 	}
 	turnCtx, cancel := context.WithTimeout(ctx, opts.timeout)
 	defer cancel()
-	final, err := client.sendAndWaitForFinal(turnCtx, session.ID, prompt, nil, renderer)
+	final, err := client.sendAndWaitForFinal(turnCtx, session.ID, prompt, nil, renderer, isLocalOnlyOneShotPrompt(prompt))
 	if err != nil {
 		if errors.Is(err, errAssistantError) {
 			fmt.Fprintf(stderr, "sls: %v\n", err)
@@ -377,7 +377,7 @@ func runREPL(ctx context.Context, client *chatClient, session *chatSessionInfo, 
 		}
 		prompt := buildPromptWithDirectives(line, activeOpts)
 		turnCtx, cancel := context.WithTimeout(ctx, activeOpts.timeout)
-		_, err := client.sendAndWaitForFinal(turnCtx, session.ID, prompt, nil, renderer)
+		_, err := client.sendAndWaitForFinal(turnCtx, session.ID, prompt, nil, renderer, isLocalOnlyOneShotPrompt(prompt))
 		cancel()
 		if err != nil {
 			fmt.Fprintln(stderr, renderer.colorize(colorRed, fmt.Sprintf("turn failed: %v", err)))
@@ -542,6 +542,18 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func isLocalOnlyOneShotPrompt(prompt string) bool {
+	clean := strings.ToLower(strings.TrimSpace(prompt))
+	clean = strings.TrimPrefix(clean, "please ")
+	clean = strings.TrimPrefix(clean, "bitte ")
+	switch clean {
+	case "sync now", "sync all", "sync everything", "sync all sources":
+		return true
+	default:
+		return false
+	}
 }
 
 func isPipedStdin(r io.Reader) bool {

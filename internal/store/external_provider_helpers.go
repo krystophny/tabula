@@ -31,7 +31,7 @@ func IsCalendarProvider(provider string) bool {
 
 func IsTaskProvider(provider string) bool {
 	switch normalizeExternalAccountProvider(provider) {
-	case ExternalProviderTodoist, ExternalProviderExchangeEWS:
+	case ExternalProviderTodoist, ExternalProviderExchangeEWS, ExternalProviderGoogleTasks:
 		return true
 	default:
 		return false
@@ -54,6 +54,10 @@ func ExternalProviderDisplayName(provider string) string {
 		return "ICS"
 	case ExternalProviderTodoist:
 		return "Todoist"
+	case ExternalProviderMarkdown:
+		return "Markdown"
+	case ExternalProviderGoogleTasks:
+		return "Google Tasks"
 	case ExternalProviderEvernote:
 		return "Evernote"
 	case ExternalProviderBear:

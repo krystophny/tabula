@@ -34,6 +34,8 @@ const (
 	ExternalProviderGoogleCalendar = "google_calendar"
 	ExternalProviderICS            = "ics"
 	ExternalProviderTodoist        = "todoist"
+	ExternalProviderMarkdown       = "markdown"
+	ExternalProviderGoogleTasks    = "google_tasks"
 	ExternalProviderEvernote       = "evernote"
 	ExternalProviderBear           = "bear"
 	ExternalProviderZotero         = "zotero"

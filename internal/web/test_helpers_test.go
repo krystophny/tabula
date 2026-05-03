@@ -20,6 +20,7 @@ const testAuthToken = "token-test"
 func newAuthedTestApp(t *testing.T) *App {
 	t.Helper()
 	t.Setenv("SLOPSHELL_BACKGROUND_SYNC", "off")
+	t.Setenv("SLOPSHELL_BRAIN_GTD_SYNC", "off")
 	t.Setenv("SLOPSHELL_HELPY_BIN", "off")
 	app, err := New(t.TempDir(), "", "", "", "", "", "", false)
 	if err != nil {

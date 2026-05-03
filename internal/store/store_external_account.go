@@ -33,6 +33,10 @@ func normalizeExternalAccountProvider(raw string) string {
 		return ExternalProviderICS
 	case ExternalProviderTodoist:
 		return ExternalProviderTodoist
+	case ExternalProviderMarkdown:
+		return ExternalProviderMarkdown
+	case ExternalProviderGoogleTasks:
+		return ExternalProviderGoogleTasks
 	case ExternalProviderEvernote:
 		return ExternalProviderEvernote
 	case ExternalProviderBear:

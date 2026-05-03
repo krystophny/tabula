@@ -15,7 +15,7 @@ import (
 const (
 	sourceSyncDefaultInterval = 5 * time.Minute
 	sourceSyncStaleAfter      = 24 * time.Hour
-	sourceSyncCommandTimeout  = 45 * time.Second
+	sourceSyncCommandTimeout  = 2 * time.Minute
 )
 
 type sourceSyncRunner interface {
@@ -112,11 +112,6 @@ func (a *App) newSourceSyncRunner() sourceSyncRunner {
 			continueSync: a.emailSourceContinuation,
 		},
 		{
-			name:        store.ExternalProviderTodoist,
-			syncAccount: a.syncTodoistAccount,
-			onSynced:    a.handleSourceSyncCount,
-		},
-		{
 			name: store.ExternalProviderEvernote,
 			syncAccount: func(ctx context.Context, account store.ExternalAccount) (int, error) {
 				result, err := a.syncEvernoteAccount(ctx, account)
@@ -140,6 +135,13 @@ func (a *App) newSourceSyncRunner() sourceSyncRunner {
 			},
 			onSynced: a.handleSourceSyncCount,
 		},
+	}
+	if !brainGTDSyncEnabled() {
+		providers = append(providers, &accountSyncProvider{
+			name:        store.ExternalProviderTodoist,
+			syncAccount: a.syncTodoistAccount,
+			onSynced:    a.handleSourceSyncCount,
+		})
 	}
 	for _, provider := range providers {
 		engine.Register(provider)
@@ -181,6 +183,11 @@ func (a *App) runSourcePoller(ctx context.Context) {
 	if a == nil {
 		return
 	}
+	if brainGTDSyncEnabled() {
+		if err := sleepSourcePoller(ctx, 2*time.Second); err != nil {
+			return
+		}
+	}
 	for {
 		delay := sourceSyncDefaultInterval
 		if a.sourceSync != nil {
@@ -190,12 +197,9 @@ func (a *App) runSourcePoller(ctx context.Context) {
 					return
 				}
 				log.Printf("source poller: %v", err)
-				if err := sleepSourcePoller(ctx, sourceSyncDefaultInterval); err != nil {
-					return
-				}
-				continue
+			} else {
+				delay = nextSourceSyncDelay(result.NextDelay)
 			}
-			delay = nextSourceSyncDelay(result.NextDelay)
 		}
 		if changed, err := a.syncTrackedGitHubIssues(ctx, nil, nil); err != nil {
 			if ctx.Err() != nil {
@@ -204,6 +208,14 @@ func (a *App) runSourcePoller(ctx context.Context) {
 			log.Printf("source poller github issues: %v", err)
 		} else if changed > 0 {
 			a.broadcastItemsIngested(changed, "github")
+		}
+		if result, err := a.syncBrainGTDReviewLists(ctx); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Printf("source poller gtd: %v", err)
+		} else if result.Migrated > 0 || result.Merged > 0 {
+			log.Printf("source poller gtd: migrated=%d merged=%d imported=%d", result.Migrated, result.Merged, result.Imported)
 		}
 		if err := sleepSourcePoller(ctx, delay); err != nil {
 			return
@@ -237,6 +249,9 @@ func (a *App) syncSourcesNow(ctx context.Context) (tabsync.RunResult, error) {
 		return tabsync.RunResult{}, fmt.Errorf("no external source poller is configured")
 	}
 	result := tabsync.RunResult{}
+	if _, err := a.syncBrainGTDReviewLists(ctx); err != nil {
+		return tabsync.RunResult{}, err
+	}
 	if a.sourceSync != nil {
 		var err error
 		result, err = a.sourceSync.RunNow(ctx)

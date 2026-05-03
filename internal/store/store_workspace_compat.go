@@ -10,18 +10,12 @@ import (
 	"time"
 )
 
-// Project is a temporary type alias kept so callers outside this package
-// continue to compile while they migrate to Workspace.
-
-
 const (
 	appStateActiveWorkspaceIDKey = "active_workspace_id"
-	// DB-stored key prefixes are intentionally kept unchanged for backward
-	// compatibility with existing databases.
-	workspaceNameStatePrefix     = "project_name:"
-	workspacePathStatePrefix     = "project_workspace_path:"
-	workspaceRootPathStatePrefix = "project_root_path:"
-	workspaceKindStatePrefix     = "project_kind:"
+	workspaceNameStatePrefix     = "workspace_name:"
+	workspacePathStatePrefix     = "workspace_path:"
+	workspaceRootPathStatePrefix = "workspace_root_path:"
+	workspaceKindStatePrefix     = "workspace_kind:"
 )
 
 func workspaceIDString(id int64) string {
@@ -136,9 +130,8 @@ func (s *Store) ListEnrichedWorkspaces() ([]Workspace, error) {
 	return workspaces, nil
 }
 
-// GetProject returns a workspace by string ID, enriched with app_state
-// metadata. This is a compatibility shim; callers should migrate to
-// GetWorkspace with int64 IDs.
+// GetEnrichedWorkspace returns a workspace by string ID, enriched with
+// app_state metadata.
 func (s *Store) GetEnrichedWorkspace(id string) (Workspace, error) {
 	workspaceID, err := parseWorkspaceIDString(id)
 	if err != nil {
@@ -326,8 +319,8 @@ func (s *Store) SetActiveWorkspaceID(workspaceID string) error {
 }
 
 func (s *Store) ActiveWorkspaceID() (string, error) {
-	if activeProjectID, err := s.activeWorkspaceIDFromState(); err == nil && strings.TrimSpace(activeProjectID) != "" {
-		return strings.TrimSpace(activeProjectID), nil
+	if activeWorkspaceID, err := s.activeWorkspaceIDFromState(); err == nil && strings.TrimSpace(activeWorkspaceID) != "" {
+		return strings.TrimSpace(activeWorkspaceID), nil
 	} else if err != nil {
 		return "", err
 	}
@@ -435,7 +428,7 @@ func (s *Store) DeleteEnrichedWorkspace(workspaceID string) error {
 	if err != nil {
 		return err
 	}
-	if activeProjectID, err := s.activeWorkspaceIDFromState(); err == nil && strings.TrimSpace(activeProjectID) == workspaceIDString(workspaceNumericID) {
+	if activeWorkspaceID, err := s.activeWorkspaceIDFromState(); err == nil && strings.TrimSpace(activeWorkspaceID) == workspaceIDString(workspaceNumericID) {
 		if err := s.SetAppState(appStateActiveWorkspaceIDKey, ""); err != nil {
 			return err
 		}

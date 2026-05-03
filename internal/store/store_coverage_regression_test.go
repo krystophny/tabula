@@ -25,6 +25,8 @@ func TestExternalProviderHelpers(t *testing.T) {
 		{provider: ExternalProviderGoogleCalendar, calendar: true, displayName: "Google Calendar"},
 		{provider: ExternalProviderICS, calendar: true, displayName: "ICS"},
 		{provider: ExternalProviderTodoist, task: true, displayName: "Todoist"},
+		{provider: ExternalProviderMarkdown, displayName: "Markdown"},
+		{provider: ExternalProviderGoogleTasks, task: true, displayName: "Google Tasks"},
 		{provider: ExternalProviderEvernote, displayName: "Evernote"},
 		{provider: ExternalProviderBear, displayName: "Bear"},
 		{provider: ExternalProviderZotero, displayName: "Zotero"},
@@ -318,6 +320,49 @@ func TestWorkspaceCompatLookupHelpers(t *testing.T) {
 
 	if got := s.appServerModelProfileForWorkspacePath(workspace.WorkspacePath); got != "local" {
 		t.Fatalf("appServerModelProfileForWorkspacePath() = %q, want local", got)
+	}
+}
+
+func TestWorkspaceAppStateMigrationRenamesLegacyProjectKeys(t *testing.T) {
+	s := newTestStore(t)
+
+	legacyRows := map[string]string{
+		"active_project_id":        "9",
+		"project_name:9":           "Work brain",
+		"project_workspace_path:9": "/tmp/work/brain",
+		"project_root_path:9":      "/tmp/work",
+		"project_kind:9":           "linked",
+	}
+	for key, value := range legacyRows {
+		if err := s.SetAppState(key, value); err != nil {
+			t.Fatalf("SetAppState(%s) error: %v", key, err)
+		}
+	}
+
+	if err := migrateWorkspaceAppStateKeys(s.db); err != nil {
+		t.Fatalf("migrateWorkspaceAppStateKeys() error: %v", err)
+	}
+
+	expected := map[string]string{
+		"workspace_name:9":      "Work brain",
+		"workspace_path:9":      "/tmp/work/brain",
+		"workspace_root_path:9": "/tmp/work",
+		"workspace_kind:9":      "linked",
+	}
+	for key, want := range expected {
+		got, err := s.AppState(key)
+		if err != nil {
+			t.Fatalf("AppState(%s) error: %v", key, err)
+		}
+		if got != want {
+			t.Fatalf("AppState(%s) = %q, want %q", key, got, want)
+		}
+	}
+	for key := range legacyRows {
+		got, err := s.AppState(key)
+		if err != nil || got != "" {
+			t.Fatalf("legacy AppState(%s) = %q, %v; want empty value and nil error", key, got, err)
+		}
 	}
 }
 

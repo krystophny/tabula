@@ -2,8 +2,12 @@ package web
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -85,6 +89,7 @@ func TestSourcePollerLoopRunsRunnerUntilCanceled(t *testing.T) {
 
 func TestSyncNowCommandForcesImmediateRun(t *testing.T) {
 	app := newAuthedTestApp(t)
+	setLivePolicyForTest(t, app, LivePolicyMeeting)
 	startupWorkspace, err := app.ensureStartupWorkspace()
 	if err != nil {
 		t.Fatalf("ensureStartupWorkspace: %v", err)
@@ -124,6 +129,81 @@ func TestSyncNowCommandForcesImmediateRun(t *testing.T) {
 	runner, _ := app.sourceSync.(*stubSourceSyncRunner)
 	if runner.runNowCount != 1 {
 		t.Fatalf("runNowCount = %d, want 1", runner.runNowCount)
+	}
+}
+
+func TestSyncNowCommandReportsRunnerFailure(t *testing.T) {
+	app := newAuthedTestApp(t)
+	setLivePolicyForTest(t, app, LivePolicyMeeting)
+	startupWorkspace, err := app.ensureStartupWorkspace()
+	if err != nil {
+		t.Fatalf("ensureStartupWorkspace: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSessionForWorkspace(startupWorkspace.ID)
+	if err != nil {
+		t.Fatalf("GetOrCreateChatSession: %v", err)
+	}
+	app.sourceSync = &stubSourceSyncRunner{
+		runNowErr: errors.New("external account password is not configured"),
+	}
+
+	message, payloads, handled := app.classifyAndExecuteSystemAction(context.Background(), session.ID, session, "sync now")
+	if !handled {
+		t.Fatal("expected sync now failure to be handled locally")
+	}
+	if message != "I couldn't sync external sources: external account password is not configured" {
+		t.Fatalf("message = %q, want sync failure", message)
+	}
+	if len(payloads) != 0 {
+		t.Fatalf("payload count = %d, want 0", len(payloads))
+	}
+}
+
+func TestSyncNowLocalOnlyBypassesConfiguredLocalLLM(t *testing.T) {
+	var llmCalls atomic.Int32
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		llmCalls.Add(1)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"wrong path"}}]}`))
+	}))
+	defer llm.Close()
+
+	app := newAuthedTestApp(t)
+	app.assistantMode = assistantModeLocal
+	app.assistantLLMURL = llm.URL
+	startupWorkspace, err := app.ensureStartupWorkspace()
+	if err != nil {
+		t.Fatalf("ensureStartupWorkspace: %v", err)
+	}
+	session, err := app.store.GetOrCreateChatSessionForWorkspace(startupWorkspace.ID)
+	if err != nil {
+		t.Fatalf("GetOrCreateChatSession: %v", err)
+	}
+	app.sourceSync = &stubSourceSyncRunner{
+		runNowResult: tabsync.RunResult{Accounts: []tabsync.AccountResult{
+			{AccountID: 1, Provider: "markdown", AccountName: "brain"},
+		}},
+	}
+
+	conn, clientConn, cleanup := newParticipantTestWSConn(t)
+	defer cleanup()
+	app.hub.registerChat(session.ID, conn)
+	defer app.hub.unregisterChat(session.ID, conn)
+
+	app.runLocalAssistantTurn(&assistantTurnRequest{
+		sessionID:  session.ID,
+		session:    session,
+		userText:   "sync now",
+		outputMode: turnOutputModeSilent,
+		localOnly:  true,
+	})
+
+	payload := waitForWSJSONMessageType(t, clientConn, 2*time.Second, "assistant_output")
+	message := strFromAny(payload["message"])
+	if !strings.Contains(message, "Polled 1 external source account") {
+		t.Fatalf("assistant output = %q, want sync summary", message)
+	}
+	if got := llmCalls.Load(); got != 0 {
+		t.Fatalf("LLM calls = %d, want 0", got)
 	}
 }
 

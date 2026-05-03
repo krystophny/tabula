@@ -380,7 +380,7 @@ func (c *chatClient) sendCommand(ctx context.Context, sessionID, command string)
 	return result, nil
 }
 
-func (c *chatClient) sendAndWaitForFinal(ctx context.Context, sessionID, prompt string, cursor *chatMessageCursor, renderer *renderer) (string, error) {
+func (c *chatClient) sendAndWaitForFinal(ctx context.Context, sessionID, prompt string, cursor *chatMessageCursor, renderer *renderer, localOnly bool) (string, error) {
 	ws, err := c.dialChatWS(ctx, sessionID)
 	if err != nil {
 		return "", fmt.Errorf("ws dial: %w", err)
@@ -391,7 +391,7 @@ func (c *chatClient) sendAndWaitForFinal(ctx context.Context, sessionID, prompt 
 	payload, _ := json.Marshal(map[string]any{
 		"text":        prompt,
 		"output_mode": "silent",
-		"local_only":  false,
+		"local_only":  localOnly,
 		"cursor":      cursor,
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.urlFor("/api/chat/sessions/"+url.PathEscape(sessionID)+"/messages"), bytes.NewReader(payload))

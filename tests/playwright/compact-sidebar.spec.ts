@@ -167,6 +167,43 @@ test.describe('compact sidebar navigation (#746)', () => {
     await expect(page.locator('#pr-file-list .pr-file-item[data-item-id="702"]')).toContainText('New uncategorized mail');
   });
 
+  test('done and files use phone-sized sidebar targets', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 760 });
+    await waitReady(page);
+    await page.evaluate(() => {
+      (window as any).__setItemSidebarData({
+        inbox: [{ id: 704, title: 'Loose inbox item', state: 'inbox', sphere: 'private' }],
+        next: [],
+        waiting: [],
+        deferred: [],
+        someday: [],
+        review: [],
+        done: [{ id: 703, title: 'Closed task', state: 'done', sphere: 'private' }],
+      });
+    });
+    await openInbox(page);
+    await page.evaluate(async () => {
+      const mod = await import('../../internal/web/static/app-item-sidebar-utils.js');
+      await mod.refreshItemSidebarCounts();
+    });
+
+    const doneTab = page.locator('.sidebar-tab', { hasText: /^Done/ });
+    const filesTab = page.locator('.sidebar-tab', { hasText: /^Files$/ });
+    await expect(doneTab).toBeVisible();
+    await expect(filesTab).toBeVisible();
+
+    const boxes = await Promise.all([doneTab.boundingBox(), filesTab.boundingBox()]);
+    for (const box of boxes) {
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(48);
+      expect(box?.width ?? 0).toBeGreaterThanOrEqual(120);
+    }
+
+    await doneTab.click();
+    await expect(page.locator('#pr-file-list .pr-file-item[data-item-id="703"]')).toContainText('Closed task');
+    await filesTab.click();
+    await expect(filesTab).toHaveClass(/is-active/);
+  });
+
   test('activating a linked action reopens its remembered workspace', async ({ page }) => {
     await waitReady(page);
     await seedRuntimeWorkspaces(page, '1');

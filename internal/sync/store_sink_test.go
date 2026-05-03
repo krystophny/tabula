@@ -89,6 +89,54 @@ func TestStoreSinkUpsertItemUsesContainerMappingAndBinding(t *testing.T) {
 	}
 }
 
+func TestStoreSinkUpdatesWorkspaceItemWithoutWritingSphere(t *testing.T) {
+	s := newTestStore(t)
+	sink := tabsync.NewStoreSink(s)
+
+	account, err := s.CreateExternalAccount(store.SphereWork, store.ExternalProviderMarkdown, "markdown", nil)
+	if err != nil {
+		t.Fatalf("CreateExternalAccount() error: %v", err)
+	}
+	workspace, err := s.CreateWorkspace("brain", filepath.Join(t.TempDir(), "brain"), store.SphereWork)
+	if err != nil {
+		t.Fatalf("CreateWorkspace() error: %v", err)
+	}
+	ref := "brain/commitments/a.md"
+	source := store.ExternalProviderMarkdown
+	item, err := s.CreateItem("Old title", store.ItemOptions{
+		WorkspaceID: &workspace.ID,
+		Source:      &source,
+		SourceRef:   &ref,
+	})
+	if err != nil {
+		t.Fatalf("CreateItem() error: %v", err)
+	}
+	if _, err := s.UpsertExternalBinding(store.ExternalBinding{
+		AccountID: account.ID, Provider: account.Provider, ObjectType: "commitment", RemoteID: ref, ItemID: &item.ID,
+	}); err != nil {
+		t.Fatalf("UpsertExternalBinding() error: %v", err)
+	}
+
+	updated, err := sink.UpsertItemFromSource(context.Background(), store.Item{
+		Title:     "Canonical title",
+		State:     store.ItemStateNext,
+		Sphere:    store.SphereWork,
+		Source:    &source,
+		SourceRef: &ref,
+	}, store.ExternalBinding{
+		AccountID: account.ID, Provider: account.Provider, ObjectType: "commitment", RemoteID: ref,
+	})
+	if err != nil {
+		t.Fatalf("UpsertItemFromSource(update) error: %v", err)
+	}
+	if updated.ID != item.ID || updated.WorkspaceID == nil || *updated.WorkspaceID != workspace.ID {
+		t.Fatalf("updated item = %#v, want same workspace item", updated)
+	}
+	if updated.Title != "Canonical title" {
+		t.Fatalf("updated title = %q", updated.Title)
+	}
+}
+
 func TestStoreSinkUpsertArtifactLinksWorkspaceAndTracksBinding(t *testing.T) {
 	s := newTestStore(t)
 	sink := tabsync.NewStoreSink(s)

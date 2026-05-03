@@ -15,7 +15,9 @@ func (s *Store) migrateProjectRemovalSupport() error {
 		!tableColumns["time_entries"]["project_id"] &&
 		!tableColumns["external_container_mappings"]["project_id"] {
 		_, _ = s.db.Exec(`DROP TABLE IF EXISTS projects`)
-		_, _ = s.db.Exec(`DELETE FROM app_state WHERE key = 'active_project_id'`)
+		if err := migrateWorkspaceAppStateKeys(s.db); err != nil {
+			return err
+		}
 		return s.repairProjectLegacyForeignKeyTargets()
 	}
 	if _, err := s.db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
@@ -135,13 +137,43 @@ FROM external_container_mappings_project_legacy`); err != nil {
 	if _, err := tx.Exec(`DROP TABLE IF EXISTS projects`); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM app_state WHERE key = 'active_project_id'`); err != nil {
+	if err := migrateWorkspaceAppStateKeys(tx); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
 	return s.repairProjectLegacyForeignKeyTargets()
+}
+
+type sqlExecer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func migrateWorkspaceAppStateKeys(exec sqlExecer) error {
+	replacements := []struct {
+		oldPrefix string
+		newPrefix string
+	}{
+		{"project_name:", "workspace_name:"},
+		{"project_workspace_path:", "workspace_path:"},
+		{"project_root_path:", "workspace_root_path:"},
+		{"project_kind:", "workspace_kind:"},
+	}
+	for _, replacement := range replacements {
+		if _, err := exec.Exec(`
+INSERT OR REPLACE INTO app_state(key, value)
+SELECT ? || substr(key, length(?) + 1), value
+FROM app_state
+WHERE key GLOB ?`, replacement.newPrefix, replacement.oldPrefix, replacement.oldPrefix+"*"); err != nil {
+			return err
+		}
+		if _, err := exec.Exec(`DELETE FROM app_state WHERE key GLOB ?`, replacement.oldPrefix+"*"); err != nil {
+			return err
+		}
+	}
+	_, err := exec.Exec(`DELETE FROM app_state WHERE key = 'active_project_id'`)
+	return err
 }
 
 type projectLegacyForeignKeyRepairSpec struct {

@@ -765,6 +765,16 @@ func (a *App) evaluateLocalTurn(ctx context.Context, sessionID string, session s
 		}
 		return a.executeDeterministicFastPath(ctx, sessionID, session, trimmedText, match)
 	}
+	if action := parseInlineSourceSyncIntent(intentText); action != nil {
+		match := fastPathSingleAction("source_sync", action, fixedFastPathFailure(sourceSyncActionFailurePrefix(action.Action)))
+		if message, payloads, handled := a.executeDeterministicFastPath(ctx, sessionID, session, trimmedText, match); handled {
+			return localTurnEvaluation{
+				handled:  true,
+				text:     message,
+				payloads: payloads,
+			}
+		}
+	}
 	if assumeAddressed {
 		if message, payloads, handled := tryDeterministicPlan(); handled {
 			return localTurnEvaluation{
