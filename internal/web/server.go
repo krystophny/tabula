@@ -65,8 +65,8 @@ var staticFiles embed.FS
 type App struct {
 	dataDir                       string
 	localProjectDir               string
-	localMCPSocket                string
-	localMCPEndpoint              mcpEndpoint
+	localControlSocket            string
+	localControlEndpoint          mcpEndpoint
 	helpyEndpoint                 mcpEndpoint
 	appServerURL                  string
 	appServerModel                string
@@ -160,7 +160,7 @@ type App struct {
 
 const DefaultModel = modelprofile.ModelLocal
 
-func New(dataDir, localProjectDir, localMCPSocket, appServerURL, model, ttsURL, sparkReasoningEffort string, devRuntime bool) (*App, error) {
+func New(dataDir, localProjectDir, localControlSocket, appServerURL, model, ttsURL, sparkReasoningEffort string, devRuntime bool) (*App, error) {
 	s, err := store.New(filepath.Join(dataDir, "slopshell.db"))
 	if err != nil {
 		return nil, err
@@ -213,17 +213,17 @@ func New(dataDir, localProjectDir, localMCPSocket, appServerURL, model, ttsURL, 
 	if strings.EqualFold(resolvedAssistantLLMModel, "off") {
 		resolvedAssistantLLMModel = ""
 	}
-	resolvedLocalMCPSocket := strings.TrimSpace(localMCPSocket)
-	if resolvedLocalMCPSocket == "" {
-		resolvedLocalMCPSocket = strings.TrimSpace(os.Getenv("SLOPSHELL_MCP_SOCKET"))
+	resolvedLocalControlSocket := strings.TrimSpace(localControlSocket)
+	if resolvedLocalControlSocket == "" {
+		resolvedLocalControlSocket = strings.TrimSpace(os.Getenv("SLOPSHELL_CONTROL_SOCKET"))
 	}
-	if resolvedLocalMCPSocket == "" {
-		resolvedLocalMCPSocket = defaultLocalMCPSocket()
+	if resolvedLocalControlSocket == "" {
+		resolvedLocalControlSocket = defaultLocalControlSocket()
 	}
-	resolvedLocalMCPEndpoint, mcpErr := parseEndpoint(resolvedLocalMCPSocket)
-	if mcpErr != nil {
+	resolvedLocalControlEndpoint, controlErr := parseEndpoint(resolvedLocalControlSocket)
+	if controlErr != nil {
 		cleanup()
-		return nil, mcpErr
+		return nil, controlErr
 	}
 	resolvedHelpySocket := strings.TrimSpace(os.Getenv("SLOPSHELL_HELPY_SOCKET"))
 	if strings.EqualFold(resolvedHelpySocket, "off") {
@@ -337,8 +337,8 @@ func New(dataDir, localProjectDir, localMCPSocket, appServerURL, model, ttsURL, 
 	app := &App{
 		dataDir:                       dataDir,
 		localProjectDir:               localProjectDir,
-		localMCPSocket:                resolvedLocalMCPEndpoint.socket,
-		localMCPEndpoint:              resolvedLocalMCPEndpoint,
+		localControlSocket:            resolvedLocalControlEndpoint.socket,
+		localControlEndpoint:          resolvedLocalControlEndpoint,
 		helpyEndpoint:                 resolvedHelpyEndpoint,
 		appServerURL:                  appServerURL,
 		appServerModel:                resolvedModel,
@@ -669,7 +669,7 @@ func (a *App) handleRuntime(w http.ResponseWriter, r *http.Request) {
 		"started_at":                  a.startedAt,
 		"version":                     "0.2.1",
 		"dev_mode":                    a.devRuntime,
-		"local_mcp_socket":            a.localMCPSocket,
+		"local_control_socket":        a.localControlSocket,
 		"helpy_socket":                a.helpyEndpoint.socket,
 		"app_server_url":              a.appServerURL,
 		"app_server_model":            a.appServerModel,
@@ -928,8 +928,8 @@ func (a *App) start(host string, port int, certFile, keyFile string) error {
 	}
 	if a.localProjectDir != "" {
 		fmt.Printf("  local workspace: %s\n", a.localProjectDir)
-		if a.localMCPSocket != "" {
-			fmt.Printf("  local MCP:     unix:%s (mode 0600)\n", a.localMCPSocket)
+		if a.localControlSocket != "" {
+			fmt.Printf("  local control: unix:%s (mode 0600)\n", a.localControlSocket)
 		}
 	}
 	if a.helpyEndpoint.socket != "" {

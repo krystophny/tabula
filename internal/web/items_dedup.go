@@ -80,8 +80,8 @@ func (a *App) refreshSloptoolsItemDedupCandidates(ctx context.Context, filter st
 		return nil
 	}
 	client, err := aggregateitem.NewClient(
-		a.localMCPEndpointURL(),
-		a.localMCPEndpoint.HTTPClient(20*time.Second),
+		a.localControlEndpointURL(),
+		a.localControlEndpoint.HTTPClient(20*time.Second),
 	)
 	if err != nil {
 		return err
@@ -110,13 +110,13 @@ func sloptoolsDedupUnavailable(err error) bool {
 }
 
 func (a *App) sloptoolsDedupEndpointReady() bool {
-	if !a.localMCPEndpoint.ok() {
+	if !a.localControlEndpoint.ok() {
 		return false
 	}
-	if a.localMCPEndpoint.socket == "" {
-		return strings.TrimSpace(a.localMCPEndpoint.httpURL) != ""
+	if a.localControlEndpoint.socket == "" {
+		return strings.TrimSpace(a.localControlEndpoint.httpURL) != ""
 	}
-	if _, err := os.Stat(a.localMCPEndpoint.socket); err != nil {
+	if _, err := os.Stat(a.localControlEndpoint.socket); err != nil {
 		return false
 	}
 	return true

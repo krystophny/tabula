@@ -1,4 +1,4 @@
-package mcp
+package runtimecontrol
 
 import (
 	"bufio"
@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	ServerName            = "sloppy"
+	ServerName            = "slopshell-runtime-control"
 	ServerVersion         = "0.2.1"
 	LatestProtocolVersion = "2025-03-26"
 	defaultProducerMCPURL = "http://127.0.0.1:8090/mcp"

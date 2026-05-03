@@ -95,17 +95,17 @@ AI surface.
 ```bash
 slopshell bootstrap --workspace-dir .
 ./scripts/setup-slopshell-mcp.sh
-sloptools mcp-server --workspace-dir . --data-dir ~/.local/share/sloppy
+sloptools mcp-server --project-dir . --data-dir ~/.local/share/sloppy
 helpy mcp-serve --unix-socket "${XDG_RUNTIME_DIR:-$HOME/.cache}/sloppy/helpy.sock"
-slopshell server --workspace-dir . --data-dir ~/.slopshell-web --mcp-socket "${XDG_RUNTIME_DIR:-$HOME/.cache}/sloppy/mcp.sock" --web-host 0.0.0.0 --web-port 8420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424
-slopshell server --workspace-dir . --data-dir ~/.slopshell-web --mcp-socket "${XDG_RUNTIME_DIR:-$HOME/.cache}/sloppy/mcp.sock" --web-host 0.0.0.0 --web-port 8443 --web-cert-file ~/.config/slopshell/certs/slopshell.pem --web-key-file ~/.config/slopshell/certs/slopshell-key.pem --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424
+slopshell server --workspace-dir . --data-dir ~/.slopshell-web --control-socket "${XDG_RUNTIME_DIR:-$HOME/.cache}/sloppy/control.sock" --web-host 0.0.0.0 --web-port 8420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424
+slopshell server --workspace-dir . --data-dir ~/.slopshell-web --control-socket "${XDG_RUNTIME_DIR:-$HOME/.cache}/sloppy/control.sock" --web-host 0.0.0.0 --web-port 8443 --web-cert-file ~/.config/slopshell/certs/slopshell.pem --web-key-file ~/.config/slopshell/certs/slopshell-key.pem --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424
 ```
 
 ## Terminal client: `sls`
 
 `sls` is a minimal terminal chat client that talks to the running
 `slopshell server` over the same HTTP/WS API the browser uses. It reuses the
-existing tool surface (local LLM, shell tool, MCP mail/calendar/items) and the
+existing tool surface (local LLM, shell tool, mail/calendar/items) and the
 remote Codex app-server for GPT/Spark routing — no extra services required.
 
 Build and install to `$HOME/.local/bin/sls` (or set `SLOPSHELL_BIN_DIR`):
@@ -152,7 +152,7 @@ go test -tags=e2e ./cmd/sls/...
 
 Slopshell runs with one web runtime plus private local backend/runtime links:
 
-1. `slopshell-web.service` (`slopshell server`, serving the private runtime socket over `--mcp-socket`)
+1. `slopshell-web.service` (`slopshell server`, serving the private runtime socket over `--control-socket`)
 3. `slopshell-codex-app-server.service`
 4. TTS sidecar on `127.0.0.1:8424/v1/audio/speech`
    - default: Piper
@@ -172,8 +172,8 @@ Why TTS remains an HTTP sidecar:
 
 - Web UI/API listener: `http://localhost:8420` (public-facing)
 - Optional HTTPS listener: add `--web-cert-file <cert.pem> --web-key-file <key.pem>` (for example on `8443`)
-- Private runtime socket: `unix:$XDG_RUNTIME_DIR/sloppy/mcp.sock` (mode 0600)
-- Canvas websocket relay source: `unix:$XDG_RUNTIME_DIR/sloppy/mcp.sock` (`/ws/canvas`)
+- Private runtime socket: `unix:$XDG_RUNTIME_DIR/sloppy/control.sock` (mode 0600)
+- Canvas websocket relay source: `unix:$XDG_RUNTIME_DIR/sloppy/control.sock` (`/ws/canvas`)
 - Codex app-server websocket: `ws://127.0.0.1:8787`
 - TTS endpoint: `http://127.0.0.1:8424/v1/audio/speech`
 - Voxtype STT endpoint: `http://127.0.0.1:8427/v1/audio/transcriptions`
@@ -197,6 +197,8 @@ Security model:
 - External agents use exactly two stdio MCP servers: `sloppy`
   (`sloptools mcp-server`) and `helpy` (`helpy mcp-stdio`).
 - `slopshell` itself is not an agent-facing MCP server.
+- The private control RPC path on the local socket is intentionally undocumented
+  and unsupported as a public integration surface.
 
 ## Temporary Voxtype Branch Pin
 
@@ -228,7 +230,7 @@ Example with `mkcert`:
 mkdir -p ~/.config/slopshell/certs
 mkcert -install
 mkcert -cert-file ~/.config/slopshell/certs/slopshell.pem -key-file ~/.config/slopshell/certs/slopshell-key.pem localhost 127.0.0.1 ::1 192.168.1.50
-slopshell server --workspace-dir . --data-dir ~/.slopshell-web --mcp-socket "${XDG_RUNTIME_DIR:-$HOME/.cache}/sloppy/mcp.sock" --web-host 0.0.0.0 --web-port 8443 --web-cert-file ~/.config/slopshell/certs/slopshell.pem --web-key-file ~/.config/slopshell/certs/slopshell-key.pem --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424
+slopshell server --workspace-dir . --data-dir ~/.slopshell-web --control-socket "${XDG_RUNTIME_DIR:-$HOME/.cache}/sloppy/control.sock" --web-host 0.0.0.0 --web-port 8443 --web-cert-file ~/.config/slopshell/certs/slopshell.pem --web-key-file ~/.config/slopshell/certs/slopshell-key.pem --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424
 ```
 
 If a second device (for example a Mac) connects to this server, trust the same local CA on that device too.
@@ -266,28 +268,6 @@ Markdown text artifacts support TeX math rendering via MathJax.
 See:
 - [`docs/object-scoped-intent-ui.md`](docs/object-scoped-intent-ui.md)
 - [`docs/interfaces.md`](docs/interfaces.md)
-
-## Private Runtime Integration Example (Optional)
-
-The socket below is for local Slopshell runtime/control integration only. It is
-not an external coding-agent registration target.
-
-```bash
-PRODUCER_SOCKET=/path/to/producer.sock
-CONSUMER_SOCKET=${XDG_RUNTIME_DIR:-$HOME/.cache}/sloppy/mcp.sock
-
-handoff_id=$(
-  curl -sS --unix-socket "$PRODUCER_SOCKET" -X POST http://unix/mcp -H 'content-type: application/json' \
-    -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"handoff.create","arguments":{"kind":"file","selector":{"path":"README.md"}}}}' \
-  | jq -r '.result.structuredContent.handoff_id'
-)
-
-curl -sS --unix-socket "$CONSUMER_SOCKET" -X POST http://unix/mcp -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"canvas_session_open","arguments":{"session_id":"local"}}}'
-
-curl -sS --unix-socket "$CONSUMER_SOCKET" -X POST http://unix/mcp -H 'content-type: application/json' \
-  -d "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"canvas_import_handoff\",\"arguments\":{\"session_id\":\"local\",\"handoff_id\":\"$handoff_id\",\"producer_mcp_url\":\"unix:$PRODUCER_SOCKET\",\"title\":\"Imported File\"}}}"
-```
 
 ## Tests
 

@@ -10,7 +10,7 @@ import (
 func TestSyncBrainGTDReviewListsImportsCanonicalMarkdownAndGoogleTasks(t *testing.T) {
 	app := newAuthedTestApp(t)
 	t.Setenv("SLOPSHELL_BRAIN_GTD_SYNC", "on")
-	app.localMCPEndpoint = mcpEndpoint{httpURL: "http://mcp.test"}
+	app.localControlEndpoint = mcpEndpoint{httpURL: "http://mcp.test"}
 	restoreBrainGTDFetchers(t)
 	fetchBrainGTDCommitmentList = func(_ *App, _ context.Context, _ string) (brainGTDCommitmentList, error) {
 		return brainGTDCommitmentList{}, nil
@@ -71,7 +71,7 @@ func TestSyncBrainGTDReviewListsImportsCanonicalMarkdownAndGoogleTasks(t *testin
 func TestSyncBrainGTDReviewListsMigratesTodoistItemsToCanonicalMarkdown(t *testing.T) {
 	app := newAuthedTestApp(t)
 	t.Setenv("SLOPSHELL_BRAIN_GTD_SYNC", "on")
-	app.localMCPEndpoint = mcpEndpoint{httpURL: "http://mcp.test"}
+	app.localControlEndpoint = mcpEndpoint{httpURL: "http://mcp.test"}
 	restoreBrainGTDFetchers(t)
 	account, err := app.store.CreateExternalAccount(store.SphereWork, store.ExternalProviderTodoist, "Todoist", nil)
 	if err != nil {
@@ -147,7 +147,7 @@ func TestSyncBrainGTDReviewListsMigratesTodoistItemsToCanonicalMarkdown(t *testi
 func TestSyncBrainGTDReviewListsRepairsStaleMarkdownBinding(t *testing.T) {
 	app := newAuthedTestApp(t)
 	t.Setenv("SLOPSHELL_BRAIN_GTD_SYNC", "on")
-	app.localMCPEndpoint = mcpEndpoint{httpURL: "http://mcp.test"}
+	app.localControlEndpoint = mcpEndpoint{httpURL: "http://mcp.test"}
 	restoreBrainGTDFetchers(t)
 
 	account, err := app.store.CreateExternalAccount(store.SphereWork, store.ExternalProviderMarkdown, "GTD Markdown work", nil)

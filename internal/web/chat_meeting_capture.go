@@ -176,7 +176,7 @@ func (a *App) ingestMeetingActionNote(ctx context.Context, workspace store.Works
 	if err != nil {
 		return nil, "", err
 	}
-	client, err := aggregateitem.NewClient(a.localMCPEndpointURL(), a.localMCPEndpoint.HTTPClient(20*time.Second))
+	client, err := aggregateitem.NewClient(a.localControlEndpointURL(), a.localControlEndpoint.HTTPClient(20*time.Second))
 	if err != nil {
 		return nil, "", err
 	}

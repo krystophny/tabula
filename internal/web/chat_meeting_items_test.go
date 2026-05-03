@@ -92,7 +92,7 @@ func TestProjectMeetingItemsAPIAndCreation(t *testing.T) {
 		})
 	}))
 	t.Cleanup(mcp.Close)
-	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
+	app.localControlEndpoint = mcpEndpoint{httpURL: mcp.URL}
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/workspaces/"+itoa(workspace.ID)+"/meeting-items", nil)
 	if rr.Code != http.StatusOK {

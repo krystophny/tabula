@@ -1,4 +1,4 @@
-package mcp
+package runtimecontrol
 
 import (
 	"bytes"
@@ -405,8 +405,8 @@ func intArg(args map[string]interface{}, key string, def int) int {
 }
 
 func toolDefinitions() []map[string]interface{} {
-	out := make([]map[string]interface{}, 0, len(surface.MCPTools))
-	for _, tool := range surface.MCPTools {
+	out := make([]map[string]interface{}, 0, len(surface.RuntimeControlTools))
+	for _, tool := range surface.RuntimeControlTools {
 		schema := map[string]interface{}{"type": "object"}
 		if len(tool.Required) > 0 {
 			schema["required"] = append([]string(nil), tool.Required...)

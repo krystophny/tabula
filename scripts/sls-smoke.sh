@@ -4,7 +4,7 @@
 #
 # Requires:
 #   - slopshell-web.service   (port 8420)
-#   - embedded sloptools MCP  (unix socket under $XDG_RUNTIME_DIR/sloppy)
+#   - private Slopshell control socket (unix socket under $XDG_RUNTIME_DIR/sloppy)
 #   - optional: codex-app-server.service (port 8787) for --gpt smoke
 #
 # Usage: scripts/sls-smoke.sh

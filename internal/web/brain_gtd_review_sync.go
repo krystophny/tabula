@@ -144,16 +144,16 @@ func sloptoolsBrainGTDCall(app *App, ctx context.Context, tool string, args map[
 func localMCPClient(app *App) (*mcpclient.Client, error) {
 	endpoint := mcpEndpoint{}
 	if app != nil {
-		endpoint = app.localMCPEndpoint
+		endpoint = app.localControlEndpoint
 	} else {
-		parsed, err := parseEndpoint(defaultLocalMCPSocket())
+		parsed, err := parseEndpoint(defaultLocalControlSocket())
 		if err != nil {
 			return nil, err
 		}
 		endpoint = parsed
 	}
 	if !endpoint.ok() {
-		return nil, errors.New("local MCP endpoint is not configured")
+		return nil, errors.New("local control endpoint is not configured")
 	}
 	return mcpclient.New(endpoint.clientEndpoint(), nil, sourceSyncCommandTimeout)
 }

@@ -117,7 +117,7 @@ func (a *App) setBrainGTDStatus(target gtdStatusTarget, req itemGTDStatusRequest
 	} else {
 		args["commitment_id"] = target.CommitmentID
 	}
-	result, err := a.mcpToolsCall(a.localMCPEndpoint, gtdSetStatusTool, args)
+	result, err := a.mcpToolsCall(a.localControlEndpoint, gtdSetStatusTool, args)
 	if err != nil {
 		return gtdStatusRoute{}, nil, err
 	}
@@ -128,7 +128,7 @@ func (a *App) readGTDStatusRoute(target gtdStatusTarget) (gtdStatusRoute, error)
 	if target.Path == "" {
 		return gtdStatusRoute{Target: "local_overlay"}, nil
 	}
-	result, err := a.mcpToolsCall(a.localMCPEndpoint, gtdParseTool, map[string]any{
+	result, err := a.mcpToolsCall(a.localControlEndpoint, gtdParseTool, map[string]any{
 		"sphere": target.Sphere,
 		"path":   target.Path,
 	})

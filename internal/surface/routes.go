@@ -1,9 +1,6 @@
 package surface
 
-var MCPDaemonRoutes = []string{
-	"POST /mcp",
-	"GET /mcp",
-	"DELETE /mcp",
+var PrivateRuntimeSocketRoutes = []string{
 	"GET /ws/canvas",
 	"GET /files/*",
 	"GET /health",

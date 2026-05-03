@@ -496,7 +496,7 @@ activate_direct() {
         SLOPSHELL_INTENT_LLM_PROFILE_OPTIONS=qwen3.5-9b \
         nohup "$BIN_PATH" server \
           --workspace-dir "$REPO_ROOT" --data-dir "$WEB_DATA_DIR" \
-          --mcp-socket "$HOME/Library/Caches/sloppy/mcp.sock" \
+          --control-socket "$HOME/Library/Caches/sloppy/control.sock" \
           --web-host "$web_host" --web-port 8420 \
           --tts-url http://127.0.0.1:8424 \
           >"$logfile" 2>&1 &

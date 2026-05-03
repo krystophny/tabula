@@ -8,7 +8,7 @@ Slopshell's mobile direction is server-driven thin native clients.
 
 Business logic lives in the Go server. Native clients stay focused on platform
 I/O, low-latency capture, native rendering, and background/runtime integration.
-That keeps behavior fixes centralized in `internal/web/` and `internal/mcp/`
+That keeps behavior fixes centralized in `internal/web/` and `internal/runtimecontrol/`
 instead of splitting product logic across multiple frontends.
 
 Each native client owns three responsibilities:

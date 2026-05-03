@@ -27,13 +27,13 @@ Do not scan source or docs unless the runtime command fails or the request is ab
 ## Runtime Model
 
 Current runtime shape:
-- `slopshell server` is the web/UI runtime. It embeds the sloptools MCP and binds it to a Unix domain socket (mode 0600, parent dir 0700) — there is no loopback TCP MCP listener.
-- The MCP socket path defaults to `$XDG_RUNTIME_DIR/sloppy/mcp.sock` on Linux and `$HOME/Library/Caches/sloppy/mcp.sock` on macOS. Override with `--mcp-socket` or `SLOPSHELL_MCP_SOCKET`.
+- `slopshell server` is the web/UI runtime. It exposes a private runtime/control Unix domain socket (mode 0600, parent dir 0700) for local Slopshell features — there is no loopback TCP MCP listener.
+- The control socket path defaults to `$XDG_RUNTIME_DIR/sloppy/control.sock` on Linux and `$HOME/Library/Caches/sloppy/control.sock` on macOS. Override with `--control-socket` or `SLOPSHELL_CONTROL_SOCKET`.
 - The helpy MCP for web search/fetch runs as a private Unix-socket daemon (`helpy mcp-serve --unix-socket ...`), defaulting to `$XDG_RUNTIME_DIR/sloppy/helpy.sock` on Linux and `$HOME/Library/Caches/sloppy/helpy.sock` on macOS. Disable with `SLOPSHELL_HELPY_SOCKET=off`.
 - External agents register exactly two MCP servers: `sloppy` and `helpy`.
 - Do not register `slopshell` as an agent MCP server; the local socket is private runtime/control transport only.
 
-Privacy: this host (Linux + faepmac1) is multi-user. Plaintext loopback MCP listeners would let any local UID read mail, calendar, and canvas, so they are forbidden. All embedded MCPs use stdio or 0600 unix sockets.
+Privacy: this host (Linux + faepmac1) is multi-user. Plaintext loopback listeners for sensitive local capabilities would let any local UID read mail, calendar, and canvas, so they are forbidden. Slopshell uses stdio MCP only for external agent tools and 0600 Unix sockets for private local runtime control.
 
 Supported loopback sidecars and helpers:
 - `slopshell-codex-app-server.service` for Codex app-server (`ws://127.0.0.1:8787`)
@@ -67,8 +67,8 @@ What bootstrap must not do:
 ## Security Boundary
 
 - Web UI/API listener stays on port `8420` by default (password-authenticated).
-- The embedded sloptools MCP binds a Unix domain socket (mode 0600 in a 0700 parent dir) — no TCP listener.
-- Helpy MCP runs as a stdio subprocess; no socket is exposed.
+- The private Slopshell control socket binds a Unix domain socket (mode 0600 in a 0700 parent dir) — no TCP listener.
+- Helpy runs as a separate private Unix-socket daemon; no web listener exposes its MCP routes.
 - Web routes must not expose `/mcp`.
 - TCP MCP bind is no longer supported; the `--mcp-host` / `--mcp-port` flags are gone.
 
@@ -139,7 +139,7 @@ systemctl --user restart slopshell-codex-app-server.service slopshell-piper-tts.
 ## Endpoints
 
 - Web: `http://127.0.0.1:8420`
-- Private runtime socket: `unix:$XDG_RUNTIME_DIR/sloppy/mcp.sock` (mode 0600); `/mcp`, `/ws/canvas`, `/files/...` routes served over the socket via http+unix for Slopshell-local control only.
+- Private runtime socket: `unix:$XDG_RUNTIME_DIR/sloppy/control.sock` (mode 0600); `/ws/canvas`, `/files/...`, and an intentionally undocumented private control RPC route are served over the socket via http+unix for Slopshell-local control only.
 - App-server: `ws://127.0.0.1:8787`
 - TTS base URL: `http://127.0.0.1:8424` (`/v1/audio/speech`)
 - Intent LLM base URL: `http://127.0.0.1:8081` (Slopshell calls `/v1/chat/completions`)
@@ -177,8 +177,8 @@ Environment toggles:
   (default `$XDG_RUNTIME_DIR/sloppy/helpy.sock` on Linux and
   `$HOME/Library/Caches/sloppy/helpy.sock` on macOS); set it to `off` to
   disable helpy-backed `web_search` / `web_fetch` tools in Slopshell.
-- `SLOPSHELL_MCP_SOCKET` overrides the embedded sloptools unix socket path
-  (default `$XDG_RUNTIME_DIR/sloppy/mcp.sock`).
+- `SLOPSHELL_CONTROL_SOCKET` overrides the private Slopshell runtime control unix socket path
+  (default `$XDG_RUNTIME_DIR/sloppy/control.sock`).
 - `SLOPSHELL_BRAIN_WORK_ROOT` and `SLOPSHELL_BRAIN_PRIVATE_ROOT` point the
   workspace switcher at the work and private brain roots. The runtime exposes
   them as `brain.work` / `brain.private` presets through
@@ -199,7 +199,7 @@ nohup go run ./cmd/slopshell server \
   --data-dir "$DATA_DIR" \
   --web-host 127.0.0.1 \
   --web-port 8420 \
-  --mcp-socket "$TMP_ROOT/mcp.sock" >"$LOG_FILE" 2>&1 &
+  --control-socket "$TMP_ROOT/control.sock" >"$LOG_FILE" 2>&1 &
 PID=$!
 curl -fsS http://127.0.0.1:8420/api/setup
 ```
@@ -253,7 +253,7 @@ Release flow:
 The bump script updates:
 - `.zenodo.json`
 - `CITATION.cff`
-- `internal/mcp/server.go`
+- `internal/runtimecontrol/server.go`
 - `internal/web/server.go`
 - `internal/appserver/client.go`
 

@@ -55,7 +55,7 @@ func TestItemDedupReviewAPIImportsSloptoolsScanCandidates(t *testing.T) {
 	request := map[string]any{}
 	mcp := newSloptoolsDedupScanServer(t, &request)
 	defer mcp.Close()
-	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
+	app.localControlEndpoint = mcpEndpoint{httpURL: mcp.URL}
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodGet, "/api/items/dedup?sphere=work", nil)
 	if rr.Code != http.StatusOK {

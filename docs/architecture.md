@@ -25,12 +25,14 @@ Runtime stack:
 
 - `cmd/slopshell/main.go`
   - CLI entrypoint and subcommand dispatch.
-- `internal/mcp/server.go`
+- `internal/runtimecontrol/server.go`
   - Private runtime JSON-RPC methods and tool dispatch.
 - `internal/canvas/adapter.go`
   - Canvas sessions, artifact state, and event log.
 - `internal/serve/app.go`
-  - Private runtime socket routes (`/mcp`) and canvas websocket (`/ws/canvas`) mounted on the Unix-socket listener.
+  - Private runtime socket routes (including an intentionally undocumented
+    control RPC path) and canvas websocket (`/ws/canvas`) mounted on the
+    Unix-socket listener.
 - `internal/web/server.go`
   - Browser APIs for chat sessions, canvas APIs, and chat/canvas websocket routes on the web listener.
 - `internal/extensions/host.go`
@@ -72,7 +74,7 @@ The browser UI is a full-viewport canvas with no visible chrome:
 ## Primary Data Flows
 
 1. External agents call tools on `sloppy` or `helpy`; Slopshell itself uses its private local runtime/control socket where needed.
-2. Tool dispatch in `internal/mcp/server.go` resolves into adapter operations.
+2. Tool dispatch in `internal/runtimecontrol/server.go` resolves into adapter operations.
 3. Adapter updates session/artifact state in memory and emits events.
 4. Browser consumes websocket events: responses stream into ephemeral overlay, artifacts update the canvas in place.
 

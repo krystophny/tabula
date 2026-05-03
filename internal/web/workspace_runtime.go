@@ -341,7 +341,7 @@ func (a *App) ensureDefaultWorkspace() (store.Workspace, error) {
 			mcpURL := strings.TrimSpace(existing.MCPURL)
 			targetName := defaultWorkspaceNameForPath(localWorkspacePath)
 			if mcpURL == "" {
-				mcpURL = a.localMCPEndpointURL()
+				mcpURL = a.localControlEndpointURL()
 			}
 			if strings.TrimSpace(existing.Name) != targetName {
 				_ = a.store.UpdateWorkspaceLocation2(workspaceIDStr(existing.ID), targetName, existing.WorkspacePath, existing.RootPath, existing.Kind)
@@ -421,7 +421,7 @@ func (a *App) ensureDefaultWorkspace() (store.Workspace, error) {
 		workspacePath,
 		absRoot,
 		kind,
-		a.localMCPEndpointURL(),
+		a.localControlEndpointURL(),
 		LocalSessionID,
 		false,
 	)

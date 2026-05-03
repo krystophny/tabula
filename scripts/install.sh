@@ -945,7 +945,7 @@ UNIT
     local effective_llm_url="${REUSE_LLM_URL:-http://127.0.0.1:8081}"
     local helpy_socket
     local web_host="${SLOPSHELL_WEB_HOST:-127.0.0.1}"
-    local web_mcp_args="--mcp-socket %t/sloppy/mcp.sock"
+    local web_control_args="--control-socket %t/sloppy/control.sock"
     helpy_socket="$(resolve_helpy_socket)"
 
     cat >"${systemd_dir}/slopshell-web.service" <<UNIT
@@ -964,7 +964,7 @@ Environment=SLOPSHELL_HELPY_SOCKET=${helpy_socket}
 Environment=SLOPSHELL_ASSISTANT_LLM_URL=${effective_llm_url}
 Environment=SLOPSHELL_ASSISTANT_LLM_MODEL=local
 Environment=SLOPSHELL_BRAIN_GTD_SYNC=on
-ExecStart=${BIN_PATH} server --workspace-dir ${PROJECT_DIR} --data-dir ${WEB_DATA_DIR} ${web_mcp_args} --web-host ${web_host} --web-port 8420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424
+ExecStart=${BIN_PATH} server --workspace-dir ${PROJECT_DIR} --data-dir ${WEB_DATA_DIR} ${web_control_args} --web-host ${web_host} --web-port 8420 --app-server-url ws://127.0.0.1:8787 --tts-url http://127.0.0.1:8424
 Restart=on-failure
 RestartSec=2
 

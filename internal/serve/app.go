@@ -18,20 +18,20 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sloppy-org/slopshell/internal/appserver"
 	"github.com/sloppy-org/slopshell/internal/canvas"
-	"github.com/sloppy-org/slopshell/internal/mcp"
+	"github.com/sloppy-org/slopshell/internal/runtimecontrol"
 	"github.com/sloppy-org/slopshell/internal/store"
 )
 
 const (
-	DefaultHost            = "127.0.0.1"
-	DefaultPort            = 9420
-	DefaultMCPAppServerURL = "ws://127.0.0.1:8787"
+	DefaultHost         = "127.0.0.1"
+	DefaultPort         = 9420
+	DefaultAppServerURL = "ws://127.0.0.1:8787"
 )
 
 type App struct {
 	ProjectDir string
 	Adapter    *canvas.Adapter
-	Server     *mcp.Server
+	Server     *runtimecontrol.Server
 	Store      *store.Store
 
 	mu             sync.Mutex
@@ -61,17 +61,17 @@ func NewApp(projectDir, dataDir string) *App {
 		if st, err := store.New(dbPath); err == nil {
 			a.Store = st
 		} else {
-			fmt.Printf("domain MCP tools disabled: store unavailable (%v)\n", err)
+			fmt.Printf("private runtime control tools disabled: store unavailable (%v)\n", err)
 		}
 	}
-	a.Server = mcp.NewServerWithStore(a.Adapter, a.Store, mcpAppServerClient())
+	a.Server = runtimecontrol.NewServerWithStore(a.Adapter, a.Store, controlAppServerClient())
 	return a
 }
 
-func mcpAppServerClient() *appserver.Client {
+func controlAppServerClient() *appserver.Client {
 	appServerURL := strings.TrimSpace(os.Getenv("SLOPSHELL_APP_SERVER_URL"))
 	if appServerURL == "" {
-		appServerURL = DefaultMCPAppServerURL
+		appServerURL = DefaultAppServerURL
 	}
 	client, err := appserver.NewClient(appServerURL)
 	if err != nil {
@@ -240,11 +240,11 @@ func (a *App) Start(host string, port int) error {
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	fmt.Println("slopshell mcp listener listening on:")
+	fmt.Println("slopshell private control listener listening on:")
 	for _, u := range ListenURLs(host, port) {
 		fmt.Printf("  %s\n", u)
 	}
-	fmt.Printf("  MCP endpoint: http://%s/mcp\n", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
+	fmt.Printf("  private control RPC: hidden internal route on http://%s\n", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
 	fmt.Printf("  workspace dir: %s\n", a.ProjectDir)
 	err := a.httpServer.ListenAndServe()
 	if err == http.ErrServerClosed {
@@ -255,7 +255,7 @@ func (a *App) Start(host string, port int) error {
 
 // StartUnix listens on a Unix domain socket at `socketPath`, with 0600
 // permissions enforced before the listener accepts connections. This is the
-// preferred transport for slopshell-embedded MCPs on shared hosts — only the
+// preferred transport for Slopshell private runtime control on shared hosts — only the
 // file's owning user (and root) can connect(). There is no network listener
 // at all.
 func (a *App) StartUnix(socketPath string) error {
@@ -292,9 +292,9 @@ func (a *App) StartUnix(socketPath string) error {
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	fmt.Println("slopshell mcp listener listening on:")
+	fmt.Println("slopshell private control listener listening on:")
 	fmt.Printf("  http+unix://%s\n", cleaned)
-	fmt.Printf("  MCP endpoint: http+unix://%s/mcp (mode 0600)\n", cleaned)
+	fmt.Printf("  private control socket: %s (mode 0600)\n", cleaned)
 	fmt.Printf("  workspace dir: %s\n", a.ProjectDir)
 	err = a.httpServer.Serve(listener)
 	if err == http.ErrServerClosed {

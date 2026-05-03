@@ -20,7 +20,7 @@ type RouteSection struct {
 	Routes []string
 }
 
-var MCPTools = []Tool{
+var RuntimeControlTools = []Tool{
 	{
 		Name:        "canvas_session_open",
 		Description: "Open canvas session and initialize runtime status.",
@@ -769,9 +769,9 @@ var MCPTools = []Tool{
 	},
 }
 
-func MCPToolNamesCSV() string {
-	names := make([]string, 0, len(MCPTools))
-	for _, tool := range MCPTools {
+func RuntimeControlToolNamesCSV() string {
+	names := make([]string, 0, len(RuntimeControlTools))
+	for _, tool := range RuntimeControlTools {
 		names = append(names, "`"+tool.Name+"`")
 	}
 	return strings.Join(names, ", ")

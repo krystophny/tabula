@@ -178,7 +178,7 @@ cat <<SUMMARY
 
 Endpoints:
   Web UI:  http://127.0.0.1:8420
-  MCP:     unix:${XDG_RUNTIME_DIR:-$HOME/.cache}/sloppy/mcp.sock
+  MCP:     unix:${XDG_RUNTIME_DIR:-$HOME/.cache}/sloppy/control.sock
   TTS:     http://127.0.0.1:8424/v1/audio/speech
   LLM:     $EFFECTIVE_LLM_URL
   Codex:   $(codex_local_url_default)

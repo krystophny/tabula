@@ -11,12 +11,10 @@ There are exactly two external agent-facing MCP servers in the sloppy stack: `sl
 ## Private Runtime Socket Routes
 
 Routes in `internal/serve/app.go`:
-- `POST /mcp`
-- `GET /mcp`
-- `DELETE /mcp`
 - `GET /ws/canvas`
 - `GET /files/*`
 - `GET /health`
+- private control RPC route intentionally undocumented (not a public compatibility surface)
 
 ## Web Runtime HTTP APIs
 
@@ -258,7 +256,7 @@ Participant and STT APIs:
 
 ## Private Runtime Tool Surface
 
-Defined in `internal/surface/definitions.go` and used by `internal/mcp/server.go` for the local Slopshell runtime/control path:
+Defined in `internal/surface/definitions.go` and used by `internal/runtimecontrol/server.go` for the local Slopshell runtime/control path:
 - `canvas_session_open`
 - `canvas_artifact_show`
 - `canvas_status`

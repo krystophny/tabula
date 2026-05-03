@@ -258,17 +258,17 @@ func (a *App) startLocalServe() error {
 	}
 	// httpURL endpoints are reserved for in-process tests — they refer to an
 	// already-running httptest server, not a socket we should bind.
-	if a.localMCPEndpoint.httpURL != "" {
-		a.tunnels.setEndpoint(LocalSessionID, a.localMCPEndpoint)
-		a.startCanvasRelay(LocalSessionID, a.localMCPEndpoint)
+	if a.localControlEndpoint.httpURL != "" {
+		a.tunnels.setEndpoint(LocalSessionID, a.localControlEndpoint)
+		a.startCanvasRelay(LocalSessionID, a.localControlEndpoint)
 		return nil
 	}
-	socket := strings.TrimSpace(a.localMCPSocket)
+	socket := strings.TrimSpace(a.localControlSocket)
 	if socket == "" {
-		socket = defaultLocalMCPSocket()
+		socket = defaultLocalControlSocket()
 	}
 	if socket == "" {
-		return errors.New("no MCP socket path: set SLOPSHELL_MCP_SOCKET or pass --mcp-socket")
+		return errors.New("no control socket path: set SLOPSHELL_CONTROL_SOCKET or pass --control-socket")
 	}
 	app := serve.NewApp(a.localProjectDir, a.dataDir)
 	_, cancel := context.WithCancel(context.Background())

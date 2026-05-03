@@ -31,13 +31,13 @@ func TestParseServerConfigRejectsRemovedMCPHostFlag(t *testing.T) {
 	}
 }
 
-func TestParseServerConfigAcceptsMCPSocketPath(t *testing.T) {
-	cfg, status := parseServerConfig([]string{"--mcp-socket", "/run/user/1000/sloppy/mcp.sock"})
+func TestParseServerConfigAcceptsControlSocketPath(t *testing.T) {
+	cfg, status := parseServerConfig([]string{"--control-socket", "/run/user/1000/sloppy/control.sock"})
 	if status != 0 {
-		t.Fatalf("parseServerConfig(mcp-socket) status = %d, want 0", status)
+		t.Fatalf("parseServerConfig(control-socket) status = %d, want 0", status)
 	}
-	if cfg.mcpSocket != "/run/user/1000/sloppy/mcp.sock" {
-		t.Fatalf("mcpSocket = %q, want /run/user/1000/sloppy/mcp.sock", cfg.mcpSocket)
+	if cfg.controlSocket != "/run/user/1000/sloppy/control.sock" {
+		t.Fatalf("controlSocket = %q, want /run/user/1000/sloppy/control.sock", cfg.controlSocket)
 	}
 }
 
@@ -157,8 +157,14 @@ func TestCmdBootstrapUsesWorkspaceCopy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read bootstrap mcp config: %v", err)
 	}
-	if !strings.Contains(string(mcpBody), "--workspace-dir") {
-		t.Fatalf("bootstrap mcp config missing --workspace-dir: %q", string(mcpBody))
+	if strings.Contains(string(mcpBody), "[mcp_servers.slopshell]") {
+		t.Fatalf("bootstrap mcp config should not register slopshell: %q", string(mcpBody))
+	}
+	if !strings.Contains(string(mcpBody), "[mcp_servers.sloppy]") {
+		t.Fatalf("bootstrap mcp config missing sloppy registration: %q", string(mcpBody))
+	}
+	if !strings.Contains(string(mcpBody), "--project-dir") {
+		t.Fatalf("bootstrap mcp config missing --project-dir: %q", string(mcpBody))
 	}
 }
 

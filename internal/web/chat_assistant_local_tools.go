@@ -479,7 +479,7 @@ func (a *App) newLocalAssistantTurnState(req *assistantTurnRequest) (localAssist
 		return localAssistantTurnState{}, err
 	}
 	if !endpoint.ok() {
-		endpoint = mcpEndpoint{socket: a.localMCPSocket}
+		endpoint = mcpEndpoint{socket: a.localControlSocket}
 	}
 	return localAssistantTurnState{
 		sessionID:    req.sessionID,

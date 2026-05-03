@@ -63,9 +63,9 @@ Migration/support docs:
 - `internal/serve/app.go`
 - `internal/web/server.go`
 
-### MCP Surface
+### Private Control Surface
 
-- `internal/mcp/server.go`
+- `internal/runtimecontrol/server.go`
 - `internal/canvas/adapter.go`
 - `internal/canvas/events.go`
 

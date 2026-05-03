@@ -11,8 +11,8 @@ import (
 	"github.com/sloppy-org/slopshell/internal/mcpclient"
 )
 
-// mcpEndpoint addresses an embedded sloptools MCP listener. In production
-// the listener binds a Unix domain socket (mode 0600) — TCP MCP listeners
+// mcpEndpoint addresses a private Slopshell control or backend MCP endpoint. In
+// production the listener binds a Unix domain socket (mode 0600) — TCP MCP listeners
 // are not allowed because they leak to other UIDs on the host (cf.
 // multi-user threat model). The httpURL field is reserved for httptest-style
 // in-process test servers and must not be used outside tests.
@@ -64,21 +64,22 @@ func parseEndpoint(raw string) (mcpEndpoint, error) {
 	return mcpEndpoint{socket: ep.SocketPath, httpURL: ep.HTTPBaseURL}, nil
 }
 
-// defaultLocalMCPSocket returns the conventional per-user socket path for the
-// slopshell-embedded sloppy MCP. Linux: $XDG_RUNTIME_DIR/sloppy/mcp.sock. On
+// defaultLocalControlSocket returns the conventional per-user socket path for the
+// Slopshell private runtime control socket. Linux:
+// $XDG_RUNTIME_DIR/sloppy/control.sock. On
 // macOS launchd does not export XDG_RUNTIME_DIR by default, so we fall back
-// to $HOME/Library/Caches/sloppy/mcp.sock. The parent dir is created with
+// to $HOME/Library/Caches/sloppy/control.sock. The parent dir is created with
 // 0700 by the StartUnix path; we just compute the location here.
-func defaultLocalMCPSocket() string {
-	return mcpclient.DefaultSocketPath("SLOPSHELL_MCP_SOCKET", "mcp.sock")
+func defaultLocalControlSocket() string {
+	return mcpclient.DefaultSocketPath("SLOPSHELL_CONTROL_SOCKET", "control.sock")
 }
 
 func defaultHelpySocket() string {
 	return mcpclient.DefaultSocketPath("SLOPSHELL_HELPY_SOCKET", "helpy.sock")
 }
 
-// workspaceSocketPath returns a unique per-session unix socket path for an
-// embedded sloptools MCP serving a workspace project.
+// workspaceSocketPath returns a unique per-session unix socket path for a
+// private runtime control socket serving a workspace project.
 func workspaceSocketPath(sessionID string) string {
 	base := strings.TrimSpace(os.Getenv("SLOPSHELL_WORKSPACE_SOCKET_DIR"))
 	if base == "" {
@@ -120,18 +121,18 @@ func rejectURLForEndpoint(raw string) error {
 	return mcpclient.RejectPlainHTTP(raw)
 }
 
-// localMCPEndpointURL returns the MCPURL string stored in the workspace row
-// for the slopshell-embedded local sloppy MCP. Empty when no endpoint is
+// localControlEndpointURL returns the endpoint string stored in the workspace
+// row for the Slopshell local control socket. Empty when no endpoint is
 // configured.
-func (a *App) localMCPEndpointURL() string {
+func (a *App) localControlEndpointURL() string {
 	if a == nil {
 		return ""
 	}
-	if a.localMCPEndpoint.socket != "" {
-		return "unix:" + a.localMCPEndpoint.socket
+	if a.localControlEndpoint.socket != "" {
+		return "unix:" + a.localControlEndpoint.socket
 	}
-	if a.localMCPEndpoint.httpURL != "" {
-		return a.localMCPEndpoint.httpURL
+	if a.localControlEndpoint.httpURL != "" {
+		return a.localControlEndpoint.httpURL
 	}
 	return ""
 }

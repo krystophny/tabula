@@ -333,7 +333,7 @@ func TestItemGestureCompleteOnMarkdownBackedItemValidatesAfterWriteThrough(t *te
 
 	calls := []capturedMCPCall{}
 	mcp := newGTDStatusMCPServer(t, &calls, false)
-	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
+	app.localControlEndpoint = mcpEndpoint{httpURL: mcp.URL}
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(item.ID)+"/gesture", map[string]any{
 		"action": "complete",
@@ -372,7 +372,7 @@ func TestItemGestureUndoRevertsMarkdownSyncBack(t *testing.T) {
 	}
 	calls := []capturedMCPCall{}
 	mcp := newGTDStatusMCPServer(t, &calls, false)
-	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
+	app.localControlEndpoint = mcpEndpoint{httpURL: mcp.URL}
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(item.ID)+"/gesture", map[string]any{
 		"action": "complete",
@@ -438,7 +438,7 @@ func TestItemGestureUndoRevertsMarkdownDelegateSyncBack(t *testing.T) {
 	}
 	calls := []capturedMCPCall{}
 	mcp := newGTDStatusMCPServer(t, &calls, false)
-	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
+	app.localControlEndpoint = mcpEndpoint{httpURL: mcp.URL}
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(item.ID)+"/gesture", map[string]any{
 		"action":   "delegate",
@@ -485,7 +485,7 @@ func TestItemGestureUndoSkipsMarkdownWhenFlagFalse(t *testing.T) {
 	item := mustCreateGestureItem(t, app, "Plain undo", store.ItemOptions{State: store.ItemStateNext})
 
 	mcp := newGTDStatusMCPServer(t, &[]capturedMCPCall{}, false)
-	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
+	app.localControlEndpoint = mcpEndpoint{httpURL: mcp.URL}
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(item.ID)+"/gesture", map[string]any{
 		"action": "complete",
@@ -514,7 +514,7 @@ func TestItemGestureDeferOnMarkdownBackedItemValidatesAfterWriteThrough(t *testi
 	}
 	calls := []capturedMCPCall{}
 	mcp := newGTDStatusMCPServer(t, &calls, false)
-	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
+	app.localControlEndpoint = mcpEndpoint{httpURL: mcp.URL}
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(item.ID)+"/gesture", map[string]any{
 		"action":       "defer",
@@ -549,7 +549,7 @@ func TestItemGestureDelegateOnMarkdownBackedItemValidatesAfterWriteThrough(t *te
 	}
 	calls := []capturedMCPCall{}
 	mcp := newGTDStatusMCPServer(t, &calls, false)
-	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
+	app.localControlEndpoint = mcpEndpoint{httpURL: mcp.URL}
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(item.ID)+"/gesture", map[string]any{
 		"action":   "delegate",
@@ -580,7 +580,7 @@ func TestItemGestureDropOnMarkdownBackedItemValidatesAfterWriteThrough(t *testin
 	}
 	calls := []capturedMCPCall{}
 	mcp := newGTDStatusMCPServer(t, &calls, false)
-	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
+	app.localControlEndpoint = mcpEndpoint{httpURL: mcp.URL}
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPost, "/api/items/"+itoa(item.ID)+"/gesture", map[string]any{
 		"action": "drop",

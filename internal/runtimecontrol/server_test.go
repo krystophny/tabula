@@ -1,4 +1,4 @@
-package mcp
+package runtimecontrol
 
 import (
 	"crypto/sha256"

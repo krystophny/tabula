@@ -12,11 +12,12 @@ func InterfacesMarkdown() string {
 
 	b.WriteString("## Private Runtime Socket Routes\n\n")
 	b.WriteString("Routes in `internal/serve/app.go`:\n")
-	for _, route := range MCPDaemonRoutes {
+	for _, route := range PrivateRuntimeSocketRoutes {
 		b.WriteString("- `")
 		b.WriteString(route)
 		b.WriteString("`\n")
 	}
+	b.WriteString("- private control RPC route intentionally undocumented (not a public compatibility surface)\n")
 	b.WriteString("\n")
 
 	b.WriteString("## Web Runtime HTTP APIs\n\n")
@@ -32,8 +33,8 @@ func InterfacesMarkdown() string {
 	}
 
 	b.WriteString("## Private Runtime Tool Surface\n\n")
-	b.WriteString("Defined in `internal/surface/definitions.go` and used by `internal/mcp/server.go` for the local Slopshell runtime/control path:\n")
-	for _, tool := range MCPTools {
+	b.WriteString("Defined in `internal/surface/definitions.go` and used by `internal/runtimecontrol/server.go` for the local Slopshell runtime/control path:\n")
+	for _, tool := range RuntimeControlTools {
 		b.WriteString("- `")
 		b.WriteString(tool.Name)
 		b.WriteString("`\n")

@@ -31,7 +31,7 @@ func TestItemGTDStatusUsesSloptoolsForMarkdownBackedItems(t *testing.T) {
 	}
 	calls := []capturedMCPCall{}
 	mcp := newGTDStatusMCPServer(t, &calls, false)
-	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
+	app.localControlEndpoint = mcpEndpoint{httpURL: mcp.URL}
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPut, "/api/items/"+itoa(item.ID)+"/gtd-status", map[string]any{
 		"state":     "done",
@@ -77,7 +77,7 @@ func TestItemGTDStatusFallsBackForNonMarkdownItems(t *testing.T) {
 		t.Fatal("non-markdown GTD status should not call MCP")
 	}))
 	defer mcp.Close()
-	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
+	app.localControlEndpoint = mcpEndpoint{httpURL: mcp.URL}
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPut, "/api/items/"+itoa(item.ID)+"/gtd-status", map[string]any{"state": "done"})
 	if rr.Code != http.StatusOK {
@@ -106,7 +106,7 @@ func TestItemGTDStatusReportsWriteableBindingRoute(t *testing.T) {
 	}
 	calls := []capturedMCPCall{}
 	mcp := newGTDStatusMCPServer(t, &calls, true)
-	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
+	app.localControlEndpoint = mcpEndpoint{httpURL: mcp.URL}
 
 	rr := doAuthedJSONRequest(t, app.Router(), http.MethodPut, "/api/items/"+itoa(item.ID)+"/gtd-status", map[string]any{"state": "done"})
 	if rr.Code != http.StatusOK {

@@ -171,7 +171,7 @@ func TestParticipantBinaryChunkCapturesMeetingNotesThroughGTDIngest(t *testing.T
 		})
 	}))
 	defer mcp.Close()
-	app.localMCPEndpoint = mcpEndpoint{httpURL: mcp.URL}
+	app.localControlEndpoint = mcpEndpoint{httpURL: mcp.URL}
 
 	project, err := app.ensureDefaultWorkspace()
 	if err != nil {

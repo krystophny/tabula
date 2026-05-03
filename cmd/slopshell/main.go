@@ -12,8 +12,6 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/sloppy-org/slopshell/internal/canvas"
-	"github.com/sloppy-org/slopshell/internal/mcp"
 	"github.com/sloppy-org/slopshell/internal/protocol"
 	"github.com/sloppy-org/slopshell/internal/ptt"
 	"github.com/sloppy-org/slopshell/internal/store"
@@ -49,8 +47,6 @@ func run(args []string) int {
 		return cmdArchive(args[1:])
 	case "server":
 		return cmdServer(args[1:])
-	case "mcp-server":
-		return cmdMCPServer(args[1:])
 	case "set-password":
 		return cmdSetPassword(args[1:])
 	case "version":
@@ -74,7 +70,7 @@ func run(args []string) int {
 
 func printHelp() {
 	fmt.Println("slopshell <command> [flags]")
-	fmt.Println("commands: schema bootstrap materialize archive server mcp-server set-password version update ptt-daemon")
+	fmt.Println("commands: schema bootstrap materialize archive server set-password version update ptt-daemon")
 }
 
 func cmdSchema() int {
@@ -95,7 +91,7 @@ func cmdSchema() int {
 type serverConfig struct {
 	dataDir              string
 	projectDir           string
-	mcpSocket            string
+	controlSocket        string
 	webHost              string
 	webPort              int
 	webHTTPSPort         int
@@ -125,34 +121,12 @@ func cmdBootstrap(args []string) int {
 		return 1
 	}
 	fmt.Printf("workspace prepared: %s\n", res.Paths.WorkspaceDir)
-	fmt.Printf("mcp config snippet: %s\n", res.Paths.MCPConfigPath)
+	fmt.Printf("sloppy mcp config snippet: %s\n", res.Paths.MCPConfigPath)
 	fmt.Println("workspace AGENTS.md files are left untouched")
 	if res.GitInitialized {
 		fmt.Println("git initialized")
 	}
 	return 0
-}
-
-func cmdMCPServer(args []string) int {
-	fs := flag.NewFlagSet("mcp-server", flag.ContinueOnError)
-	workspaceDir := bindWorkspaceDirFlag(fs, ".")
-	dataDir := fs.String("data-dir", filepath.Join(os.Getenv("HOME"), ".slopshell-web"), "data dir")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	res, err := protocol.BootstrapProject(*workspaceDir)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	adapter := canvas.NewAdapter(res.Paths.WorkspaceDir, nil)
-	st, err := store.New(filepath.Join(*dataDir, "slopshell.db"))
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	defer st.Close()
-	return mcp.RunStdioWithStore(adapter, st)
 }
 
 func cmdServer(args []string) int {
@@ -170,7 +144,7 @@ func parseServerConfig(args []string) (*serverConfig, int) {
 	}
 	workspaceDir := bindWorkspaceDirFlag(fs, ".")
 	fs.StringVar(&cfg.dataDir, "data-dir", cfg.dataDir, "data dir")
-	fs.StringVar(&cfg.mcpSocket, "mcp-socket", strings.TrimSpace(os.Getenv("SLOPSHELL_MCP_SOCKET")), "path to the embedded sloptools MCP unix socket (mode 0600); empty = default $XDG_RUNTIME_DIR/sloppy/mcp.sock")
+	fs.StringVar(&cfg.controlSocket, "control-socket", strings.TrimSpace(os.Getenv("SLOPSHELL_CONTROL_SOCKET")), "path to the private Slopshell runtime control unix socket (mode 0600); empty = default $XDG_RUNTIME_DIR/sloppy/control.sock")
 	fs.StringVar(&cfg.webHost, "web-host", "127.0.0.1", "web listener host")
 	fs.IntVar(&cfg.webPort, "web-port", web.DefaultPort, "web listener port")
 	fs.IntVar(&cfg.webHTTPSPort, "web-https-port", 8443, "HTTPS web listener port (requires --web-cert-file and --web-key-file)")
@@ -203,7 +177,7 @@ func runServer(cfg *serverConfig) int {
 	app, err := web.New(
 		cfg.dataDir,
 		res.Paths.WorkspaceDir,
-		cfg.mcpSocket,
+		cfg.controlSocket,
 		cfg.appServerURL,
 		cfg.model,
 		cfg.ttsURL,

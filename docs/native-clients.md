@@ -23,7 +23,7 @@ Use [`native-clients-plan.md`](native-clients-plan.md) for the architecture deci
      --data-dir "$DATA_DIR" \
      --web-host 0.0.0.0 \
      --web-port 8420 \
-     --mcp-socket "$TMP_ROOT/mcp.sock"
+     --control-socket "$TMP_ROOT/control.sock"
    ```
 
 2. Fast native contract checks:
